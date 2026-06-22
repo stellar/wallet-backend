@@ -18,4 +18,9 @@ ledgers_per_file = 1
 files_per_partition = 1
 
 [buffered_storage_backend_config]
+# Small buffer/worker counts: the test sits at the live tip almost immediately, where a
+# deep prefetch only spams minio with 404s for ledgers that don't exist yet. A shallow
+# window keeps the retry traffic minimal while still covering the tiny historical backlog.
+buffer_size = 10
+num_workers = 2
 retry_wait = "1s"   # short wait while polling for the next not-yet-exported file
