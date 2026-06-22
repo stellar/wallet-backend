@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -116,4 +118,35 @@ func TestCurrentStateStrategySpecifics(t *testing.T) {
 	assert.False(t, ok)
 
 	protocolsModel.AssertExpectations(t)
+}
+
+func TestEngineMetricsAndTipProviderWiring(t *testing.T) {
+	proc := &ProtocolProcessorMock{}
+	proc.On("ProtocolID").Return("SEP41")
+
+	// Omitted Metrics => engine defaults to a non-nil instance; TipProvider stays nil.
+	svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		StartLedger:    100,
+		Processors:     []ProtocolProcessor{proc},
+		ProtocolsModel: data.NewProtocolsModelMock(t),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, svc.engine.metrics)
+	require.Nil(t, svc.engine.tipProvider)
+
+	// Provided Metrics + TipProvider are used as-is.
+	mm := metrics.NewMetrics(prometheus.NewRegistry()).Migration
+	svc2, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		StartLedger:    100,
+		Processors:     []ProtocolProcessor{proc},
+		ProtocolsModel: data.NewProtocolsModelMock(t),
+		Metrics:        mm,
+		TipProvider:    func() (uint32, error) { return 123, nil },
+	})
+	require.NoError(t, err)
+	require.Same(t, mm, svc2.engine.metrics)
+	require.NotNil(t, svc2.engine.tipProvider)
+	tip, tipErr := svc2.engine.tipProvider()
+	require.NoError(t, tipErr)
+	assert.Equal(t, uint32(123), tip)
 }

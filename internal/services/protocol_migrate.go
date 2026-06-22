@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -66,6 +67,12 @@ type protocolMigrateEngine struct {
 	strategy               migrationStrategy
 	// windowSize is the number of ledgers coalesced into one commit. 0 means 1 (commit every ledger).
 	windowSize uint32
+	// metrics records migration progress/throughput/outcome. Always non-nil:
+	// the service constructors default it to a fresh registry when unset.
+	metrics *metrics.MigrationMetrics
+	// tipProvider returns the real chain tip (RPC getHealth) for the %-remaining
+	// gauge, or nil when no RPC URL is configured.
+	tipProvider func() (uint32, error)
 }
 
 // Run performs migration for the given protocol IDs using the configured strategy.

@@ -6,9 +6,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -34,6 +36,8 @@ type ProtocolMigrateCurrentStateConfig struct {
 	Processors             []ProtocolProcessor
 	StartLedger            uint32
 	WindowSize             uint32
+	Metrics                *metrics.MigrationMetrics
+	TipProvider            func() (uint32, error)
 }
 
 // NewProtocolMigrateCurrentStateService creates a new protocolMigrateCurrentStateService from the given config.
@@ -56,6 +60,11 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 
 	startLedger := cfg.StartLedger
 
+	mm := cfg.Metrics
+	if mm == nil {
+		mm = metrics.NewMetrics(prometheus.NewRegistry()).Migration
+	}
+
 	return &protocolMigrateCurrentStateService{
 		engine: protocolMigrateEngine{
 			db:                     cfg.DB,
@@ -66,6 +75,8 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			networkPassphrase:      cfg.NetworkPassphrase,
 			processors:             ppMap,
 			windowSize:             cfg.WindowSize,
+			metrics:                mm,
+			tipProvider:            cfg.TipProvider,
 			strategy: migrationStrategy{
 				Label:                 "current state",
 				Mode:                  StagingModeCurrentState,
