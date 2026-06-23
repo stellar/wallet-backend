@@ -64,12 +64,9 @@ type Configs struct {
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
-	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
-	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillBatchSize int
-	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillDBInsertBatchSize int
+	// BackfillFlushSize is the number of ledgers to accumulate before flushing to DB.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
+	BackfillFlushSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -259,8 +256,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
-		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		BackfillFlushSize:         cfg.BackfillFlushSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,

@@ -86,9 +86,8 @@ type IngestServiceConfig struct {
 	GetLedgersLimit int
 
 	// === Backfill Tuning ===
-	BackfillWorkers           int
-	BackfillBatchSize         int
-	BackfillDBInsertBatchSize int
+	BackfillWorkers   int
+	BackfillFlushSize int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -125,9 +124,7 @@ type ingestService struct {
 	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
-	backfillPool              pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
+	backfillFlushSize         uint32
 	backfillWorkers           uint32
 	knownContractIDs          set.Set[string]
 	contractMetadataService   ContractMetadataService
@@ -141,14 +138,12 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Create backfill pool with bounded size to control memory usage.
+	// Bound backfill worker concurrency to control memory usage.
 	// Default to NumCPU if not specified.
 	backfillWorkers := cfg.BackfillWorkers
 	if backfillWorkers <= 0 {
 		backfillWorkers = runtime.NumCPU()
 	}
-	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
 	// Build protocol processor map from slice
 	for i, p := range cfg.ProtocolProcessors {
@@ -182,9 +177,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,
 		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
+		backfillFlushSize:         uint32(cfg.BackfillFlushSize),
 		backfillWorkers:           uint32(backfillWorkers),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,

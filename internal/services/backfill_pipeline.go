@@ -139,7 +139,7 @@ func (m *ingestService) runFlusher(ctx context.Context, start uint32, resultCh <
 				merged.Merge(r.buffer)
 				contiguousEnd = r.closeTime
 				count++
-				if count >= m.backfillDBInsertBatchSize {
+				if count >= m.backfillFlushSize {
 					if err := flush(); err != nil {
 						return err
 					}
