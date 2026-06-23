@@ -128,6 +128,7 @@ type ingestService struct {
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
+	backfillWorkers           uint32
 	knownContractIDs          set.Set[string]
 	contractMetadataService   ContractMetadataService
 	protocolProcessors        map[string]ProtocolProcessor
@@ -184,6 +185,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
+		backfillWorkers:           uint32(backfillWorkers),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
 	}, nil
@@ -203,9 +205,15 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 }
 
-// processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
+// processLedger processes a single ledger using the shared (live) indexer.
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
-	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+	return m.processLedgerWith(ctx, m.ledgerIndexer, ledgerMeta, buffer)
+}
+
+// processLedgerWith processes a single ledger with the given indexer. Backfill passes a
+// per-worker serial indexer so the only parallelism axis is the worker pool itself.
+func (m *ingestService) processLedgerWith(ctx context.Context, idx *indexer.Indexer, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, idx, buffer)
 	if err != nil {
 		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
