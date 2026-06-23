@@ -109,28 +109,28 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode             string
-	models                    *data.Models
-	oldestLedgerCursorName    string
-	advisoryLockID            int
-	appTracker                apptracker.AppTracker
-	rpcService                RPCService
-	ledgerBackend             ledgerbackend.LedgerBackend
-	ledgerBackendFactory      LedgerBackendFactory
-	tokenIngestionService     TokenIngestionService
-	checkpointService         CheckpointService
-	appMetrics                *metrics.Metrics
-	networkPassphrase         string
-	getLedgersLimit           int
-	ledgerIndexer             *indexer.Indexer
-	archive                   historyarchive.ArchiveInterface
-	backfillFlushSize         uint32
-	backfillWorkers           uint32
-	knownContractIDs          set.Set[string]
-	contractMetadataService   ContractMetadataService
-	protocolProcessors        map[string]ProtocolProcessor
-	protocolValidators        []ProtocolValidator
-	wasmSpecExtractor         WasmSpecExtractor
+	ingestionMode           string
+	models                  *data.Models
+	oldestLedgerCursorName  string
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	ledgerBackend           ledgerbackend.LedgerBackend
+	ledgerBackendFactory    LedgerBackendFactory
+	tokenIngestionService   TokenIngestionService
+	checkpointService       CheckpointService
+	appMetrics              *metrics.Metrics
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	archive                 historyarchive.ArchiveInterface
+	backfillFlushSize       uint32
+	backfillWorkers         uint32
+	knownContractIDs        set.Set[string]
+	contractMetadataService ContractMetadataService
+	protocolProcessors      map[string]ProtocolProcessor
+	protocolValidators      []ProtocolValidator
+	wasmSpecExtractor       WasmSpecExtractor
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -159,28 +159,28 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		checkpointService:         cfg.CheckpointService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		contractMetadataService:   cfg.ContractMetadataService,
-		protocolValidators:        cfg.ProtocolValidators,
-		wasmSpecExtractor:         cfg.WasmSpecExtractor,
-		archive:                   cfg.Archive,
-		backfillFlushSize:         uint32(cfg.BackfillFlushSize),
-		backfillWorkers:           uint32(backfillWorkers),
-		knownContractIDs:          set.NewSet[string](),
-		protocolProcessors:        ppMap,
+		ingestionMode:           cfg.IngestionMode,
+		models:                  cfg.Models,
+		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
+		appTracker:              cfg.AppTracker,
+		rpcService:              cfg.RPCService,
+		ledgerBackend:           cfg.LedgerBackend,
+		ledgerBackendFactory:    cfg.LedgerBackendFactory,
+		tokenIngestionService:   cfg.TokenIngestionService,
+		checkpointService:       cfg.CheckpointService,
+		appMetrics:              cfg.Metrics,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		getLedgersLimit:         cfg.GetLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		contractMetadataService: cfg.ContractMetadataService,
+		protocolValidators:      cfg.ProtocolValidators,
+		wasmSpecExtractor:       cfg.WasmSpecExtractor,
+		archive:                 cfg.Archive,
+		backfillFlushSize:       uint32(cfg.BackfillFlushSize),
+		backfillWorkers:         uint32(backfillWorkers),
+		knownContractIDs:        set.NewSet[string](),
+		protocolProcessors:      ppMap,
 	}, nil
 }
 

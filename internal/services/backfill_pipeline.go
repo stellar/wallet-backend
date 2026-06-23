@@ -247,5 +247,5 @@ func (m *ingestService) runGapPipeline(ctx context.Context, gap data.LedgerRange
 		return m.runFlusher(gctx, gap.GapStart, resultCh, compressor)
 	})
 
-	return g.Wait()
+	return g.Wait() //nolint:wrapcheck // errgroup stages already wrap their own errors; startBackfilling adds the gap context
 }
