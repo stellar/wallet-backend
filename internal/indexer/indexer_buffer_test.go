@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -943,5 +944,153 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 
 		contracts := buffer.GetProtocolContracts()
 		assert.Len(t, contracts, 0)
+	})
+}
+
+// accountChangeAddr is an arbitrary account address used as a map key in the
+// account-change dedup tests below (the buffer keys on the string, not its validity).
+const accountChangeAddr = "GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON"
+
+func TestIndexerBuffer_PushAccountChange(t *testing.T) {
+	// Fee debits are stamped with the ledger floor (toid op 0) so any operation in the
+	// ledger outranks them; Soroban refunds with the ledger ceiling so they outrank
+	// every operation. These are the keys AccountsProcessor.ProcessTransactionFees uses.
+	const ledger = int32(12345)
+	feeID := toid.New(ledger, 0, 0).ToInt64()
+	refundID := toid.New(ledger+1, 0, 0).ToInt64() - 1
+
+	accountChange := func(operationID, balance int64, op types.AccountOpType) types.AccountChange {
+		return types.AccountChange{
+			AccountID:    accountChangeAddr,
+			OperationID:  operationID,
+			LedgerNumber: 12345,
+			Operation:    op,
+			Balance:      balance,
+		}
+	}
+
+	t.Run("🟢 stores account change", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		change := accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate)
+		buffer.PushAccountChange(change)
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, change, changes[accountChangeAddr])
+	})
+
+	t.Run("🟢 keeps change with highest OperationID", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 2, 1).ToInt64(), 200, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 50, types.AccountOpUpdate)) // lower than tx 2 → ignored
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(200), changes[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 handles CREATE→REMOVE no-op case", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 0, types.AccountOpRemove))
+
+		assert.Len(t, buffer.GetAccountChanges(), 0)
+	})
+
+	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 0, types.AccountOpRemove))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.AccountOpRemove, changes[accountChangeAddr].Operation)
+	})
+
+	t.Run("🟢 fee change captured when uncontested (issue #637)", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(feeID, 999, types.AccountOpUpdate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(999), changes[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 operation change beats fee change regardless of push order", func(t *testing.T) {
+		// Fee source in a late tx (tx 9), op participant in an early tx (tx 2): the op
+		// must win even though the fee's tx index is higher, because every fee uses the
+		// ledger floor. This is the cross-tx hazard.
+		feeChange := accountChange(feeID, 999, types.AccountOpUpdate)
+		opChange := accountChange(toid.New(ledger, 2, 1).ToInt64(), 500, types.AccountOpUpdate)
+
+		feeFirst := NewIndexerBuffer()
+		feeFirst.PushAccountChange(feeChange)
+		feeFirst.PushAccountChange(opChange)
+		assert.Equal(t, int64(500), feeFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		opFirst := NewIndexerBuffer()
+		opFirst.PushAccountChange(opChange)
+		opFirst.PushAccountChange(feeChange)
+		assert.Equal(t, int64(500), opFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 refund change beats operation change regardless of push order", func(t *testing.T) {
+		opChange := accountChange(toid.New(ledger, 3, 1).ToInt64(), 500, types.AccountOpUpdate)
+		refundChange := accountChange(refundID, 550, types.AccountOpUpdate)
+
+		opFirst := NewIndexerBuffer()
+		opFirst.PushAccountChange(opChange)
+		opFirst.PushAccountChange(refundChange)
+		assert.Equal(t, int64(550), opFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		refundFirst := NewIndexerBuffer()
+		refundFirst.PushAccountChange(refundChange)
+		refundFirst.PushAccountChange(opChange)
+		assert.Equal(t, int64(550), refundFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+}
+
+func TestIndexerBuffer_MergeAccountChanges(t *testing.T) {
+	// Cross-tx winners resolve during Merge (per-tx buffers merged in tx order), so the
+	// same fee<op<refund ordering must hold there too.
+	const ledger = int32(12345)
+	feeID := toid.New(ledger, 0, 0).ToInt64()
+	refundID := toid.New(ledger+1, 0, 0).ToInt64() - 1
+
+	accountChange := func(operationID, balance int64) types.AccountChange {
+		return types.AccountChange{
+			AccountID:    accountChangeAddr,
+			OperationID:  operationID,
+			LedgerNumber: 12345,
+			Operation:    types.AccountOpUpdate,
+			Balance:      balance,
+		}
+	}
+
+	t.Run("🟢 operation change beats fee change across buffers", func(t *testing.T) {
+		opBuffer := NewIndexerBuffer()
+		opBuffer.PushAccountChange(accountChange(toid.New(ledger, 2, 1).ToInt64(), 500))
+
+		feeBuffer := NewIndexerBuffer()
+		feeBuffer.PushAccountChange(accountChange(feeID, 999))
+
+		merged := NewIndexerBuffer()
+		merged.Merge(opBuffer)
+		merged.Merge(feeBuffer)
+		assert.Equal(t, int64(500), merged.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 refund change beats operation change across buffers", func(t *testing.T) {
+		opBuffer := NewIndexerBuffer()
+		opBuffer.PushAccountChange(accountChange(toid.New(ledger, 3, 1).ToInt64(), 500))
+
+		refundBuffer := NewIndexerBuffer()
+		refundBuffer.PushAccountChange(accountChange(refundID, 550))
+
+		merged := NewIndexerBuffer()
+		merged.Merge(opBuffer)
+		merged.Merge(refundBuffer)
+		assert.Equal(t, int64(550), merged.GetAccountChanges()[accountChangeAddr].Balance)
 	})
 }
