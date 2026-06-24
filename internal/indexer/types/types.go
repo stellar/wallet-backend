@@ -582,12 +582,13 @@ type StateChange struct {
 	ToMuxedID sql.NullString `json:"toMuxedId,omitempty" db:"to_muxed_id"`
 
 	// Nullable address fields (stored as BYTEA in database):
-	SignerAccountID    NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID   NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID   NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
-	DeployerAccountID  NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID    NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	SignerAccountID      NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SpenderAccountID     NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	SponsoredAccountID   NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
+	SponsorAccountID     NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
+	DeployerAccountID    NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
+	FunderAccountID      NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`

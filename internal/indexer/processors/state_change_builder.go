@@ -104,6 +104,12 @@ func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
 	return b
 }
 
+// WithDestination sets the destination account ID, the account a merged account was merged into.
+func (b *StateChangeBuilder) WithDestination(destination string) *StateChangeBuilder {
+	b.base.DestinationAccountID = utils.NullAddressBytea(destination)
+	return b
+}
+
 // WithSponsor sets the sponsor
 func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
 	b.base.SponsorAccountID = utils.NullAddressBytea(sponsor)

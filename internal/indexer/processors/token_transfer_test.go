@@ -106,8 +106,9 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		requireEventCount(t, changes, 4)
 
 		assertFeeEvent(t, changes[0], "100")
-		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountB.ToAccountId().Address(), "", "")
+		assertStateChangeBase(t, changes[1], types.StateChangeCategoryAccount, accountA.ToAccountId().Address(), "", "")
 		require.Equal(t, types.StateChangeReasonMerge, changes[1].StateChangeReason)
+		require.Equal(t, accountB.ToAccountId().Address(), changes[1].DestinationAccountID.String())
 		assertDebitEvent(t, changes[2], accountA.ToAccountId().Address(), "1000000000", nativeContractAddress)
 		assertCreditEvent(t, changes[3], accountB.ToAccountId().Address(), "1000000000", nativeContractAddress)
 	})
