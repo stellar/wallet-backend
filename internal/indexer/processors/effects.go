@@ -598,9 +598,10 @@ func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) 
 // parseKeyValue extracts specified key-value pairs from effect details.
 // This is used to capture metadata like home domain values or data entry names and values.
 func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType EffectType, changes []ingest.Change, key string) map[string]any {
-	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
 	keyValueMap := map[string]any{}
-	if key == "name" {
+	switch key {
+	case "name":
+		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
 		keyName := string(effect.Details[key].(xdr.String64))
 
 		//exhaustive:ignore
@@ -624,7 +625,18 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 			}
 			keyValueMap[keyName] = innerMap
 		}
-	} else {
+	case "home_domain":
+		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
+
+		innerMap := map[string]any{}
+		if prevLedgerEntryState != nil {
+			innerMap["old"] = string(prevLedgerEntryState.Data.MustAccount().HomeDomain)
+		}
+		if value, ok := effect.Details[key]; ok {
+			innerMap["new"] = value
+		}
+		keyValueMap[key] = innerMap
+	default:
 		if value, ok := effect.Details[key]; ok {
 			keyValueMap[key] = value
 		}
