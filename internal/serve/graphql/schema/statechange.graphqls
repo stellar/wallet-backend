@@ -45,6 +45,7 @@ type AccountChange implements BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 
   funderAddress:              String @goField(forceResolver: true)
+  deployerAddress:            String @goField(forceResolver: true)
 }
 
 type SignerChange implements BaseStateChange {

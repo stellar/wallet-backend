@@ -61,7 +61,8 @@ type StandardBalanceChange struct {
 // AccountChange represents an account state change
 type AccountChange struct {
 	BaseStateChangeFields
-	FunderAddress *string `json:"funderAddress,omitempty"`
+	FunderAddress   *string `json:"funderAddress,omitempty"`
+	DeployerAddress *string `json:"deployerAddress,omitempty"`
 }
 
 // SignerChange represents a signer state change
