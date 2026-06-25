@@ -40,9 +40,10 @@ func accountLedgerEntry(accountID xdr.AccountId, balance int64) *xdr.LedgerEntry
 }
 
 // accountLedgerEntrySignersOnly creates an account entry with only signer changes.
-func accountLedgerEntrySignersOnly(accountID xdr.AccountId, balance int64, numSigners int) *xdr.LedgerEntry {
+// The balance is fixed so a State→Updated pair built from it differs only in signers.
+func accountLedgerEntrySignersOnly(accountID xdr.AccountId, numSigners int) *xdr.LedgerEntry {
 	signers := make([]xdr.Signer, numSigners)
-	for i := 0; i < numSigners; i++ {
+	for i := range signers {
 		signers[i] = xdr.Signer{
 			Key:    xdr.SignerKey{Type: xdr.SignerKeyTypeSignerKeyTypeEd25519},
 			Weight: xdr.Uint32(1),
@@ -54,7 +55,7 @@ func accountLedgerEntrySignersOnly(accountID xdr.AccountId, balance int64, numSi
 			Type: xdr.LedgerEntryTypeAccount,
 			Account: &xdr.AccountEntry{
 				AccountId:  accountID,
-				Balance:    xdr.Int64(balance),
+				Balance:    xdr.Int64(10000000),
 				SeqNum:     xdr.SequenceNumber(12345),
 				Thresholds: xdr.Thresholds{1, 0, 0, 0},
 				Signers:    signers,
@@ -133,11 +134,11 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 			changes: xdr.LedgerEntryChanges{
 				{
 					Type:  xdr.LedgerEntryChangeTypeLedgerEntryState,
-					State: accountLedgerEntrySignersOnly(testAccount, 10000000, 1),
+					State: accountLedgerEntrySignersOnly(testAccount, 1),
 				},
 				{
 					Type:    xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-					Updated: accountLedgerEntrySignersOnly(testAccount, 10000000, 2),
+					Updated: accountLedgerEntrySignersOnly(testAccount, 2),
 				},
 			},
 			expectedCount: 0,
@@ -264,8 +265,8 @@ func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 		{
 			name: "signers-only fee change skipped",
 			feeChanges: xdr.LedgerEntryChanges{
-				{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: accountLedgerEntrySignersOnly(testAccount, 10000000, 1)},
-				{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: accountLedgerEntrySignersOnly(testAccount, 10000000, 2)},
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: accountLedgerEntrySignersOnly(testAccount, 1)},
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: accountLedgerEntrySignersOnly(testAccount, 2)},
 			},
 			expected: nil,
 		},
