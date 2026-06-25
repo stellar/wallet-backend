@@ -68,6 +68,21 @@ func (c *migrateCmd) RunMigrateUp(ctx context.Context, databaseURL string, args 
 	if err := executeMigrations(ctx, databaseURL, migrate.Up, count); err != nil {
 		return fmt.Errorf("executing migrate up: %w", err)
 	}
+
+	// A full `migrate up` also registers protocols so live ingestion can classify
+	// new-protocol WASMs immediately on restart, without waiting for protocol-setup.
+	// Skipped on partial (`migrate up N`) runs, which may not have created the
+	// protocols table yet. The protocol SQL is idempotent (ON CONFLICT DO NOTHING).
+	if count == 0 {
+		pool, err := db.OpenDBConnectionPool(ctx, databaseURL)
+		if err != nil {
+			return fmt.Errorf("opening database connection pool for protocol migrations: %w", err)
+		}
+		defer pool.Close()
+		if _, err := db.RunProtocolMigrations(ctx, pool); err != nil {
+			return fmt.Errorf("running protocol migrations: %w", err)
+		}
+	}
 	return nil
 }
 
