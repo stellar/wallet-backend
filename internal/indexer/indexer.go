@@ -76,11 +76,20 @@ type LedgerChangeProcessor[T any] interface {
 	Name() string
 }
 
+// AccountsProcessorInterface extends the per-operation contract with a
+// transaction-level pass that folds fee-phase balance changes (fee debits and
+// Soroban refunds) into native balances — moves that never appear in operation meta.
+type AccountsProcessorInterface interface {
+	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.AccountChange, error)
+	ProcessTransactionFees(ctx context.Context, tx ingest.LedgerTransaction) ([]types.AccountChange, error)
+	Name() string
+}
+
 type Indexer struct {
 	participantsProcessor      ParticipantsProcessorInterface
 	tokenTransferProcessor     TokenTransferProcessorInterface
 	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
-	accountsProcessor          LedgerChangeProcessor[types.AccountChange]
+	accountsProcessor          AccountsProcessorInterface
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
 	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
@@ -271,6 +280,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		for _, contract := range protocolContracts {
 			buffer.PushProtocolContracts(contract)
 		}
+	}
+
+	// Fold transaction fee-phase changes (fee debits + Soroban fee refunds) into
+	// native balances. These are charged/refunded outside any operation's meta, so
+	// the per-operation loop above never sees an account whose balance moves only in
+	// those phases — e.g. a fee-bump fee source (issue #637).
+	feeAccountChanges, feeErr := i.accountsProcessor.ProcessTransactionFees(ctx, tx)
+	if feeErr != nil {
+		return 0, fmt.Errorf("processing transaction fee account changes: %w", feeErr)
+	}
+	for _, accChange := range feeAccountChanges {
+		buffer.PushAccountChange(accChange)
 	}
 
 	// Stash contract events into the buffer so protocol processors can consume

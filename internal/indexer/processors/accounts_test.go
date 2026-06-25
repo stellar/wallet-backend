@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,9 +40,10 @@ func accountLedgerEntry(accountID xdr.AccountId, balance int64) *xdr.LedgerEntry
 }
 
 // accountLedgerEntrySignersOnly creates an account entry with only signer changes.
-func accountLedgerEntrySignersOnly(accountID xdr.AccountId, balance int64, numSigners int) *xdr.LedgerEntry {
+// The balance is fixed so a State→Updated pair built from it differs only in signers.
+func accountLedgerEntrySignersOnly(accountID xdr.AccountId, numSigners int) *xdr.LedgerEntry {
 	signers := make([]xdr.Signer, numSigners)
-	for i := 0; i < numSigners; i++ {
+	for i := range signers {
 		signers[i] = xdr.Signer{
 			Key:    xdr.SignerKey{Type: xdr.SignerKeyTypeSignerKeyTypeEd25519},
 			Weight: xdr.Uint32(1),
@@ -53,7 +55,7 @@ func accountLedgerEntrySignersOnly(accountID xdr.AccountId, balance int64, numSi
 			Type: xdr.LedgerEntryTypeAccount,
 			Account: &xdr.AccountEntry{
 				AccountId:  accountID,
-				Balance:    xdr.Int64(balance),
+				Balance:    xdr.Int64(10000000),
 				SeqNum:     xdr.SequenceNumber(12345),
 				Thresholds: xdr.Thresholds{1, 0, 0, 0},
 				Signers:    signers,
@@ -132,11 +134,11 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 			changes: xdr.LedgerEntryChanges{
 				{
 					Type:  xdr.LedgerEntryChangeTypeLedgerEntryState,
-					State: accountLedgerEntrySignersOnly(testAccount, 10000000, 1),
+					State: accountLedgerEntrySignersOnly(testAccount, 1),
 				},
 				{
 					Type:    xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-					Updated: accountLedgerEntrySignersOnly(testAccount, 10000000, 2),
+					Updated: accountLedgerEntrySignersOnly(testAccount, 2),
 				},
 			},
 			expectedCount: 0,
@@ -196,6 +198,108 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 					// MinimumBalance = (2 + 0 + 0 - 0) * 5_000_000 + 200 = 10_000_200
 					assert.Equal(t, int64(10000200), change.MinimumBalance)
 				}
+			}
+		})
+	}
+}
+
+func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
+	processor := NewAccountsProcessor(nil)
+	testAccount := accountA.ToAccountId()
+
+	// someTx is on ledger 12345. Fee debits sort below every operation in the ledger
+	// (toid op 0); Soroban refunds sort above every operation (one below the next
+	// ledger's floor).
+	const ledgerSeq = uint32(12345)
+	feeOpID := toid.New(int32(ledgerSeq), 0, 0).ToInt64()
+	refundOpID := toid.New(int32(ledgerSeq)+1, 0, 0).ToInt64() - 1
+
+	// accountBalanceChange builds a State→Updated pair for testAccount. Two separate
+	// accountLedgerEntry calls (fresh entries) avoid aliasing the pre/post balance.
+	accountBalanceChange := func(stateBalance, updatedBalance int64) xdr.LedgerEntryChanges {
+		return xdr.LedgerEntryChanges{
+			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: accountLedgerEntry(testAccount, stateBalance)},
+			{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: accountLedgerEntry(testAccount, updatedBalance)},
+		}
+	}
+
+	// expectedChange is the (OperationID, Balance) pair we expect for a returned change.
+	type expectedChange struct {
+		operationID int64
+		balance     int64
+	}
+
+	tests := []struct {
+		name       string
+		feeChanges xdr.LedgerEntryChanges
+		postApply  xdr.LedgerEntryChanges
+		isFailed   bool
+		expected   []expectedChange
+	}{
+		{
+			// The #637 bug: an account whose balance moves only in the fee phase.
+			name:       "fee debit captured",
+			feeChanges: accountBalanceChange(100_000_000, 99_999_900),
+			expected:   []expectedChange{{feeOpID, 99_999_900}},
+		},
+		{
+			// Fees are charged even when the transaction fails.
+			name:       "fee debit on failed tx still captured",
+			feeChanges: accountBalanceChange(100_000_000, 99_999_900),
+			isFailed:   true,
+			expected:   []expectedChange{{feeOpID, 99_999_900}},
+		},
+		{
+			name:      "soroban fee refund captured",
+			postApply: accountBalanceChange(99_999_900, 99_999_950),
+			expected:  []expectedChange{{refundOpID, 99_999_950}},
+		},
+		{
+			// Fee then refund for the same account: both returned (refund outranks
+			// fee during buffer dedup, but extraction yields both).
+			name:       "fee debit and refund both captured",
+			feeChanges: accountBalanceChange(100_000_000, 99_999_900),
+			postApply:  accountBalanceChange(99_999_900, 99_999_950),
+			expected:   []expectedChange{{feeOpID, 99_999_900}, {refundOpID, 99_999_950}},
+		},
+		{
+			name: "signers-only fee change skipped",
+			feeChanges: xdr.LedgerEntryChanges{
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: accountLedgerEntrySignersOnly(testAccount, 1)},
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: accountLedgerEntrySignersOnly(testAccount, 2)},
+			},
+			expected: nil,
+		},
+		{
+			name: "non-account fee change skipped",
+			feeChanges: xdr.LedgerEntryChanges{
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: trustlineLedgerEntry(testAccount, usdcAsset, 5000000)},
+			},
+			expected: nil,
+		},
+		{
+			name:     "no fee or refund changes",
+			expected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := createFeeAndRefundTx(tc.feeChanges, tc.postApply, tc.isFailed)
+
+			changes, err := processor.ProcessTransactionFees(context.Background(), tx)
+			require.NoError(t, err)
+			require.Len(t, changes, len(tc.expected))
+
+			for i, want := range tc.expected {
+				got := changes[i]
+				assert.Equal(t, testAccount.Address(), got.AccountID)
+				assert.Equal(t, types.AccountOpUpdate, got.Operation)
+				assert.Equal(t, ledgerSeq, got.LedgerNumber)
+				assert.Equal(t, want.operationID, got.OperationID)
+				assert.Equal(t, want.balance, got.Balance)
+				// Reserve calc still runs on fee-phase entries: (2 + 0 + 0 - 0) * 5_000_000 + 200.
+				assert.Equal(t, int64(10000200), got.MinimumBalance)
 			}
 		})
 	}

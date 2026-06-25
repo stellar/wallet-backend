@@ -73,6 +73,11 @@ func (m *MockAccountsProcessor) ProcessOperation(ctx context.Context, opWrapper 
 	return args.Get(0).([]types.AccountChange), args.Error(1)
 }
 
+func (m *MockAccountsProcessor) ProcessTransactionFees(ctx context.Context, tx ingest.LedgerTransaction) ([]types.AccountChange, error) {
+	args := m.Called(ctx, tx)
+	return args.Get(0).([]types.AccountChange), args.Error(1)
+}
+
 func (m *MockAccountsProcessor) Name() string {
 	args := m.Called()
 	return args.String(0)

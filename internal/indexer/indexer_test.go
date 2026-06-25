@@ -196,6 +196,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
@@ -307,6 +308,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
@@ -393,14 +395,18 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockSACEvents := &MockOperationProcessor{}
 
 		// Setup mocks
+		mockAccounts := &MockAccountsProcessor{}
+
 		mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet[string](), nil)
 		mockParticipants.On("GetOperationsParticipants", testTx).Return(map[int64]processors.OperationParticipants{}, nil)
 		mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
+		mockAccounts.On("ProcessTransactionFees", mock.Anything, testTx).Return([]types.AccountChange{}, nil)
 
 		// Create indexer
 		indexer := &Indexer{
 			participantsProcessor:  mockParticipants,
 			tokenTransferProcessor: mockTokenTransfer,
+			accountsProcessor:      mockAccounts,
 			processors:             []OperationProcessorInterface{mockEffects, mockContractDeploy, mockSACEvents},
 			pool:                   pond.NewPool(runtime.NumCPU()),
 			networkPassphrase:      network.TestNetworkPassphrase,
@@ -630,6 +636,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 
 		mockTrustlines.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.TrustlineChange{}, nil)
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
@@ -676,6 +683,72 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines.AssertExpectations(t)
 		mockAccounts.AssertExpectations(t)
 	})
+}
+
+func TestIndexer_ProcessLedgerTransactions_FeePhaseBalances(t *testing.T) {
+	// End-to-end through the real indexer pipeline (issue #637): an account whose
+	// balance moves ONLY in the fee phase — e.g. a fee-bump fee source — is touched by
+	// no operation, so the per-operation path never produces a change for it. Before
+	// the fix it never appeared in GetAccountChanges(); now ProcessTransactionFees
+	// captures it.
+	feeSource := accountA.ToAccountId()
+	feeSourceAddr := accountA.Address()
+
+	accountEntry := func(balance int64) *xdr.LedgerEntry {
+		return &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeAccount,
+				Account: &xdr.AccountEntry{
+					AccountId: feeSource,
+					Balance:   xdr.Int64(balance),
+					SeqNum:    xdr.SequenceNumber(1),
+				},
+			},
+		}
+	}
+
+	// Fee debit: 100 XLM → 100 XLM minus 100 stroops. No operation touches feeSource.
+	feeTx := ingest.LedgerTransaction{
+		Index:  1,
+		Ledger: testLcm,
+		Hash:   xdr.Hash{7, 8, 9},
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1: &xdr.TransactionV1Envelope{
+				Tx: xdr.Transaction{
+					SourceAccount: accountA,
+					SeqNum:        xdr.SequenceNumber(1),
+				},
+			},
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash{7, 8, 9},
+			Result: xdr.TransactionResult{
+				FeeCharged: xdr.Int64(100),
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{},
+				},
+			},
+		},
+		FeeChanges: xdr.LedgerEntryChanges{
+			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: accountEntry(1_000_000_000)},
+			{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: accountEntry(999_999_900)},
+		},
+		UnsafeMeta: xdr.TransactionMeta{
+			V:  3,
+			V3: &xdr.TransactionMetaV3{Operations: []xdr.OperationMeta{}},
+		},
+	}
+
+	indexer := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	buffer := NewIndexerBuffer()
+	_, err := indexer.ProcessLedgerTransactions(context.Background(), []ingest.LedgerTransaction{feeTx}, buffer)
+	require.NoError(t, err)
+
+	accountChanges := buffer.GetAccountChanges()
+	require.Contains(t, accountChanges, feeSourceAddr, "fee-only account must be captured")
+	assert.Equal(t, int64(999_999_900), accountChanges[feeSourceAddr].Balance)
 }
 
 func TestIndexer_getTransactionStateChanges(t *testing.T) {

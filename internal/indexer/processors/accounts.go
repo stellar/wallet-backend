@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -59,7 +60,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 			continue
 		}
 
-		accChange, skip, err := p.processAccountChange(change, opWrapper)
+		accChange, skip, err := p.buildAccountChange(change, opWrapper.Transaction.Ledger.LedgerSequence(), opWrapper.ID())
 		if err != nil {
 			return nil, err
 		}
@@ -73,9 +74,70 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 	return accountChanges, nil
 }
 
-// processAccountChange converts a ledger change to an AccountChange.
-// Returns (change, skip, error) where skip=true means the change should be ignored.
-func (p *AccountsProcessor) processAccountChange(change ingest.Change, opWrapper *TransactionOperationWrapper) (types.AccountChange, bool, error) {
+// ProcessTransactionFees extracts native balance changes from a transaction's fee
+// phases. The fee debit (GetFeeChanges) is charged before any operation applies; the
+// Soroban fee refund (GetPostApplyFeeChanges) is credited after all operations.
+// Neither appears in any operation's meta, so the per-operation path never sees an
+// account whose balance moves only in these phases — e.g. a fee-bump fee source
+// (issue #637).
+//
+// Balances are absolute (Core has already applied the fee/refund to the ledger
+// entry), so the synthetic OperationIDs only steer the buffer's max-OperationID
+// dedup to the correct winner: fee changes get the ledger floor (toid op 0), which
+// sorts below every operation TOID in the ledger; refund changes get the ledger
+// ceiling (one below the next ledger's floor), which sorts above every operation
+// TOID. This reproduces the on-chain order fee < operation < refund.
+func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx ingest.LedgerTransaction) ([]types.AccountChange, error) {
+	startTime := time.Now()
+	defer func() {
+		if p.metricsService != nil {
+			duration := time.Since(startTime).Seconds()
+			p.metricsService.StateChangeProcessingDuration.WithLabelValues("AccountsProcessor").Observe(duration)
+		}
+	}()
+
+	ledgerSeq := tx.Ledger.LedgerSequence()
+
+	feeChanges, err := p.feeAccountChanges(tx.GetFeeChanges(), ledgerSeq, toid.New(int32(ledgerSeq), 0, 0).ToInt64())
+	if err != nil {
+		return nil, err
+	}
+
+	refundChanges, err := p.feeAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, toid.New(int32(ledgerSeq)+1, 0, 0).ToInt64()-1)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(feeChanges, refundChanges...), nil
+}
+
+// feeAccountChanges converts the account-typed entries in a fee-phase change set into
+// AccountChanges stamped with the given OperationID.
+func (p *AccountsProcessor) feeAccountChanges(changes []ingest.Change, ledgerSeq uint32, operationID int64) ([]types.AccountChange, error) {
+	var accountChanges []types.AccountChange
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeAccount {
+			continue
+		}
+
+		accChange, skip, err := p.buildAccountChange(change, ledgerSeq, operationID)
+		if err != nil {
+			return nil, err
+		}
+		if skip {
+			continue
+		}
+
+		accountChanges = append(accountChanges, accChange)
+	}
+
+	return accountChanges, nil
+}
+
+// buildAccountChange converts a ledger change to an AccountChange, stamped with the
+// given ledger sequence and OperationID. Returns (change, skip, error) where
+// skip=true means the change should be ignored.
+func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq uint32, operationID int64) (types.AccountChange, bool, error) {
 	var accChange types.AccountChange
 
 	// Skip if only signers changed (no balance/state change)
@@ -111,8 +173,8 @@ func (p *AccountsProcessor) processAccountChange(change ingest.Change, opWrapper
 
 	// Build the AccountChange
 	accChange.AccountID = account.AccountId.Address()
-	accChange.OperationID = opWrapper.ID()
-	accChange.LedgerNumber = opWrapper.Transaction.Ledger.LedgerSequence()
+	accChange.OperationID = operationID
+	accChange.LedgerNumber = ledgerSeq
 	accChange.Balance = int64(account.Balance)
 	accChange.BuyingLiabilities = int64(liabilities.Buying)
 	accChange.SellingLiabilities = int64(liabilities.Selling)
