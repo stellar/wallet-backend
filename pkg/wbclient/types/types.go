@@ -85,6 +85,7 @@ const (
 	TokenTypeNative  TokenType = "NATIVE"
 	TokenTypeClassic TokenType = "CLASSIC"
 	TokenTypeSAC     TokenType = "SAC"
+	TokenTypeSEP41   TokenType = "SEP41"
 )
 
 // Balance is an interface representing different types of account balances
@@ -149,6 +150,25 @@ func (b *SACBalance) GetTokenID() string      { return b.TokenID }
 func (b *SACBalance) GetTokenType() TokenType { return b.TokenType }
 func (b *SACBalance) isBalance()              {}
 
+// SEP41Balance represents a pure SEP-41 (non-SAC) token contract balance.
+// BalanceValue is the raw i128 amount as a decimal string (e.g. "5000000000"),
+// not scaled by Decimals — i128 amounts can exceed int64, so the server does not
+// pre-format them the way it does for native/classic/SAC balances.
+type SEP41Balance struct {
+	BalanceValue       string    `json:"balance"`
+	TokenID            string    `json:"tokenId"`
+	TokenType          TokenType `json:"tokenType"`
+	Name               *string   `json:"name,omitempty"`
+	Symbol             *string   `json:"symbol,omitempty"`
+	Decimals           int32     `json:"decimals"`
+	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+}
+
+func (b *SEP41Balance) GetBalance() string      { return b.BalanceValue }
+func (b *SEP41Balance) GetTokenID() string      { return b.TokenID }
+func (b *SEP41Balance) GetTokenType() TokenType { return b.TokenType }
+func (b *SEP41Balance) isBalance()              {}
+
 // UnmarshalBalance unmarshals a JSON balance into the appropriate concrete type
 // based on the __typename field
 func UnmarshalBalance(data []byte) (Balance, error) {
@@ -179,6 +199,12 @@ func UnmarshalBalance(data []byte) (Balance, error) {
 		var balance SACBalance
 		if err := json.Unmarshal(data, &balance); err != nil {
 			return nil, fmt.Errorf("unmarshaling SAC balance: %w", err)
+		}
+		return &balance, nil
+	case "SEP41Balance":
+		var balance SEP41Balance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling SEP-41 balance: %w", err)
 		}
 		return &balance, nil
 	default:

@@ -317,6 +317,51 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 	}, nil
 }
 
+// createMinioContainer starts a minio (S3-compatible) object store that backs the
+// datastore ledger backend exercised by the protocol-migrate test. The host process
+// exports ledgers into it (see ledger_exporter.go) and the migrate container reads them
+// back through the production optimizedStorageBackend.
+//
+// The data dir lives only inside the container (no host bind-mount), so exported ledger
+// files are discarded when the container is reaped at teardown. Pre-creating the bucket
+// directory makes minio expose "ledgers" as a bucket at startup, so no bucket-creation
+// code or AWS SDK dependency is needed.
+func createMinioContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+	containerRequest := testcontainers.ContainerRequest{
+		Name:  minioNetworkAlias,
+		Image: minioImage,
+		Labels: map[string]string{
+			"org.testcontainers.session-id": "wallet-backend-integration-tests",
+		},
+		Entrypoint: []string{"sh", "-c"},
+		Cmd:        []string{fmt.Sprintf("mkdir -p /data/%s && minio server /data --address :%s", datastoreBucket, minioPort)},
+		Env: map[string]string{
+			"MINIO_ROOT_USER":     minioRootUser,
+			"MINIO_ROOT_PASSWORD": minioRootPassword,
+		},
+		Networks:     []string{testNetwork.Name},
+		ExposedPorts: []string{minioPort + "/tcp"},
+		WaitingFor: wait.ForHTTP("/minio/health/live").
+			WithPort(nat.Port(minioPort + "/tcp")).
+			WithStartupTimeout(60 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: containerRequest,
+		Reuse:            true,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating minio container: %w", err)
+	}
+	log.Ctx(ctx).Infof("🔄 Created minio container")
+
+	return &TestContainer{
+		Container:     container,
+		MappedPortStr: minioPort,
+	}, nil
+}
+
 // createWalletDBContainer starts a TimescaleDB container for wallet-backend
 func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{

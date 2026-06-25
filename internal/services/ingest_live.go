@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -24,6 +26,7 @@ const (
 	maxIngestProcessedDataRetries      = 5
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 	oldestLedgerSyncInterval           = 100
+	lagMetricUpdateInterval            = 1 * time.Second
 )
 
 // PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
@@ -83,20 +86,30 @@ func (m *ingestService) persistLedgerData(
 		if classifyErr != nil {
 			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
 		}
+
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
 		// protocol cursor is the authoritative gate — exactly one of live ingestion or
 		// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
 		// run only for cursors that win the swap, so a protocol still backfilling (its
-		// cursor behind tip) costs a single CAS and a continue. This block stays above
-		// the protocol_wasms / protocol_contracts BatchInserts below, because
-		// getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
-		// committed set before those rows are inserted. It runs only at the live tip
-		// (ledgerMeta != nil); backfill and loadtest skip protocol production.
+		// cursor behind tip) costs a single CAS and a continue.
 		if ledgerMeta != nil && ledgerSeq != 0 && len(m.protocolProcessors) > 0 {
 			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 			contractEvents := buffer.GetContractEvents()
 			expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 			next := strconv.FormatUint(uint64(ledgerSeq), 10)
+
+			// Resolve protocol membership once for the contracts that emitted events
+			// this ledger. One bounded query serves every protocol; ledgers with no
+			// contract events skip it entirely. The buffered overlay (below) covers
+			// contracts deployed or upgraded this ledger, which are not yet committed.
+			var committedByProtocol map[string][]data.ProtocolContracts
+			if eventContractIDs := distinctEventContractIDs(contractEvents); len(eventContractIDs) > 0 {
+				var lookupErr error
+				committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+				if lookupErr != nil {
+					return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
+				}
+			}
 
 			for protocolID, processor := range m.protocolProcessors {
 				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
@@ -116,17 +129,18 @@ func (m *ingestService) persistLedgerData(
 					continue
 				}
 
-				contracts, contractsErr := m.getEffectiveProtocolContracts(ctx, protocolID, bufferedContracts, classification)
-				if contractsErr != nil {
-					return fmt.Errorf("getting protocol contracts for %s at ledger %d: %w", protocolID, ledgerSeq, contractsErr)
-				}
+				contracts := getEffectiveProtocolContracts(protocolID, committedByProtocol[protocolID], bufferedContracts, classification)
 				input := ProtocolProcessorInput{
 					LedgerSequence:    ledgerSeq,
 					LedgerCloseTime:   ledgerCloseTime,
 					ContractEvents:    contractEvents,
 					ProtocolContracts: contracts,
-					NetworkPassphrase: m.networkPassphrase,
+					StagingMode:       StagingModeBoth,
 				}
+				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
+				// re-stages cleanly; the processor is long-lived and accumulates across
+				// ProcessLedger calls.
+				processor.Reset()
 				start := time.Now()
 				processErr := processor.ProcessLedger(ctx, input)
 				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
@@ -259,11 +273,6 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
 	}
 
-	// Set initial lag now that the backend buffer is populated
-	if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
-		m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - startLedger))
-	}
-
 	return m.ingestLiveLedgers(ctx, startLedger)
 }
 
@@ -278,11 +287,48 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	return nil
 }
 
+// lagLedgers returns how far latestIngested trails backendTip, and false when there is no
+// valid measurement yet. GetLatestLedgerSequence reports 0 until the backend delivers its first
+// batch, so an unsigned subtraction would otherwise underflow into a ~4-billion-ledger lag spike
+// and trip false alerts during slow initial datastore fetches.
+func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
+	if backendTip < latestIngested {
+		return 0, false
+	}
+	return float64(backendTip - latestIngested), true
+}
+
 // ingestLiveLedgers continuously processes ledgers starting from startLedger,
 // updating cursors and metrics after each successful ledger.
 func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+
+	// Refresh the lag gauge off the consumer goroutine. GetLatestLedgerSequence contends on the
+	// datastore buffer's internal lock, which a download worker can hold while blocked on a full
+	// queue; calling it on this goroutine — the only one that drains that queue — would deadlock.
+	// A dedicated goroutine keeps the consumer draining, so the lock is always released promptly.
+	var latestIngested atomic.Uint32
+	latestIngested.Store(startLedger - 1)
+	lagCtx, cancelLag := context.WithCancel(ctx)
+	defer cancelLag()
+	go func() {
+		ticker := time.NewTicker(lagMetricUpdateInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-lagCtx.Done():
+				return
+			case <-ticker.C:
+				if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(lagCtx); lagErr == nil {
+					if lag, ok := lagLedgers(backendTip, latestIngested.Load()); ok {
+						m.appMetrics.Ingestion.LagLedgers.Set(lag)
+					}
+				}
+			}
+		}
+	}()
+
 	for {
 		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
 			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
@@ -323,10 +369,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
 
-		// Update lag metric (non-blocking atomic read)
-		if backendTip, lagErr := m.ledgerBackend.GetLatestLedgerSequence(ctx); lagErr == nil {
-			m.appMetrics.Ingestion.LagLedgers.Set(float64(backendTip - currentLedger))
-		}
+		// Publish the just-ingested ledger for the lag updater goroutine started above.
+		latestIngested.Store(currentLedger)
 
 		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs)
 		if currentLedger%oldestLedgerSyncInterval == 0 {
@@ -359,48 +403,53 @@ func (m *ingestService) casProtocolCursor(ctx context.Context, dbTx pgx.Tx, curs
 	return swapped, nil
 }
 
-func (m *ingestService) getEffectiveProtocolContracts(
-	ctx context.Context,
+// distinctEventContractIDs returns the deduplicated contract IDs that emitted events
+// this ledger, hex-encoded as HashBytea to match the protocol_contracts.contract_id
+// encoding. Events with a nil ContractId are skipped. It is protocol-agnostic —
+// membership is resolved downstream against protocol_contracts.
+func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.ContractEvent) []types.HashBytea {
+	ids := set.NewSet[types.HashBytea]()
+	for _, evs := range events {
+		for _, ev := range evs {
+			if ev.ContractId != nil {
+				ids.Add(types.HashBytea(hex.EncodeToString(ev.ContractId[:])))
+			}
+		}
+	}
+	return ids.ToSlice()
+}
+
+// getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
+// committed contracts resolved for this protocol. committed holds the protocol's
+// contracts among those that emitted events this ledger. bufferedContracts holds
+// contracts deployed or upgraded this ledger (keyed by hex contract id); classification
+// maps this-ledger wasm hashes to their protocol. A contract whose binding changed this
+// ledger is dropped from committed and re-added only if its new classification still
+// matches the protocol.
+func getEffectiveProtocolContracts(
 	protocolID string,
+	committed []data.ProtocolContracts,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
-) ([]data.ProtocolContracts, error) {
-	baseContracts, err := m.getProtocolContracts(ctx, protocolID)
-	if err != nil {
-		return nil, err
-	}
+) []data.ProtocolContracts {
 	if len(bufferedContracts) == 0 {
-		return baseContracts, nil
+		return committed
 	}
 
-	out := make([]data.ProtocolContracts, 0, len(baseContracts)+len(bufferedContracts))
-	for _, contract := range baseContracts {
+	out := make([]data.ProtocolContracts, 0, len(committed)+len(bufferedContracts))
+	for _, contract := range committed {
 		if _, updatedThisLedger := bufferedContracts[string(contract.ContractID)]; updatedThisLedger {
 			continue
 		}
 		out = append(out, contract)
 	}
-
 	for _, contract := range bufferedContracts {
 		if classification[contract.WasmHash] != protocolID {
 			continue
 		}
 		out = append(out, contract)
 	}
-	return out, nil
-}
-
-// getProtocolContracts loads the committed protocol_contracts for a protocol
-// directly from the DB. Called once per protocol per ledger in the live loop.
-func (m *ingestService) getProtocolContracts(ctx context.Context, protocolID string) ([]data.ProtocolContracts, error) {
-	if len(m.protocolProcessors) == 0 {
-		return nil, nil
-	}
-	byProtocol, err := m.models.ProtocolContracts.BatchGetByProtocolIDs(ctx, []string{protocolID})
-	if err != nil {
-		return nil, fmt.Errorf("loading protocol contracts for %s: %w", protocolID, err)
-	}
-	return byProtocol[protocolID], nil
+	return out
 }
 
 // ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.

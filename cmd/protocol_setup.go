@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -33,12 +32,13 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	var rpcURL string
 	var networkPassphrase string
 	var protocolIDs []string
-	var logLevel string
+	var logLevel logrus.Level
 
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&databaseURL),
 		utils.RPCURLOption(&rpcURL),
 		utils.NetworkPassphraseOption(&networkPassphrase),
+		utils.LogLevelOption(&logLevel),
 	}
 
 	cmd := &cobra.Command{
@@ -53,13 +53,7 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if logLevel != "" {
-				ll, err := logrus.ParseLevel(logLevel)
-				if err != nil {
-					return fmt.Errorf("invalid log level %q: %w", logLevel, err)
-				}
-				log.DefaultLogger.SetLevel(ll)
-			}
+			log.DefaultLogger.SetLevel(logLevel)
 
 			if len(protocolIDs) == 0 {
 				return fmt.Errorf("at least one --protocol-id is required")
@@ -76,7 +70,6 @@ func (c *protocolSetupCmd) Command() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&protocolIDs, "protocol-id", nil, "Protocol ID(s) to classify (required, repeatable)")
-	cmd.Flags().StringVar(&logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
 
 	return cmd
 }
@@ -104,8 +97,10 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 		return fmt.Errorf("creating models: %w", err)
 	}
 
-	// Create RPC service
-	httpClient := &http.Client{Timeout: 30 * time.Second}
+	// Create RPC service with keep-alives disabled (see keepAlivesDisabledHTTPClient): this
+	// one-shot command makes only a short burst of RPC calls, and a fresh connection per request
+	// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection reuse.
+	httpClient := keepAlivesDisabledHTTPClient(30 * time.Second)
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)

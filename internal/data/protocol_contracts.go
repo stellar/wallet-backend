@@ -27,7 +27,7 @@ type ProtocolContracts struct {
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
-	BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error)
+	BatchGetByContractIDs(ctx context.Context, contractIDs []types.HashBytea) (map[string][]ProtocolContracts, error)
 	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
 
@@ -138,44 +138,55 @@ func (m *ProtocolContractsModel) GetByWasmHashes(ctx context.Context, wasmHashes
 	return contracts, nil
 }
 
-// BatchGetByProtocolIDs returns all contracts for the given protocol IDs in a single query,
-// grouped by protocol ID. This avoids N+1 queries when refreshing the contract cache.
-func (m *ProtocolContractsModel) BatchGetByProtocolIDs(ctx context.Context, protocolIDs []string) (map[string][]ProtocolContracts, error) {
-	if len(protocolIDs) == 0 {
+// BatchGetByContractIDs returns, for the given contract IDs, the protocol_contracts
+// rows whose wasm is classified to a protocol, grouped by protocol ID. Live ingestion
+// uses this to resolve membership for only the contracts that emitted events in a
+// ledger, instead of loading every committed contract for a protocol.
+func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, contractIDs []types.HashBytea) (map[string][]ProtocolContracts, error) {
+	if len(contractIDs) == 0 {
 		return nil, nil
+	}
+
+	idBytes := make([][]byte, len(contractIDs))
+	for i, id := range contractIDs {
+		val, err := id.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting contract id to bytes: %w", err)
+		}
+		idBytes[i] = val.([]byte)
 	}
 
 	const query = `
 		SELECT pw.protocol_id, pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
 		FROM protocol_contracts pc
 		JOIN protocol_wasms pw ON pc.wasm_hash = pw.wasm_hash
-		WHERE pw.protocol_id = ANY($1)
+		WHERE pc.contract_id = ANY($1::bytea[]) AND pw.protocol_id IS NOT NULL
 	`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, protocolIDs)
+	rows, err := m.DB.Query(ctx, query, idBytes)
 	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts").Inc()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Inc()
 	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("batch querying contracts for protocols: %w", err)
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByContractIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("batch querying contracts by ids: %w", err)
 	}
 	defer rows.Close()
 
-	result := make(map[string][]ProtocolContracts, len(protocolIDs))
+	result := make(map[string][]ProtocolContracts, len(contractIDs))
 	for rows.Next() {
 		var protocolID string
 		var c ProtocolContracts
 		if err := rows.Scan(&protocolID, &c.ContractID, &c.WasmHash, &c.Name, &c.CreatedAt); err != nil {
-			m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
-			return nil, fmt.Errorf("scanning batch protocol contract row: %w", err)
+			m.Metrics.QueryErrors.WithLabelValues("BatchGetByContractIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("scanning protocol contract row by id: %w", err)
 		}
 		result[protocolID] = append(result[protocolID], c)
 	}
 	if err := rows.Err(); err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchGetByProtocolIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("iterating batch protocol contract rows: %w", err)
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByContractIDs", "protocol_contracts", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating protocol contract rows by id: %w", err)
 	}
 	return result, nil
 }
