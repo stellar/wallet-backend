@@ -370,39 +370,46 @@ func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledger
 	return transactions, nil
 }
 
-// ExtractContractEventsForLedger walks a ledger's transactions and returns
-// the (txIdx, opIdx) → []ContractEvent map that the full indexer pipeline
-// would have pushed into the buffer. It performs no participant tracking,
-// no state-change processing, and no DB I/O — it's the minimal subset that
-// protocol-migrate needs to drive ProtocolProcessor.ProcessLedger without
-// running the full indexer.
+// ExtractContractEventsForLedger walks a ledger's transactions directly from the
+// decoded LedgerCloseMeta and returns the (txIdx, opIdx) → []ContractEvent map
+// that the full indexer pipeline would have pushed into the buffer. For each
+// transaction index i it reads the result pair, filters operations by their
+// result Tr type, and reads events from TxApplyProcessing(i) — without building
+// a LedgerTransactionReader, which would re-hash every transaction envelope just
+// to pair envelopes with metas we never read here.
+//
+// The output is identical to the reader-based path; that equivalence is the
+// merge gate (see extractContractEventsViaReader and
+// TestExtractContractEventsForLedger_EquivalenceOnRealLedgers).
 //
 // Only events from successful transactions are returned, matching the live
 // indexer's filter in processTransaction.
-func ExtractContractEventsForLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
-	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
-	if err != nil {
-		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
-	}
-
+func ExtractContractEventsForLedger(_ context.Context, _ string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
 	out := make(map[ContractEventKey][]xdr.ContractEvent)
-	for _, tx := range transactions {
-		if !tx.Result.Successful() {
+	for i := 0; i < ledgerMeta.CountTransactions(); i++ {
+		result := ledgerMeta.TransactionResultPair(i).Result
+		if !result.Successful() {
 			continue
 		}
-		for opIdx, op := range tx.Envelope.Operations() {
-			if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
+		opResults, ok := result.OperationResults()
+		if !ok {
+			continue
+		}
+		meta := ledgerMeta.TxApplyProcessing(i)
+		for opIdx, opr := range opResults {
+			tr, trOK := opr.GetTr()
+			if !trOK || tr.Type != xdr.OperationTypeInvokeHostFunction {
 				continue
 			}
-			events, evErr := tx.GetContractEventsForOperation(uint32(opIdx))
+			events, evErr := meta.GetContractEventsForOperation(uint32(opIdx))
 			if evErr != nil {
 				return nil, fmt.Errorf("extracting contract events for ledger %d tx %d op %d: %w",
-					ledgerMeta.LedgerSequence(), tx.Index, opIdx, evErr)
+					ledgerMeta.LedgerSequence(), i+1, opIdx, evErr)
 			}
 			if len(events) == 0 {
 				continue
 			}
-			out[ContractEventKey{TxIdx: tx.Index, OpIdx: uint32(opIdx)}] = events
+			out[ContractEventKey{TxIdx: uint32(i + 1), OpIdx: uint32(opIdx)}] = events
 		}
 	}
 	return out, nil

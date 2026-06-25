@@ -2,8 +2,13 @@
 package indexer
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -974,4 +979,170 @@ func TestIndexer_GetLedgerTransactions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// extractContractEventsViaReader is the reader-based reference implementation of
+// ExtractContractEventsForLedger, kept as the oracle for the differential
+// equivalence test. It constructs a LedgerTransactionReader (which re-hashes
+// every transaction envelope) and reads events through the resulting
+// LedgerTransaction values. The production function must produce output equal to
+// this oracle for every committed ledger fixture.
+func extractContractEventsViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+
+	out := make(map[ContractEventKey][]xdr.ContractEvent)
+	for _, tx := range transactions {
+		if !tx.Result.Successful() {
+			continue
+		}
+		for opIdx, op := range tx.Envelope.Operations() {
+			if op.Body.Type != xdr.OperationTypeInvokeHostFunction {
+				continue
+			}
+			events, evErr := tx.GetContractEventsForOperation(uint32(opIdx))
+			if evErr != nil {
+				return nil, fmt.Errorf("extracting contract events for ledger %d tx %d op %d: %w",
+					ledgerMeta.LedgerSequence(), tx.Index, opIdx, evErr)
+			}
+			if len(events) == 0 {
+				continue
+			}
+			out[ContractEventKey{TxIdx: tx.Index, OpIdx: uint32(opIdx)}] = events
+		}
+	}
+	return out, nil
+}
+
+// loadLedgerFixture reads a gzip-compressed XDR LedgerCloseMeta from testdata/.
+//
+// Fixtures are pubnet LedgerCloseMeta captured from the public data lake
+// (the datastore backend's pubnet defaults: bucket
+// aws-public-blockchain/v1.1/stellar/ledgers/pubnet, region us-east-2). To refresh or
+// expand the corpus, run a small program from the repo root that builds an
+// ingest.NewLedgerBackend with
+// LedgerBackendType=datastore + NetworkPassphrase=PublicNetworkPassphrase,
+// discovers the lake tip via datastore.FindLatestLedgerSequence, then for each
+// sequence calls backend.GetLedger(seq), lcm.MarshalBinary(), gzips the bytes,
+// and writes testdata/ledger-<seq>.xdr.gz.
+func loadLedgerFixture(t *testing.T, path string) xdr.LedgerCloseMeta {
+	t.Helper()
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	require.NoError(t, err)
+	defer gz.Close()
+
+	raw, err := io.ReadAll(gz)
+	require.NoError(t, err)
+
+	var lcm xdr.LedgerCloseMeta
+	require.NoError(t, lcm.UnmarshalBinary(raw))
+	return lcm
+}
+
+func TestExtractContractEventsForLedger_EquivalenceOnRealLedgers(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			want, err := extractContractEventsViaReader(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+
+			got, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+// newSyntheticLedgerCloseMeta builds a minimal single-transaction V0
+// LedgerCloseMeta carrying a successful result with the given operation results
+// and apply meta. It omits the TxSet/envelopes: the meta-only extractor never
+// reads them, so this isolates op-result + apply-meta behavior that real
+// fixtures can't produce on demand.
+func newSyntheticLedgerCloseMeta(seq uint32, opResults []xdr.OperationResult, applyMeta xdr.TransactionMeta) xdr.LedgerCloseMeta {
+	results := opResults
+	return xdr.LedgerCloseMeta{
+		V: 0,
+		V0: &xdr.LedgerCloseMetaV0{
+			LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+				Header: xdr.LedgerHeader{LedgerSeq: xdr.Uint32(seq)},
+			},
+			TxProcessing: []xdr.TransactionResultMeta{
+				{
+					Result: xdr.TransactionResultPair{
+						Result: xdr.TransactionResult{
+							Result: xdr.TransactionResultResult{
+								Code:    xdr.TransactionResultCodeTxSuccess,
+								Results: &results,
+							},
+						},
+					},
+					TxApplyProcessing: applyMeta,
+				},
+			},
+		},
+	}
+}
+
+// TestExtractContractEventsForLedger_V4OperationsShorterThanResults proves the
+// result-Tr.Type filter prevents indexing past the end of TransactionMetaV4.Operations.
+// The V4 apply meta has ONE operation meta entry (index 0), but the tx has TWO
+// operation results: [0] InvokeHostFunction, [1] Payment. A walk that indexed
+// Operations by every result index would panic on Operations[1]; the filter
+// skips the non-InvokeHostFunction result before it is ever used to index.
+func TestExtractContractEventsForLedger_V4OperationsShorterThanResults(t *testing.T) {
+	ctx := context.Background()
+
+	applyMeta := xdr.TransactionMeta{
+		V: 4,
+		V4: &xdr.TransactionMetaV4{
+			Operations: []xdr.OperationMetaV2{
+				{Events: []xdr.ContractEvent{{Type: xdr.ContractEventTypeContract}}}, // index 0 only
+			},
+		},
+	}
+	opResults := []xdr.OperationResult{
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypePayment}},
+	}
+
+	lcm := newSyntheticLedgerCloseMeta(100, opResults, applyMeta)
+
+	out, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	events, ok := out[ContractEventKey{TxIdx: 1, OpIdx: 0}]
+	require.True(t, ok, "expected events at tx 1 op 0")
+	require.Len(t, events, 1)
+}
+
+// TestExtractContractEventsForLedger_UnknownMetaVersionErrors confirms the one
+// intentional behavior change: an unsupported TransactionMeta version surfaces
+// as a propagated error (fail loud) rather than being silently dropped.
+func TestExtractContractEventsForLedger_UnknownMetaVersionErrors(t *testing.T) {
+	ctx := context.Background()
+
+	opResults := []xdr.OperationResult{
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
+	}
+	applyMeta := xdr.TransactionMeta{V: 99} // unsupported; all arm pointers nil
+
+	lcm := newSyntheticLedgerCloseMeta(101, opResults, applyMeta)
+
+	_, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported TransactionMeta version")
 }
