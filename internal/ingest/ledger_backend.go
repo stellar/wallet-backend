@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pelletier/go-toml"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
@@ -15,7 +14,7 @@ import (
 func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	switch cfg.LedgerBackendType {
 	case LedgerBackendTypeDatastore:
-		return newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+		return newDatastoreLedgerBackend(ctx, cfg.Datastore, cfg.NetworkPassphrase)
 	case LedgerBackendTypeRPC:
 		return newRPCLedgerBackend(cfg)
 	default:
@@ -23,34 +22,69 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 	}
 }
 
-func newDatastoreLedgerBackend(ctx context.Context, datastoreConfigPath string, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
-	storageBackendConfig, err := loadDatastoreBackendConfig(datastoreConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("loading datastore config: %w", err)
+// DatastoreConfig holds the flag/env-driven configuration for the datastore ledger backend.
+// LedgersPerFile and FilesPerPartition default to 0, meaning the schema is read from the
+// datastore's published manifest (.config.json); set them only for a manifest-less store.
+type DatastoreConfig struct {
+	BucketPath  string // → params["destination_bucket_path"]
+	Region      string // → params["region"] (omitted when empty)
+	EndpointURL string // → params["endpoint_url"] (omitted when empty; for minio/custom endpoints)
+
+	BufferSize uint32
+	NumWorkers uint32
+	RetryLimit uint32
+	RetryWait  time.Duration
+
+	LedgersPerFile    uint32 // 0 = read from the datastore manifest
+	FilesPerPartition uint32 // 0 = read from the datastore manifest
+}
+
+// dataStoreConfig builds the SDK datastore config from the flag/env values. Only S3 is
+// supported (both the pubnet data lake and the integration-test minio store are S3-compatible).
+func (dc DatastoreConfig) dataStoreConfig(networkPassphrase string) datastore.DataStoreConfig {
+	params := map[string]string{"destination_bucket_path": dc.BucketPath}
+	if dc.Region != "" {
+		params["region"] = dc.Region
 	}
+	if dc.EndpointURL != "" {
+		params["endpoint_url"] = dc.EndpointURL
+	}
+	return datastore.DataStoreConfig{
+		Type:              "S3",
+		Params:            params,
+		Schema:            datastore.DataStoreSchema{LedgersPerFile: dc.LedgersPerFile, FilesPerPartition: dc.FilesPerPartition},
+		NetworkPassphrase: networkPassphrase,
+	}
+}
 
-	storageBackendConfig.DataStoreConfig.NetworkPassphrase = networkPassphrase
+func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkPassphrase string) (ledgerbackend.LedgerBackend, error) {
+	dsCfg := dc.dataStoreConfig(networkPassphrase)
 
-	dataStore, err := datastore.NewDataStore(ctx, storageBackendConfig.DataStoreConfig)
+	dataStore, err := datastore.NewDataStore(ctx, dsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating datastore: %w", err)
 	}
 
-	schema, err := datastore.LoadSchema(ctx, dataStore, storageBackendConfig.DataStoreConfig)
+	schema, err := datastore.LoadSchema(ctx, dataStore, dsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("loading datastore schema: %w", err)
 	}
 
-	ledgerBackend, err := ledgerbackend.NewBufferedStorageBackend(
-		storageBackendConfig.BufferedStorageBackendConfig,
+	ledgerBackend, err := newOptimizedStorageBackend(
+		ledgerbackend.BufferedStorageBackendConfig{
+			BufferSize: dc.BufferSize,
+			NumWorkers: dc.NumWorkers,
+			RetryLimit: dc.RetryLimit,
+			RetryWait:  dc.RetryWait,
+		},
 		dataStore,
 		schema,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating buffered storage backend: %w", err)
+		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
 	}
 
-	log.Info("Using BufferedStorageBackend for ledger ingestion")
+	log.Infof("Using optimized storage backend with buffer size %d, %d workers", dc.BufferSize, dc.NumWorkers)
 	return ledgerBackend, nil
 }
 
@@ -63,35 +97,17 @@ func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	return backend, nil
 }
 
-func loadDatastoreBackendConfig(configPath string) (StorageBackendConfig, error) {
-	if configPath == "" {
-		return StorageBackendConfig{}, fmt.Errorf("datastore config file path is required for datastore backend type")
-	}
-
-	cfg, err := toml.LoadFile(configPath)
-	if err != nil {
-		return StorageBackendConfig{}, fmt.Errorf("loading datastore config file %s: %w", configPath, err)
-	}
-
-	var storageBackendConfig StorageBackendConfig
-	if err = cfg.Unmarshal(&storageBackendConfig); err != nil {
-		return StorageBackendConfig{}, fmt.Errorf("unmarshalling datastore config: %w", err)
-	}
-
-	return storageBackendConfig, nil
-}
-
 // LoadtestBackendConfig holds configuration for the loadtest ledger backend.
 type LoadtestBackendConfig struct {
 	NetworkPassphrase   string
 	LedgersFilePath     string
 	LedgerCloseDuration time.Duration
-	DatastoreConfigPath string
+	Datastore           DatastoreConfig
 }
 
 // NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
 func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
-	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.DatastoreConfigPath, cfg.NetworkPassphrase)
+	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.Datastore, cfg.NetworkPassphrase)
 	if err != nil {
 		return nil, fmt.Errorf("creating datastore ledger backend: %w", err)
 	}

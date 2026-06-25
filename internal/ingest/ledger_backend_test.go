@@ -2,8 +2,6 @@ package ingest
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,65 +77,42 @@ func TestNewRPCLedgerBackend(t *testing.T) {
 	}
 }
 
-func TestLoadDatastoreBackendConfig_EmptyPath(t *testing.T) {
-	cfg, err := loadDatastoreBackendConfig("")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "datastore config file path is required")
-	assert.Equal(t, StorageBackendConfig{}, cfg)
-}
+func TestDatastoreConfig_dataStoreConfig(t *testing.T) {
+	const passphrase = "Test SDF Network ; September 2015"
 
-func TestLoadDatastoreBackendConfig_InvalidPath(t *testing.T) {
-	cfg, err := loadDatastoreBackendConfig("/nonexistent/path/config.toml")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "loading datastore config file")
-	assert.Equal(t, StorageBackendConfig{}, cfg)
-}
+	t.Run("bucket only: region/endpoint omitted, schema from manifest", func(t *testing.T) {
+		got := DatastoreConfig{BucketPath: "my-bucket/ledgers"}.dataStoreConfig(passphrase)
 
-func TestLoadDatastoreBackendConfig_InvalidTOML(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "invalid.toml")
+		assert.Equal(t, "S3", got.Type)
+		assert.Equal(t, passphrase, got.NetworkPassphrase)
+		assert.Equal(t, map[string]string{"destination_bucket_path": "my-bucket/ledgers"}, got.Params)
+		// Zero schema means "read from the datastore manifest".
+		assert.Equal(t, uint32(0), got.Schema.LedgersPerFile)
+		assert.Equal(t, uint32(0), got.Schema.FilesPerPartition)
+	})
 
-	err := os.WriteFile(configPath, []byte("invalid toml content [[["), 0o644)
-	require.NoError(t, err)
+	t.Run("region, endpoint and inline schema set", func(t *testing.T) {
+		got := DatastoreConfig{
+			BucketPath:        "ledgers",
+			Region:            "us-east-1",
+			EndpointURL:       "http://minio:9000",
+			LedgersPerFile:    1,
+			FilesPerPartition: 1,
+		}.dataStoreConfig(passphrase)
 
-	cfg, err := loadDatastoreBackendConfig(configPath)
-	assert.Error(t, err)
-	assert.Equal(t, StorageBackendConfig{}, cfg)
-}
+		assert.Equal(t, map[string]string{
+			"destination_bucket_path": "ledgers",
+			"region":                  "us-east-1",
+			"endpoint_url":            "http://minio:9000",
+		}, got.Params)
+		assert.Equal(t, uint32(1), got.Schema.LedgersPerFile)
+		assert.Equal(t, uint32(1), got.Schema.FilesPerPartition)
+	})
 
-func TestLoadDatastoreBackendConfig_Success(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.toml")
+	t.Run("empty region and endpoint are omitted from params", func(t *testing.T) {
+		got := DatastoreConfig{BucketPath: "b"}.dataStoreConfig(passphrase)
 
-	validTOML := `
-[datastore_config]
-network_passphrase = "Test SDF Network ; September 2015"
-
-[buffered_storage_backend_config]
-buffer_size = 64
-num_workers = 2
-retry_limit = 3
-retry_wait = "5s"
-`
-
-	err := os.WriteFile(configPath, []byte(validTOML), 0o644)
-	require.NoError(t, err)
-
-	cfg, err := loadDatastoreBackendConfig(configPath)
-	assert.NoError(t, err)
-	assert.Equal(t, uint32(64), cfg.BufferedStorageBackendConfig.BufferSize)
-	assert.Equal(t, uint32(2), cfg.BufferedStorageBackendConfig.NumWorkers)
-	assert.Equal(t, uint32(3), cfg.BufferedStorageBackendConfig.RetryLimit)
-}
-
-func TestLoadDatastoreBackendConfig_EmptyFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "empty.toml")
-
-	err := os.WriteFile(configPath, []byte(""), 0o644)
-	require.NoError(t, err)
-
-	cfg, err := loadDatastoreBackendConfig(configPath)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
+		require.NotContains(t, got.Params, "region")
+		require.NotContains(t, got.Params, "endpoint_url")
+	})
 }

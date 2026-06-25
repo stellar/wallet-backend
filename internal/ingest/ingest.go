@@ -16,7 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
-	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/apptracker"
@@ -42,12 +41,6 @@ const (
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
 )
 
-// StorageBackendConfig holds configuration for the datastore-based ledger backend
-type StorageBackendConfig struct {
-	DataStoreConfig              datastore.DataStoreConfig                  `toml:"datastore_config"`
-	BufferedStorageBackendConfig ledgerbackend.BufferedStorageBackendConfig `toml:"buffered_storage_backend_config"`
-}
-
 type Configs struct {
 	IngestionMode          string
 	OldestLedgerCursorName string
@@ -66,8 +59,8 @@ type Configs struct {
 	CheckpointFrequency    int
 	// LedgerBackendType specifies which backend to use for fetching ledgers
 	LedgerBackendType LedgerBackendType
-	// DatastoreConfigPath is the path to the TOML config file for datastore backend
-	DatastoreConfigPath string
+	// Datastore holds the datastore ledger backend configuration (flag/env driven).
+	Datastore DatastoreConfig
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
