@@ -240,7 +240,7 @@ func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 			Usage:       "Number of ledger files to prefetch into the datastore read buffer.",
 			OptType:     types.Uint32,
 			ConfigKey:   &cfg.BufferSize,
-			FlagDefault: uint32(1000),
+			FlagDefault: uint32(100),
 			Required:    false,
 		},
 		{
