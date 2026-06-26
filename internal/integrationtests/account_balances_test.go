@@ -373,3 +373,25 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 		}
 	}
 }
+
+// TestLiveIngestion_FeeBumpFeeSource_NativeBalanceFoldsFee verifies issue #637: an account
+// that pays only a fee-bump fee — touched by no operation — still has its native balance
+// correctly reduced by that fee. Before the fix the fee phase was never folded into native
+// balances, so this account would have been missing or stale-high. It is funded with exactly
+// 10000 XLM and charged exactly 200 stroops (MinBaseFee × 2), so the indexed balance must be
+// 9999.9999800.
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_FeeBumpFeeSource_NativeBalanceFoldsFee() {
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
+		context.Background(),
+		suite.testEnv.FeeBumpSourceKP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(balances, 1, "fee-bump fee source should have exactly one (native) balance")
+
+	nb, ok := balances[0].(*types.NativeBalance)
+	suite.Require().True(ok, "expected a native balance, got %T", balances[0])
+	suite.Require().Equal(types.TokenTypeNative, nb.GetTokenType())
+	suite.Require().Equal("9999.9999800", nb.GetBalance(),
+		"native balance must reflect the fee-phase debit (10000 XLM − 200 stroops) folded in (#637)")
+	suite.Require().Greater(nb.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+}

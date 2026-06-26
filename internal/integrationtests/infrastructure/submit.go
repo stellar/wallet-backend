@@ -95,6 +95,88 @@ func SubmitUseCases(ctx context.Context, env *TestEnvironment) error {
 		log.Ctx(ctx).Info(RenderResult(uc))
 	}
 
+	// Fee-bump fixture: its fee source moves only in the fee phase (issue #637).
+	if err := submitFeeBumpFixture(ctx, env); err != nil {
+		return fmt.Errorf("submitting fee-bump fixture: %w", err)
+	}
+
+	return nil
+}
+
+// FeeBumpFixtureFeeStroops is the exact fee charged to the fee-bump fixture's fee source:
+// MinBaseFee × (1 inner op + 1) = 200 stroops. Declaring the network minimum makes the
+// charge deterministic, so the indexed balance can be asserted exactly.
+const FeeBumpFixtureFeeStroops = txnbuild.MinBaseFee * 2
+
+// submitFeeBumpFixture submits a fee-bump transaction whose fee source (env.FeeBumpSourceKP)
+// is absent from every operation's meta — its native balance moves only in the fee phase.
+// This exercises issue #637 end-to-end: AccountsProcessor.ProcessTransactionFees must fold
+// the fee debit into the fee source's native balance even though no operation touches it.
+func submitFeeBumpFixture(ctx context.Context, env *TestEnvironment) error {
+	rpcService := env.RPCService
+
+	// Inner transaction: a payment between two OTHER accounts, so the fee source appears
+	// in no operation meta.
+	seq, err := rpcService.GetAccountLedgerSequence(env.PrimaryAccountKP.Address())
+	if err != nil {
+		return fmt.Errorf("getting inner source sequence: %w", err)
+	}
+	innerSource := txnbuild.SimpleAccount{AccountID: env.PrimaryAccountKP.Address(), Sequence: seq}
+	innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount: &innerSource,
+		Operations: []txnbuild.Operation{&txnbuild.Payment{
+			Destination: env.SecondaryAccountKP.Address(),
+			Amount:      DefaultPaymentAmount,
+			Asset:       txnbuild.NativeAsset{},
+		}},
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		IncrementSequenceNum: true,
+	})
+	if err != nil {
+		return fmt.Errorf("building inner transaction: %w", err)
+	}
+	innerTx, err = innerTx.Sign(networkPassphrase, env.PrimaryAccountKP)
+	if err != nil {
+		return fmt.Errorf("signing inner transaction: %w", err)
+	}
+
+	// Fee bump: env.FeeBumpSourceKP pays the fee and is otherwise untouched.
+	feeBumpTx, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+		Inner:      innerTx,
+		FeeAccount: env.FeeBumpSourceKP.Address(),
+		BaseFee:    txnbuild.MinBaseFee,
+	})
+	if err != nil {
+		return fmt.Errorf("building fee-bump transaction: %w", err)
+	}
+	feeBumpTx, err = feeBumpTx.Sign(networkPassphrase, env.FeeBumpSourceKP)
+	if err != nil {
+		return fmt.Errorf("signing fee-bump transaction: %w", err)
+	}
+
+	txXDR, err := feeBumpTx.Base64()
+	if err != nil {
+		return fmt.Errorf("encoding fee-bump transaction: %w", err)
+	}
+
+	res, err := rpcService.SendTransaction(txXDR)
+	if err != nil {
+		return fmt.Errorf("sending fee-bump transaction: %w", err)
+	}
+	if res.Status != entities.PendingStatus {
+		return fmt.Errorf("fee-bump transaction %s failed with status %s, errorResultXdr=%+v", res.Hash, res.Status, res.ErrorResultXDR)
+	}
+
+	txResult, err := WaitForTransactionConfirmation(ctx, rpcService, res.Hash)
+	if err != nil {
+		return fmt.Errorf("waiting for fee-bump confirmation: %w", err)
+	}
+	if txResult.Status != entities.SuccessStatus {
+		return fmt.Errorf("fee-bump transaction %s did not succeed: status=%s", res.Hash, txResult.Status)
+	}
+
+	log.Ctx(ctx).Infof("✅ Submitted fee-bump fixture; fee source %s charged %d stroops", env.FeeBumpSourceKP.Address(), FeeBumpFixtureFeeStroops)
 	return nil
 }
 
