@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,7 +187,7 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 				assert.Equal(t, tc.expectedOp, change.Operation)
 				assert.Equal(t, testAccount.Address(), change.AccountID)
 				assert.Equal(t, uint32(12345), change.LedgerNumber)
-				assert.NotZero(t, change.OperationID)
+				assert.NotZero(t, change.SortKey)
 
 				// Verify balance/liabilities for created/updated
 				if tc.expectedOp != types.AccountOpRemove {
@@ -207,12 +206,11 @@ func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 	processor := NewAccountsProcessor(nil)
 	testAccount := accountA.ToAccountId()
 
-	// someTx is on ledger 12345. Fee debits sort below every operation in the ledger
-	// (toid op 0); Soroban refunds sort above every operation (one below the next
-	// ledger's floor).
+	// someTx is on ledger 12345 with Index 1. Fee debits get phaseFee (sorts below every
+	// operation in the ledger); Soroban refunds get phaseRefund (sorts above every operation).
 	const ledgerSeq = uint32(12345)
-	feeOpID := toid.New(int32(ledgerSeq), 0, 0).ToInt64()
-	refundOpID := toid.New(int32(ledgerSeq)+1, 0, 0).ToInt64() - 1
+	feeOpID := accountSortKey(phaseFee, someTx.Index, 0)
+	refundOpID := accountSortKey(phaseRefund, someTx.Index, 0)
 
 	// accountBalanceChange builds a State→Updated pair for testAccount. Two separate
 	// accountLedgerEntry calls (fresh entries) avoid aliasing the pre/post balance.
@@ -223,10 +221,10 @@ func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 		}
 	}
 
-	// expectedChange is the (OperationID, Balance) pair we expect for a returned change.
+	// expectedChange is the (SortKey, Balance) pair we expect for a returned change.
 	type expectedChange struct {
-		operationID int64
-		balance     int64
+		sortKey int64
+		balance int64
 	}
 
 	tests := []struct {
@@ -296,11 +294,29 @@ func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 				assert.Equal(t, testAccount.Address(), got.AccountID)
 				assert.Equal(t, types.AccountOpUpdate, got.Operation)
 				assert.Equal(t, ledgerSeq, got.LedgerNumber)
-				assert.Equal(t, want.operationID, got.OperationID)
+				assert.Equal(t, want.sortKey, got.SortKey)
 				assert.Equal(t, want.balance, got.Balance)
 				// Reserve calc still runs on fee-phase entries: (2 + 0 + 0 - 0) * 5_000_000 + 200.
 				assert.Equal(t, int64(10000200), got.MinimumBalance)
 			}
 		})
 	}
+}
+
+func TestAccountSortKey(t *testing.T) {
+	// Phase dominates tx/op: a fee in a late tx still sorts below an operation in an
+	// early tx, which sorts below a refund in an early tx — the canonical fee < op < refund.
+	assert.Less(t, accountSortKey(phaseFee, 9, 0), accountSortKey(phaseOperation, 1, 1))
+	assert.Less(t, accountSortKey(phaseOperation, 9, 99), accountSortKey(phaseRefund, 1, 0))
+
+	// Within a phase: ordered by tx, then op.
+	assert.Less(t, accountSortKey(phaseFee, 3, 0), accountSortKey(phaseFee, 7, 0))
+	assert.Less(t, accountSortKey(phaseRefund, 3, 0), accountSortKey(phaseRefund, 7, 0))
+	assert.Less(t, accountSortKey(phaseOperation, 5, 1), accountSortKey(phaseOperation, 5, 2))
+	assert.Less(t, accountSortKey(phaseOperation, 5, 2), accountSortKey(phaseOperation, 6, 1))
+
+	// Stays positive at the SDK field maxima (tx 2^20-1, op 4095) and below the next phase.
+	maxOp := accountSortKey(phaseOperation, (1<<20)-1, 4095)
+	assert.Positive(t, maxOp)
+	assert.Less(t, maxOp, accountSortKey(phaseRefund, 0, 0))
 }

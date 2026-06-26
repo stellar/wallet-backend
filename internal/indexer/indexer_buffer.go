@@ -232,7 +232,7 @@ func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.Trust
 }
 
 // PushAccountChange adds an account change to the buffer with deduplication.
-// Keeps the change with highest OperationID per account. Handles CREATE→REMOVE no-op case.
+// Keeps the change with highest SortKey per account. Handles CREATE→REMOVE no-op case.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	b.mu.Lock()
@@ -241,8 +241,8 @@ func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	accountID := accountChange.AccountID
 	existing, exists := b.accountChangesByAccountID[accountID]
 
-	// Keep the change with highest OperationID
-	if exists && existing.OperationID > accountChange.OperationID {
+	// Keep the change with highest SortKey
+	if exists && existing.SortKey > accountChange.SortKey {
 		return
 	}
 
@@ -457,7 +457,7 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	for accountID, change := range otherBuffer.accountChangesByAccountID {
 		existing, exists := b.accountChangesByAccountID[accountID]
 
-		if exists && existing.OperationID > change.OperationID {
+		if exists && existing.SortKey > change.SortKey {
 			continue
 		}
 

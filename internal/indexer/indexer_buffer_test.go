@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
-	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -951,18 +950,25 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 // account-change dedup tests below (the buffer keys on the string, not its validity).
 const accountChangeAddr = "GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON"
 
-func TestIndexerBuffer_PushAccountChange(t *testing.T) {
-	// Fee debits are stamped with the ledger floor (toid op 0) so any operation in the
-	// ledger outranks them; Soroban refunds with the ledger ceiling so they outrank
-	// every operation. These are the keys AccountsProcessor.ProcessTransactionFees uses.
-	const ledger = int32(12345)
-	feeID := toid.New(ledger, 0, 0).ToInt64()
-	refundID := toid.New(ledger+1, 0, 0).ToInt64() - 1
+// Dedup phases mirroring AccountsProcessor's canonical ordering: fee < operation < refund.
+const (
+	rankFee    int64 = 0
+	rankOp     int64 = 1
+	rankRefund int64 = 2
+)
 
-	accountChange := func(operationID, balance int64, op types.AccountOpType) types.AccountChange {
+// accountRank builds an order-preserving dedup key (phase, then tx, then op) mirroring how
+// AccountsProcessor ranks native-balance changes. The buffer only compares the int64, so
+// only the ordering matters here — not the exact encoding.
+func accountRank(phase, tx, op int64) int64 {
+	return phase<<37 | tx<<13 | op
+}
+
+func TestIndexerBuffer_PushAccountChange(t *testing.T) {
+	accountChange := func(sortKey, balance int64, op types.AccountOpType) types.AccountChange {
 		return types.AccountChange{
 			AccountID:    accountChangeAddr,
-			OperationID:  operationID,
+			SortKey:      sortKey,
 			LedgerNumber: 12345,
 			Operation:    op,
 			Balance:      balance,
@@ -971,7 +977,7 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 
 	t.Run("🟢 stores account change", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		change := accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate)
+		change := accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate)
 		buffer.PushAccountChange(change)
 
 		changes := buffer.GetAccountChanges()
@@ -979,11 +985,11 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, change, changes[accountChangeAddr])
 	})
 
-	t.Run("🟢 keeps change with highest OperationID", func(t *testing.T) {
+	t.Run("🟢 keeps change with highest sort key", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate))
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 2, 1).ToInt64(), 200, types.AccountOpUpdate))
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 50, types.AccountOpUpdate)) // lower than tx 2 → ignored
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 2, 1), 200, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 50, types.AccountOpUpdate)) // lower than tx 2 → ignored
 
 		changes := buffer.GetAccountChanges()
 		require.Len(t, changes, 1)
@@ -992,16 +998,16 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 
 	t.Run("🟢 handles CREATE→REMOVE no-op case", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpCreate))
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 0, types.AccountOpRemove))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
 
 		assert.Len(t, buffer.GetAccountChanges(), 0)
 	})
 
 	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 1).ToInt64(), 100, types.AccountOpUpdate))
-		buffer.PushAccountChange(accountChange(toid.New(ledger, 1, 2).ToInt64(), 0, types.AccountOpRemove))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
 
 		changes := buffer.GetAccountChanges()
 		require.Len(t, changes, 1)
@@ -1010,19 +1016,18 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 
 	t.Run("🟢 fee change captured when uncontested (issue #637)", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		buffer.PushAccountChange(accountChange(feeID, 999, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
 
 		changes := buffer.GetAccountChanges()
 		require.Len(t, changes, 1)
 		assert.Equal(t, int64(999), changes[accountChangeAddr].Balance)
 	})
 
-	t.Run("🟢 operation change beats fee change regardless of push order", func(t *testing.T) {
-		// Fee source in a late tx (tx 9), op participant in an early tx (tx 2): the op
-		// must win even though the fee's tx index is higher, because every fee uses the
-		// ledger floor. This is the cross-tx hazard.
-		feeChange := accountChange(feeID, 999, types.AccountOpUpdate)
-		opChange := accountChange(toid.New(ledger, 2, 1).ToInt64(), 500, types.AccountOpUpdate)
+	t.Run("🟢 operation beats fee regardless of push order", func(t *testing.T) {
+		// Fee source in a late tx (9), op participant in an early tx (2): the op still wins
+		// because phase dominates — every operation outranks every fee in the ledger.
+		feeChange := accountChange(accountRank(rankFee, 9, 0), 999, types.AccountOpUpdate)
+		opChange := accountChange(accountRank(rankOp, 2, 1), 500, types.AccountOpUpdate)
 
 		feeFirst := NewIndexerBuffer()
 		feeFirst.PushAccountChange(feeChange)
@@ -1035,9 +1040,11 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, int64(500), opFirst.GetAccountChanges()[accountChangeAddr].Balance)
 	})
 
-	t.Run("🟢 refund change beats operation change regardless of push order", func(t *testing.T) {
-		opChange := accountChange(toid.New(ledger, 3, 1).ToInt64(), 500, types.AccountOpUpdate)
-		refundChange := accountChange(refundID, 550, types.AccountOpUpdate)
+	t.Run("🟢 refund beats operation regardless of push order", func(t *testing.T) {
+		// Refund in an early tx (3) still outranks an op in a later tx (8): phase dominates,
+		// matching the canonical order where all refunds apply after all operations.
+		opChange := accountChange(accountRank(rankOp, 8, 1), 500, types.AccountOpUpdate)
+		refundChange := accountChange(accountRank(rankRefund, 3, 0), 550, types.AccountOpUpdate)
 
 		opFirst := NewIndexerBuffer()
 		opFirst.PushAccountChange(opChange)
@@ -1049,48 +1056,104 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		refundFirst.PushAccountChange(opChange)
 		assert.Equal(t, int64(550), refundFirst.GetAccountChanges()[accountChangeAddr].Balance)
 	})
+
+	t.Run("🟢 later-tx fee wins over earlier-tx fee regardless of push order", func(t *testing.T) {
+		// Same account charged fees in tx 3 and tx 7 (e.g. a shared fee-bump source). The
+		// later tx's cumulative balance wins by key — no longer reliant on push/merge order.
+		early := accountChange(accountRank(rankFee, 3, 0), 100, types.AccountOpUpdate)
+		late := accountChange(accountRank(rankFee, 7, 0), 200, types.AccountOpUpdate)
+
+		earlyFirst := NewIndexerBuffer()
+		earlyFirst.PushAccountChange(early)
+		earlyFirst.PushAccountChange(late)
+		assert.Equal(t, int64(200), earlyFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		lateFirst := NewIndexerBuffer()
+		lateFirst.PushAccountChange(late)
+		lateFirst.PushAccountChange(early)
+		assert.Equal(t, int64(200), lateFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 later-tx refund wins over earlier-tx refund regardless of push order", func(t *testing.T) {
+		early := accountChange(accountRank(rankRefund, 3, 0), 100, types.AccountOpUpdate)
+		late := accountChange(accountRank(rankRefund, 7, 0), 200, types.AccountOpUpdate)
+
+		earlyFirst := NewIndexerBuffer()
+		earlyFirst.PushAccountChange(early)
+		earlyFirst.PushAccountChange(late)
+		assert.Equal(t, int64(200), earlyFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		lateFirst := NewIndexerBuffer()
+		lateFirst.PushAccountChange(late)
+		lateFirst.PushAccountChange(early)
+		assert.Equal(t, int64(200), lateFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 refund wins over fee and operation together", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 2, 0), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 5, 1), 200, types.AccountOpUpdate)) // later tx than the refund
+		buffer.PushAccountChange(accountChange(accountRank(rankRefund, 2, 0), 300, types.AccountOpUpdate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(300), changes[accountChangeAddr].Balance)
+	})
 }
 
 func TestIndexerBuffer_MergeAccountChanges(t *testing.T) {
-	// Cross-tx winners resolve during Merge (per-tx buffers merged in tx order), so the
-	// same fee<op<refund ordering must hold there too.
-	const ledger = int32(12345)
-	feeID := toid.New(ledger, 0, 0).ToInt64()
-	refundID := toid.New(ledger+1, 0, 0).ToInt64() - 1
-
-	accountChange := func(operationID, balance int64) types.AccountChange {
+	// Each tx is processed into its own buffer, then merged. Because the dedup key is a
+	// total order with no ties, the winner is the same no matter what order buffers merge —
+	// that is what makes parallel-then-merge safe.
+	accountChange := func(sortKey, balance int64) types.AccountChange {
 		return types.AccountChange{
 			AccountID:    accountChangeAddr,
-			OperationID:  operationID,
+			SortKey:      sortKey,
 			LedgerNumber: 12345,
 			Operation:    types.AccountOpUpdate,
 			Balance:      balance,
 		}
 	}
 
-	t.Run("🟢 operation change beats fee change across buffers", func(t *testing.T) {
-		opBuffer := NewIndexerBuffer()
-		opBuffer.PushAccountChange(accountChange(toid.New(ledger, 2, 1).ToInt64(), 500))
-
-		feeBuffer := NewIndexerBuffer()
-		feeBuffer.PushAccountChange(accountChange(feeID, 999))
+	// mergeBalance pushes a and b into separate buffers, merges them in the given order into
+	// a fresh buffer, and returns the surviving balance for accountChangeAddr.
+	mergeBalance := func(a, b types.AccountChange) int64 {
+		bufA := NewIndexerBuffer()
+		bufA.PushAccountChange(a)
+		bufB := NewIndexerBuffer()
+		bufB.PushAccountChange(b)
 
 		merged := NewIndexerBuffer()
-		merged.Merge(opBuffer)
-		merged.Merge(feeBuffer)
-		assert.Equal(t, int64(500), merged.GetAccountChanges()[accountChangeAddr].Balance)
+		merged.Merge(bufA)
+		merged.Merge(bufB)
+		return merged.GetAccountChanges()[accountChangeAddr].Balance
+	}
+
+	t.Run("🟢 operation beats fee across buffers", func(t *testing.T) {
+		op := accountChange(accountRank(rankOp, 2, 1), 500)
+		fee := accountChange(accountRank(rankFee, 9, 0), 999)
+		assert.Equal(t, int64(500), mergeBalance(op, fee))
+		assert.Equal(t, int64(500), mergeBalance(fee, op))
 	})
 
-	t.Run("🟢 refund change beats operation change across buffers", func(t *testing.T) {
-		opBuffer := NewIndexerBuffer()
-		opBuffer.PushAccountChange(accountChange(toid.New(ledger, 3, 1).ToInt64(), 500))
+	t.Run("🟢 refund beats operation across buffers", func(t *testing.T) {
+		op := accountChange(accountRank(rankOp, 8, 1), 500)
+		refund := accountChange(accountRank(rankRefund, 3, 0), 550)
+		assert.Equal(t, int64(550), mergeBalance(op, refund))
+		assert.Equal(t, int64(550), mergeBalance(refund, op))
+	})
 
-		refundBuffer := NewIndexerBuffer()
-		refundBuffer.PushAccountChange(accountChange(refundID, 550))
+	t.Run("🟢 later-tx fee wins independent of merge order", func(t *testing.T) {
+		early := accountChange(accountRank(rankFee, 3, 0), 100)
+		late := accountChange(accountRank(rankFee, 7, 0), 200)
+		assert.Equal(t, int64(200), mergeBalance(early, late))
+		assert.Equal(t, int64(200), mergeBalance(late, early))
+	})
 
-		merged := NewIndexerBuffer()
-		merged.Merge(opBuffer)
-		merged.Merge(refundBuffer)
-		assert.Equal(t, int64(550), merged.GetAccountChanges()[accountChangeAddr].Balance)
+	t.Run("🟢 later-tx refund wins independent of merge order", func(t *testing.T) {
+		early := accountChange(accountRank(rankRefund, 3, 0), 100)
+		late := accountChange(accountRank(rankRefund, 7, 0), 200)
+		assert.Equal(t, int64(200), mergeBalance(early, late))
+		assert.Equal(t, int64(200), mergeBalance(late, early))
 	})
 }

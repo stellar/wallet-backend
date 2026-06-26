@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -19,6 +18,31 @@ const (
 	MinimumBaseReserveCount = 2
 	BaseReserveStroops      = 5_000_000
 )
+
+// Balance-change phases within a single ledger, in Stellar's canonical close order:
+// every transaction's fee is charged, then all operations apply, then post-apply
+// (Soroban) fee refunds are credited. accountSortKey makes phase the dominant term so
+// this order is reproduced regardless of transaction or operation index.
+const (
+	phaseFee       uint8 = 0
+	phaseOperation uint8 = 1
+	phaseRefund    uint8 = 2
+)
+
+// accountSortKey ranks a native-balance change within a single ledger by
+// (phase, txIndex, opIndex). The buffer keeps the highest key per account, so this
+// selects the chronologically-last change and writes its absolute balance. Phase sits
+// in the high bits — above the tx (24 bits) and op (13 bits) fields — so fee < operation
+// < refund holds for any tx/op count, and the key is a strict total order with no ties
+// (≤1 fee and ≤1 refund per account per tx; operations are unique per (tx, op)). That
+// makes the dedup independent of push/merge order.
+//
+// The ledger is intentionally omitted: the only buffer that deduplicates balances is the
+// per-ledger live buffer, so all keys compared share one ledger. If balances are ever
+// deduplicated across ledgers in a single buffer, prepend the ledger as the top term.
+func accountSortKey(phase uint8, txIndex, opIndex uint32) int64 {
+	return int64(phase)<<37 | int64(txIndex)<<13 | int64(opIndex)
+}
 
 // AccountsProcessor processes ledger changes to extract account balance modifications.
 type AccountsProcessor struct {
@@ -60,7 +84,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 			continue
 		}
 
-		accChange, skip, err := p.buildAccountChange(change, opWrapper.Transaction.Ledger.LedgerSequence(), opWrapper.ID())
+		accChange, skip, err := p.buildAccountChange(change, opWrapper.Transaction.Ledger.LedgerSequence(), accountSortKey(phaseOperation, opWrapper.Transaction.Index, opWrapper.Index))
 		if err != nil {
 			return nil, err
 		}
@@ -82,11 +106,10 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 // (issue #637).
 //
 // Balances are absolute (Core has already applied the fee/refund to the ledger
-// entry), so the synthetic OperationIDs only steer the buffer's max-OperationID
-// dedup to the correct winner: fee changes get the ledger floor (toid op 0), which
-// sorts below every operation TOID in the ledger; refund changes get the ledger
-// ceiling (one below the next ledger's floor), which sorts above every operation
-// TOID. This reproduces the on-chain order fee < operation < refund.
+// entry), so the sort key only steers the buffer's dedup to the correct winner:
+// fee changes get phaseFee and refund changes get phaseRefund, which sort below and
+// above every operation respectively — reproducing the on-chain order
+// fee < operation < refund (see accountSortKey).
 func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx ingest.LedgerTransaction) ([]types.AccountChange, error) {
 	startTime := time.Now()
 	defer func() {
@@ -98,12 +121,12 @@ func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx inges
 
 	ledgerSeq := tx.Ledger.LedgerSequence()
 
-	feeChanges, err := p.feeAccountChanges(tx.GetFeeChanges(), ledgerSeq, toid.New(int32(ledgerSeq), 0, 0).ToInt64())
+	feeChanges, err := p.feeAccountChanges(tx.GetFeeChanges(), ledgerSeq, accountSortKey(phaseFee, tx.Index, 0))
 	if err != nil {
 		return nil, err
 	}
 
-	refundChanges, err := p.feeAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, toid.New(int32(ledgerSeq)+1, 0, 0).ToInt64()-1)
+	refundChanges, err := p.feeAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, accountSortKey(phaseRefund, tx.Index, 0))
 	if err != nil {
 		return nil, err
 	}
@@ -112,15 +135,15 @@ func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx inges
 }
 
 // feeAccountChanges converts the account-typed entries in a fee-phase change set into
-// AccountChanges stamped with the given OperationID.
-func (p *AccountsProcessor) feeAccountChanges(changes []ingest.Change, ledgerSeq uint32, operationID int64) ([]types.AccountChange, error) {
+// AccountChanges stamped with the given sort key.
+func (p *AccountsProcessor) feeAccountChanges(changes []ingest.Change, ledgerSeq uint32, sortKey int64) ([]types.AccountChange, error) {
 	var accountChanges []types.AccountChange
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeAccount {
 			continue
 		}
 
-		accChange, skip, err := p.buildAccountChange(change, ledgerSeq, operationID)
+		accChange, skip, err := p.buildAccountChange(change, ledgerSeq, sortKey)
 		if err != nil {
 			return nil, err
 		}
@@ -135,9 +158,9 @@ func (p *AccountsProcessor) feeAccountChanges(changes []ingest.Change, ledgerSeq
 }
 
 // buildAccountChange converts a ledger change to an AccountChange, stamped with the
-// given ledger sequence and OperationID. Returns (change, skip, error) where
+// given ledger sequence and sort key. Returns (change, skip, error) where
 // skip=true means the change should be ignored.
-func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq uint32, operationID int64) (types.AccountChange, bool, error) {
+func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq uint32, sortKey int64) (types.AccountChange, bool, error) {
 	var accChange types.AccountChange
 
 	// Skip if only signers changed (no balance/state change)
@@ -173,7 +196,7 @@ func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq u
 
 	// Build the AccountChange
 	accChange.AccountID = account.AccountId.Address()
-	accChange.OperationID = operationID
+	accChange.SortKey = sortKey
 	accChange.LedgerNumber = ledgerSeq
 	accChange.Balance = int64(account.Balance)
 	accChange.BuyingLiabilities = int64(liabilities.Buying)

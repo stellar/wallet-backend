@@ -240,8 +240,11 @@ type ContractChange struct {
 }
 
 type AccountChange struct {
-	AccountID          string
-	OperationID        int64
+	AccountID string
+	// SortKey is a within-ledger dedup rank (phase|tx|op via accountSortKey), not a TOID.
+	// The buffer keeps the highest per account to pick the chronologically-last balance;
+	// it is never persisted.
+	SortKey            int64
 	LedgerNumber       uint32
 	Operation          AccountOpType
 	Balance            int64
