@@ -43,6 +43,11 @@ func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.Ac
 	return r.resolveNullableAddress(obj.FunderAccountID), nil
 }
 
+// DeployerAddress is the resolver for the deployerAddress field.
+func (r *accountChangeResolver) DeployerAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.DeployerAccountID), nil
+}
+
 // Type is the resolver for the type field.
 func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil

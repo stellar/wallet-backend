@@ -50,6 +50,7 @@ const (
 		}
 		... on AccountChange {
 			funderAddress
+			deployerAddress
 		}
 		... on SignerChange {
 			signerAddress

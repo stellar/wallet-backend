@@ -603,7 +603,7 @@ internal/db/migrations/protocols/
 └── 003_aqua.sql
 ```
 
-These files are idempotent (`INSERT ... ON CONFLICT DO NOTHING`) and live outside the tracked schema-migration table. A full `migrate up` runs them after the schema migrations, so protocols are registered before live ingestion restarts; `protocol-setup` also re-runs them as a safeguard.
+These files are idempotent (`INSERT ... ON CONFLICT DO NOTHING`) and live outside the tracked schema-migration table. `migrate up` runs them after the schema migrations, so protocols are registered before live ingestion restarts; `protocol-setup` also re-runs them as a safeguard.
 
 ### Explicit Protocol Selection
 
