@@ -254,6 +254,27 @@ func TestStateChangeResolver_AccountAddressFields(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, deployer)
 	})
+
+	t.Run("merge: destination is surfaced", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{
+			StateChange: types.StateChange{
+				DestinationAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true},
+			},
+		}
+
+		destination, err := resolver.DestinationAddress(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, destination)
+		assert.Equal(t, sharedTestAccountAddress, *destination)
+	})
+
+	t.Run("non-merge account change: destinationAddress is null", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{}
+
+		destination, err := resolver.DestinationAddress(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, destination)
+	})
 }
 
 func TestStateChangeResolver_Account(t *testing.T) {

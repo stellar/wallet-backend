@@ -31,6 +31,7 @@ CREATE TABLE state_changes (
     sponsor_account_id BYTEA,
     deployer_account_id BYTEA,
     funder_account_id BYTEA,
+    destination_account_id BYTEA,
     claimable_balance_id TEXT,
     liquidity_pool_id TEXT,
     sponsored_data TEXT,

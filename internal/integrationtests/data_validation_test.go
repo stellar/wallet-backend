@@ -980,7 +980,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 
 	// Fetch state changes in parallel
 	accountMergeQueries := []stateChangeQuery{
-		{name: "accountMerge", account: primaryAccount, txHash: &txHash, category: &accountCategory, reason: &mergeReason},
+		{name: "accountMerge", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: &mergeReason},
 		{name: "balanceCredit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
 		{name: "balanceDebit", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
 		{name: "sponsoredReservesUnsponsor", account: sponsoredNewAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
@@ -1007,6 +1007,8 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	accountChange := accountMergeChanges.Edges[0].Node.(*types.AccountChange)
 	suite.Require().Equal(types.StateChangeCategoryAccount, accountChange.GetType(), "should be ACCOUNT type")
 	suite.Require().Equal(types.StateChangeReasonMerge, accountChange.GetReason(), "reason should be MERGE")
+	suite.Require().NotNil(accountChange.DestinationAddress, "destination address should not be nil")
+	suite.Require().Equal(primaryAccount, *accountChange.DestinationAddress, "destination address should be the merge destination")
 
 	// Validate BALANCE/CREDIT change
 	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
