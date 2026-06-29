@@ -30,10 +30,10 @@ func (c *migrateCmd) Command() *cobra.Command {
 
 	migrateUpCmd := &cobra.Command{
 		Use:   "up",
-		Short: "Migrates database up [count] migrations",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.RunMigrateUp(cmd.Context(), databaseURL, args)
+		Short: "Applies all pending schema migrations and registers protocols",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return c.RunMigrateUp(cmd.Context(), databaseURL)
 		},
 	}
 
@@ -56,32 +56,21 @@ func (c *migrateCmd) Command() *cobra.Command {
 	return migrateCmd
 }
 
-func (c *migrateCmd) RunMigrateUp(ctx context.Context, databaseURL string, args []string) error {
-	var count int
-	if len(args) > 0 {
-		var err error
-		count, err = strconv.Atoi(args[0])
-		if err != nil {
-			return fmt.Errorf("invalid [count] argument: %s", args[0])
-		}
-	}
-	if err := executeMigrations(ctx, databaseURL, migrate.Up, count); err != nil {
+func (c *migrateCmd) RunMigrateUp(ctx context.Context, databaseURL string) error {
+	// migrate up applies all pending schema migrations, then registers protocols so live
+	// ingestion can classify new-protocol WASMs immediately on restart, without waiting for
+	// protocol-setup. Protocol SQL is idempotent (ON CONFLICT DO NOTHING).
+	if err := executeMigrations(ctx, databaseURL, migrate.Up, 0); err != nil {
 		return fmt.Errorf("executing migrate up: %w", err)
 	}
 
-	// A full `migrate up` also registers protocols so live ingestion can classify
-	// new-protocol WASMs immediately on restart, without waiting for protocol-setup.
-	// Skipped on partial (`migrate up N`) runs, which may not have created the
-	// protocols table yet. The protocol SQL is idempotent (ON CONFLICT DO NOTHING).
-	if count == 0 {
-		pool, err := db.OpenDBConnectionPool(ctx, databaseURL)
-		if err != nil {
-			return fmt.Errorf("opening database connection pool for protocol migrations: %w", err)
-		}
-		defer pool.Close()
-		if _, err := db.RunProtocolMigrations(ctx, pool); err != nil {
-			return fmt.Errorf("running protocol migrations: %w", err)
-		}
+	pool, err := db.OpenDBConnectionPool(ctx, databaseURL)
+	if err != nil {
+		return fmt.Errorf("opening database connection pool for protocol migrations: %w", err)
+	}
+	defer pool.Close()
+	if _, err := db.RunProtocolMigrations(ctx, pool); err != nil {
+		return fmt.Errorf("registering protocols: %w", err)
 	}
 	return nil
 }
