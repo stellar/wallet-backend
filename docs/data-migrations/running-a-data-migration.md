@@ -4,7 +4,7 @@ This guide covers the commands for running the data migration workflow after a n
 
 ## Prerequisites
 
-- A running PostgreSQL database with schema migrations applied
+- A running PostgreSQL database
 - A running Stellar RPC instance
 - The protocol code (validator, processor, registration) is compiled into the binary
 
@@ -19,31 +19,45 @@ Infrastructure config (`--database-url`, `--rpc-url`, `--network-passphrase`, et
 
 ## Migration Workflow
 
-The migration runs in two phases: a setup step, then three concurrent processes.
+The workflow runs in order: apply schema migrations, restart ingestion, then classify the backlog and backfill state. Restarting ingestion **before** `protocol-setup` is deliberate — live ingestion starts classifying new-protocol WASMs the moment it restarts, so no deployment can slip through the window between `protocol-setup`'s backlog snapshot and ingestion picking up the new validator.
 
 ```
-Phase 1 (sequential)          Phase 2 (concurrent)
-┌─────────────────────┐       ┌──────────────────────────────────────────────┐
-│ 1. protocol-setup   │──────>│ 2.  Restart live ingestion                  │
-│                     │       │ 3a. protocol-migrate history                │
-│                     │       │ 3b. protocol-migrate current-state          │
-└─────────────────────┘       └──────────────────────────────────────────────┘
+Step 1             Step 2                Step 3                Step 4 (concurrent)
+migrate up   ───>  restart ingestion ──> protocol-setup  ───>  protocol-migrate history
+(schema +          (classifies new       (classifies            protocol-migrate current-state
+ registration)      WASMs inline)         existing backlog)     (converge with live ingestion via CAS)
 ```
 
-### Step 1: Protocol Setup
+### Step 1: Schema Migration
 
-Classifies existing contracts on the network against your protocol's validator. This must complete before starting the other steps.
+Apply pending schema migrations. A full `migrate up` also registers the new protocol in the `protocols` table, so live ingestion can classify the protocol's WASMs as soon as it restarts.
+
+```bash
+go run main.go migrate up
+```
+
+This applies pending schema migrations from `internal/db/migrations/` and runs the idempotent protocol registration SQL from `internal/db/migrations/protocols/`. Partial runs (`migrate up N`) skip protocol registration, since the `protocols` table may not exist yet.
+
+### Step 2: Restart Live Ingestion
+
+Restart the ingestion service so it picks up the new protocol processor from the registry. No special flags are needed -- just restart the existing `ingest` process with its current configuration. Because Step 1 registered the protocol, ingestion classifies new-protocol WASMs inline from the moment it restarts.
+
+Live ingestion uses CAS cursors to coordinate with the migration subcommands. It only produces state for ledgers where the migration hasn't already written data. Once the history and current-state migrations converge with live ingestion (their CAS operations start failing because live ingestion has already advanced the cursor), they exit automatically.
+
+### Step 3: Protocol Setup
+
+Classifies the existing unclassified WASMs already recorded in `protocol_wasms` -- the backlog ingestion captured before the new validator existed. Running it after the ingestion restart makes the two classification windows overlap: live ingestion covers everything from the restart forward, `protocol-setup` covers the backlog up to its snapshot, and there is no gap between them.
 
 ```bash
 go run main.go protocol-setup --protocol-id <PROTOCOL_ID>
 ```
 
 What it does:
-- Runs protocol migration SQL (registers the protocol in the `protocols` table)
 - Fetches all unclassified WASM bytecodes from the network via RPC
 - Validates each WASM against registered protocol validators
 - Populates `protocol_wasms` and `protocol_contracts` tables
 - Initializes CAS cursors for both history and current-state migrations
+- Re-runs the protocol registration SQL as an idempotent safeguard, so the command remains self-sufficient if run standalone
 
 You can set up multiple protocols at once:
 
@@ -51,13 +65,7 @@ You can set up multiple protocols at once:
 go run main.go protocol-setup --protocol-id SEP41 --protocol-id BLEND
 ```
 
-### Step 2: Restart Live Ingestion
-
-Restart the ingestion service so it picks up the new protocol processor from the registry. No special flags are needed -- just restart the existing `ingest` process with its current configuration.
-
-Live ingestion uses CAS cursors to coordinate with the migration subcommands. It only produces state for ledgers where the migration hasn't already written data. Once the history and current-state migrations converge with live ingestion (their CAS operations start failing because live ingestion has already advanced the cursor), they exit automatically.
-
-### Step 3a: History Migration
+### Step 4a: History Migration
 
 Backfills historical state changes within the retention window:
 
@@ -75,10 +83,9 @@ Optional flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--latest-ledger-cursor-name` | `latest_ingest_ledger` | Name of the latest ledger cursor in the ingest store. Must match the value used by the ingest service. |
 | `--oldest-ledger-cursor-name` | `oldest_ingest_ledger` | Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service. |
 
-### Step 3b: Current-State Migration
+### Step 4b: Current-State Migration
 
 Builds current state from a specified start ledger forward to the tip. Only needed if your protocol tracks current-state data.
 
@@ -103,13 +110,3 @@ All three concurrent processes (live ingestion, history migration, current-state
 - **CAS convergence**: When a migration process logs that its CAS operation failed, it means live ingestion has caught up to that point. The migration will exit with a success status.
 - **Protocol status transitions**: Each protocol tracks `history_migration_status` and `current_state_migration_status` in the `protocols` table. These transition from `not_started` -> `in_progress` -> `success`.
 - **Error recovery**: If a migration process crashes, it can be safely restarted. It will resume from the last CAS cursor position.
-
-## Database Schema Migration
-
-Before running the data migration workflow, ensure the database schema is up to date:
-
-```bash
-go run main.go migrate up
-```
-
-This applies any pending schema migrations from `internal/db/migrations/`. The `protocol-setup` command handles protocol-specific migrations (from `internal/db/migrations/protocols/`) automatically.

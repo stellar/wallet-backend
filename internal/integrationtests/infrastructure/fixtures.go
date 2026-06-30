@@ -1127,7 +1127,8 @@ func (f *Fixtures) prepareSEP41TransferOp(ctx context.Context) (opXDR string, tx
 		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating to SC address: %w", err)
 	}
 
-	// Transfer 100 SEP-41 tokens (with 7 decimals = 1000000000 stroops)
+	// Partial transfer (TestSEP41TransferStroops = 200 SEP-41) — account1 keeps the
+	// remainder of its 500 mint, exercising the migration's per-ledger delta accumulation.
 	transferAmount := int64(TestSEP41TransferStroops)
 
 	invokeSEP41Transfer := txnbuild.InvokeHostFunction{

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -37,6 +36,9 @@ type allowanceKey struct {
 type stagedAllowance struct {
 	Amount           *big.Int
 	ExpirationLedger uint32
+	// LedgerNumber is the ledger of the latest approve folded into this grant, recorded
+	// so a coalesced window stamps the row's real last-modified ledger, not the window end.
+	LedgerNumber uint32
 }
 
 // processor implements services.ProtocolProcessor for the SEP-41 token protocol.
@@ -44,27 +46,33 @@ type processor struct {
 	networkPassphrase string
 	balances          sep41data.BalanceModelInterface
 	allowances        sep41data.AllowanceModelInterface
-	contractTokens    data.ContractModelInterface
 	stateChanges      data.StateChangeWriter
-	metadataFetcher   *metadataFetcher
-	ownsMetadataPool  bool
 
 	// Contracts classified as SEP-41. Populated from input.ProtocolContracts each ledger.
 	sep41Contracts map[string]struct{}
 
-	// Per-ledger staged state (rebuilt on every ProcessLedger call for determinism).
+	// Staged sets that accumulate across ProcessLedger calls within a window and are
+	// cleared by the caller via Reset().
 	ledgerNumber       uint32
 	stagedStateChanges []types.StateChange
 	stagedBalanceDelta map[balanceKey]*big.Int
-	stagedAllowances   map[allowanceKey]stagedAllowance
-	stagedContracts    map[string]struct{} // C-addrs seen this ledger (for contract_tokens upsert)
+	// stagedBalanceLedger records the latest ledger to touch each balance key. Deltas sum
+	// across a window, but last_modified_ledger must reflect the ledger of the last touch,
+	// so a coalesced window matches per-ledger live ingestion rather than stamping the window end.
+	stagedBalanceLedger map[balanceKey]uint32
+	stagedAllowances    map[allowanceKey]stagedAllowance
+
+	// needsReset is set by Persist* and cleared by Reset(). ProcessLedger refuses to fold
+	// while it is set: folding after a Persist without an intervening Reset would re-add the
+	// already-committed deltas and silently double-count. Both callers Reset() before folding
+	// again, so this only fires on misuse by a future caller.
+	needsReset bool
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
-// data layer paths are pulled from deps.Models; metadata enrichment in
-// PersistCurrentState requires deps.ContractMetadataService — when nil
-// (offline migration), the processor still ingests state changes and inserts
-// contract_tokens with default values, leaving metadata for a subsequent run.
+// data layer paths are pulled from deps.Models. Token metadata is owned by the
+// SEP-41 validator (written to contract_tokens at classification time), so the
+// processor needs no RPC or metadata-fetch dependencies.
 func newProcessor(deps services.ProtocolDeps) *processor {
 	p := &processor{
 		networkPassphrase: deps.NetworkPassphrase,
@@ -73,14 +81,9 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 	if deps.Models != nil {
 		p.balances = deps.Models.SEP41.Balances
 		p.allowances = deps.Models.SEP41.Allowances
-		p.contractTokens = deps.Models.Contract
 		p.stateChanges = deps.Models.StateChanges
 	}
-	if deps.ContractMetadataService != nil {
-		pool := pond.NewPool(0)
-		p.metadataFetcher = newMetadataFetcher(deps.ContractMetadataService, pool)
-		p.ownsMetadataPool = true
-	}
+	p.Reset()
 	return p
 }
 
@@ -94,9 +97,16 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // extracted into the buffer. The processor never touches LedgerCloseMeta —
 // events are pre-filtered to successful transactions only by the
 // indexer/migration helper, so no per-tx success check is needed here.
-// See services.ProtocolProcessor godoc — must be deterministic across retries.
+// See services.ProtocolProcessor for the folding/batch-equivalence contract.
+//
+// A Persist* call seals the staged sets; Reset() must be called before folding
+// the next window. Folding while sealed returns an error rather than silently
+// double-counting the already-committed deltas.
 func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProcessorInput) error {
-	p.resetStaged(input.LedgerSequence)
+	if p.needsReset {
+		return fmt.Errorf("sep41: ProcessLedger called after Persist without Reset(); deltas would double-count")
+	}
+	p.ledgerNumber = input.LedgerSequence
 	p.indexContracts(input.ProtocolContracts)
 
 	if len(p.sep41Contracts) == 0 {
@@ -113,7 +123,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 			WithOperationID(opID)
 
 		for _, event := range events {
-			if err := p.processEvent(event, opBuilder); err != nil {
+			if err := p.processEvent(event, opBuilder, input.StagingMode); err != nil {
 				// Log and continue — a malformed event must not abort the whole ledger.
 				log.Debugf("sep41: skipping malformed event at tx=%d op=%d: %v",
 					key.TxIdx, key.OpIdx, err)
@@ -125,7 +135,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 	return nil
 }
 
-func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder) error {
+func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder, mode services.StagingMode) error {
 	if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
 		return fmt.Errorf("unsupported event shape")
 	}
@@ -136,7 +146,6 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	if _, ok := p.sep41Contracts[contractStr]; !ok {
 		return nil // not a contract we track; silently skip
 	}
-	p.stagedContracts[contractStr] = struct{}{}
 
 	topics := event.Body.V0.Topics
 	if len(topics) == 0 {
@@ -157,81 +166,102 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
-		creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
-			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
-		if decoded.ToMuxedID != nil {
-			creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		if mode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-			creditBuilder.Build(),
-		)
+		if mode.NeedsHistory() {
+			creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
+				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+			if decoded.ToMuxedID != nil {
+				creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
+			}
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+				creditBuilder.Build(),
+			)
+		}
 
 	case EventMint:
 		decoded, err := ParseMintEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
-		mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
-			WithAccount(decoded.To).WithAmount(decoded.Amount.String())
-		if decoded.ToMuxedID != nil {
-			mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
+		if mode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
-		p.stagedStateChanges = append(p.stagedStateChanges, mintBuilder.Build())
+		if mode.NeedsHistory() {
+			mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
+				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
+			if decoded.ToMuxedID != nil {
+				mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
+			}
+			p.stagedStateChanges = append(p.stagedStateChanges, mintBuilder.Build())
+		}
 
 	case EventBurn:
 		decoded, err := ParseBurnEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-		)
+		if mode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+		}
+		if mode.NeedsHistory() {
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+			)
+		}
 
 	case EventClawback:
 		decoded, err := ParseClawbackEvent(event)
 		if err != nil {
 			return err
 		}
-		p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
-		// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
-				WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
-		)
+		if mode.NeedsCurrentState() {
+			p.applyBalanceDelta(types.AddressBytea(decoded.From), contractStr, new(big.Int).Neg(decoded.Amount))
+		}
+		if mode.NeedsHistory() {
+			// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
+			)
+		}
 
 	case EventApprove:
 		decoded, err := ParseApproveEvent(event)
 		if err != nil {
 			return err
 		}
-		key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
-		p.stagedAllowances[key] = stagedAllowance{
-			Amount:           new(big.Int).Set(decoded.Amount),
-			ExpirationLedger: decoded.LiveUntilLedger,
+		if mode.NeedsCurrentState() {
+			key := allowanceKey{Owner: types.AddressBytea(decoded.From), Spender: types.AddressBytea(decoded.Spender), ContractID: contractStr}
+			p.stagedAllowances[key] = stagedAllowance{
+				Amount:           new(big.Int).Set(decoded.Amount),
+				ExpirationLedger: decoded.LiveUntilLedger,
+				LedgerNumber:     p.ledgerNumber,
+			}
 		}
-		// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
-		// through GraphQL. StandardBalanceChange would drop those fields.
-		p.stagedStateChanges = append(p.stagedStateChanges,
-			scBuilder.Clone().
-				WithCategory(types.StateChangeCategoryMetadata).
-				WithReason(types.StateChangeReasonUpdate).
-				WithAccount(decoded.From).
-				WithAmount(decoded.Amount.String()).
-				WithKeyValue(map[string]any{
-					"sep41_event":       EventApprove,
-					"spender":           decoded.Spender,
-					"amount":            decoded.Amount.String(),
-					"live_until_ledger": decoded.LiveUntilLedger,
-				}).
-				Build(),
-		)
+		if mode.NeedsHistory() {
+			// Approve lives under Metadata so MetadataChange's keyValue surfaces spender/expiration
+			// through GraphQL. StandardBalanceChange would drop those fields.
+			p.stagedStateChanges = append(p.stagedStateChanges,
+				scBuilder.Clone().
+					WithCategory(types.StateChangeCategoryMetadata).
+					WithReason(types.StateChangeReasonUpdate).
+					WithAccount(decoded.From).
+					WithAmount(decoded.Amount.String()).
+					WithKeyValue(map[string]any{
+						"sep41_event":       EventApprove,
+						"spender":           decoded.Spender,
+						"amount":            decoded.Amount.String(),
+						"live_until_ledger": decoded.LiveUntilLedger,
+					}).
+					Build(),
+			)
+		}
 
 	default:
 		// Non-SEP-41 event on a SEP-41 contract (e.g., custom event) — ignore.
@@ -248,14 +278,19 @@ func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr st
 		p.stagedBalanceDelta[key] = existing
 	}
 	existing.Add(existing, delta)
+	// ledgerNumber is the ledger currently being folded; ledgers fold in ascending order,
+	// so this keeps the latest ledger that touched the balance.
+	p.stagedBalanceLedger[key] = p.ledgerNumber
 }
 
-func (p *processor) resetStaged(ledgerSeq uint32) {
-	p.ledgerNumber = ledgerSeq
+// Reset clears the staged sets for the next window. ledgerNumber is intentionally
+// left untouched — ProcessLedger sets it each ledger.
+func (p *processor) Reset() {
 	p.stagedStateChanges = nil
 	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
+	p.stagedBalanceLedger = map[balanceKey]uint32{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
-	p.stagedContracts = map[string]struct{}{}
+	p.needsReset = false
 }
 
 func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
@@ -278,6 +313,7 @@ func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
 
 // PersistHistory writes staged state changes inside the CAS transaction.
 func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
+	p.needsReset = true
 	if len(p.stagedStateChanges) == 0 {
 		return nil
 	}
@@ -290,13 +326,9 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 
 // PersistCurrentState applies staged balance deltas server-side (balance := existing + delta)
 // and writes allowance values directly (approve semantics are a set, not an add). Runs inside
-// the CAS-guarded transaction so each ledger's deltas are applied exactly once.
+// the CAS-guarded transaction so each window's accumulated deltas are applied exactly once.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-	// Ensure a contract_tokens row exists for every contract we're about to reference.
-	if err := p.ensureContractTokens(ctx, dbTx); err != nil {
-		return fmt.Errorf("ensuring contract_tokens rows: %w", err)
-	}
-
+	p.needsReset = true
 	// Build delta rows directly from the staged deltas — the data layer sums and cleans up zeros.
 	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
 	for key, delta := range p.stagedBalanceDelta {
@@ -304,7 +336,7 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 			AccountID:    key.Account,
 			ContractID:   data.DeterministicContractID(key.ContractID),
 			Balance:      delta.String(),
-			LedgerNumber: p.ledgerNumber,
+			LedgerNumber: p.stagedBalanceLedger[key],
 		})
 	}
 	if err := p.balances.BatchApplyDeltas(ctx, dbTx, deltas); err != nil {
@@ -321,7 +353,7 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 			ContractID:       data.DeterministicContractID(key.ContractID),
 			Amount:           staged.Amount.String(),
 			ExpirationLedger: staged.ExpirationLedger,
-			LedgerNumber:     p.ledgerNumber,
+			LedgerNumber:     staged.LedgerNumber,
 		}
 		if staged.Amount.Sign() == 0 {
 			allowanceDeletes = append(allowanceDeletes, row)
@@ -337,72 +369,5 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 		return fmt.Errorf("deleting expired SEP-41 allowances: %w", err)
 	}
 
-	return nil
-}
-
-// ensureContractTokens inserts a contract_tokens row for every contract touched this ledger,
-// if not already present. For newly inserted rows, metadata (name/symbol/decimals) is fetched
-// via RPC inline; per-contract RPC failures fall back to default values (decimals=0, nil
-// name/symbol) and are logged. No separate backfill path exists, so correctness depends on
-// the RPC being reachable most of the time.
-func (p *processor) ensureContractTokens(ctx context.Context, dbTx pgx.Tx) error {
-	if len(p.stagedContracts) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(p.stagedContracts))
-	for addr := range p.stagedContracts {
-		ids = append(ids, addr)
-	}
-	existing, err := p.contractTokens.GetExisting(ctx, dbTx, ids)
-	if err != nil {
-		return fmt.Errorf("checking existing contract_tokens: %w", err)
-	}
-	existingSet := make(map[string]struct{}, len(existing))
-	for _, id := range existing {
-		existingSet[id] = struct{}{}
-	}
-
-	newIDs := make([]string, 0, len(ids))
-	for _, addr := range ids {
-		if _, ok := existingSet[addr]; !ok {
-			newIDs = append(newIDs, addr)
-		}
-	}
-	if len(newIDs) == 0 {
-		return nil
-	}
-
-	// Fetch metadata for new contracts; missing entries keep default (zero) values.
-	metadata := map[string]*data.Contract{}
-	if p.metadataFetcher != nil {
-		fetched, ferr := p.metadataFetcher.FetchMetadata(ctx, newIDs)
-		if ferr != nil {
-			// A fetcher-level error (context cancellation, pool failure) is worth logging
-			// but must not abort the ledger — we still insert rows with defaults so the
-			// state_changes history stays consistent with the balance movements.
-			log.Ctx(ctx).Warnf("sep41 metadata fetch batch failed: %v", ferr)
-		} else {
-			metadata = fetched
-		}
-	}
-
-	toInsert := make([]*data.Contract, 0, len(newIDs))
-	for _, addr := range newIDs {
-		c := &data.Contract{
-			ID:         data.DeterministicContractID(addr),
-			ContractID: addr,
-			Type:       contractTokenType,
-		}
-		if meta, ok := metadata[addr]; ok {
-			c.Name = meta.Name
-			c.Symbol = meta.Symbol
-			c.Decimals = meta.Decimals
-		}
-		toInsert = append(toInsert, c)
-	}
-
-	if err := p.contractTokens.BatchInsert(ctx, dbTx, toInsert); err != nil {
-		return fmt.Errorf("inserting contract_tokens: %w", err)
-	}
 	return nil
 }
