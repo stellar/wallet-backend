@@ -1,4 +1,4 @@
-// optimizedStorageBackend is a fork of the SDK's BufferedStorageBackend, tailored for
+// datastoreBackend is a fork of the SDK's BufferedStorageBackend, tailored for
 // wallet-backend where exactly one goroutine consumes ledgers sequentially from each
 // backend instance. This single-consumer contract enables several optimizations:
 //
@@ -16,7 +16,7 @@
 //     the S3 io.ReadCloser directly to the decoder, streaming through zstd without
 //     an intermediate allocation.
 //
-// Callers MUST NOT share an optimizedStorageBackend instance across goroutines.
+// Callers MUST NOT share an datastoreBackend instance across goroutines.
 package ingest
 
 import (
@@ -37,23 +37,23 @@ import (
 )
 
 const (
-	defaultStorageBufferSize uint32 = 100
-	defaultStorageNumWorkers uint32 = 10
-	defaultStorageRetryLimit uint32 = 3
-	defaultStorageRetryWait         = 5 * time.Second
+	defaultBufferSize uint32 = 100
+	defaultNumWorkers uint32 = 10
+	defaultRetryLimit uint32 = 3
+	defaultRetryWait         = 5 * time.Second
 )
 
-var _ ledgerbackend.LedgerBackend = (*optimizedStorageBackend)(nil)
+var _ ledgerbackend.LedgerBackend = (*datastoreBackend)(nil)
 
-// optimizedStorageBackend implements ledgerbackend.LedgerBackend with optimizations
+// datastoreBackend implements ledgerbackend.LedgerBackend with optimizations
 // for sequential bulk access: workers pre-decode S3 files, GetLedger is lock-free.
-type optimizedStorageBackend struct {
+type datastoreBackend struct {
 	config    ledgerbackend.BufferedStorageBackendConfig
 	dataStore datastore.DataStore
 	schema    datastore.DataStoreSchema
 
 	// All fields below accessed by single goroutine — no mutex needed.
-	buffer     *storageBuffer
+	buffer     *ledgerBuffer
 	prepared   *ledgerbackend.Range
 	closed     bool
 	lcmBatch   xdr.LedgerCloseMetaBatch // current cached decoded batch
@@ -67,10 +67,10 @@ type decodedBatch struct {
 	startLedger uint32
 }
 
-// storageBuffer manages worker goroutines that download and decode ledger files from the
+// ledgerBuffer manages worker goroutines that download and decode ledger files from the
 // datastore. Workers feed decoded batches (in arbitrary order) to decodedQueue; a single
 // drainer goroutine reorders them and delivers in sequence via batchQueue.
-type storageBuffer struct {
+type ledgerBuffer struct {
 	config    ledgerbackend.BufferedStorageBackendConfig
 	dataStore datastore.DataStore
 	schema    datastore.DataStoreSchema
@@ -95,34 +95,34 @@ type storageBuffer struct {
 	ledgerRange    ledgerbackend.Range
 }
 
-// newOptimizedStorageBackend creates an optimized storage backend.
+// newDatastoreBackend creates a datastore backend.
 // Workers are NOT started here — they start in PrepareRange.
-func newOptimizedStorageBackend(
+func newDatastoreBackend(
 	config ledgerbackend.BufferedStorageBackendConfig,
 	dataStore datastore.DataStore,
 	schema datastore.DataStoreSchema,
-) (*optimizedStorageBackend, error) {
+) (*datastoreBackend, error) {
 	if schema.LedgersPerFile == 0 {
 		return nil, fmt.Errorf("LedgersPerFile must be > 0")
 	}
 	if config.BufferSize == 0 {
-		config.BufferSize = defaultStorageBufferSize
+		config.BufferSize = defaultBufferSize
 	}
 	if config.NumWorkers == 0 {
-		config.NumWorkers = defaultStorageNumWorkers
+		config.NumWorkers = defaultNumWorkers
 	}
 	if config.RetryLimit == 0 {
-		config.RetryLimit = defaultStorageRetryLimit
+		config.RetryLimit = defaultRetryLimit
 	}
 	if config.RetryWait <= 0 {
-		config.RetryWait = defaultStorageRetryWait
+		config.RetryWait = defaultRetryWait
 	}
 	if config.NumWorkers > config.BufferSize {
 		return nil, fmt.Errorf("NumWorkers (%d) must be <= BufferSize (%d)", config.NumWorkers, config.BufferSize)
 	}
 
-	log.Infof("Using optimized storage backend with buffer size %d, %d workers", config.BufferSize, config.NumWorkers)
-	return &optimizedStorageBackend{
+	log.Infof("Using datastore backend with buffer size %d, %d workers", config.BufferSize, config.NumWorkers)
+	return &datastoreBackend{
 		config:    config,
 		dataStore: dataStore,
 		schema:    schema,
@@ -132,9 +132,9 @@ func newOptimizedStorageBackend(
 // PrepareRange initializes the backend for sequential consumption of the given range.
 // If a previous range was prepared, its buffer is closed first (supporting re-preparation).
 // The buffer's download/decode workers run until ctx is cancelled or Close() is called.
-func (b *optimizedStorageBackend) PrepareRange(ctx context.Context, ledgerRange ledgerbackend.Range) error {
+func (b *datastoreBackend) PrepareRange(ctx context.Context, ledgerRange ledgerbackend.Range) error {
 	if b.closed {
-		return fmt.Errorf("optimizedStorageBackend is closed")
+		return fmt.Errorf("datastoreBackend is closed")
 	}
 
 	// Support re-preparation by closing the old buffer.
@@ -143,7 +143,7 @@ func (b *optimizedStorageBackend) PrepareRange(ctx context.Context, ledgerRange 
 		b.buffer = nil
 	}
 
-	buf := b.newStorageBuffer(ctx, ledgerRange)
+	buf := b.newLedgerBuffer(ctx, ledgerRange)
 	b.buffer = buf
 	b.prepared = &ledgerRange
 	b.nextLedger = ledgerRange.From()
@@ -152,7 +152,7 @@ func (b *optimizedStorageBackend) PrepareRange(ctx context.Context, ledgerRange 
 	return nil
 }
 
-func (b *optimizedStorageBackend) newStorageBuffer(ctx context.Context, ledgerRange ledgerbackend.Range) *storageBuffer {
+func (b *datastoreBackend) newLedgerBuffer(ctx context.Context, ledgerRange ledgerbackend.Range) *ledgerBuffer {
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	startBoundary := b.schema.GetSequenceNumberStartBoundary(ledgerRange.From())
@@ -171,7 +171,7 @@ func (b *optimizedStorageBackend) newStorageBuffer(ctx context.Context, ledgerRa
 		return a.startLedger < b.startLedger
 	}, int(bufferSize))
 
-	buf := &storageBuffer{
+	buf := &ledgerBuffer{
 		config:         b.config,
 		dataStore:      b.dataStore,
 		schema:         b.schema,
@@ -216,12 +216,12 @@ func (b *optimizedStorageBackend) newStorageBuffer(ctx context.Context, ledgerRa
 //   - 3 validation checks instead of 5 (no lastLedger/nextExpectedSequence indirection).
 //   - Batch is already decoded by a worker goroutine. The SDK decodes on this thread
 //     via getFromLedgerQueue → compressxdr.NewXDRDecoder.ReadFrom.
-func (b *optimizedStorageBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
+func (b *datastoreBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.LedgerCloseMeta, error) {
 	if b.closed {
-		return xdr.LedgerCloseMeta{}, fmt.Errorf("optimizedStorageBackend is closed")
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("datastoreBackend is closed")
 	}
 	if b.prepared == nil {
-		return xdr.LedgerCloseMeta{}, fmt.Errorf("optimizedStorageBackend must be prepared before calling GetLedger")
+		return xdr.LedgerCloseMeta{}, fmt.Errorf("datastoreBackend must be prepared before calling GetLedger")
 	}
 
 	r := *b.prepared
@@ -265,12 +265,12 @@ func (b *optimizedStorageBackend) GetLedger(ctx context.Context, sequence uint32
 // Returns 0 before any batch has been delivered. This is what lets the migration's
 // flushWindowsAtTip coalesce in bulk (seq <= frontier) and flush at the tip (seq > frontier),
 // instead of flushing every ledger as it would if this returned the unbounded range's zero To().
-func (b *optimizedStorageBackend) GetLatestLedgerSequence(_ context.Context) (uint32, error) {
+func (b *datastoreBackend) GetLatestLedgerSequence(_ context.Context) (uint32, error) {
 	if b.closed {
-		return 0, fmt.Errorf("optimizedStorageBackend is closed")
+		return 0, fmt.Errorf("datastoreBackend is closed")
 	}
 	if b.prepared == nil || b.buffer == nil {
-		return 0, fmt.Errorf("optimizedStorageBackend must be prepared before calling GetLatestLedgerSequence")
+		return 0, fmt.Errorf("datastoreBackend must be prepared before calling GetLatestLedgerSequence")
 	}
 	startBoundary := b.schema.GetSequenceNumberStartBoundary(b.prepared.From())
 	frontier := b.buffer.currentLedger.Load()
@@ -281,9 +281,9 @@ func (b *optimizedStorageBackend) GetLatestLedgerSequence(_ context.Context) (ui
 }
 
 // IsPrepared reports whether the backend is prepared for the given range.
-func (b *optimizedStorageBackend) IsPrepared(_ context.Context, ledgerRange ledgerbackend.Range) (bool, error) {
+func (b *datastoreBackend) IsPrepared(_ context.Context, ledgerRange ledgerbackend.Range) (bool, error) {
 	if b.closed {
-		return false, fmt.Errorf("optimizedStorageBackend is closed")
+		return false, fmt.Errorf("datastoreBackend is closed")
 	}
 	if b.prepared == nil {
 		return false, nil
@@ -293,7 +293,7 @@ func (b *optimizedStorageBackend) IsPrepared(_ context.Context, ledgerRange ledg
 
 // Close marks the backend as closed and shuts down the buffer.
 // Subsequent calls to any method will return an error.
-func (b *optimizedStorageBackend) Close() error {
+func (b *datastoreBackend) Close() error {
 	b.closed = true
 	if b.buffer != nil {
 		b.buffer.close()
@@ -305,7 +305,7 @@ func (b *optimizedStorageBackend) Close() error {
 // worker is a goroutine that reads file-start sequences from taskQueue,
 // downloads and decodes the corresponding ledger file from the datastore,
 // and hands the decoded batch to the drainer via decodedQueue.
-func (buf *storageBuffer) worker() {
+func (buf *ledgerBuffer) worker() {
 	defer buf.wg.Done()
 	for {
 		select {
@@ -322,7 +322,7 @@ func (buf *storageBuffer) worker() {
 // ascending file-start order. Being the sole sender to batchQueue is what guarantees ordering —
 // per-worker sends could race and deliver out of order. It never holds a lock across a blocking
 // send, so it cannot deadlock the workers.
-func (buf *storageBuffer) drainer() {
+func (buf *ledgerBuffer) drainer() {
 	defer buf.wg.Done()
 	for {
 		select {
@@ -350,7 +350,7 @@ func (buf *storageBuffer) drainer() {
 // error. Other (transient) errors are bounded by RetryLimit. The function returns only after the
 // batch is enqueued, the context is cancelled, or it gives up by cancelling the buffer — it never
 // returns without delivering while the buffer is still live.
-func (buf *storageBuffer) downloadAndStore(sequence uint32) {
+func (buf *ledgerBuffer) downloadAndStore(sequence uint32) {
 	for transientAttempts := uint32(0); ; {
 		batch, err := buf.downloadAndDecode(sequence)
 		if err == nil {
@@ -399,7 +399,7 @@ func (buf *storageBuffer) downloadAndStore(sequence uint32) {
 // Optimization: The SDK does io.ReadAll(reader) to buffer the entire compressed file,
 // then feeds bytes.NewReader to the zstd+XDR decoder. We pass the S3 io.ReadCloser
 // directly to the decoder, streaming through zstd without an intermediate allocation.
-func (buf *storageBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMetaBatch, error) {
+func (buf *ledgerBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMetaBatch, error) {
 	objectKey := buf.schema.GetObjectKeyFromSequenceNumber(sequence)
 	reader, err := buf.dataStore.GetFile(buf.ctx, objectKey)
 	if err != nil {
@@ -417,7 +417,7 @@ func (buf *storageBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMet
 
 // getNextBatch receives the next decoded batch from the buffer in sequence order.
 // After receiving, it enqueues a new download task to maintain the buffer invariant.
-func (buf *storageBuffer) getNextBatch(ctx context.Context) (xdr.LedgerCloseMetaBatch, error) {
+func (buf *ledgerBuffer) getNextBatch(ctx context.Context) (xdr.LedgerCloseMetaBatch, error) {
 	select {
 	case <-buf.ctx.Done():
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("buffer context cancelled: %w", context.Cause(buf.ctx))
@@ -439,7 +439,7 @@ func (buf *storageBuffer) getNextBatch(ctx context.Context) (xdr.LedgerCloseMeta
 // Concurrency: its only callers — the constructor's seed loop and the single consumer
 // thread (getNextBatch) — never overlap (the consumer does not run until PrepareRange
 // returns), and workers never touch nextTaskLedger, so no lock is needed.
-func (buf *storageBuffer) pushTaskQueue() bool {
+func (buf *ledgerBuffer) pushTaskQueue() bool {
 	if buf.ledgerRange.Bounded() {
 		endBoundary := buf.schema.GetSequenceNumberStartBoundary(buf.ledgerRange.To())
 		if buf.nextTaskLedger > endBoundary {
@@ -458,7 +458,7 @@ func (buf *storageBuffer) pushTaskQueue() bool {
 
 // close cancels the buffer context and waits for all workers to exit.
 // This prevents goroutine leaks — the caller blocks until all workers are done.
-func (buf *storageBuffer) close() {
+func (buf *ledgerBuffer) close() {
 	buf.cancel(context.Canceled)
 	buf.wg.Wait()
 }

@@ -115,22 +115,22 @@ func testSchema(ledgersPerFile uint32) datastore.DataStoreSchema {
 	}
 }
 
-func TestOptimizedStorageBackend_Defaults(t *testing.T) {
+func TestDatastoreBackend_Defaults(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, schema)
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, schema)
 	require.NoError(t, err)
 
 	assert.Equal(t, uint32(100), backend.config.BufferSize, "default BufferSize should be 100")
 	assert.Equal(t, uint32(10), backend.config.NumWorkers, "default NumWorkers should be 10")
 }
 
-func TestOptimizedStorageBackend_Validation(t *testing.T) {
+func TestDatastoreBackend_Validation(t *testing.T) {
 	ds := &mockDataStore{}
 
 	t.Run("workers > buffer errors", func(t *testing.T) {
-		_, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+		_, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 			BufferSize: 3,
 			NumWorkers: 5,
 		}, ds, testSchema(10))
@@ -139,17 +139,17 @@ func TestOptimizedStorageBackend_Validation(t *testing.T) {
 	})
 
 	t.Run("ledgersPerFile=0 errors", func(t *testing.T) {
-		_, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, testSchema(0))
+		_, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, testSchema(0))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "LedgersPerFile must be > 0")
 	})
 }
 
-func TestOptimizedStorageBackend_SequentialGetLedger(t *testing.T) {
+func TestDatastoreBackend_SequentialGetLedger(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 3,
 		NumWorkers: 2,
 	}, ds, schema)
@@ -179,11 +179,11 @@ func TestOptimizedStorageBackend_SequentialGetLedger(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_CachedBatchHit(t *testing.T) {
+func TestDatastoreBackend_CachedBatchHit(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(5)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -213,11 +213,11 @@ func TestOptimizedStorageBackend_CachedBatchHit(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_CrossFileBoundary(t *testing.T) {
+func TestDatastoreBackend_CrossFileBoundary(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(5)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 3,
 		NumWorkers: 2,
 	}, ds, schema)
@@ -242,9 +242,9 @@ func TestOptimizedStorageBackend_CrossFileBoundary(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_NotPrepared(t *testing.T) {
+func TestDatastoreBackend_NotPrepared(t *testing.T) {
 	ds := &mockDataStore{}
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, testSchema(10))
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{}, ds, testSchema(10))
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -258,11 +258,11 @@ func TestOptimizedStorageBackend_NotPrepared(t *testing.T) {
 	assert.Contains(t, err.Error(), "must be prepared")
 }
 
-func TestOptimizedStorageBackend_OutOfOrder(t *testing.T) {
+func TestDatastoreBackend_OutOfOrder(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -286,11 +286,11 @@ func TestOptimizedStorageBackend_OutOfOrder(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_OutsideRange(t *testing.T) {
+func TestDatastoreBackend_OutsideRange(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -315,11 +315,11 @@ func TestOptimizedStorageBackend_OutsideRange(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_RePrepare(t *testing.T) {
+func TestDatastoreBackend_RePrepare(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -352,11 +352,11 @@ func TestOptimizedStorageBackend_RePrepare(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_Close(t *testing.T) {
+func TestDatastoreBackend_Close(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -389,11 +389,11 @@ func TestOptimizedStorageBackend_Close(t *testing.T) {
 	assert.Contains(t, err.Error(), "closed")
 }
 
-func TestOptimizedStorageBackend_WorkerRetry(t *testing.T) {
+func TestDatastoreBackend_WorkerRetry(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 		RetryLimit: 2,
@@ -425,11 +425,11 @@ func TestOptimizedStorageBackend_WorkerRetry(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_WorkerRetryNotExist(t *testing.T) {
+func TestDatastoreBackend_WorkerRetryNotExist(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 		RetryLimit: 1,
@@ -454,11 +454,11 @@ func TestOptimizedStorageBackend_WorkerRetryNotExist(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-func TestOptimizedStorageBackend_IsPrepared(t *testing.T) {
+func TestDatastoreBackend_IsPrepared(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(10)
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 	}, ds, schema)
@@ -491,20 +491,20 @@ func TestOptimizedStorageBackend_IsPrepared(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-// TestOptimizedStorageBackend_UnboundedPrepareNoDeadlock guards the seeding path for
+// TestDatastoreBackend_UnboundedPrepareNoDeadlock guards the seeding path for
 // unbounded ranges. The seed loop enqueues bufferSize+1 tasks; a bounded range stops
 // early at its end boundary, but an unbounded range has no boundary, so the workers must
 // already be draining the task queue or the final push blocks forever on a full channel.
 // PrepareRange must therefore return promptly. The migration's UnboundedRange is the only
 // unbounded consumer, so this case is not covered by the bounded tests above.
-func TestOptimizedStorageBackend_UnboundedPrepareNoDeadlock(t *testing.T) {
+func TestDatastoreBackend_UnboundedPrepareNoDeadlock(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(1)
 	// Once draining, a worker tries to download the tip file, which does not exist yet, so it
 	// sleeps and retries. Optional: before the fix the workers never start, so GetFile is never called.
 	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 4,
 		NumWorkers: 1,
 		RetryWait:  10 * time.Millisecond,
@@ -526,18 +526,18 @@ func TestOptimizedStorageBackend_UnboundedPrepareNoDeadlock(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-// TestOptimizedStorageBackend_UnboundedNotExistRetriesIndefinitely guards the live-tip wait:
+// TestDatastoreBackend_UnboundedNotExistRetriesIndefinitely guards the live-tip wait:
 // on an unbounded range the next ledger file is legitimately absent until the exporter publishes
 // it, which can take longer than RetryLimit polls. The worker must keep awaiting that file rather
 // than giving up after RetryLimit — otherwise it falls out without delivering or re-enqueuing, and
 // the drainer (plus every later GetLedger) stalls forever. Here the file is missing for far more
 // polls than RetryLimit, then appears; GetLedger must still return it. RetryLimit bounds only
-// transient (non-NotExist) errors, exercised by TestOptimizedStorageBackend_WorkerRetry.
-func TestOptimizedStorageBackend_UnboundedNotExistRetriesIndefinitely(t *testing.T) {
+// transient (non-NotExist) errors, exercised by TestDatastoreBackend_WorkerRetry.
+func TestDatastoreBackend_UnboundedNotExistRetriesIndefinitely(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(1) // 1 ledger per file
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 2,
 		NumWorkers: 1,
 		RetryLimit: 1, // far fewer than the NotExist polls below; must not bound them
@@ -592,11 +592,11 @@ func (d *delayedReadCloser) Read(p []byte) (int, error) {
 }
 func (d *delayedReadCloser) Close() error { return nil }
 
-// TestOptimizedStorageBackend_OutOfOrderDownloadsDeliverInSequence stresses delivery ordering:
+// TestDatastoreBackend_OutOfOrderDownloadsDeliverInSequence stresses delivery ordering:
 // many workers download files whose completion order is deliberately reversed (later files
 // finish first). A single drainer must still hand GetLedger a strictly increasing sequence.
 // Run with -race -count to flush scheduler-dependent reordering.
-func TestOptimizedStorageBackend_OutOfOrderDownloadsDeliverInSequence(t *testing.T) {
+func TestDatastoreBackend_OutOfOrderDownloadsDeliverInSequence(t *testing.T) {
 	const n = 200
 	ds := &mockDataStore{}
 	schema := testSchema(1) // 1 ledger per file → consecutive file-starts 0..n-1
@@ -615,7 +615,7 @@ func TestOptimizedStorageBackend_OutOfOrderDownloadsDeliverInSequence(t *testing
 			Return(&delayedReadCloser{delay: delay, r: bytes.NewReader(raw)}, nil)
 	}
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 64,
 		NumWorkers: 16,
 	}, ds, schema)
@@ -633,10 +633,10 @@ func TestOptimizedStorageBackend_OutOfOrderDownloadsDeliverInSequence(t *testing
 	require.NoError(t, backend.Close())
 }
 
-// TestOptimizedStorageBackend_TipReportsFrontier verifies that for an unbounded range the tip is
+// TestDatastoreBackend_TipReportsFrontier verifies that for an unbounded range the tip is
 // the growing delivery frontier (last available ledger), NOT a constant 0. This is what lets the
 // migration's flushWindowsAtTip coalesce in bulk instead of flushing every ledger.
-func TestOptimizedStorageBackend_TipReportsFrontier(t *testing.T) {
+func TestDatastoreBackend_TipReportsFrontier(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(1)
 
@@ -647,7 +647,7 @@ func TestOptimizedStorageBackend_TipReportsFrontier(t *testing.T) {
 	}
 	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 8,
 		NumWorkers: 4,
 		RetryWait:  5 * time.Millisecond,
@@ -669,15 +669,15 @@ func TestOptimizedStorageBackend_TipReportsFrontier(t *testing.T) {
 	require.NoError(t, backend.Close())
 }
 
-// TestOptimizedStorageBackend_TipZeroBeforeDelivery verifies the frontier is 0 until something is
+// TestDatastoreBackend_TipZeroBeforeDelivery verifies the frontier is 0 until something is
 // delivered (mirrors the SDK's "currentLedger == from → 0").
-func TestOptimizedStorageBackend_TipZeroBeforeDelivery(t *testing.T) {
+func TestDatastoreBackend_TipZeroBeforeDelivery(t *testing.T) {
 	ds := &mockDataStore{}
 	schema := testSchema(1)
 	// No file ever exists → nothing is delivered.
 	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, os.ErrNotExist).Maybe()
 
-	backend, err := newOptimizedStorageBackend(ledgerbackend.BufferedStorageBackendConfig{
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
 		BufferSize: 4,
 		NumWorkers: 1,
 		RetryWait:  5 * time.Millisecond,

@@ -70,7 +70,7 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 		return nil, fmt.Errorf("loading datastore schema: %w", err)
 	}
 
-	ledgerBackend, err := newOptimizedStorageBackend(
+	ledgerBackend, err := newDatastoreBackend(
 		ledgerbackend.BufferedStorageBackendConfig{
 			BufferSize: dc.BufferSize,
 			NumWorkers: dc.NumWorkers,
@@ -81,7 +81,7 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 		schema,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
+		return nil, fmt.Errorf("creating datastore backend: %w", err)
 	}
 
 	return ledgerBackend, nil
@@ -106,7 +106,7 @@ type LoadtestBackendConfig struct {
 
 // NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
 func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
-	datastoreBackend, err := newDatastoreLedgerBackend(ctx, cfg.Datastore, cfg.NetworkPassphrase)
+	dsBackend, err := newDatastoreLedgerBackend(ctx, cfg.Datastore, cfg.NetworkPassphrase)
 	if err != nil {
 		return nil, fmt.Errorf("creating datastore ledger backend: %w", err)
 	}
@@ -114,7 +114,7 @@ func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (l
 		NetworkPassphrase:   cfg.NetworkPassphrase,
 		LedgersFilePath:     cfg.LedgersFilePath,
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
-		LedgerBackend:       datastoreBackend,
+		LedgerBackend:       dsBackend,
 	}
 	backend := goloadtest.NewLedgerBackend(config)
 	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
