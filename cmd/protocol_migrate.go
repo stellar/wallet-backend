@@ -49,14 +49,14 @@ func (c *protocolMigrateCmd) Command() *cobra.Command {
 
 // migrationCommandOpts captures the shared flags for migration subcommands.
 type migrationCommandOpts struct {
-	databaseURL         string
-	rpcURL              string
-	networkPassphrase   string
-	protocolIDs         []string
-	logLevel            string
-	ledgerBackendType   string
-	datastoreConfigPath string
-	getLedgersLimit     int
+	databaseURL       string
+	rpcURL            string
+	networkPassphrase string
+	protocolIDs       []string
+	logLevel          string
+	ledgerBackendType string
+	datastore         ingest.DatastoreConfig
+	getLedgersLimit   int
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
@@ -91,14 +91,6 @@ func buildMigrationCommand(
 			Required:    false,
 		},
 		{
-			Name:        "datastore-config-path",
-			Usage:       "Path to TOML config file for datastore backend. Required when --ledger-backend-type=datastore.",
-			OptType:     types.String,
-			ConfigKey:   &opts.datastoreConfigPath,
-			FlagDefault: "config/datastore-pubnet.toml",
-			Required:    false,
-		},
-		{
 			Name:        "get-ledgers-limit",
 			Usage:       "Per-request ledger buffer size for the RPC backend. Ignored for datastore.",
 			OptType:     types.Int,
@@ -107,6 +99,7 @@ func buildMigrationCommand(
 			Required:    false,
 		},
 	}
+	cfgOpts = append(cfgOpts, utils.DatastoreOptions(&opts.datastore)...)
 
 	cmd := &cobra.Command{
 		Use:   use,
@@ -139,9 +132,7 @@ func buildMigrationCommand(
 					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
 				}
 			case string(ingest.LedgerBackendTypeDatastore):
-				if opts.datastoreConfigPath == "" {
-					return fmt.Errorf("--datastore-config-path is required when --ledger-backend-type=datastore")
-				}
+				// datastore-bucket-path is validated via Required:true in DatastoreOptions.
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}
@@ -247,11 +238,11 @@ func runMigration(
 	// so protocol-migrate inherits the datastore path (recommended for
 	// backfills — unbounded history, unlike RPC retention windows).
 	ledgerBackend, err := ingest.NewLedgerBackend(ctx, ingest.Configs{
-		LedgerBackendType:   ingest.LedgerBackendType(opts.ledgerBackendType),
-		DatastoreConfigPath: opts.datastoreConfigPath,
-		NetworkPassphrase:   opts.networkPassphrase,
-		RPCURL:              opts.rpcURL,
-		GetLedgersLimit:     opts.getLedgersLimit,
+		LedgerBackendType: ingest.LedgerBackendType(opts.ledgerBackendType),
+		Datastore:         opts.datastore,
+		NetworkPassphrase: opts.networkPassphrase,
+		RPCURL:            opts.rpcURL,
+		GetLedgersLimit:   opts.getLedgersLimit,
 	})
 	if err != nil {
 		return fmt.Errorf("creating ledger backend: %w", err)

@@ -62,7 +62,15 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		NetworkPassphrase:   cfg.NetworkPassphrase,
 		LedgersFilePath:     cfg.LedgersFilePath,
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
-		DatastoreConfigPath: "config/datastore-pubnet.toml",
+		// Pubnet public data lake defaults.
+		Datastore: ingest.DatastoreConfig{
+			BucketPath: "aws-public-blockchain/v1.1/stellar/ledgers/pubnet",
+			Region:     "us-east-2",
+			BufferSize: 1000,
+			NumWorkers: 45,
+			RetryLimit: 3,
+			RetryWait:  5 * time.Second,
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("creating load test ledger backend: %w", err)
