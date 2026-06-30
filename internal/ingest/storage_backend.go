@@ -39,6 +39,8 @@ import (
 const (
 	defaultStorageBufferSize uint32 = 100
 	defaultStorageNumWorkers uint32 = 10
+	defaultStorageRetryLimit uint32 = 3
+	defaultStorageRetryWait         = 5 * time.Second
 )
 
 var _ ledgerbackend.LedgerBackend = (*optimizedStorageBackend)(nil)
@@ -109,10 +111,17 @@ func newOptimizedStorageBackend(
 	if config.NumWorkers == 0 {
 		config.NumWorkers = defaultStorageNumWorkers
 	}
+	if config.RetryLimit == 0 {
+		config.RetryLimit = defaultStorageRetryLimit
+	}
+	if config.RetryWait <= 0 {
+		config.RetryWait = defaultStorageRetryWait
+	}
 	if config.NumWorkers > config.BufferSize {
 		return nil, fmt.Errorf("NumWorkers (%d) must be <= BufferSize (%d)", config.NumWorkers, config.BufferSize)
 	}
 
+	log.Infof("Using optimized storage backend with buffer size %d, %d workers", config.BufferSize, config.NumWorkers)
 	return &optimizedStorageBackend{
 		config:    config,
 		dataStore: dataStore,
@@ -122,7 +131,8 @@ func newOptimizedStorageBackend(
 
 // PrepareRange initializes the backend for sequential consumption of the given range.
 // If a previous range was prepared, its buffer is closed first (supporting re-preparation).
-func (b *optimizedStorageBackend) PrepareRange(_ context.Context, ledgerRange ledgerbackend.Range) error {
+// The buffer's download/decode workers run until ctx is cancelled or Close() is called.
+func (b *optimizedStorageBackend) PrepareRange(ctx context.Context, ledgerRange ledgerbackend.Range) error {
 	if b.closed {
 		return fmt.Errorf("optimizedStorageBackend is closed")
 	}
@@ -133,7 +143,7 @@ func (b *optimizedStorageBackend) PrepareRange(_ context.Context, ledgerRange le
 		b.buffer = nil
 	}
 
-	buf := b.newStorageBuffer(ledgerRange)
+	buf := b.newStorageBuffer(ctx, ledgerRange)
 	b.buffer = buf
 	b.prepared = &ledgerRange
 	b.nextLedger = ledgerRange.From()
@@ -142,8 +152,8 @@ func (b *optimizedStorageBackend) PrepareRange(_ context.Context, ledgerRange le
 	return nil
 }
 
-func (b *optimizedStorageBackend) newStorageBuffer(ledgerRange ledgerbackend.Range) *storageBuffer {
-	ctx, cancel := context.WithCancelCause(context.Background())
+func (b *optimizedStorageBackend) newStorageBuffer(ctx context.Context, ledgerRange ledgerbackend.Range) *storageBuffer {
+	ctx, cancel := context.WithCancelCause(ctx)
 
 	startBoundary := b.schema.GetSequenceNumberStartBoundary(ledgerRange.From())
 

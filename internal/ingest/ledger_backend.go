@@ -84,7 +84,6 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 		return nil, fmt.Errorf("creating optimized storage backend: %w", err)
 	}
 
-	log.Infof("Using optimized storage backend with buffer size %d, %d workers", dc.BufferSize, dc.NumWorkers)
 	return ledgerBackend, nil
 }
 
