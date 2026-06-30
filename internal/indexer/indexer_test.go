@@ -1018,15 +1018,18 @@ func extractContractEventsViaReader(ctx context.Context, networkPassphrase strin
 
 // loadLedgerFixture reads a gzip-compressed XDR LedgerCloseMeta from testdata/.
 //
-// Fixtures are pubnet LedgerCloseMeta captured from the public data lake
-// (the datastore backend's pubnet defaults: bucket
-// aws-public-blockchain/v1.1/stellar/ledgers/pubnet, region us-east-2). To refresh or
-// expand the corpus, run a small program from the repo root that builds an
-// ingest.NewLedgerBackend with
-// LedgerBackendType=datastore + NetworkPassphrase=PublicNetworkPassphrase,
-// discovers the lake tip via datastore.FindLatestLedgerSequence, then for each
-// sequence calls backend.GetLedger(seq), lcm.MarshalBinary(), gzips the bytes,
-// and writes testdata/ledger-<seq>.xdr.gz.
+// Fixtures are pubnet ledgers from the public data lake (bucket
+// aws-public-blockchain/v1.1/stellar/ledgers/pubnet, us-east-2). The lake re-encodes
+// all history to TransactionMetaV4, so every fixture — like everything production
+// reads — is V4, even ledgers that closed under older protocols. What does vary is
+// the LedgerCloseMeta wrapper version (V1 for Protocol 20-22, V2 for 23+), which the
+// walk switches on, so the corpus keeps both, with a mix of tx shapes (plain and
+// fee-bumped invocations, failed txs, multi-event ledgers). The V3 meta branch isn't
+// in the lake and is covered by synthetic tests.
+//
+// To add fixtures: build ingest.NewLedgerBackend (datastore + PublicNetworkPassphrase),
+// then per sequence call GetLedger, MarshalBinary, gzip, and write
+// testdata/ledger-<seq>.xdr.gz. Keep both wrapper versions represented.
 func loadLedgerFixture(t *testing.T, path string) xdr.LedgerCloseMeta {
 	t.Helper()
 	f, err := os.Open(path)
@@ -1059,7 +1062,7 @@ func TestExtractContractEventsForLedger_EquivalenceOnRealLedgers(t *testing.T) {
 			want, err := extractContractEventsViaReader(ctx, network.PublicNetworkPassphrase, lcm)
 			require.NoError(t, err)
 
-			got, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+			got, err := ExtractContractEventsForLedger(lcm)
 			require.NoError(t, err)
 
 			require.Equal(t, want, got)
@@ -1074,6 +1077,17 @@ func TestExtractContractEventsForLedger_EquivalenceOnRealLedgers(t *testing.T) {
 // fixtures can't produce on demand.
 func newSyntheticLedgerCloseMeta(seq uint32, opResults []xdr.OperationResult, applyMeta xdr.TransactionMeta) xdr.LedgerCloseMeta {
 	results := opResults
+	return newSyntheticLedgerCloseMetaWithResult(seq, xdr.TransactionResult{
+		Result: xdr.TransactionResultResult{
+			Code:    xdr.TransactionResultCodeTxSuccess,
+			Results: &results,
+		},
+	}, applyMeta)
+}
+
+// newSyntheticLedgerCloseMetaWithResult is newSyntheticLedgerCloseMeta with a
+// full TransactionResult, for modelling fee-bump (inner-result) shapes.
+func newSyntheticLedgerCloseMetaWithResult(seq uint32, result xdr.TransactionResult, applyMeta xdr.TransactionMeta) xdr.LedgerCloseMeta {
 	return xdr.LedgerCloseMeta{
 		V: 0,
 		V0: &xdr.LedgerCloseMetaV0{
@@ -1082,14 +1096,7 @@ func newSyntheticLedgerCloseMeta(seq uint32, opResults []xdr.OperationResult, ap
 			},
 			TxProcessing: []xdr.TransactionResultMeta{
 				{
-					Result: xdr.TransactionResultPair{
-						Result: xdr.TransactionResult{
-							Result: xdr.TransactionResultResult{
-								Code:    xdr.TransactionResultCodeTxSuccess,
-								Results: &results,
-							},
-						},
-					},
+					Result:            xdr.TransactionResultPair{Result: result},
 					TxApplyProcessing: applyMeta,
 				},
 			},
@@ -1104,8 +1111,6 @@ func newSyntheticLedgerCloseMeta(seq uint32, opResults []xdr.OperationResult, ap
 // Operations by every result index would panic on Operations[1]; the filter
 // skips the non-InvokeHostFunction result before it is ever used to index.
 func TestExtractContractEventsForLedger_V4OperationsShorterThanResults(t *testing.T) {
-	ctx := context.Background()
-
 	applyMeta := xdr.TransactionMeta{
 		V: 4,
 		V4: &xdr.TransactionMetaV4{
@@ -1121,7 +1126,7 @@ func TestExtractContractEventsForLedger_V4OperationsShorterThanResults(t *testin
 
 	lcm := newSyntheticLedgerCloseMeta(100, opResults, applyMeta)
 
-	out, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+	out, err := ExtractContractEventsForLedger(lcm)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	events, ok := out[ContractEventKey{TxIdx: 1, OpIdx: 0}]
@@ -1133,8 +1138,6 @@ func TestExtractContractEventsForLedger_V4OperationsShorterThanResults(t *testin
 // intentional behavior change: an unsupported TransactionMeta version surfaces
 // as a propagated error (fail loud) rather than being silently dropped.
 func TestExtractContractEventsForLedger_UnknownMetaVersionErrors(t *testing.T) {
-	ctx := context.Background()
-
 	opResults := []xdr.OperationResult{
 		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
 	}
@@ -1142,7 +1145,122 @@ func TestExtractContractEventsForLedger_UnknownMetaVersionErrors(t *testing.T) {
 
 	lcm := newSyntheticLedgerCloseMeta(101, opResults, applyMeta)
 
-	_, err := ExtractContractEventsForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+	_, err := ExtractContractEventsForLedger(lcm)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported TransactionMeta version")
+}
+
+// In V3 meta, Soroban events live at the transaction level (SorobanMeta.Events)
+// and the op index is ignored. This checks the walk surfaces them at op 0.
+//
+// It's our only V3 coverage: the data lake re-encodes all history to V4, so a real
+// V3 fixture can't be fetched.
+func TestExtractContractEventsForLedger_V3SorobanMetaEvents(t *testing.T) {
+	ev1 := xdr.ContractEvent{Type: xdr.ContractEventTypeContract}
+	ev2 := xdr.ContractEvent{Type: xdr.ContractEventTypeSystem}
+	applyMeta := xdr.TransactionMeta{
+		V: 3,
+		V3: &xdr.TransactionMetaV3{
+			SorobanMeta: &xdr.SorobanTransactionMeta{Events: []xdr.ContractEvent{ev1, ev2}},
+		},
+	}
+	opResults := []xdr.OperationResult{
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
+	}
+	lcm := newSyntheticLedgerCloseMeta(103, opResults, applyMeta)
+
+	out, err := ExtractContractEventsForLedger(lcm)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	got, ok := out[ContractEventKey{TxIdx: 1, OpIdx: 0}]
+	require.True(t, ok, "expected events at tx 1 op 0")
+	require.Equal(t, []xdr.ContractEvent{ev1, ev2}, got)
+}
+
+// A fee-bump's operation results live in its inner transaction. This checks the
+// walk unwraps to those inner results instead of reading the empty outer result.
+// Real fee-bumped invocations are also in the fixture corpus.
+func TestExtractContractEventsForLedger_FeeBumpUnwrapsInnerResults(t *testing.T) {
+	ev := xdr.ContractEvent{Type: xdr.ContractEventTypeContract}
+	applyMeta := xdr.TransactionMeta{
+		V: 3,
+		V3: &xdr.TransactionMetaV3{
+			SorobanMeta: &xdr.SorobanTransactionMeta{Events: []xdr.ContractEvent{ev}},
+		},
+	}
+	innerOpResults := []xdr.OperationResult{
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
+	}
+	feeBump := xdr.TransactionResult{
+		Result: xdr.TransactionResultResult{
+			Code: xdr.TransactionResultCodeTxFeeBumpInnerSuccess,
+			InnerResultPair: &xdr.InnerTransactionResultPair{
+				Result: xdr.InnerTransactionResult{
+					Result: xdr.InnerTransactionResultResult{
+						Code:    xdr.TransactionResultCodeTxSuccess,
+						Results: &innerOpResults,
+					},
+				},
+			},
+		},
+	}
+	lcm := newSyntheticLedgerCloseMetaWithResult(104, feeBump, applyMeta)
+
+	out, err := ExtractContractEventsForLedger(lcm)
+	require.NoError(t, err)
+	require.Len(t, out, 1, "fee-bump inner op results must be unwrapped")
+	got, ok := out[ContractEventKey{TxIdx: 1, OpIdx: 0}]
+	require.True(t, ok)
+	require.Equal(t, []xdr.ContractEvent{ev}, got)
+}
+
+// RestoreFootprint and ExtendFootprintTtl ops carry no contract events, so the
+// walk should skip them and return events only for the InvokeHostFunction op.
+// Done synthetically since these ops weren't found in the scanned pubnet ledgers.
+func TestExtractContractEventsForLedger_FootprintOpsSkipped(t *testing.T) {
+	applyMeta := xdr.TransactionMeta{
+		V: 4,
+		V4: &xdr.TransactionMetaV4{
+			Operations: []xdr.OperationMetaV2{
+				{Events: []xdr.ContractEvent{{Type: xdr.ContractEventTypeContract}}}, // index 0 (invoke)
+			},
+		},
+	}
+	opResults := []xdr.OperationResult{
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeInvokeHostFunction}},
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeExtendFootprintTtl}},
+		{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{Type: xdr.OperationTypeRestoreFootprint}},
+	}
+	lcm := newSyntheticLedgerCloseMeta(105, opResults, applyMeta)
+
+	out, err := ExtractContractEventsForLedger(lcm)
+	require.NoError(t, err)
+	require.Len(t, out, 1, "only the InvokeHostFunction op yields events; footprint ops are skipped")
+	_, ok := out[ContractEventKey{TxIdx: 1, OpIdx: 0}]
+	require.True(t, ok)
+}
+
+// Guards that the corpus keeps real fixtures for both LedgerCloseMeta wrapper
+// versions the lake serves with events: V1 (Protocol 20-22) and V2 (Protocol 23+).
+// The walk switches on this version, so dropping either set would quietly lose
+// coverage of an older history window.
+//
+// All lake fixtures are TransactionMetaV4; the V3 branch is covered by the
+// synthetic tests above.
+func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T) {
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths)
+
+	wrapperWithEvents := map[int32]bool{} // LedgerCloseMeta wrapper version -> a ledger of it yielded events
+	for _, path := range paths {
+		lcm := loadLedgerFixture(t, path)
+		events, evErr := ExtractContractEventsForLedger(lcm)
+		require.NoError(t, evErr)
+		if len(events) > 0 {
+			wrapperWithEvents[lcm.V] = true
+		}
+	}
+	require.True(t, wrapperWithEvents[1], "corpus must include a wrapper-V1 (Protocol 20-22) ledger with extracted contract events")
+	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
 }

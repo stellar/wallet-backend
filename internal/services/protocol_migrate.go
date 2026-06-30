@@ -261,7 +261,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// Extract contract events once per ledger; all trackers below share the
 		// same map. This is the migration-side analogue of the live-ingest path
 		// where buffer.GetContractEvents() is computed once per ledger.
-		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ctx, s.networkPassphrase, ledgerMeta)
+		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ledgerMeta)
 		if eventsErr != nil {
 			return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract events for ledger %d: %w", seq, eventsErr)
 		}

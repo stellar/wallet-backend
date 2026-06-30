@@ -376,7 +376,9 @@ func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledger
 // transaction index i it reads the result pair, filters operations by their
 // result Tr type, and reads events from TxApplyProcessing(i) — without building
 // a LedgerTransactionReader, which would re-hash every transaction envelope just
-// to pair envelopes with metas we never read here.
+// to pair envelopes with metas we never read here. It is therefore a pure
+// function of the decoded ledger and needs neither a context nor the network
+// passphrase.
 //
 // The output is identical to the reader-based path; that equivalence is the
 // merge gate (see extractContractEventsViaReader and
@@ -384,7 +386,7 @@ func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledger
 //
 // Only events from successful transactions are returned, matching the live
 // indexer's filter in processTransaction.
-func ExtractContractEventsForLedger(_ context.Context, _ string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
+func ExtractContractEventsForLedger(ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
 	out := make(map[ContractEventKey][]xdr.ContractEvent)
 	for i := 0; i < ledgerMeta.CountTransactions(); i++ {
 		result := ledgerMeta.TransactionResultPair(i).Result
