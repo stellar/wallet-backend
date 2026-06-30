@@ -27,7 +27,7 @@ type ProtocolContracts struct {
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
-	BatchGetByContractIDs(ctx context.Context, contractIDs []types.HashBytea) (map[string][]ProtocolContracts, error)
+	BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
 	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
 
@@ -142,18 +142,9 @@ func (m *ProtocolContractsModel) GetByWasmHashes(ctx context.Context, wasmHashes
 // rows whose wasm is classified to a protocol, grouped by protocol ID. Live ingestion
 // uses this to resolve membership for only the contracts that emitted events in a
 // ledger, instead of loading every committed contract for a protocol.
-func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, contractIDs []types.HashBytea) (map[string][]ProtocolContracts, error) {
+func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
 	if len(contractIDs) == 0 {
 		return nil, nil
-	}
-
-	idBytes := make([][]byte, len(contractIDs))
-	for i, id := range contractIDs {
-		val, err := id.Value()
-		if err != nil {
-			return nil, fmt.Errorf("converting contract id to bytes: %w", err)
-		}
-		idBytes[i] = val.([]byte)
 	}
 
 	const query = `
@@ -164,7 +155,7 @@ func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, cont
 	`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, idBytes)
+	rows, err := m.DB.Query(ctx, query, contractIDs)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Inc()

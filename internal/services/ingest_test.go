@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strconv"
 	"testing"
@@ -2308,8 +2307,6 @@ func Test_distinctEventContractIDs(t *testing.T) {
 	var idA, idB xdr.ContractId
 	idA[0] = 0xAA
 	idB[0] = 0xBB
-	hexA := types.HashBytea(hex.EncodeToString(idA[:]))
-	hexB := types.HashBytea(hex.EncodeToString(idB[:]))
 
 	events := map[indexer.ContractEventKey][]xdr.ContractEvent{
 		{TxIdx: 0, OpIdx: 0}: {
@@ -2324,7 +2321,7 @@ func Test_distinctEventContractIDs(t *testing.T) {
 	}
 
 	got := distinctEventContractIDs(events)
-	assert.ElementsMatch(t, []types.HashBytea{hexA, hexB}, got)
+	assert.ElementsMatch(t, [][]byte{idA[:], idB[:]}, got)
 }
 
 // Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer is a regression test for a

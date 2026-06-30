@@ -18,6 +18,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// progressLogInterval is the fixed ledger cadence for migration progress logs and the
+// getHealth target-tip refresh. It is deliberately decoupled from the commit window
+// (--window-size) so tuning the commit size does not change observability cadence.
+const progressLogInterval uint32 = 100
+
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
 type protocolTracker struct {
 	protocolID  string
@@ -381,7 +386,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		s.metrics.CurrentLedger.Set(float64(seq))
 		s.metrics.LedgersProcessed.Inc()
 		intervalLedgers++
-		if seq%windowSize == 0 {
+		if seq%progressLogInterval == 0 {
 			if s.tipProvider != nil {
 				if tip, tipErr := s.tipProvider(); tipErr == nil {
 					s.metrics.TargetTip.Set(float64(tip))

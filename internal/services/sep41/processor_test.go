@@ -41,6 +41,26 @@ func newTestOpBuilder() *processors.StateChangeBuilder {
 	return processors.NewStateChangeBuilder(42, 0, 1, nil).WithOperationID(100)
 }
 
+func TestProcessor_NeedsResetGuard(t *testing.T) {
+	ctx := context.Background()
+	p := newTestProcessor()
+	p.Reset()
+
+	// A Persist* call seals the staged sets. With nothing staged it returns early and
+	// never touches the (nil) tx, but still flags that a Reset is required before folding.
+	require.NoError(t, p.PersistHistory(ctx, nil))
+
+	// Folding again without an intervening Reset must error rather than re-add the
+	// already-committed deltas.
+	err := p.ProcessLedger(ctx, services.ProtocolProcessorInput{LedgerSequence: 1})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Reset")
+
+	// Reset clears the seal and folding is allowed again.
+	p.Reset()
+	require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{LedgerSequence: 1}))
+}
+
 func TestProcessor_ProcessEvent(t *testing.T) {
 	t.Run("stages signed balance deltas and DEBIT/CREDIT state changes for a transfer", func(t *testing.T) {
 		p := newTestProcessor()

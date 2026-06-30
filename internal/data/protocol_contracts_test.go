@@ -269,7 +269,13 @@ func TestProtocolContractsBatchGetByContractIDs(t *testing.T) {
 		require.NoError(t, err)
 
 		// Query a subset: cA (SEP41), cB (OTHER), cC (unclassified), cMissing (absent). cD is not queried.
-		result, qErr := model.BatchGetByContractIDs(ctx, []types.HashBytea{cA, cB, cC, cMissing})
+		// BatchGetByContractIDs takes raw 32-byte IDs; HashBytea.Value() yields those bytes.
+		toBytes := func(h types.HashBytea) []byte {
+			v, vErr := h.Value()
+			require.NoError(t, vErr)
+			return v.([]byte)
+		}
+		result, qErr := model.BatchGetByContractIDs(ctx, [][]byte{toBytes(cA), toBytes(cB), toBytes(cC), toBytes(cMissing)})
 		require.NoError(t, qErr)
 
 		require.Len(t, result, 2)

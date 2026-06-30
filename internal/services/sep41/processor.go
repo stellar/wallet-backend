@@ -61,6 +61,12 @@ type processor struct {
 	// so a coalesced window matches per-ledger live ingestion rather than stamping the window end.
 	stagedBalanceLedger map[balanceKey]uint32
 	stagedAllowances    map[allowanceKey]stagedAllowance
+
+	// needsReset is set by Persist* and cleared by Reset(). ProcessLedger refuses to fold
+	// while it is set: folding after a Persist without an intervening Reset would re-add the
+	// already-committed deltas and silently double-count. Both callers Reset() before folding
+	// again, so this only fires on misuse by a future caller.
+	needsReset bool
 }
 
 // newProcessor constructs a SEP-41 processor from generic ProtocolDeps. The
@@ -92,7 +98,14 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // events are pre-filtered to successful transactions only by the
 // indexer/migration helper, so no per-tx success check is needed here.
 // See services.ProtocolProcessor for the folding/batch-equivalence contract.
+//
+// A Persist* call seals the staged sets; Reset() must be called before folding
+// the next window. Folding while sealed returns an error rather than silently
+// double-counting the already-committed deltas.
 func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProcessorInput) error {
+	if p.needsReset {
+		return fmt.Errorf("sep41: ProcessLedger called after Persist without Reset(); deltas would double-count")
+	}
 	p.ledgerNumber = input.LedgerSequence
 	p.indexContracts(input.ProtocolContracts)
 
@@ -277,6 +290,7 @@ func (p *processor) Reset() {
 	p.stagedBalanceDelta = map[balanceKey]*big.Int{}
 	p.stagedBalanceLedger = map[balanceKey]uint32{}
 	p.stagedAllowances = map[allowanceKey]stagedAllowance{}
+	p.needsReset = false
 }
 
 func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
@@ -299,6 +313,7 @@ func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
 
 // PersistHistory writes staged state changes inside the CAS transaction.
 func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
+	p.needsReset = true
 	if len(p.stagedStateChanges) == 0 {
 		return nil
 	}
@@ -313,6 +328,7 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 // and writes allowance values directly (approve semantics are a set, not an add). Runs inside
 // the CAS-guarded transaction so each window's accumulated deltas are applied exactly once.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	p.needsReset = true
 	// Build delta rows directly from the staged deltas — the data layer sums and cleans up zeros.
 	deltas := make([]sep41data.Balance, 0, len(p.stagedBalanceDelta))
 	for key, delta := range p.stagedBalanceDelta {

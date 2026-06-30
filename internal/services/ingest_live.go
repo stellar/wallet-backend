@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -403,20 +402,27 @@ func (m *ingestService) casProtocolCursor(ctx context.Context, dbTx pgx.Tx, curs
 	return swapped, nil
 }
 
-// distinctEventContractIDs returns the deduplicated contract IDs that emitted events
-// this ledger, hex-encoded as HashBytea to match the protocol_contracts.contract_id
-// encoding. Events with a nil ContractId are skipped. It is protocol-agnostic —
-// membership is resolved downstream against protocol_contracts.
-func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.ContractEvent) []types.HashBytea {
-	ids := set.NewSet[types.HashBytea]()
+// distinctEventContractIDs returns the deduplicated raw 32-byte contract IDs that
+// emitted events this ledger, ready to pass straight to a bytea[] query. Events with
+// a nil ContractId are skipped. It is protocol-agnostic — membership is resolved
+// downstream against protocol_contracts.
+func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.ContractEvent) [][]byte {
+	ids := set.NewSet[xdr.ContractId]()
 	for _, evs := range events {
 		for _, ev := range evs {
 			if ev.ContractId != nil {
-				ids.Add(types.HashBytea(hex.EncodeToString(ev.ContractId[:])))
+				ids.Add(*ev.ContractId)
 			}
 		}
 	}
-	return ids.ToSlice()
+	// Index into the slice rather than ranging by value so each [:] references a
+	// distinct backing array (a ranged loop variable would alias the last element).
+	slice := ids.ToSlice()
+	raw := make([][]byte, len(slice))
+	for i := range slice {
+		raw[i] = slice[i][:]
+	}
+	return raw
 }
 
 // getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
