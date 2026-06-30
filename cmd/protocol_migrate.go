@@ -130,9 +130,7 @@ func buildMigrationCommand(
 					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
 				}
 			case string(ingest.LedgerBackendTypeDatastore):
-				if opts.datastore.BucketPath == "" {
-					return fmt.Errorf("--datastore-bucket-path is required when --ledger-backend-type=datastore")
-				}
+				// datastore-bucket-path is validated via Required:true in DatastoreOptions.
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}

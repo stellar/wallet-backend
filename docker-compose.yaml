@@ -87,7 +87,7 @@ services:
         ./wallet-backend serve
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet,public
       PORT: 8002
       SERVER_BASE_URL: ${SERVER_BASE_URL:-http://api-testnet:8002}
       LOG_LEVEL: TRACE
@@ -122,7 +122,7 @@ services:
         ./wallet-backend serve
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet,public
       PORT: 8003
       SERVER_BASE_URL: ${SERVER_BASE_URL:-http://api-mainnet:8003}
       LOG_LEVEL: TRACE
@@ -165,7 +165,8 @@ services:
         fi
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-testnet:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet
+      LEDGER_BACKEND_TYPE: ${LEDGER_BACKEND_TYPE:-rpc}
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_testnet,public
       INGEST_SERVER_PORT: 8004
       NETWORK: testnet
       NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
@@ -207,7 +208,7 @@ services:
         fi
     environment:
       RPC_URL: ${RPC_URL:-http://stellar-rpc-mainnet:8000}
-      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet
+      DATABASE_URL: postgres://postgres@db:5432/wallet-backend?sslmode=disable&search_path=wallet_backend_mainnet,public
       INGEST_SERVER_PORT: 8005
       NETWORK: mainnet
       NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
@@ -224,3 +225,5 @@ configs:
   postgres_init:
     content: |
       CREATE EXTENSION IF NOT EXISTS timescaledb;
+      CREATE SCHEMA IF NOT EXISTS wallet_backend_testnet;
+      CREATE SCHEMA IF NOT EXISTS wallet_backend_mainnet;

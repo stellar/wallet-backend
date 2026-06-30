@@ -344,7 +344,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// same map. This is the migration-side analogue of the live-ingest path
 		// where buffer.GetContractEvents() is computed once per ledger.
 		extractStart := time.Now()
-		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ctx, s.networkPassphrase, ledgerMeta)
+		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ledgerMeta)
 		extractDur := time.Since(extractStart)
 		timers.extract += extractDur
 		s.metrics.PhaseDuration.WithLabelValues("extract").Observe(extractDur.Seconds())

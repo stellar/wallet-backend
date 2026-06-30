@@ -213,11 +213,11 @@ func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 	return config.ConfigOptions{
 		{
 			Name:        "datastore-bucket-path",
-			Usage:       "Datastore bucket and path holding exported ledgers (S3 destination_bucket_path).",
+			Usage:       "Datastore bucket and path holding exported ledgers (S3 destination_bucket_path). Required.",
 			OptType:     types.String,
 			ConfigKey:   &cfg.BucketPath,
 			FlagDefault: "aws-public-blockchain/v1.1/stellar/ledgers/pubnet",
-			Required:    false,
+			Required:    true,
 		},
 		{
 			Name:        "datastore-region",
@@ -240,7 +240,7 @@ func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 			Usage:       "Number of ledger files to prefetch into the datastore read buffer.",
 			OptType:     types.Uint32,
 			ConfigKey:   &cfg.BufferSize,
-			FlagDefault: uint32(1000),
+			FlagDefault: uint32(100),
 			Required:    false,
 		},
 		{
@@ -248,7 +248,7 @@ func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 			Usage:       "Number of concurrent workers downloading ledger files from the datastore.",
 			OptType:     types.Uint32,
 			ConfigKey:   &cfg.NumWorkers,
-			FlagDefault: uint32(45),
+			FlagDefault: uint32(10),
 			Required:    false,
 		},
 		{

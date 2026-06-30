@@ -151,6 +151,17 @@ func validateAccountChange(suite *DataValidationTestSuite, ac *types.AccountChan
 	suite.Require().Equal(expectedFunderAddress, *ac.FunderAddress, "funder address mismatch")
 }
 
+// validateDeployAccountChange validates a contract-deploy account state change (ACCOUNT/CREATE),
+// which carries a deployer address and no funder address.
+func validateDeployAccountChange(suite *DataValidationTestSuite, ac *types.AccountChange, expectedDeployerAddress string) {
+	suite.Require().NotNil(ac, "account change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryAccount, ac.GetType(), "should be ACCOUNT type")
+	suite.Require().Equal(types.StateChangeReasonCreate, ac.GetReason(), "reason mismatch")
+	suite.Require().NotNil(ac.DeployerAddress, "deployer address should not be nil")
+	suite.Require().Equal(expectedDeployerAddress, *ac.DeployerAddress, "deployer address mismatch")
+	suite.Require().Nil(ac.FunderAddress, "funder address should be nil for a contract deploy")
+}
+
 // validateSignerChange validates a signer state change
 func validateSignerChange(suite *DataValidationTestSuite, sc *types.SignerChange, expectedSignerAddress string, expectedSignerWeights int32, expectedReason types.StateChangeReason) {
 	suite.Require().NotNil(sc, "signer change should not be nil")
@@ -969,7 +980,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 
 	// Fetch state changes in parallel
 	accountMergeQueries := []stateChangeQuery{
-		{name: "accountMerge", account: primaryAccount, txHash: &txHash, category: &accountCategory, reason: &mergeReason},
+		{name: "accountMerge", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: &mergeReason},
 		{name: "balanceCredit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
 		{name: "balanceDebit", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
 		{name: "sponsoredReservesUnsponsor", account: sponsoredNewAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
@@ -996,6 +1007,8 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	accountChange := accountMergeChanges.Edges[0].Node.(*types.AccountChange)
 	suite.Require().Equal(types.StateChangeCategoryAccount, accountChange.GetType(), "should be ACCOUNT type")
 	suite.Require().Equal(types.StateChangeReasonMerge, accountChange.GetReason(), "reason should be MERGE")
+	suite.Require().NotNil(accountChange.DestinationAddress, "destination address should not be nil")
+	suite.Require().Equal(primaryAccount, *accountChange.DestinationAddress, "destination address should be the merge destination")
 
 	// Validate BALANCE/CREDIT change
 	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
@@ -1108,6 +1121,35 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	suite.Require().Len(balanceDebitChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT change")
 	balanceDebitChange := balanceDebitChanges.Edges[0].Node.(*types.StandardBalanceChange)
 	validateBalanceChange(suite, balanceDebitChange, xlmContractAddress, "100000000", types.StateChangeReasonDebit)
+}
+
+func (suite *DataValidationTestSuite) TestDeployContractOpsDataValidation() {
+	ctx := context.Background()
+	log.Ctx(ctx).Info("🔍 Validating contract-deploy operation data...")
+
+	useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, "Soroban/deployContractOp")
+	suite.Require().NotNil(useCase, "deployContractOp use case not found")
+	suite.Require().NotEmpty(useCase.GetTransactionResult.Hash, "transaction hash should not be empty")
+
+	txHash := useCase.GetTransactionResult.Hash
+	tx := validateTransactionBase(suite, ctx, txHash)
+
+	// The deploy change's account is the contract ID, not the deployer, so fetch by tx hash.
+	first := int32(15)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	suite.Require().NoError(err, "failed to get transaction state changes")
+	suite.Require().NotNil(stateChanges, "state changes should not be nil")
+
+	// Validate base fields on every change and locate the ACCOUNT/CREATE deploy change in one pass.
+	var deployChange *types.AccountChange
+	for _, edge := range stateChanges.Edges {
+		validateStateChangeBase(suite, edge.Node, int64(tx.LedgerNumber))
+		if ac, ok := edge.Node.(*types.AccountChange); ok && ac.GetReason() == types.StateChangeReasonCreate {
+			deployChange = ac
+		}
+	}
+	suite.Require().NotNil(deployChange, "expected an ACCOUNT/CREATE contract-deploy state change")
+	validateDeployAccountChange(suite, deployChange, suite.testEnv.PrimaryAccountKP.Address())
 }
 
 func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {

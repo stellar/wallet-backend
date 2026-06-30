@@ -224,6 +224,59 @@ func TestStateChangeResolver_TypedFields(t *testing.T) {
 	})
 }
 
+func TestStateChangeResolver_AccountAddressFields(t *testing.T) {
+	ctx := context.Background()
+	resolver := &accountChangeResolver{&Resolver{}}
+
+	t.Run("funder and deployer populated", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{
+			StateChange: types.StateChange{
+				FunderAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true},
+				DeployerAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true},
+			},
+		}
+
+		funder, err := resolver.FunderAddress(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, funder)
+		assert.Equal(t, sharedTestAccountAddress, *funder)
+
+		deployer, err := resolver.DeployerAddress(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, deployer)
+		assert.Equal(t, sharedTestAccountAddress, *deployer)
+	})
+
+	t.Run("classic account change and deployerAddress is null", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{}
+
+		deployer, err := resolver.DeployerAddress(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, deployer)
+	})
+
+	t.Run("merge: destination is surfaced", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{
+			StateChange: types.StateChange{
+				DestinationAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true},
+			},
+		}
+
+		destination, err := resolver.DestinationAddress(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, destination)
+		assert.Equal(t, sharedTestAccountAddress, *destination)
+	})
+
+	t.Run("non-merge account change: destinationAddress is null", func(t *testing.T) {
+		obj := &types.AccountStateChangeModel{}
+
+		destination, err := resolver.DestinationAddress(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, destination)
+	})
+}
+
 func TestStateChangeResolver_Account(t *testing.T) {
 	resolver := &standardBalanceChangeResolver{&Resolver{}}
 

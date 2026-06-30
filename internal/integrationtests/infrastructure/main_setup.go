@@ -65,6 +65,10 @@ type SharedContainers struct {
 	// but can receive and hold balances from both SAC and SEP-41 tokens.
 	// Used for testing C-address token balances.
 	holderContractAddress string
+	// holderWasmHash is the WASM hash of the uploaded holder contract. It is reused to deploy a
+	// fresh contract instance as a submitted use case so the contract-deploy state change
+	// (ACCOUNT/CREATE with a deployer) gets ingested and can be validated.
+	holderWasmHash xdr.Hash
 }
 
 // initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
@@ -244,6 +248,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 		return fmt.Errorf("reading holder contract WASM file: %w", err)
 	}
 	holderWasmHash := s.uploadContractWasm(ctx, t, holderWasmBytes)
+	s.holderWasmHash = holderWasmHash
 	log.Ctx(ctx).Infof("✅ Uploaded holder contract WASM with hash: %x", holderWasmHash)
 
 	s.holderContractAddress = s.deployContractWithConstructor(ctx, t, holderWasmHash, []xdr.ScVal{})
@@ -605,6 +610,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		containers.eurcContractAddress,
 		containers.sep41ContractAddress,
 		containers.usdcContractAddress,
+		containers.holderWasmHash,
 	)
 	if err != nil {
 		return nil, err
