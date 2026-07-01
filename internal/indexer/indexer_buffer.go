@@ -5,7 +5,6 @@ package indexer
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -37,8 +36,9 @@ import (
 //
 // OWNERSHIP:
 // Not safe for concurrent use. Each buffer instance is owned by a single goroutine:
-// ProcessLedgerTransactions builds per-transaction data in parallel workers and folds it into
-// one ledger buffer serially. The participant sets are thread-unsafe for the same reason.
+// ProcessLedgerTransactions builds a per-transaction TransactionResult in parallel workers and
+// folds each into one ledger buffer serially (IngestTransactionResult). The participant sets are
+// thread-unsafe for the same reason.
 
 type TrustlineChangeKey struct {
 	AccountID   string
@@ -111,17 +111,17 @@ func NewIndexerBuffer() *IndexerBuffer {
 // PushTransaction adds a transaction and associates it with a participant.
 // Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
 // which participants interacted with it. Multiple participants can reference the same transaction.
-func (b *IndexerBuffer) PushTransaction(participant string, transaction types.Transaction) {
-	b.pushTransactionUnsafe(participant, &transaction)
+func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.Transaction) {
+	b.recordTransaction(participant, transaction)
 }
 
-// pushTransactionUnsafe is the shared internal helper that stores a transaction pointer and
+// recordTransaction is the shared internal helper that stores a transaction pointer and
 // records the participant:
 //
 // 1. Check if transaction already exists in txByHash
 // 2. If not, store the transaction pointer
 // 3. Add participant to this transaction's participant set in participantsByToID
-func (b *IndexerBuffer) pushTransactionUnsafe(participant string, transaction *types.Transaction) {
+func (b *IndexerBuffer) recordTransaction(participant string, transaction *types.Transaction) {
 	txHash := transaction.Hash.String()
 	if _, exists := b.txByHash[txHash]; !exists {
 		b.txByHash[txHash] = transaction
@@ -198,31 +198,6 @@ func pushWithTombstone[K comparable, V any](
 	}
 
 	m[key] = change
-}
-
-// mergeWithTombstone folds src into dst using the same tombstone-aware dedup as pushWithTombstone.
-// It first merges src's tombstones into dst (keeping the higher order per key and evicting any dst
-// entry the tombstone cancels), then replays src's surviving changes. Merging tombstones is
-// required because a create->remove cancelled entirely within src leaves only a tombstone there,
-// which must carry over so a lower-order change in dst cannot resurrect the key.
-func mergeWithTombstone[K comparable, V any](
-	dst, src map[K]V,
-	dstTombstones, srcTombstones map[K]int64,
-	order func(V) int64,
-	isNoopRemove func(existing, incoming V) bool,
-) {
-	for key, tomb := range srcTombstones {
-		if existing, ok := dstTombstones[key]; !ok || tomb > existing {
-			dstTombstones[key] = tomb
-		}
-		if entry, ok := dst[key]; ok && order(entry) <= dstTombstones[key] {
-			delete(dst, key)
-		}
-	}
-
-	for key, change := range src {
-		pushWithTombstone(dst, dstTombstones, key, change, order, isNoopRemove)
-	}
 }
 
 func accountOrder(c types.AccountChange) int64 { return c.SortKey }
@@ -304,9 +279,9 @@ func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SAC
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
-func (b *IndexerBuffer) PushOperation(participant string, operation types.Operation, transaction types.Transaction) {
-	b.pushOperationUnsafe(participant, &operation)
-	b.pushTransactionUnsafe(participant, &transaction)
+func (b *IndexerBuffer) PushOperation(participant string, operation *types.Operation, transaction *types.Transaction) {
+	b.recordOperation(participant, operation)
+	b.recordTransaction(participant, transaction)
 }
 
 // GetOperations returns all unique operations from the canonical storage.
@@ -323,10 +298,10 @@ func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	return b.participantsByOpID
 }
 
-// pushOperationUnsafe is the shared internal helper that stores an operation pointer and records
+// recordOperation is the shared internal helper that stores an operation pointer and records
 // the participant. Stores one copy of each operation (by ID) and tracks which participants
 // interacted with it.
-func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types.Operation) {
+func (b *IndexerBuffer) recordOperation(participant string, operation *types.Operation) {
 	opID := operation.ID
 	if _, exists := b.opByID[opID]; !exists {
 		b.opByID[opID] = operation
@@ -340,12 +315,13 @@ func (b *IndexerBuffer) pushOperationUnsafe(participant string, operation *types
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.
-func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange) {
+// operation may be nil for fee state changes, which have no associated operation.
+func (b *IndexerBuffer) PushStateChange(transaction *types.Transaction, operation *types.Operation, stateChange types.StateChange) {
 	b.stateChanges = append(b.stateChanges, stateChange)
-	b.pushTransactionUnsafe(string(stateChange.AccountID), &transaction)
+	b.recordTransaction(string(stateChange.AccountID), transaction)
 	// Fee changes dont have an operation ID associated with them
-	if stateChange.OperationID != 0 {
-		b.pushOperationUnsafe(string(stateChange.AccountID), &operation)
+	if stateChange.OperationID != 0 && operation != nil {
+		b.recordOperation(string(stateChange.AccountID), operation)
 	}
 }
 
@@ -354,103 +330,78 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	return b.stateChanges
 }
 
-// Merge merges another IndexerBuffer into this buffer. This is used to combine
-// per-ledger or per-transaction buffers into a single buffer for batch DB insertion.
+// TransactionResult is the per-transaction output produced by a parallel worker in
+// ProcessLedgerTransactions. Workers build these independently (no shared buffer, no locks); the
+// serial fold (IngestTransactionResult) then replays them into one ledger buffer. This avoids
+// allocating a full IndexerBuffer per transaction and the subsequent buffer-to-buffer merge.
 //
-// MERGE STRATEGY:
-// 1. Copy storage maps (txByHash, opByID) using maps.Copy
-// 2. For each transaction ToID in other.participantsByToID:
-//   - Merge other's participant set into our participant set for that ToID
-//   - Creates new set if tx doesn't exist in our mapping yet
-//
-// 3. For each operation ID in other.participantsByOpID:
-//   - Merge other's participant set into our participant set for that op ID
-//   - Creates new set if op doesn't exist in our mapping yet
-//
-// 4. Append other's state changes to ours
-//
-// MEMORY EFFICIENCY:
-// Zero temporary allocations - uses direct map/set manipulation.
-func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
-	// Type assert to get concrete buffer for efficient merging
-	otherBuffer, ok := other.(*IndexerBuffer)
-	if !ok {
-		return
+// Operations is keyed by operation ID and is shared by OpParticipants (participant tracking) and
+// StateChanges (state-change → operation association). StateChanges is already filtered by the
+// worker: entries with an empty AccountID or an OperationID with no matching operation are dropped.
+type TransactionResult struct {
+	Transaction           *types.Transaction
+	TxParticipants        []string
+	Operations            map[int64]*types.Operation
+	OpParticipants        map[int64][]string
+	StateChanges          []types.StateChange
+	TrustlineChanges      []types.TrustlineChange
+	AccountChanges        []types.AccountChange
+	SACBalanceChanges     []types.SACBalanceChange
+	SACContracts          []*data.Contract
+	ProtocolWasms         []data.ProtocolWasms
+	ProtocolWasmBytecodes map[string][]byte
+	ProtocolContracts     []data.ProtocolContracts
+	ContractEvents        map[ContractEventKey][]xdr.ContractEvent
+	ParticipantCount      int
+}
+
+// IngestTransactionResult folds a single transaction's result into the buffer, applying the same
+// per-key deduplication as the individual Push* methods. It is called serially by
+// ProcessLedgerTransactions after the parallel workers finish, so no locking is required.
+func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
+	for _, participant := range r.TxParticipants {
+		b.PushTransaction(participant, r.Transaction)
 	}
 
-	// Merge transactions (canonical storage) - this establishes our canonical pointers
-	maps.Copy(b.txByHash, otherBuffer.txByHash)
-	for toID, otherParticipants := range otherBuffer.participantsByToID {
-		if existing, exists := b.participantsByToID[toID]; exists {
-			// Merge into existing set - iterate and add (Union creates new set)
-			for participant := range otherParticipants.Iter() {
-				existing.Add(participant)
-			}
-		} else {
-			// Clone the set instead of creating empty + iterating
-			b.participantsByToID[toID] = otherParticipants.Clone()
+	for opID, participants := range r.OpParticipants {
+		operation := r.Operations[opID]
+		for _, participant := range participants {
+			b.PushOperation(participant, operation, r.Transaction)
 		}
 	}
 
-	// Merge operations (canonical storage)
-	maps.Copy(b.opByID, otherBuffer.opByID)
-	for opID, otherParticipants := range otherBuffer.participantsByOpID {
-		if existing, exists := b.participantsByOpID[opID]; exists {
-			// Merge into existing set - iterate and add (Union creates new set)
-			for participant := range otherParticipants.Iter() {
-				existing.Add(participant)
-			}
-		} else {
-			// Clone the set instead of creating empty + iterating
-			b.participantsByOpID[opID] = otherParticipants.Clone()
-		}
+	for _, trustlineChange := range r.TrustlineChanges {
+		b.PushTrustlineChange(trustlineChange)
+	}
+	for _, accountChange := range r.AccountChanges {
+		b.PushAccountChange(accountChange)
+	}
+	for _, sacBalanceChange := range r.SACBalanceChanges {
+		b.PushSACBalanceChange(sacBalanceChange)
+	}
+	for _, contract := range r.SACContracts {
+		b.PushSACContract(contract)
+	}
+	for _, wasm := range r.ProtocolWasms {
+		b.PushProtocolWasm(wasm)
+	}
+	for wasmHash, bytecode := range r.ProtocolWasmBytecodes {
+		b.PushProtocolWasmBytecode(wasmHash, bytecode)
+	}
+	for _, contract := range r.ProtocolContracts {
+		b.PushProtocolContracts(contract)
 	}
 
-	// Merge state changes
-	b.stateChanges = append(b.stateChanges, otherBuffer.stateChanges...)
-
-	// Merge trustline, account, and SAC balance changes with the same tombstone-aware dedup as
-	// the Push* methods (highest order wins; a same-ledger create/add→remove nets to nothing and
-	// tombstones the key so a lower-order change cannot resurrect it).
-	mergeWithTombstone(b.trustlineChangesByTrustlineKey, otherBuffer.trustlineChangesByTrustlineKey, b.trustlineTombstones, otherBuffer.trustlineTombstones, trustlineOrder, trustlineIsNoopRemove)
-	mergeWithTombstone(b.accountChangesByAccountID, otherBuffer.accountChangesByAccountID, b.accountTombstones, otherBuffer.accountTombstones, accountOrder, accountIsNoopRemove)
-	mergeWithTombstone(b.sacBalanceChangesByKey, otherBuffer.sacBalanceChangesByKey, b.sacTombstones, otherBuffer.sacTombstones, sacBalanceOrder, sacBalanceIsNoopRemove)
-
-	// Merge unique trustline assets
-	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
-
-	// Merge SAC contracts (first-write wins for deduplication)
-	for id, contract := range otherBuffer.sacContractsByID {
-		if _, exists := b.sacContractsByID[id]; !exists {
-			b.sacContractsByID[id] = contract
+	for _, stateChange := range r.StateChanges {
+		var operation *types.Operation
+		if stateChange.OperationID != 0 {
+			operation = r.Operations[stateChange.OperationID]
 		}
+		b.PushStateChange(r.Transaction, operation, stateChange)
 	}
 
-	// Merge protocol WASMs (first-write wins for deduplication)
-	for hash, wasm := range otherBuffer.protocolWasmsByHash {
-		if _, exists := b.protocolWasmsByHash[hash]; !exists {
-			b.protocolWasmsByHash[hash] = wasm
-		}
-	}
-
-	// Merge wasm bytecodes (first-write wins; bytecode for a given hash is content-addressed and immutable)
-	for hash, code := range otherBuffer.wasmBytecodesByHash {
-		if _, exists := b.wasmBytecodesByHash[hash]; !exists {
-			b.wasmBytecodesByHash[hash] = code
-		}
-	}
-
-	// Merge protocol contracts (last-write-wins: otherBuffer has later ledger data)
-	maps.Copy(b.protocolContractsByID, otherBuffer.protocolContractsByID)
-
-	// Merge contract events (first-write wins: each (txIdx, opIdx) key is
-	// produced by exactly one goroutine in ProcessLedgerTransactions, so
-	// collisions don't occur in normal operation. First-write keeps merges
-	// idempotent if a caller ever merges twice.)
-	for key, events := range otherBuffer.contractEventsByKey {
-		if _, exists := b.contractEventsByKey[key]; !exists {
-			b.contractEventsByKey[key] = events
-		}
+	for key, events := range r.ContractEvents {
+		b.PushContractEvents(key, events)
 	}
 }
 

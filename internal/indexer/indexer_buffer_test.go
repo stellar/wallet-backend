@@ -28,10 +28,10 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
-		indexerBuffer.PushTransaction("alice", tx1)
-		indexerBuffer.PushTransaction("alice", tx2)
-		indexerBuffer.PushTransaction("bob", tx2)
-		indexerBuffer.PushTransaction("bob", tx2) // duplicate is a no-op
+		indexerBuffer.PushTransaction("alice", &tx1)
+		indexerBuffer.PushTransaction("alice", &tx2)
+		indexerBuffer.PushTransaction("bob", &tx2)
+		indexerBuffer.PushTransaction("bob", &tx2) // duplicate is a no-op
 
 		// Assert participants by transaction
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
@@ -55,10 +55,10 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
-		indexerBuffer.PushOperation("alice", op1, tx1)
-		indexerBuffer.PushOperation("bob", op2, tx2)
-		indexerBuffer.PushOperation("chuck", op2, tx2)
-		indexerBuffer.PushOperation("chuck", op2, tx2) // duplicate operation ID is a no-op
+		indexerBuffer.PushOperation("alice", &op1, &tx1)
+		indexerBuffer.PushOperation("bob", &op2, &tx2)
+		indexerBuffer.PushOperation("chuck", &op2, &tx2)
+		indexerBuffer.PushOperation("chuck", &op2, &tx2) // duplicate operation ID is a no-op
 
 		// Assert participants by operation
 		opParticipants := indexerBuffer.GetOperationsParticipants()
@@ -83,9 +83,9 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		sc2 := types.StateChange{ToID: 2, StateChangeID: 1}
 		sc3 := types.StateChange{ToID: 3, StateChangeID: 1}
 
-		indexerBuffer.PushStateChange(tx, op, sc1)
-		indexerBuffer.PushStateChange(tx, op, sc2)
-		indexerBuffer.PushStateChange(tx, op, sc3)
+		indexerBuffer.PushStateChange(&tx, &op, sc1)
+		indexerBuffer.PushStateChange(&tx, &op, sc2)
+		indexerBuffer.PushStateChange(&tx, &op, sc3)
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
@@ -99,8 +99,8 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		op1 := types.Operation{ID: 3}
 		op2 := types.Operation{ID: 4}
 		op3 := types.Operation{ID: 5}
-		indexerBuffer.PushOperation("someone", op1, tx1)
-		indexerBuffer.PushOperation("someone", op2, tx2)
+		indexerBuffer.PushOperation("someone", &op1, &tx1)
+		indexerBuffer.PushOperation("someone", &op2, &tx2)
 
 		sc1 := buildStateChange(3, types.StateChangeReasonCredit, "alice", op1.ID)
 		sc2 := buildStateChange(4, types.StateChangeReasonDebit, "alice", op2.ID)
@@ -109,11 +109,11 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 		sc4 := buildStateChange(1, types.StateChangeReasonDebit, "bob", 0)
 		sc5 := buildStateChange(2, types.StateChangeReasonDebit, "bob", 0)
 
-		indexerBuffer.PushStateChange(tx1, op1, sc1)
-		indexerBuffer.PushStateChange(tx2, op2, sc2)
-		indexerBuffer.PushStateChange(tx2, op3, sc3)               // This operation should be added
-		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc4) // Fee state changes don't have an operation
-		indexerBuffer.PushStateChange(tx2, types.Operation{}, sc5) // Fee state changes don't have an operation
+		indexerBuffer.PushStateChange(&tx1, &op1, sc1)
+		indexerBuffer.PushStateChange(&tx2, &op2, sc2)
+		indexerBuffer.PushStateChange(&tx2, &op3, sc3) // This operation should be added
+		indexerBuffer.PushStateChange(&tx2, nil, sc4)  // Fee state changes don't have an operation
+		indexerBuffer.PushStateChange(&tx2, nil, sc5)  // Fee state changes don't have an operation
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3, sc4, sc5}, allStateChanges)
@@ -140,14 +140,14 @@ func TestIndexerBuffer_GetNumberOfTransactions(t *testing.T) {
 		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
-		indexerBuffer.PushTransaction("alice", tx1)
+		indexerBuffer.PushTransaction("alice", &tx1)
 		assert.Equal(t, 1, indexerBuffer.GetNumberOfTransactions())
 
-		indexerBuffer.PushTransaction("bob", tx2)
+		indexerBuffer.PushTransaction("bob", &tx2)
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Duplicate should not increase count
-		indexerBuffer.PushTransaction("charlie", tx2)
+		indexerBuffer.PushTransaction("charlie", &tx2)
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 	})
 }
@@ -159,9 +159,9 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1, LedgerNumber: 100}
 		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2, LedgerNumber: 101}
 
-		indexerBuffer.PushTransaction("alice", tx1)
-		indexerBuffer.PushTransaction("bob", tx2)
-		indexerBuffer.PushTransaction("charlie", tx2) // duplicate
+		indexerBuffer.PushTransaction("alice", &tx1)
+		indexerBuffer.PushTransaction("bob", &tx2)
+		indexerBuffer.PushTransaction("charlie", &tx2) // duplicate
 
 		allTxs := indexerBuffer.GetTransactions()
 		require.Len(t, allTxs, 2)
@@ -176,9 +176,9 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
 
-		indexerBuffer.PushTransaction("alice", tx1)
-		indexerBuffer.PushTransaction("bob", tx1)
-		indexerBuffer.PushTransaction("alice", tx2)
+		indexerBuffer.PushTransaction("alice", &tx1)
+		indexerBuffer.PushTransaction("bob", &tx1)
+		indexerBuffer.PushTransaction("alice", &tx2)
 
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
 		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx1.ToID])
@@ -194,9 +194,9 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
-		indexerBuffer.PushOperation("alice", op1, tx1)
-		indexerBuffer.PushOperation("bob", op2, tx1)
-		indexerBuffer.PushOperation("charlie", op2, tx1) // duplicate
+		indexerBuffer.PushOperation("alice", &op1, &tx1)
+		indexerBuffer.PushOperation("bob", &op2, &tx1)
+		indexerBuffer.PushOperation("charlie", &op2, &tx1) // duplicate
 
 		allOps := indexerBuffer.GetOperations()
 		require.Len(t, allOps, 2)
@@ -212,9 +212,9 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 		op1 := types.Operation{ID: 1}
 		op2 := types.Operation{ID: 2}
 
-		indexerBuffer.PushOperation("alice", op1, tx1)
-		indexerBuffer.PushOperation("bob", op1, tx1)
-		indexerBuffer.PushOperation("alice", op2, tx1)
+		indexerBuffer.PushOperation("alice", &op1, &tx1)
+		indexerBuffer.PushOperation("bob", &op1, &tx1)
+		indexerBuffer.PushOperation("alice", &op2, &tx1)
 
 		opParticipants := indexerBuffer.GetOperationsParticipants()
 		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), opParticipants[int64(1)])
@@ -233,223 +233,62 @@ func TestIndexerBuffer_GetAllStateChanges(t *testing.T) {
 		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob"}
 		sc3 := types.StateChange{ToID: 3, StateChangeID: 1, AccountID: "charlie"}
 
-		indexerBuffer.PushStateChange(tx, op, sc1)
-		indexerBuffer.PushStateChange(tx, op, sc2)
-		indexerBuffer.PushStateChange(tx, op, sc3)
+		indexerBuffer.PushStateChange(&tx, &op, sc1)
+		indexerBuffer.PushStateChange(&tx, &op, sc2)
+		indexerBuffer.PushStateChange(&tx, &op, sc3)
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
 }
 
-func TestIndexerBuffer_Merge(t *testing.T) {
-	t.Run("🟢 merge empty buffers", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
+func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
+	t.Run("🟢 folds a single result into the buffer", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
 
-		buffer1.Merge(buffer2)
-		assert.Equal(t, 0, buffer1.GetNumberOfTransactions())
-		assert.Len(t, buffer1.GetStateChanges(), 0)
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		op := types.Operation{ID: 10}
+		sc := buildStateChange(1, types.StateChangeReasonCredit, "alice", 10)
+
+		result := &TransactionResult{
+			Transaction:      &tx,
+			TxParticipants:   []string{"alice"},
+			Operations:       map[int64]*types.Operation{10: &op},
+			OpParticipants:   map[int64][]string{10: {"alice", "bob"}},
+			StateChanges:     []types.StateChange{sc},
+			AccountChanges:   []types.AccountChange{{AccountID: "alice", SortKey: 1, Operation: types.AccountOpUpdate, Balance: 100}},
+			ParticipantCount: 2,
+		}
+
+		buffer.IngestTransactionResult(result)
+
+		assert.Equal(t, 1, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 1, buffer.GetNumberOfOperations())
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), buffer.GetOperationsParticipants()[10])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), buffer.GetTransactionsParticipants()[1])
+		assert.Len(t, buffer.GetStateChanges(), 1)
+		assert.Len(t, buffer.GetAccountChanges(), 1)
 	})
 
-	t.Run("🟢 merge transactions only", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
+	t.Run("🟢 dedups across multiple folded results (CREATE→REMOVE tombstone)", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
+		// One result creates the account, a later result removes it within the same ledger. Folded
+		// through the same buffer, the CREATE→REMOVE nets to nothing (see pushWithTombstone).
+		create := &TransactionResult{
+			Transaction:    &tx,
+			AccountChanges: []types.AccountChange{{AccountID: "GACCT", SortKey: 1, Operation: types.AccountOpCreate, Balance: 100}},
+		}
+		remove := &TransactionResult{
+			Transaction:    &tx,
+			AccountChanges: []types.AccountChange{{AccountID: "GACCT", SortKey: 2, Operation: types.AccountOpRemove}},
+		}
 
-		buffer1.PushTransaction("alice", tx1)
-		buffer2.PushTransaction("bob", tx2)
+		buffer.IngestTransactionResult(create)
+		buffer.IngestTransactionResult(remove)
 
-		buffer1.Merge(buffer2)
-
-		// Verify transactions
-		allTxs := buffer1.GetTransactions()
-		assert.Len(t, allTxs, 2)
-		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, allTxs)
-
-		// Verify transaction participants
-		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob"), txParticipants[tx2.ToID])
-	})
-
-	t.Run("🟢 merge operations only", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		op1 := types.Operation{ID: 1}
-		op2 := types.Operation{ID: 2}
-
-		buffer1.PushOperation("alice", op1, tx1)
-		buffer2.PushOperation("bob", op2, tx1)
-
-		buffer1.Merge(buffer2)
-
-		// Verify operations
-		allOps := buffer1.GetOperations()
-		assert.Len(t, allOps, 2)
-		assert.ElementsMatch(t, []*types.Operation{&op1, &op2}, allOps)
-
-		// Verify operation participants
-		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob"), opParticipants[int64(2)])
-	})
-
-	t.Run("🟢 merge state changes only", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
-		op := types.Operation{ID: 1}
-
-		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice"}
-		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob"}
-
-		buffer1.PushStateChange(tx, op, sc1)
-		buffer2.PushStateChange(tx, op, sc2)
-
-		buffer1.Merge(buffer2)
-
-		// Verify state changes
-		allStateChanges := buffer1.GetStateChanges()
-		assert.Len(t, allStateChanges, 2)
-		assert.Equal(t, sc1, allStateChanges[0])
-		assert.Equal(t, sc2, allStateChanges[1])
-	})
-
-	t.Run("🟢 merge with overlapping data", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		op1 := types.Operation{ID: 1}
-
-		// Buffer1 has tx1 with alice
-		buffer1.PushTransaction("alice", tx1)
-		buffer1.PushOperation("alice", op1, tx1)
-
-		// Buffer2 has tx1 with bob (overlapping tx) and tx2 with charlie
-		buffer2.PushTransaction("bob", tx1)
-		buffer2.PushTransaction("charlie", tx2)
-		buffer2.PushOperation("bob", op1, tx1)
-
-		buffer1.Merge(buffer2)
-
-		// Verify transactions
-		allTxs := buffer1.GetTransactions()
-		assert.Len(t, allTxs, 2)
-
-		// Verify tx1 has both alice and bob as participants
-		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("charlie"), txParticipants[tx2.ToID])
-
-		// Verify operation participants merged
-		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), opParticipants[int64(1)])
-	})
-
-	t.Run("🟢 merge into empty buffer", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		op1 := types.Operation{ID: 1}
-		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice"}
-
-		buffer2.PushTransaction("alice", tx1)
-		buffer2.PushOperation("bob", op1, tx1)
-		buffer2.PushStateChange(tx1, op1, sc1)
-
-		buffer1.Merge(buffer2)
-
-		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
-		assert.Len(t, buffer1.GetOperations(), 1)
-		assert.Len(t, buffer1.GetStateChanges(), 1)
-	})
-
-	t.Run("🟢 merge empty buffer into populated", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		buffer1.PushTransaction("alice", tx1)
-
-		buffer1.Merge(buffer2)
-
-		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
-	})
-
-	t.Run("🟢 merge multiple buffers", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-		buffer3 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		tx3 := types.Transaction{Hash: "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762", ToID: 3}
-
-		buffer1.PushTransaction("alice", tx1)
-		buffer2.PushTransaction("bob", tx2)
-		buffer3.PushTransaction("charlie", tx3)
-
-		buffer1.Merge(buffer2)
-		buffer1.Merge(buffer3)
-
-		// Verify all data merged correctly
-		assert.Equal(t, 3, buffer1.GetNumberOfTransactions())
-	})
-
-	t.Run("🟢 merge complete buffers with all data types", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		op1 := types.Operation{ID: 1}
-		op2 := types.Operation{ID: 2}
-		sc1 := types.StateChange{ToID: 1, StateChangeID: 1, AccountID: "alice", OperationID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeID: 1, AccountID: "bob", OperationID: 2}
-
-		// Buffer1
-		buffer1.PushTransaction("alice", tx1)
-		buffer1.PushOperation("alice", op1, tx1)
-		buffer1.PushStateChange(tx1, op1, sc1)
-
-		// Buffer2
-		buffer2.PushTransaction("bob", tx2)
-		buffer2.PushOperation("bob", op2, tx2)
-		buffer2.PushStateChange(tx2, op2, sc2)
-
-		buffer1.Merge(buffer2)
-
-		// Verify transactions
-		allTxs := buffer1.GetTransactions()
-		assert.Len(t, allTxs, 2)
-
-		// Verify operations
-		allOps := buffer1.GetOperations()
-		assert.Len(t, allOps, 2)
-
-		// Verify state changes
-		allStateChanges := buffer1.GetStateChanges()
-		assert.Len(t, allStateChanges, 2)
-		assert.Equal(t, sc1, allStateChanges[0])
-		assert.Equal(t, sc2, allStateChanges[1])
-
-		// Verify participants mappings
-		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob"), txParticipants[tx2.ToID])
-
-		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob"), opParticipants[int64(2)])
+		assert.Len(t, buffer.GetAccountChanges(), 0)
 	})
 }
 
@@ -634,138 +473,6 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 	})
 }
 
-func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
-	t.Run("🟢 merge SAC balance changes from two buffers", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		account1 := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-		account2 := "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-		contract1 := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
-
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   account1,
-			ContractID:  contract1,
-			Balance:     "100",
-			Operation:   types.SACBalanceOpAdd,
-			OperationID: 1,
-		})
-
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   account2,
-			ContractID:  contract1,
-			Balance:     "200",
-			Operation:   types.SACBalanceOpAdd,
-			OperationID: 2,
-		})
-
-		buffer1.Merge(buffer2)
-
-		changes := buffer1.GetSACBalanceChanges()
-		assert.Len(t, changes, 2)
-	})
-
-	t.Run("🟢 merge keeps higher OperationID during merge", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
-
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "100",
-			Operation:   types.SACBalanceOpAdd,
-			OperationID: 50,
-		})
-
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "200",
-			Operation:   types.SACBalanceOpUpdate,
-			OperationID: 100, // Higher
-		})
-
-		buffer1.Merge(buffer2)
-
-		changes := buffer1.GetSACBalanceChanges()
-		assert.Len(t, changes, 1)
-
-		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
-		assert.Equal(t, "200", changes[key].Balance)
-		assert.Equal(t, int64(100), changes[key].OperationID)
-	})
-
-	t.Run("🟢 merge handles ADD→REMOVE no-op across buffers", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
-
-		// Buffer1 has ADD
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "100",
-			Operation:   types.SACBalanceOpAdd,
-			OperationID: 50,
-		})
-
-		// Buffer2 has REMOVE (higher opID)
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "0",
-			Operation:   types.SACBalanceOpRemove,
-			OperationID: 100,
-		})
-
-		buffer1.Merge(buffer2)
-
-		// ADD→REMOVE across merge is a no-op
-		changes := buffer1.GetSACBalanceChanges()
-		assert.Len(t, changes, 0)
-	})
-
-	t.Run("🟢 merge ignores lower OperationID from other buffer", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
-		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
-
-		// Buffer1 has higher opID
-		buffer1.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "200",
-			Operation:   types.SACBalanceOpUpdate,
-			OperationID: 100,
-		})
-
-		// Buffer2 has lower opID - should be ignored
-		buffer2.PushSACBalanceChange(types.SACBalanceChange{
-			AccountID:   accountID,
-			ContractID:  contractID,
-			Balance:     "50",
-			Operation:   types.SACBalanceOpAdd,
-			OperationID: 50,
-		})
-
-		buffer1.Merge(buffer2)
-
-		changes := buffer1.GetSACBalanceChanges()
-		assert.Len(t, changes, 1)
-
-		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
-		assert.Equal(t, "200", changes[key].Balance)
-		assert.Equal(t, int64(100), changes[key].OperationID)
-	})
-}
-
 func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 	t.Run("push and get protocol wasms with dedup", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
@@ -782,22 +489,6 @@ func TestIndexerBuffer_ProtocolWasms(t *testing.T) {
 		assert.Len(t, wasms, 2)
 		assert.Equal(t, wasm1, wasms[string(wasm1.WasmHash)])
 		assert.Equal(t, wasm2, wasms[string(wasm2.WasmHash)])
-	})
-
-	t.Run("merge protocol wasms first-write-wins", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		buffer1.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"})
-		buffer2.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0100000000000000000000000000000000000000000000000000000000000000"}) // duplicate across buffers
-		buffer2.PushProtocolWasm(data.ProtocolWasms{WasmHash: "0200000000000000000000000000000000000000000000000000000000000000"})
-
-		buffer1.Merge(buffer2)
-
-		wasms := buffer1.GetProtocolWasms()
-		assert.Len(t, wasms, 2)
-		assert.Contains(t, wasms, "0100000000000000000000000000000000000000000000000000000000000000")
-		assert.Contains(t, wasms, "0200000000000000000000000000000000000000000000000000000000000000")
 	})
 
 	t.Run("clear protocol wasms", func(t *testing.T) {
@@ -830,23 +521,6 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 		// Last-write-wins: c1Upgrade should overwrite c1
 		assert.Equal(t, c1Upgrade, contracts[string(c1.ContractID)])
 		assert.Equal(t, c2, contracts[string(c2.ContractID)])
-	})
-
-	t.Run("merge protocol contracts last-write-wins", func(t *testing.T) {
-		buffer1 := NewIndexerBuffer()
-		buffer2 := NewIndexerBuffer()
-
-		buffer1.PushProtocolContracts(data.ProtocolContracts{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "0a00000000000000000000000000000000000000000000000000000000000000"})
-		buffer2.PushProtocolContracts(data.ProtocolContracts{ContractID: "0100000000000000000000000000000000000000000000000000000000000000", WasmHash: "6300000000000000000000000000000000000000000000000000000000000000"}) // upgrade
-		buffer2.PushProtocolContracts(data.ProtocolContracts{ContractID: "0200000000000000000000000000000000000000000000000000000000000000", WasmHash: "1400000000000000000000000000000000000000000000000000000000000000"})
-
-		buffer1.Merge(buffer2)
-
-		contracts := buffer1.GetProtocolContracts()
-		assert.Len(t, contracts, 2)
-		// Last-write-wins: buffer2's value (later data) should overwrite buffer1's
-		assert.Equal(t, types.HashBytea("6300000000000000000000000000000000000000000000000000000000000000"), contracts["0100000000000000000000000000000000000000000000000000000000000000"].WasmHash)
-		assert.Equal(t, types.HashBytea("1400000000000000000000000000000000000000000000000000000000000000"), contracts["0200000000000000000000000000000000000000000000000000000000000000"].WasmHash)
 	})
 
 	t.Run("clear protocol contracts", func(t *testing.T) {
@@ -1041,104 +715,6 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 	})
 }
 
-func TestIndexerBuffer_MergeAccountChanges(t *testing.T) {
-	// Each tx is processed into its own buffer, then merged. Because the dedup key is a
-	// total order with no ties, the winner is the same no matter what order buffers merge —
-	// that is what makes parallel-then-merge safe.
-	accountChange := func(sortKey, balance int64) types.AccountChange {
-		return types.AccountChange{
-			AccountID:    accountChangeAddr,
-			SortKey:      sortKey,
-			LedgerNumber: 12345,
-			Operation:    types.AccountOpUpdate,
-			Balance:      balance,
-		}
-	}
-
-	// mergeBalance pushes a and b into separate buffers, merges them in the given order into
-	// a fresh buffer, and returns the surviving balance for accountChangeAddr.
-	mergeBalance := func(a, b types.AccountChange) int64 {
-		bufA := NewIndexerBuffer()
-		bufA.PushAccountChange(a)
-		bufB := NewIndexerBuffer()
-		bufB.PushAccountChange(b)
-
-		merged := NewIndexerBuffer()
-		merged.Merge(bufA)
-		merged.Merge(bufB)
-		return merged.GetAccountChanges()[accountChangeAddr].Balance
-	}
-
-	t.Run("🟢 operation beats fee across buffers", func(t *testing.T) {
-		op := accountChange(accountRank(rankOp, 2, 1), 500)
-		fee := accountChange(accountRank(rankFee, 9, 0), 999)
-		assert.Equal(t, int64(500), mergeBalance(op, fee))
-		assert.Equal(t, int64(500), mergeBalance(fee, op))
-	})
-
-	t.Run("🟢 refund beats operation across buffers", func(t *testing.T) {
-		op := accountChange(accountRank(rankOp, 8, 1), 500)
-		refund := accountChange(accountRank(rankRefund, 3, 0), 550)
-		assert.Equal(t, int64(550), mergeBalance(op, refund))
-		assert.Equal(t, int64(550), mergeBalance(refund, op))
-	})
-
-	t.Run("🟢 later-tx fee wins independent of merge order", func(t *testing.T) {
-		early := accountChange(accountRank(rankFee, 3, 0), 100)
-		late := accountChange(accountRank(rankFee, 7, 0), 200)
-		assert.Equal(t, int64(200), mergeBalance(early, late))
-		assert.Equal(t, int64(200), mergeBalance(late, early))
-	})
-
-	t.Run("🟢 later-tx refund wins independent of merge order", func(t *testing.T) {
-		early := accountChange(accountRank(rankRefund, 3, 0), 100)
-		late := accountChange(accountRank(rankRefund, 7, 0), 200)
-		assert.Equal(t, int64(200), mergeBalance(early, late))
-		assert.Equal(t, int64(200), mergeBalance(late, early))
-	})
-
-	// cancelledBuffer returns a buffer in which the account was created then removed within its
-	// own operations — its map entry is gone, leaving only a tombstone that Merge must propagate.
-	cancelledBuffer := func() *IndexerBuffer {
-		buf := NewIndexerBuffer()
-		buf.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 1, 1), Operation: types.AccountOpCreate, Balance: 100})
-		buf.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 1, 2), Operation: types.AccountOpRemove})
-		return buf
-	}
-
-	t.Run("🟢 tombstone propagates across merge and blocks lower-key change", func(t *testing.T) {
-		lower := NewIndexerBuffer()
-		lower.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999))
-
-		ab := NewIndexerBuffer()
-		ab.Merge(cancelledBuffer())
-		ab.Merge(lower)
-		assert.Len(t, ab.GetAccountChanges(), 0)
-
-		ba := NewIndexerBuffer()
-		ba.Merge(lower)
-		ba.Merge(cancelledBuffer())
-		assert.Len(t, ba.GetAccountChanges(), 0)
-	})
-
-	t.Run("🟢 higher-key change across merge re-creates a tombstoned account", func(t *testing.T) {
-		recreate := NewIndexerBuffer()
-		recreate.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 5, 1), Operation: types.AccountOpCreate, Balance: 700})
-
-		ab := NewIndexerBuffer()
-		ab.Merge(cancelledBuffer())
-		ab.Merge(recreate)
-		require.Len(t, ab.GetAccountChanges(), 1)
-		assert.Equal(t, int64(700), ab.GetAccountChanges()[accountChangeAddr].Balance)
-
-		ba := NewIndexerBuffer()
-		ba.Merge(recreate)
-		ba.Merge(cancelledBuffer())
-		require.Len(t, ba.GetAccountChanges(), 1)
-		assert.Equal(t, int64(700), ba.GetAccountChanges()[accountChangeAddr].Balance)
-	})
-}
-
 func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
 	const asset = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	trustline := func(opID, balance int64, op types.TrustlineOpType) types.TrustlineChange {
@@ -1173,18 +749,5 @@ func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
 		for _, c := range changes {
 			assert.Equal(t, int64(700), c.Balance)
 		}
-	})
-
-	t.Run("🟢 tombstone propagates across merge and blocks lower-key change", func(t *testing.T) {
-		cancelled := NewIndexerBuffer()
-		cancelled.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
-		cancelled.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
-		lower := NewIndexerBuffer()
-		lower.PushTrustlineChange(trustline(50, 500, types.TrustlineOpUpdate))
-
-		ab := NewIndexerBuffer()
-		ab.Merge(cancelled)
-		ab.Merge(lower)
-		assert.Len(t, ab.GetTrustlineChanges(), 0)
 	})
 }
