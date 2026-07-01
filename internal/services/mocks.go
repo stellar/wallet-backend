@@ -269,6 +269,10 @@ func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input Protoco
 	return args.Error(0)
 }
 
+func (m *ProtocolProcessorMock) Reset() {
+	m.Called()
+}
+
 func (m *ProtocolProcessorMock) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	args := m.Called(ctx, dbTx)
 	return args.Error(0)

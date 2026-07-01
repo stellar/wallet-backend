@@ -35,6 +35,7 @@ type SharedContainers struct {
 	StellarCoreContainer   *TestContainer
 	RPCContainer           *TestContainer
 	WalletDBContainer      *TestContainer
+	MinioContainer         *TestContainer // S3-compatible object store backing the datastore ledger backend
 	WalletBackendContainer *WalletBackendContainer
 	BackfillContainer      *TestContainer // Separate container for backfill testing
 
@@ -66,6 +67,10 @@ type SharedContainers struct {
 	// but can receive and hold balances from both SAC and SEP-41 tokens.
 	// Used for testing C-address token balances.
 	holderContractAddress string
+	// holderWasmHash is the WASM hash of the uploaded holder contract. It is reused to deploy a
+	// fresh contract instance as a submitted use case so the contract-deploy state change
+	// (ACCOUNT/CREATE with a deployer) gets ingested and can be validated.
+	holderWasmHash xdr.Hash
 }
 
 // initializeContainerInfrastructure sets up Docker network and core infrastructure containers.
@@ -101,6 +106,12 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 	s.RPCContainer, err = createRPCContainer(ctx, s.TestNetwork)
 	if err != nil {
 		return fmt.Errorf("creating RPC container: %w", err)
+	}
+
+	// Start minio (object store for the datastore ledger backend exercised by the migration test)
+	s.MinioContainer, err = createMinioContainer(ctx, s.TestNetwork)
+	if err != nil {
+		return fmt.Errorf("creating minio container: %w", err)
 	}
 
 	return nil
@@ -243,6 +254,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 		return fmt.Errorf("reading holder contract WASM file: %w", err)
 	}
 	holderWasmHash := s.uploadContractWasm(ctx, t, holderWasmBytes)
+	s.holderWasmHash = holderWasmHash
 	log.Ctx(ctx).Infof("✅ Uploaded holder contract WASM with hash: %x", holderWasmHash)
 
 	s.holderContractAddress = s.deployContractWithConstructor(ctx, t, holderWasmHash, []xdr.ScVal{})
@@ -480,6 +492,9 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 	if s.RPCContainer != nil {
 		_ = (*s.RPCContainer).Terminate(ctx) //nolint:errcheck
 	}
+	if s.MinioContainer != nil {
+		_ = (*s.MinioContainer).Terminate(ctx) //nolint:errcheck
+	}
 	if s.StellarCoreContainer != nil {
 		_ = (*s.StellarCoreContainer).Terminate(ctx) //nolint:errcheck
 	}
@@ -609,6 +624,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		containers.eurcContractAddress,
 		containers.sep41ContractAddress,
 		containers.usdcContractAddress,
+		containers.holderWasmHash,
 	)
 	if err != nil {
 		return nil, err

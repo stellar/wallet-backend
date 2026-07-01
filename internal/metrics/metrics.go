@@ -15,6 +15,7 @@ type Metrics struct {
 	HTTP      *HTTPMetrics
 	GraphQL   *GraphQLMetrics
 	Auth      *AuthMetrics
+	Migration *MigrationMetrics
 	registry  *prometheus.Registry
 }
 
@@ -33,6 +34,7 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 		HTTP:      newHTTPMetrics(reg),
 		GraphQL:   NewGraphQLMetrics(reg),
 		Auth:      newAuthMetrics(reg),
+		Migration: newMigrationMetrics(reg),
 		registry:  reg,
 	}
 }

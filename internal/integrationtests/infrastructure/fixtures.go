@@ -67,6 +67,7 @@ type Fixtures struct {
 	SEP41ContractAddress  string
 	USDCContractAddress   string
 	MasterAccountKP       *keypair.Full
+	HolderWasmHash        xdr.Hash
 }
 
 func NewFixtures(
@@ -83,6 +84,7 @@ func NewFixtures(
 	eurcContractAddress string,
 	sep41ContractAddress string,
 	usdcContractAddress string,
+	holderWasmHash xdr.Hash,
 ) (*Fixtures, error) {
 	return &Fixtures{
 		NetworkPassphrase:     networkPassphrase,
@@ -97,6 +99,7 @@ func NewFixtures(
 		EURCContractAddress:   eurcContractAddress,
 		SEP41ContractAddress:  sep41ContractAddress,
 		USDCContractAddress:   usdcContractAddress,
+		HolderWasmHash:        holderWasmHash,
 	}, nil
 }
 
@@ -834,6 +837,53 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 	return invokeXLMTransferSAC, nil
 }
 
+// prepareDeployContractOp creates a from-address CreateContractV2 deploy of the holder WASM with the
+// PrimaryAccount as deployer, producing an ACCOUNT/CREATE state change that carries deployerAddress.
+func (f *Fixtures) prepareDeployContractOp(ctx context.Context) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
+	deployerSCAddress, err := SCAccountID(f.PrimaryAccountKP.Address())
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("building deployer address: %w", err)
+	}
+
+	// Random salt so each deployment yields a unique contract address.
+	salt := make([]byte, 32)
+	if _, err = rand.Read(salt); err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("generating salt: %w", err)
+	}
+	var saltHash xdr.Uint256
+	copy(saltHash[:], salt)
+
+	wasmHash := f.HolderWasmHash
+	deployOp := txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
+			CreateContractV2: &xdr.CreateContractArgsV2{
+				ContractIdPreimage: xdr.ContractIdPreimage{
+					Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+					FromAddress: &xdr.ContractIdPreimageFromAddress{
+						Address: deployerSCAddress,
+						Salt:    saltHash,
+					},
+				},
+				Executable: xdr.ContractExecutable{
+					Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+					WasmHash: &wasmHash,
+				},
+				ConstructorArgs: []xdr.ScVal{},
+			},
+		},
+	}
+
+	opXDR, simulationResponse, err = f.prepareSimulateAndSignContractOp(ctx, deployOp, f.PrimaryAccountKP)
+	if err != nil {
+		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("preparing simulate and sign deploy operation: %w", err)
+	}
+
+	// Deployer auth is carried in the signed Soroban auth entries; only the tx source account
+	// (added at submission time) needs to sign the envelope.
+	return opXDR, NewSet[*keypair.Full](), simulationResponse, nil
+}
+
 // prepareSimulateAndSignContractOp processes a raw contractInvokeOp and returns a signed version along with its simulation result.
 // The function performs two simulations:
 // 1. The first simulation retrieves the authorization entries and the initial simulation result.
@@ -1077,7 +1127,8 @@ func (f *Fixtures) prepareSEP41TransferOp(ctx context.Context) (opXDR string, tx
 		return "", nil, entities.RPCSimulateTransactionResult{}, fmt.Errorf("creating to SC address: %w", err)
 	}
 
-	// Transfer 100 SEP-41 tokens (with 7 decimals = 1000000000 stroops)
+	// Partial transfer (TestSEP41TransferStroops = 200 SEP-41) — account1 keeps the
+	// remainder of its 500 mint, exercising the migration's per-ledger delta accumulation.
 	transferAmount := int64(TestSEP41TransferStroops)
 
 	invokeSEP41Transfer := txnbuild.InvokeHostFunction{
@@ -1382,6 +1433,18 @@ func (f *Fixtures) appendSorobanUseCases(ctx context.Context, useCases []*UseCas
 		return nil, fmt.Errorf("preparing SEP-41 transfer operation: %w", err)
 	}
 	useCase, err = f.buildSorobanUseCase(sep41TransferOpXDR, sep41TransferSigners, simulationResponse, "sep41TransferOp", timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	// Contract deployment (from-address) — produces an ACCOUNT/CREATE deploy state change whose
+	// deployerAddress is the PrimaryAccount.
+	deployOpXDR, deploySigners, simulationResponse, err := f.prepareDeployContractOp(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("preparing deploy contract operation: %w", err)
+	}
+	useCase, err = f.buildSorobanUseCase(deployOpXDR, deploySigners, simulationResponse, "deployContractOp", timeoutSeconds)
 	if err != nil {
 		return nil, err
 	}

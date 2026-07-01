@@ -118,29 +118,29 @@ CREATE TABLE protocol_wasms (
 
 ## Overview
 
-Adding a new protocol requires four coordinated processes:
+Adding a new protocol runs a schema migration, then coordinates live ingestion with classification and two backfill migrations:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                      PROTOCOL ONBOARDING WORKFLOW                               │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
-   STEP 1: SETUP             STEP 2: LIVE INGESTION
-┌──────────────────────┐    ┌──────────────────────┐
-│ ./wallet-backend     │    │ Restart ingestion    │
-│ protocol-setup       │───▶│ with new processor   │
-│                      │    │                      │
-│ Classifies existing  │    │ Produces state from  │
-│ contracts            │    │ restart ledger onward│
-└──────────────────────┘    └──────────┬───────────┘
+  STEP 1: MIGRATE UP        STEP 2: RESTART INGEST    STEP 3: PROTOCOL-SETUP
+┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
+│ ./wallet-backend     │  │ Restart ingestion    │  │ ./wallet-backend     │
+│ migrate up           │─▶│ with new processor   │─▶│ protocol-setup       │
+│                      │  │                      │  │                      │
+│ Applies schema +     │  │ Classifies new WASMs │  │ Classifies existing  │
+│ registers protocol   │  │ inline; makes state  │  │ unclassified backlog │
+└──────────────────────┘  └────────────┬─────────┘  └──────────────────────┘
                                        │
-                 Steps 2, 3a, and 3b run concurrently
+          Step 4 (history + current-state) runs concurrently with live ingestion
                                        │
                     ┌──────────────────┼──────────────────┐
                     │                  │                  │
                     ▼                  ▼                  ▼
           ┌──────────────────┐  ┌──────────────┐  ┌──────────────────┐
-          │ Live ingestion:  │  │ STEP 3a:     │  │ STEP 3b:         │
+          │ Live ingestion:  │  │ STEP 4a:     │  │ STEP 4b:         │
           │ state changes    │  │ HISTORY      │  │ CURRENT-STATE    │
           │ after history    │  │ MIGRATION    │  │ MIGRATION        │
           │ convergence,     │  │              │  │                  │
@@ -173,18 +173,19 @@ Adding a new protocol requires four coordinated processes:
 
 | Step | Requires | Produces |
 |------|----------|----------|
-| **1. protocol-setup** | Protocol migration SQL file, protocol implementation in code | Protocol in DB, `protocol_wasms`, `protocol_contracts`, `classification_status = success`, both cursors initialized |
-| **2. ingest (live)** | `classification_status = success`, processor registered | State changes after history convergence (history cursor). Current state after current-state convergence (current-state cursor). |
-| **3a. protocol-migrate history** | `classification_status = success` | Protocol state changes within retention window, through convergence with live ingestion |
-| **3b. protocol-migrate current-state** | `classification_status = success` | Current state from `start_ledger` through convergence with live ingestion |
+| **1. migrate up** | Protocol migration SQL file, protocol implementation in code | Schema applied; protocol registered in the `protocols` table |
+| **2. ingest (live)** | Protocol registered, processor registered | Records and classifies new WASMs inline; produces protocol state, converging with the backfill migrations via CAS cursors |
+| **3. protocol-setup** | Protocol registered (from `migrate up`) | `protocol_wasms` / `protocol_contracts` classified, `classification_status = success`, both cursors initialized |
+| **4a. protocol-migrate history** | `protocol_contracts` populated (from `protocol-setup`) | Protocol state changes within retention window, through convergence with live ingestion |
+| **4b. protocol-migrate current-state** | `protocol_contracts` populated (from `protocol-setup`) | Current state from `start_ledger` through convergence with live ingestion |
 
-Steps 2, 3a, and 3b run **concurrently**. Each migration subcommand converges independently with live ingestion via its own CAS cursor:
+Steps 4a and 4b run **concurrently** with live ingestion, after `protocol-setup`. Each migration subcommand converges independently with live ingestion via its own CAS cursor:
 - History migration converges via `protocol_{ID}_history_cursor` — when its CAS fails, live ingestion owns state change production
 - Current-state migration converges via `protocol_{ID}_current_state_cursor` — when its CAS fails, live ingestion owns current state production
 
 The two subcommands are fully independent. They write to different tables, use different CAS cursors, and track different status columns. They can run in any order, concurrently, or only one can be run.
 
-Both live ingestion and backfill migration need the `protocol_contracts` table populated to know which contracts to process. The `protocol-setup` command ensures this data exists before either process runs.
+The backfill migrations (`protocol-migrate history` / `current-state`) need the `protocol_contracts` table populated to know which contracts to process, so they run after `protocol-setup`. Live ingestion does not wait for `protocol-setup`: it classifies new WASMs and populates `protocol_contracts` inline as deployments arrive, which is why it restarts first.
 
 ## Classification
 Classification is the act of identifying new and existing contracts on the network and assigning a relationship to a known protocol.
@@ -581,7 +582,7 @@ Backfill migrations rely on checkpoint population being complete before they can
 
 ### What It Does
 
-1. **Runs protocol migrations** - Executes SQL migrations from `internal/data/migrations/protocols/` to register new protocols in the `protocols` table with status `not_started`
+1. **Runs protocol migrations** - Executes SQL migrations from `internal/db/migrations/protocols/` to register new protocols in the `protocols` table with status `not_started`
 2. **Sets status** to `classification_in_progress` for specified protocols
 3. **Queries existing unclassified entries** from `protocol_wasms WHERE protocol_id IS NULL`
 4. **Gets bytecode** from all unknown contracts using RPC
@@ -593,16 +594,16 @@ Backfill migrations rely on checkpoint population being complete before they can
 
 ### Protocol Migration Files
 
-Protocol registrations are defined as SQL migration files in `internal/data/migrations/protocols/`:
+Protocol registrations are defined as SQL migration files in `internal/db/migrations/protocols/`:
 
 ```
-internal/data/migrations/protocols/
+internal/db/migrations/protocols/
 ├── 001_sep50.sql
 ├── 002_blend.sql
 └── 003_aqua.sql
 ```
 
-These migrations are tracked separately from the main schema migrations, allowing `protocol-setup` to run them independently.
+These files are idempotent (`INSERT ... ON CONFLICT DO NOTHING`) and live outside the tracked schema-migration table. `migrate up` runs them after the schema migrations, so protocols are registered before live ingestion restarts; `protocol-setup` also re-runs them as a safeguard.
 
 ### Explicit Protocol Selection
 

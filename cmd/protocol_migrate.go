@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -49,14 +50,16 @@ func (c *protocolMigrateCmd) Command() *cobra.Command {
 
 // migrationCommandOpts captures the shared flags for migration subcommands.
 type migrationCommandOpts struct {
-	databaseURL         string
-	rpcURL              string
-	networkPassphrase   string
-	protocolIDs         []string
-	logLevel            string
-	ledgerBackendType   string
-	datastoreConfigPath string
-	getLedgersLimit     int
+	databaseURL       string
+	rpcURL            string
+	networkPassphrase string
+	protocolIDs       []string
+	logLevel          logrus.Level
+	ledgerBackendType string
+	datastore         ingest.DatastoreConfig
+	getLedgersLimit   int
+	windowSize        uint32
+	metricsPort       int
 }
 
 // buildMigrationCommand creates a cobra.Command with shared migration flags and validation.
@@ -73,6 +76,7 @@ func buildMigrationCommand(
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&opts.databaseURL),
 		utils.NetworkPassphraseOption(&opts.networkPassphrase),
+		utils.LogLevelOption(&opts.logLevel),
 		// RPC URL is only required when --ledger-backend-type=rpc; validated in PersistentPreRunE.
 		{
 			Name:        "rpc-url",
@@ -91,14 +95,6 @@ func buildMigrationCommand(
 			Required:    false,
 		},
 		{
-			Name:        "datastore-config-path",
-			Usage:       "Path to TOML config file for datastore backend. Required when --ledger-backend-type=datastore.",
-			OptType:     types.String,
-			ConfigKey:   &opts.datastoreConfigPath,
-			FlagDefault: "config/datastore-pubnet.toml",
-			Required:    false,
-		},
-		{
 			Name:        "get-ledgers-limit",
 			Usage:       "Per-request ledger buffer size for the RPC backend. Ignored for datastore.",
 			OptType:     types.Int,
@@ -107,6 +103,7 @@ func buildMigrationCommand(
 			Required:    false,
 		},
 	}
+	cfgOpts = append(cfgOpts, utils.DatastoreOptions(&opts.datastore)...)
 
 	cmd := &cobra.Command{
 		Use:   use,
@@ -120,13 +117,7 @@ func buildMigrationCommand(
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if opts.logLevel != "" {
-				ll, err := logrus.ParseLevel(opts.logLevel)
-				if err != nil {
-					return fmt.Errorf("invalid log level %q: %w", opts.logLevel, err)
-				}
-				log.DefaultLogger.SetLevel(ll)
-			}
+			log.DefaultLogger.SetLevel(opts.logLevel)
 
 			if len(opts.protocolIDs) == 0 {
 				return fmt.Errorf("at least one --protocol-id is required")
@@ -139,9 +130,7 @@ func buildMigrationCommand(
 					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
 				}
 			case string(ingest.LedgerBackendTypeDatastore):
-				if opts.datastoreConfigPath == "" {
-					return fmt.Errorf("--datastore-config-path is required when --ledger-backend-type=datastore")
-				}
+				// datastore-bucket-path is validated via Required:true in DatastoreOptions.
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}
@@ -161,12 +150,8 @@ func buildMigrationCommand(
 	}
 
 	cmd.Flags().StringSliceVar(&opts.protocolIDs, "protocol-id", nil, "Protocol ID(s) to migrate (required, repeatable)")
-	cmd.Flags().StringVar(&opts.logLevel, "log-level", "", `Log level: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "PANIC"`)
-	var deprecatedLatestLedgerCursorName string
-	cmd.Flags().StringVar(&deprecatedLatestLedgerCursorName, "latest-ledger-cursor-name", "", "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded.")
-	if err := cmd.Flags().MarkDeprecated("latest-ledger-cursor-name", "ignored; the cursor name is now hard-coded"); err != nil {
-		log.Fatalf("marking latest-ledger-cursor-name deprecated: %s", err.Error())
-	}
+	cmd.Flags().Uint32Var(&opts.windowSize, "window-size", 100, "Ledgers coalesced into one commit (0 or 1 = commit every ledger)")
+	cmd.Flags().IntVar(&opts.metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
 
 	if addFlags != nil {
 		addFlags(cmd, &opts)
@@ -186,6 +171,8 @@ func runMigration(
 		ledgerBackend ledgerbackend.LedgerBackend,
 		models *data.Models,
 		processors []services.ProtocolProcessor,
+		migrationMetrics *metrics.MigrationMetrics,
+		tipProvider func() (uint32, error),
 	) error,
 ) error {
 	ctx := context.Background()
@@ -207,21 +194,43 @@ func runMigration(
 		return fmt.Errorf("creating models: %w", err)
 	}
 
+	if opts.metricsPort > 0 {
+		metricsServer := startMigrationMetricsServer(opts.metricsPort, m.Registry())
+		defer func() {
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelShutdown()
+			if shErr := metricsServer.Shutdown(shutdownCtx); shErr != nil {
+				log.Ctx(ctx).Warnf("error shutting down metrics server: %v", shErr)
+			}
+		}()
+	}
+
 	// ContractMetadataService is wired in only if an RPC URL is available; the
 	// protocol-migrate CLI does not strictly require RPC (datastore backend
 	// runs without one), but per-protocol contract metadata enrichment on
 	// first-ingest does. A nil ContractMetadataService is tolerated by
 	// processors — they fall back to defaults.
+	var tipProvider func() (uint32, error)
 	var metadataService services.ContractMetadataService
 	if opts.rpcURL != "" {
 		rpcService, rpcErr := services.NewRPCService(
 			opts.rpcURL,
 			opts.networkPassphrase,
-			&http.Client{Timeout: 30 * time.Second},
+			// Keep-alives disabled (see keepAlivesDisabledHTTPClient): a fresh connection per request
+			// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection
+			// reuse; negligible at this command's RPC volume.
+			keepAlivesDisabledHTTPClient(30*time.Second),
 			m.RPC,
 		)
 		if rpcErr != nil {
 			return fmt.Errorf("instantiating rpc service for metadata fetcher: %w", rpcErr)
+		}
+		tipProvider = func() (uint32, error) {
+			h, healthErr := rpcService.GetHealth()
+			if healthErr != nil {
+				return 0, fmt.Errorf("getting rpc health for migration chain tip: %w", healthErr)
+			}
+			return h.LatestLedger, nil
 		}
 		metadataPool := pond.NewPool(0)
 		defer metadataPool.StopAndWait()
@@ -247,11 +256,11 @@ func runMigration(
 	// so protocol-migrate inherits the datastore path (recommended for
 	// backfills — unbounded history, unlike RPC retention windows).
 	ledgerBackend, err := ingest.NewLedgerBackend(ctx, ingest.Configs{
-		LedgerBackendType:   ingest.LedgerBackendType(opts.ledgerBackendType),
-		DatastoreConfigPath: opts.datastoreConfigPath,
-		NetworkPassphrase:   opts.networkPassphrase,
-		RPCURL:              opts.rpcURL,
-		GetLedgersLimit:     opts.getLedgersLimit,
+		LedgerBackendType: ingest.LedgerBackendType(opts.ledgerBackendType),
+		Datastore:         opts.datastore,
+		NetworkPassphrase: opts.networkPassphrase,
+		RPCURL:            opts.rpcURL,
+		GetLedgersLimit:   opts.getLedgersLimit,
 	})
 	if err != nil {
 		return fmt.Errorf("creating ledger backend: %w", err)
@@ -264,7 +273,7 @@ func runMigration(
 		}
 	}()
 
-	return createAndRun(ctx, dbPool, ledgerBackend, models, processors)
+	return createAndRun(ctx, dbPool, ledgerBackend, models, processors, m.Migration, tipProvider)
 }
 
 func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
@@ -279,7 +288,7 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 		},
 		nil,
 		func(opts *migrationCommandOpts) error {
-			return runMigration("history", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+			return runMigration("history", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
 				service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
@@ -289,6 +298,9 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
 					OldestLedgerCursorName: oldestLedgerCursorName,
+					WindowSize:             opts.windowSize,
+					Metrics:                migrationMetrics,
+					TipProvider:            tipProvider,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate history service: %w", err)
@@ -319,7 +331,7 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			return nil
 		},
 		func(opts *migrationCommandOpts) error {
-			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor) error {
+			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
 				service, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
@@ -329,6 +341,9 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
 					StartLedger:            startLedger,
+					WindowSize:             opts.windowSize,
+					Metrics:                migrationMetrics,
+					TipProvider:            tipProvider,
 				})
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate current-state service: %w", err)
@@ -340,4 +355,29 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			})
 		},
 	)
+}
+
+// migrationMetricsHandler serves the Prometheus registry at /metrics.
+func migrationMetricsHandler(reg *prometheus.Registry) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+	return mux
+}
+
+// startMigrationMetricsServer starts a goroutine serving /metrics on the given
+// port for the life of the migration run. The returned server is shut down by
+// the caller when Run completes.
+func startMigrationMetricsServer(port int, reg *prometheus.Registry) *http.Server {
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           migrationMetricsHandler(reg),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Infof("Starting protocol-migrate metrics server on port %d at /metrics", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Errorf("metrics server on %s stopped: %v", server.Addr, err)
+		}
+	}()
+	return server
 }

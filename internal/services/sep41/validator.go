@@ -194,9 +194,9 @@ func (v *Validator) enrichContractTokens(ctx context.Context, dbTx pgx.Tx, model
 	}
 
 	if v.fetcher == nil {
-		// No RPC available — leave defaults in place and let the SEP-41
-		// processor fill metadata in PersistCurrentState if the contract
-		// becomes state-active later.
+		// No RPC available — leave defaults in place. Metadata is filled on a
+		// later classification pass once RPC is reachable; there is no
+		// processor-side fallback.
 		return nil
 	}
 

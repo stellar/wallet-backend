@@ -50,6 +50,8 @@ const (
 		}
 		... on AccountChange {
 			funderAddress
+			deployerAddress
+			destinationAddress
 		}
 		... on SignerChange {
 			signerAddress
@@ -399,6 +401,12 @@ const balanceFragments = `
 			decimals
 			isAuthorized
 			isClawbackEnabled
+		}
+		... on SEP41Balance {
+			name
+			symbol
+			decimals
+			lastModifiedLedger
 		}
 	`
 

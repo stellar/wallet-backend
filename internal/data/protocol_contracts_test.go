@@ -199,3 +199,89 @@ func TestProtocolContractsBatchInsert(t *testing.T) {
 		assert.Equal(t, 0, count)
 	})
 }
+
+func TestProtocolContractsBatchGetByContractIDs(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+	model := &ProtocolContractsModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	insertWasm := func(t *testing.T, hash types.HashBytea, protocolID *string) {
+		t.Helper()
+		if protocolID != nil {
+			_, pErr := dbConnectionPool.Exec(ctx,
+				`INSERT INTO protocols (id) VALUES ($1) ON CONFLICT DO NOTHING`, *protocolID)
+			require.NoError(t, pErr)
+		}
+		hb, vErr := hash.Value()
+		require.NoError(t, vErr)
+		_, eErr := dbConnectionPool.Exec(ctx,
+			`INSERT INTO protocol_wasms (wasm_hash, protocol_id) VALUES ($1, $2)`, hb, protocolID)
+		require.NoError(t, eErr)
+	}
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM protocol_contracts`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM protocol_wasms`)
+		require.NoError(t, err)
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM protocols`)
+		require.NoError(t, err)
+	}
+
+	whSEP := types.HashBytea("aa00000000000000000000000000000000000000000000000000000000000000")
+	whOther := types.HashBytea("bb00000000000000000000000000000000000000000000000000000000000000")
+	whNull := types.HashBytea("cc00000000000000000000000000000000000000000000000000000000000000")
+	cA := types.HashBytea("a100000000000000000000000000000000000000000000000000000000000000")
+	cB := types.HashBytea("b100000000000000000000000000000000000000000000000000000000000000")
+	cC := types.HashBytea("c100000000000000000000000000000000000000000000000000000000000000")
+	cD := types.HashBytea("d100000000000000000000000000000000000000000000000000000000000000")
+	cMissing := types.HashBytea("e100000000000000000000000000000000000000000000000000000000000000")
+
+	t.Run("empty input returns nil", func(t *testing.T) {
+		cleanUpDB()
+		result, qErr := model.BatchGetByContractIDs(ctx, nil)
+		require.NoError(t, qErr)
+		assert.Nil(t, result)
+	})
+
+	t.Run("groups by protocol, excludes unclassified and unmatched", func(t *testing.T) {
+		cleanUpDB()
+		sep, other := "SEP41", "OTHER"
+		insertWasm(t, whSEP, &sep)
+		insertWasm(t, whOther, &other)
+		insertWasm(t, whNull, nil)
+
+		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return model.BatchInsert(ctx, dbTx, []ProtocolContracts{
+				{ContractID: cA, WasmHash: whSEP},
+				{ContractID: cB, WasmHash: whOther},
+				{ContractID: cC, WasmHash: whNull},
+				{ContractID: cD, WasmHash: whSEP},
+			})
+		})
+		require.NoError(t, err)
+
+		// Query a subset: cA (SEP41), cB (OTHER), cC (unclassified), cMissing (absent). cD is not queried.
+		// BatchGetByContractIDs takes raw 32-byte IDs; HashBytea.Value() yields those bytes.
+		toBytes := func(h types.HashBytea) []byte {
+			v, vErr := h.Value()
+			require.NoError(t, vErr)
+			return v.([]byte)
+		}
+		result, qErr := model.BatchGetByContractIDs(ctx, [][]byte{toBytes(cA), toBytes(cB), toBytes(cC), toBytes(cMissing)})
+		require.NoError(t, qErr)
+
+		require.Len(t, result, 2)
+		require.Len(t, result["SEP41"], 1)
+		assert.Equal(t, cA, result["SEP41"][0].ContractID)
+		require.Len(t, result["OTHER"], 1)
+		assert.Equal(t, cB, result["OTHER"][0].ContractID)
+	})
+}

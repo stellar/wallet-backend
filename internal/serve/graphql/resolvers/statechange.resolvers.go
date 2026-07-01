@@ -43,6 +43,16 @@ func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.Ac
 	return r.resolveNullableAddress(obj.FunderAccountID), nil
 }
 
+// DeployerAddress is the resolver for the deployerAddress field.
+func (r *accountChangeResolver) DeployerAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.DeployerAccountID), nil
+}
+
+// DestinationAddress is the resolver for the destinationAddress field.
+func (r *accountChangeResolver) DestinationAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.DestinationAccountID), nil
+}
+
 // Type is the resolver for the type field.
 func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
@@ -441,12 +451,14 @@ func (r *Resolver) TrustlineChange() graphql1.TrustlineChangeResolver {
 	return &trustlineChangeResolver{r}
 }
 
-type accountChangeResolver struct{ *Resolver }
-type balanceAuthorizationChangeResolver struct{ *Resolver }
-type flagsChangeResolver struct{ *Resolver }
-type metadataChangeResolver struct{ *Resolver }
-type reservesChangeResolver struct{ *Resolver }
-type signerChangeResolver struct{ *Resolver }
-type signerThresholdsChangeResolver struct{ *Resolver }
-type standardBalanceChangeResolver struct{ *Resolver }
-type trustlineChangeResolver struct{ *Resolver }
+type (
+	accountChangeResolver              struct{ *Resolver }
+	balanceAuthorizationChangeResolver struct{ *Resolver }
+	flagsChangeResolver                struct{ *Resolver }
+	metadataChangeResolver             struct{ *Resolver }
+	reservesChangeResolver             struct{ *Resolver }
+	signerChangeResolver               struct{ *Resolver }
+	signerThresholdsChangeResolver     struct{ *Resolver }
+	standardBalanceChangeResolver      struct{ *Resolver }
+	trustlineChangeResolver            struct{ *Resolver }
+)

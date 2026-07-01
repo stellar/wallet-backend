@@ -60,15 +60,17 @@ type ComplexityRoot struct {
 	}
 
 	AccountChange struct {
-		Account         func(childComplexity int) int
-		FunderAddress   func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
-		LedgerCreatedAt func(childComplexity int) int
-		LedgerNumber    func(childComplexity int) int
-		Operation       func(childComplexity int) int
-		Reason          func(childComplexity int) int
-		Transaction     func(childComplexity int) int
-		Type            func(childComplexity int) int
+		Account            func(childComplexity int) int
+		DeployerAddress    func(childComplexity int) int
+		DestinationAddress func(childComplexity int) int
+		FunderAddress      func(childComplexity int) int
+		IngestedAt         func(childComplexity int) int
+		LedgerCreatedAt    func(childComplexity int) int
+		LedgerNumber       func(childComplexity int) int
+		Operation          func(childComplexity int) int
+		Reason             func(childComplexity int) int
+		Transaction        func(childComplexity int) int
+		Type               func(childComplexity int) int
 	}
 
 	AccountTransactionConnection struct {
@@ -356,6 +358,8 @@ type AccountChangeResolver interface {
 	Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error)
 	FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error)
+	DeployerAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error)
+	DestinationAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error)
 }
 type AccountTransactionEdgeResolver interface {
 	Operations(ctx context.Context, obj *types.AccountTransactionEdge) ([]*types.Operation, error)
@@ -550,6 +554,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AccountChange.Account(childComplexity), true
+	case "AccountChange.deployerAddress":
+		if e.ComplexityRoot.AccountChange.DeployerAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccountChange.DeployerAddress(childComplexity), true
+	case "AccountChange.destinationAddress":
+		if e.ComplexityRoot.AccountChange.DestinationAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.AccountChange.DestinationAddress(childComplexity), true
 	case "AccountChange.funderAddress":
 		if e.ComplexityRoot.AccountChange.FunderAddress == nil {
 			break
@@ -2231,6 +2247,8 @@ type AccountChange implements BaseStateChange {
   transaction:                Transaction! @goField(forceResolver: true)
 
   funderAddress:              String @goField(forceResolver: true)
+  deployerAddress:            String @goField(forceResolver: true)
+  destinationAddress:         String @goField(forceResolver: true)
 }
 
 type SignerChange implements BaseStateChange {
@@ -3354,6 +3372,64 @@ func (ec *executionContext) _AccountChange_funderAddress(ctx context.Context, fi
 }
 
 func (ec *executionContext) fieldContext_AccountChange_funderAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountChange_deployerAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AccountChange_deployerAddress,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.AccountChange().DeployerAddress(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_AccountChange_deployerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "AccountChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _AccountChange_destinationAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_AccountChange_destinationAddress,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.AccountChange().DestinationAddress(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_AccountChange_destinationAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AccountChange",
 		Field:      field,
@@ -11739,6 +11815,72 @@ func (ec *executionContext) _AccountChange(ctx context.Context, sel ast.Selectio
 					}
 				}()
 				res = ec._AccountChange_funderAddress(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "deployerAddress":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._AccountChange_deployerAddress(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "destinationAddress":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._AccountChange_destinationAddress(ctx, field, obj)
 				return res
 			}
 
