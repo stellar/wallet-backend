@@ -125,10 +125,17 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 	}
 }
 
-// ProcessLedgerTransactions processes all transactions in a ledger in parallel.
-// It collects transaction data (participants, operations, state changes) and populates the buffer in a single pass.
+// ProcessLedgerTransactions processes all transactions in a ledger. When the indexer
+// was constructed with a non-nil pool, transactions are processed in parallel via the
+// pool. When the pool is nil, transactions are processed serially — callers supply
+// their own outer parallelism (e.g. per-ledger backfill workers) and the nil-pool
+// path avoids nested fan-out.
 // Returns the total participant count for metrics.
 func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerBuffer IndexerBufferInterface) (int, error) {
+	if i.pool == nil {
+		return i.processLedgerTransactionsSerial(ctx, transactions, ledgerBuffer)
+	}
+
 	group := i.pool.NewGroupContext(ctx)
 
 	txnBuffers := make([]*IndexerBuffer, len(transactions))
@@ -168,6 +175,23 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 	}
 
 	return totalParticipants, nil
+}
+
+// processLedgerTransactionsSerial processes transactions one at a time with no worker
+// pool. A nil-pool indexer uses this so its only parallelism comes from the caller (the
+// backfill process workers), avoiding nested fan-out.
+func (i *Indexer) processLedgerTransactionsSerial(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerBuffer IndexerBufferInterface) (int, error) {
+	total := 0
+	for _, tx := range transactions {
+		buffer := NewIndexerBuffer()
+		count, err := i.processTransaction(ctx, tx, buffer)
+		if err != nil {
+			return 0, fmt.Errorf("processing transaction at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err)
+		}
+		ledgerBuffer.Merge(buffer)
+		total += count
+	}
+	return total, nil
 }
 
 // processTransaction processes a single transaction - collects data and populates buffer.

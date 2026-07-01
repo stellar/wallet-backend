@@ -86,9 +86,8 @@ type IngestServiceConfig struct {
 	GetLedgersLimit int
 
 	// === Backfill Tuning ===
-	BackfillWorkers           int
-	BackfillBatchSize         int
-	BackfillDBInsertBatchSize int
+	BackfillWorkers   int
+	BackfillFlushSize int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -110,29 +109,28 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode             string
-	models                    *data.Models
-	oldestLedgerCursorName    string
-	advisoryLockID            int
-	appTracker                apptracker.AppTracker
-	rpcService                RPCService
-	ledgerBackend             ledgerbackend.LedgerBackend
-	ledgerBackendFactory      LedgerBackendFactory
-	tokenIngestionService     TokenIngestionService
-	checkpointService         CheckpointService
-	appMetrics                *metrics.Metrics
-	networkPassphrase         string
-	getLedgersLimit           int
-	ledgerIndexer             *indexer.Indexer
-	archive                   historyarchive.ArchiveInterface
-	backfillPool              pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
-	knownContractIDs          set.Set[string]
-	contractMetadataService   ContractMetadataService
-	protocolProcessors        map[string]ProtocolProcessor
-	protocolValidators        []ProtocolValidator
-	wasmSpecExtractor         WasmSpecExtractor
+	ingestionMode           string
+	models                  *data.Models
+	oldestLedgerCursorName  string
+	advisoryLockID          int
+	appTracker              apptracker.AppTracker
+	rpcService              RPCService
+	ledgerBackend           ledgerbackend.LedgerBackend
+	ledgerBackendFactory    LedgerBackendFactory
+	tokenIngestionService   TokenIngestionService
+	checkpointService       CheckpointService
+	appMetrics              *metrics.Metrics
+	networkPassphrase       string
+	getLedgersLimit         int
+	ledgerIndexer           *indexer.Indexer
+	archive                 historyarchive.ArchiveInterface
+	backfillFlushSize       uint32
+	backfillWorkers         uint32
+	knownContractIDs        set.Set[string]
+	contractMetadataService ContractMetadataService
+	protocolProcessors      map[string]ProtocolProcessor
+	protocolValidators      []ProtocolValidator
+	wasmSpecExtractor       WasmSpecExtractor
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
@@ -140,14 +138,12 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(0)
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Create backfill pool with bounded size to control memory usage.
+	// Bound backfill worker concurrency to control memory usage.
 	// Default to NumCPU if not specified.
 	backfillWorkers := cfg.BackfillWorkers
 	if backfillWorkers <= 0 {
 		backfillWorkers = runtime.NumCPU()
 	}
-	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
 	// Build protocol processor map from slice
 	for i, p := range cfg.ProtocolProcessors {
@@ -163,29 +159,28 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		checkpointService:         cfg.CheckpointService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
-		contractMetadataService:   cfg.ContractMetadataService,
-		protocolValidators:        cfg.ProtocolValidators,
-		wasmSpecExtractor:         cfg.WasmSpecExtractor,
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		knownContractIDs:          set.NewSet[string](),
-		protocolProcessors:        ppMap,
+		ingestionMode:           cfg.IngestionMode,
+		models:                  cfg.Models,
+		oldestLedgerCursorName:  cfg.OldestLedgerCursorName,
+		advisoryLockID:          generateAdvisoryLockID(cfg.Network),
+		appTracker:              cfg.AppTracker,
+		rpcService:              cfg.RPCService,
+		ledgerBackend:           cfg.LedgerBackend,
+		ledgerBackendFactory:    cfg.LedgerBackendFactory,
+		tokenIngestionService:   cfg.TokenIngestionService,
+		checkpointService:       cfg.CheckpointService,
+		appMetrics:              cfg.Metrics,
+		networkPassphrase:       cfg.NetworkPassphrase,
+		getLedgersLimit:         cfg.GetLedgersLimit,
+		ledgerIndexer:           indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		contractMetadataService: cfg.ContractMetadataService,
+		protocolValidators:      cfg.ProtocolValidators,
+		wasmSpecExtractor:       cfg.WasmSpecExtractor,
+		archive:                 cfg.Archive,
+		backfillFlushSize:       uint32(cfg.BackfillFlushSize),
+		backfillWorkers:         uint32(backfillWorkers),
+		knownContractIDs:        set.NewSet[string](),
+		protocolProcessors:      ppMap,
 	}, nil
 }
 
@@ -203,9 +198,15 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 	}
 }
 
-// processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
+// processLedger processes a single ledger using the shared (live) indexer.
 func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
-	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+	return m.processLedgerWith(ctx, m.ledgerIndexer, ledgerMeta, buffer)
+}
+
+// processLedgerWith processes a single ledger with the given indexer. Backfill passes a
+// per-worker serial indexer so the only parallelism axis is the worker pool itself.
+func (m *ingestService) processLedgerWith(ctx context.Context, idx *indexer.Indexer, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
+	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, idx, buffer)
 	if err != nil {
 		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}

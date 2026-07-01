@@ -1202,6 +1202,25 @@ func TestExtractContractEventsForLedger_V4OperationsShorterThanResults(t *testin
 	require.Len(t, events, 1)
 }
 
+func TestIndexer_ProcessLedgerTransactions_serialMatchesPooled(t *testing.T) {
+	txs := []ingest.LedgerTransaction{testTx, testTx2}
+
+	pooled := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	pooledBuf := NewIndexerBuffer()
+	pooledCount, err := pooled.ProcessLedgerTransactions(context.Background(), txs, pooledBuf)
+	require.NoError(t, err)
+
+	serial := NewIndexer(network.TestNetworkPassphrase, nil, nil)
+	serialBuf := NewIndexerBuffer()
+	serialCount, err := serial.ProcessLedgerTransactions(context.Background(), txs, serialBuf)
+	require.NoError(t, err)
+
+	assert.Equal(t, pooledCount, serialCount)
+	assert.Equal(t, len(pooledBuf.GetTransactions()), len(serialBuf.GetTransactions()))
+	assert.Equal(t, len(pooledBuf.GetOperations()), len(serialBuf.GetOperations()))
+	assert.Equal(t, len(pooledBuf.GetStateChanges()), len(serialBuf.GetStateChanges()))
+}
+
 // TestExtractContractEventsForLedger_UnknownMetaVersionErrors confirms the one
 // intentional behavior change: an unsupported TransactionMeta version surfaces
 // as a propagated error (fail loud) rather than being silently dropped.
