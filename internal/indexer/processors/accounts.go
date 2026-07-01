@@ -19,10 +19,13 @@ const (
 	BaseReserveStroops      = 5_000_000
 )
 
-// Balance-change phases within a single ledger, in Stellar's canonical close order:
-// every transaction's fee is charged, then all operations apply, then post-apply
-// (Soroban) fee refunds are credited. accountSortKey makes phase the dominant term so
-// this order is reproduced regardless of transaction or operation index.
+// Balance-change phases within a single ledger, in Stellar's canonical close order: every
+// transaction's fee is charged, then all operations apply, then post-apply (Soroban) fee refunds
+// are credited. Refunds come from GetPostApplyFeeChanges, which surfaces the protocol-23+
+// post-tx-set-apply refund that Core applies after every operation in the ledger (a global-final
+// pass, not per-transaction) — so a refund is the chronologically-last change to its account, and
+// phaseRefund dominating operations is correct, not an inversion. accountSortKey makes phase the
+// dominant term, so fee < operation < refund holds regardless of transaction or operation index.
 const (
 	phaseFee       uint8 = 0
 	phaseOperation uint8 = 1
@@ -37,9 +40,11 @@ const (
 // (≤1 fee and ≤1 refund per account per tx; operations are unique per (tx, op)). That
 // makes the dedup independent of push/merge order.
 //
-// The ledger is intentionally omitted: the only buffer that deduplicates balances is the
-// per-ledger live buffer, so all keys compared share one ledger. If balances are ever
-// deduplicated across ledgers in a single buffer, prepend the ledger as the top term.
+// The ledger is intentionally omitted. Only the live path persists native balances, and it uses a
+// fresh buffer per ledger, so every key that reaches the database shares one ledger. (The backfill
+// buffer spans many ledgers and does deduplicate account changes in memory, but never persists
+// them.) If balances are ever persisted from a buffer that spans multiple ledgers, prepend the
+// ledger as the top term.
 func accountSortKey(phase uint8, txIndex, opIndex uint32) int64 {
 	return int64(phase)<<37 | int64(txIndex)<<13 | int64(opIndex)
 }
@@ -77,25 +82,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	var accountChanges []types.AccountChange
-
-	for _, change := range changes {
-		if change.Type != xdr.LedgerEntryTypeAccount {
-			continue
-		}
-
-		accChange, skip, err := p.buildAccountChange(change, opWrapper.Transaction.Ledger.LedgerSequence(), accountSortKey(phaseOperation, opWrapper.Transaction.Index, opWrapper.Index))
-		if err != nil {
-			return nil, err
-		}
-		if skip {
-			continue
-		}
-
-		accountChanges = append(accountChanges, accChange)
-	}
-
-	return accountChanges, nil
+	return p.buildAccountChanges(changes, opWrapper.Transaction.Ledger.LedgerSequence(), accountSortKey(phaseOperation, opWrapper.Transaction.Index, opWrapper.Index))
 }
 
 // ProcessTransactionFees extracts native balance changes from a transaction's fee
@@ -121,12 +108,12 @@ func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx inges
 
 	ledgerSeq := tx.Ledger.LedgerSequence()
 
-	feeChanges, err := p.feeAccountChanges(tx.GetFeeChanges(), ledgerSeq, accountSortKey(phaseFee, tx.Index, 0))
+	feeChanges, err := p.buildAccountChanges(tx.GetFeeChanges(), ledgerSeq, accountSortKey(phaseFee, tx.Index, 0))
 	if err != nil {
 		return nil, err
 	}
 
-	refundChanges, err := p.feeAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, accountSortKey(phaseRefund, tx.Index, 0))
+	refundChanges, err := p.buildAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, accountSortKey(phaseRefund, tx.Index, 0))
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +121,10 @@ func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx inges
 	return append(feeChanges, refundChanges...), nil
 }
 
-// feeAccountChanges converts the account-typed entries in a fee-phase change set into
-// AccountChanges stamped with the given sort key.
-func (p *AccountsProcessor) feeAccountChanges(changes []ingest.Change, ledgerSeq uint32, sortKey int64) ([]types.AccountChange, error) {
+// buildAccountChanges converts the account-typed entries in a ledger change set into
+// AccountChanges stamped with the given sort key. The per-operation and fee-phase paths share
+// it; they differ only in that sort key, which is constant across all changes in one call.
+func (p *AccountsProcessor) buildAccountChanges(changes []ingest.Change, ledgerSeq uint32, sortKey int64) ([]types.AccountChange, error) {
 	var accountChanges []types.AccountChange
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeAccount {
