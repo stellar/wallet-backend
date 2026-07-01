@@ -399,3 +399,37 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_FeeBu
 		"native balance must reflect the fee-phase debit (DefaultFundingAmount − FeeBumpFixtureFeeStroops) folded in (#637)")
 	suite.Require().Greater(nb.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
 }
+
+// TestLiveIngestion_SorobanRefundSource_NativeBalanceMatchesChain verifies that a Soroban post-apply
+// fee refund is folded into the transaction source's native balance and reflects the operation
+// applied before it. SorobanRefundSourceKP sources a Soroban tx that over-declares its resource fee
+// (Core refunds the surplus after apply) and is the `from` of the transfer, so its balance moves in
+// the fee, operation, and post-apply refund phases of one ledger. The indexed balance must equal the
+// on-chain balance; dropping the post-apply refund would leave the indexed balance short by the
+// refunded surplus — which is exactly why the sort key ranks the refund phase above operations.
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_SorobanRefundSource_NativeBalanceMatchesChain() {
+	address := suite.testEnv.SorobanRefundSourceKP.Address()
+
+	onChainStroops, err := infrastructure.GetOnChainNativeBalance(suite.testEnv.RPCService, address)
+	suite.Require().NoError(err)
+
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(context.Background(), address)
+	suite.Require().NoError(err)
+
+	var nb *types.NativeBalance
+	for _, b := range balances {
+		if native, ok := b.(*types.NativeBalance); ok {
+			nb = native
+			break
+		}
+	}
+	suite.Require().NotNil(nb, "expected a native balance for the Soroban refund source")
+
+	suite.Require().Equal(amount.StringFromInt64(onChainStroops), nb.GetBalance(),
+		"indexed native balance must equal on-chain balance — fee debit, transfer op, and post-apply refund all folded in")
+
+	// Sanity: the source paid a net fee and transferred XLM out, so its balance dropped below funding.
+	fundingStroops, err := amount.ParseInt64(infrastructure.DefaultFundingAmount)
+	suite.Require().NoError(err)
+	suite.Require().Less(onChainStroops, fundingStroops, "source should have paid a net fee and transferred XLM out")
+}

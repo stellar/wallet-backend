@@ -3,14 +3,18 @@ package infrastructure
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // SubmitUseCases builds, signs, and submits all use case transactions directly to RPC,
@@ -100,6 +104,11 @@ func SubmitUseCases(ctx context.Context, env *TestEnvironment) error {
 		return fmt.Errorf("submitting fee-bump fixture: %w", err)
 	}
 
+	// Soroban refund fixture: its source pays a refunded resource fee and is touched by its own op.
+	if err := submitSorobanRefundFixture(ctx, env); err != nil {
+		return fmt.Errorf("submitting soroban refund fixture: %w", err)
+	}
+
 	return nil
 }
 
@@ -178,6 +187,162 @@ func submitFeeBumpFixture(ctx context.Context, env *TestEnvironment) error {
 
 	log.Ctx(ctx).Infof("✅ Submitted fee-bump fixture; fee source %s charged %d stroops", env.FeeBumpSourceKP.Address(), FeeBumpFixtureFeeStroops)
 	return nil
+}
+
+// SorobanRefundSurplusStroops is the resource fee the Soroban refund fixture declares above what
+// simulation requires. Core refunds the unspent resource fee after apply, so declaring a surplus
+// guarantees a post-apply refund large enough to make the balance assertion discriminating: if the
+// refund were dropped, the indexed balance would fall short of the on-chain balance by this amount.
+const SorobanRefundSurplusStroops = 1_000_000
+
+// submitSorobanRefundFixture submits a Soroban transaction whose source (env.SorobanRefundSourceKP)
+// over-declares its resource fee — so Core issues a post-apply refund — and is also the `from` of
+// the native-XLM SAC transfer it invokes. The source's native balance therefore moves in all three
+// phases of one ledger: the fee debit, the transfer operation, and the post-apply refund. This lets
+// TestLiveIngestion_SorobanRefundSource_NativeBalanceMatchesChain assert the indexed balance equals
+// the on-chain balance — proving the refund is folded in and reflects the operation applied before
+// it (the crux of ranking phaseRefund above phaseOperation; see accounts.go accountSortKey).
+func submitSorobanRefundFixture(ctx context.Context, env *TestEnvironment) error {
+	rpcService := env.RPCService
+	source := env.SorobanRefundSourceKP
+
+	// Native-XLM SAC transfer: from = source (so the operation moves its balance) → PrimaryAccountKP.
+	nativeContractIDBytes, err := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(networkPassphrase)
+	if err != nil {
+		return fmt.Errorf("getting native asset contract ID: %w", err)
+	}
+	nativeContractID := xdr.ContractId(nativeContractIDBytes)
+	fromSCAddress, err := SCAccountID(source.Address())
+	if err != nil {
+		return fmt.Errorf("building from address: %w", err)
+	}
+	toSCAddress, err := SCAccountID(env.PrimaryAccountKP.Address())
+	if err != nil {
+		return fmt.Errorf("building to address: %w", err)
+	}
+	transferOp := &txnbuild.InvokeHostFunction{
+		SourceAccount: source.Address(),
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &nativeContractID},
+				FunctionName:    "transfer",
+				Args: xdr.ScVec{
+					{Type: xdr.ScValTypeScvAddress, Address: &fromSCAddress},
+					{Type: xdr.ScValTypeScvAddress, Address: &toSCAddress},
+					{Type: xdr.ScValTypeScvI128, I128: &xdr.Int128Parts{Hi: 0, Lo: xdr.Uint64(uint64(amount.MustParse(DefaultPaymentAmount)))}},
+				},
+			},
+		},
+	}
+
+	seq, err := rpcService.GetAccountLedgerSequence(source.Address())
+	if err != nil {
+		return fmt.Errorf("getting source sequence: %w", err)
+	}
+	sourceAccount := txnbuild.SimpleAccount{AccountID: source.Address(), Sequence: seq}
+
+	// Simulate to obtain the resource footprint (SorobanData) and the minimum resource fee.
+	simTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &sourceAccount,
+		Operations:           []txnbuild.Operation{transferOp},
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		IncrementSequenceNum: false,
+	})
+	if err != nil {
+		return fmt.Errorf("building simulation transaction: %w", err)
+	}
+	simXDR, err := simTx.Base64()
+	if err != nil {
+		return fmt.Errorf("encoding simulation transaction: %w", err)
+	}
+	sim, err := rpcService.SimulateTransaction(simXDR, entities.RPCResourceConfig{})
+	if err != nil {
+		return fmt.Errorf("simulating transaction: %w", err)
+	}
+	if sim.Error != "" {
+		return fmt.Errorf("simulation failed: %s", sim.Error)
+	}
+
+	// from == source, so require_auth is satisfied by the transaction signature; apply whatever
+	// (source-account) auth entries simulation returned.
+	if len(sim.Results) > 0 {
+		transferOp.Auth = sim.Results[0].Auth
+	}
+
+	minResourceFee, err := strconv.ParseInt(sim.MinResourceFee, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parsing MinResourceFee: %w", err)
+	}
+
+	// Over-declare the resource fee; the surplus is refunded after apply.
+	sorobanData := sim.TransactionData
+	sorobanData.ResourceFee += SorobanRefundSurplusStroops
+	transferOp.Ext = xdr.TransactionExt{V: 1, SorobanData: &sorobanData}
+
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &sourceAccount,
+		Operations:           []txnbuild.Operation{transferOp},
+		BaseFee:              minResourceFee + SorobanRefundSurplusStroops + txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
+		IncrementSequenceNum: true,
+	})
+	if err != nil {
+		return fmt.Errorf("building transaction: %w", err)
+	}
+	tx, err = tx.Sign(networkPassphrase, source)
+	if err != nil {
+		return fmt.Errorf("signing transaction: %w", err)
+	}
+	txXDR, err := tx.Base64()
+	if err != nil {
+		return fmt.Errorf("encoding transaction: %w", err)
+	}
+
+	res, err := rpcService.SendTransaction(txXDR)
+	if err != nil {
+		return fmt.Errorf("sending transaction: %w", err)
+	}
+	if res.Status != entities.PendingStatus {
+		return fmt.Errorf("soroban refund transaction %s failed with status %s, errorResultXdr=%+v", res.Hash, res.Status, res.ErrorResultXDR)
+	}
+
+	txResult, err := WaitForTransactionConfirmation(ctx, rpcService, res.Hash)
+	if err != nil {
+		return fmt.Errorf("waiting for soroban refund confirmation: %w", err)
+	}
+	if txResult.Status != entities.SuccessStatus {
+		return fmt.Errorf("soroban refund transaction %s did not succeed: status=%s", res.Hash, txResult.Status)
+	}
+
+	log.Ctx(ctx).Infof("✅ Submitted Soroban refund fixture; source %s over-declared %d stroops", source.Address(), SorobanRefundSurplusStroops)
+	return nil
+}
+
+// GetOnChainNativeBalance reads an account's current native (XLM) balance in stroops directly from
+// RPC, giving tests a ground-truth value to assert the indexed balance against.
+func GetOnChainNativeBalance(rpcService services.RPCService, address string) (int64, error) {
+	keyXDR, err := utils.GetAccountLedgerKey(address)
+	if err != nil {
+		return 0, fmt.Errorf("building account ledger key: %w", err)
+	}
+	result, err := rpcService.GetLedgerEntries([]string{keyXDR})
+	if err != nil {
+		return 0, fmt.Errorf("getting ledger entries: %w", err)
+	}
+	if len(result.Entries) == 0 {
+		return 0, fmt.Errorf("no ledger entry found for account %s", address)
+	}
+	var data xdr.LedgerEntryData
+	if err := xdr.SafeUnmarshalBase64(result.Entries[0].DataXDR, &data); err != nil {
+		return 0, fmt.Errorf("decoding account ledger entry: %w", err)
+	}
+	account, ok := data.GetAccount()
+	if !ok {
+		return 0, fmt.Errorf("ledger entry for %s is not an account", address)
+	}
+	return int64(account.Balance), nil
 }
 
 // buildSignAndSubmit rebuilds a use case's transaction with a real funded source account,
