@@ -1,7 +1,6 @@
 package indexer
 
 import (
-	"sync"
 	"testing"
 
 	set "github.com/deckarep/golang-set/v2"
@@ -36,49 +35,14 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 
 		// Assert participants by transaction
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx2.ToID])
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 
 		// Assert GetAllTransactions
 		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
-	})
-
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-
-		wg := sync.WaitGroup{}
-		wg.Add(4)
-		go func() {
-			indexerBuffer.PushTransaction("alice", tx1)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("alice", tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("bob", tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushTransaction("bob", tx2) // duplicate is a no-op
-			wg.Done()
-		}()
-		wg.Wait()
-
-		// Assert participants by transaction
-		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx2.ToID])
-
-		// Assert GetNumberOfTransactions
-		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
 	})
 }
 
@@ -98,47 +62,13 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 
 		// Assert participants by operation
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("bob", "chuck"), opParticipants[int64(2)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob", "chuck"), opParticipants[int64(2)])
 
 		// Assert transactions were also added
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("bob", "chuck"), txParticipants[tx2.ToID])
-	})
-
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
-		tx2 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 2}
-		op1 := types.Operation{ID: 1}
-		op2 := types.Operation{ID: 2}
-
-		wg := sync.WaitGroup{}
-		wg.Add(4)
-		go func() {
-			indexerBuffer.PushOperation("alice", op1, tx1)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("bob", op2, tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("chuck", op2, tx2)
-			wg.Done()
-		}()
-		go func() {
-			indexerBuffer.PushOperation("chuck", op2, tx2) // duplicate operation ID is a no-op
-			wg.Done()
-		}()
-		wg.Wait()
-
-		// Assert participants by operation
-		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("bob", "chuck"), opParticipants[int64(2)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob", "chuck"), txParticipants[tx2.ToID])
 	})
 }
 
@@ -159,37 +89,6 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		allStateChanges := indexerBuffer.GetStateChanges()
 		assert.Equal(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
-	})
-
-	t.Run("🟢 concurrent pushes", func(t *testing.T) {
-		indexerBuffer := NewIndexerBuffer()
-
-		tx := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 1}
-		op := types.Operation{ID: 1}
-
-		sc1 := types.StateChange{ToID: 1, StateChangeID: 1}
-		sc2 := types.StateChange{ToID: 2, StateChangeID: 1}
-		sc3 := types.StateChange{ToID: 3, StateChangeID: 1}
-
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			indexerBuffer.PushStateChange(tx, op, sc1)
-		}()
-
-		go func() {
-			defer wg.Done()
-			indexerBuffer.PushStateChange(tx, op, sc2)
-			indexerBuffer.PushStateChange(tx, op, sc3)
-		}()
-
-		wg.Wait()
-
-		allStateChanges := indexerBuffer.GetStateChanges()
-		assert.Len(t, allStateChanges, 3)
-		assert.ElementsMatch(t, []types.StateChange{sc1, sc2, sc3}, allStateChanges)
 	})
 
 	t.Run("🟢 with operations and transactions", func(t *testing.T) {
@@ -221,14 +120,14 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		// Assert transaction participants
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("someone", "alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("someone", "alice", "eve", "bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice", "eve", "bob"), txParticipants[tx2.ToID])
 
 		// Assert operation participants
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("someone", "alice"), opParticipants[int64(3)])
-		assert.Equal(t, set.NewSet("someone", "alice"), opParticipants[int64(4)])
-		assert.Equal(t, set.NewSet("eve"), opParticipants[int64(5)])
+		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), opParticipants[int64(3)])
+		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), opParticipants[int64(4)])
+		assert.Equal(t, set.NewThreadUnsafeSet("eve"), opParticipants[int64(5)])
 	})
 }
 
@@ -282,8 +181,8 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 		indexerBuffer.PushTransaction("alice", tx2)
 
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx2.ToID])
 	})
 }
 
@@ -318,8 +217,8 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 		indexerBuffer.PushOperation("alice", op2, tx1)
 
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(2)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), opParticipants[int64(1)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(2)])
 	})
 }
 
@@ -372,8 +271,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify transaction participants
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob"), txParticipants[tx2.ToID])
 	})
 
 	t.Run("🟢 merge operations only", func(t *testing.T) {
@@ -396,8 +295,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify operation participants
 		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob"), opParticipants[int64(2)])
 	})
 
 	t.Run("🟢 merge state changes only", func(t *testing.T) {
@@ -447,12 +346,12 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify tx1 has both alice and bob as participants
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("charlie"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("charlie"), txParticipants[tx2.ToID])
 
 		// Verify operation participants merged
 		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice", "bob"), opParticipants[int64(1)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), opParticipants[int64(1)])
 	})
 
 	t.Run("🟢 merge into empty buffer", func(t *testing.T) {
@@ -486,7 +385,7 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		assert.Equal(t, 1, buffer1.GetNumberOfTransactions())
 	})
 
-	t.Run("🟢 concurrent merges", func(t *testing.T) {
+	t.Run("🟢 merge multiple buffers", func(t *testing.T) {
 		buffer1 := NewIndexerBuffer()
 		buffer2 := NewIndexerBuffer()
 		buffer3 := NewIndexerBuffer()
@@ -499,20 +398,8 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 		buffer2.PushTransaction("bob", tx2)
 		buffer3.PushTransaction("charlie", tx3)
 
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			buffer1.Merge(buffer2)
-		}()
-
-		go func() {
-			defer wg.Done()
-			buffer1.Merge(buffer3)
-		}()
-
-		wg.Wait()
+		buffer1.Merge(buffer2)
+		buffer1.Merge(buffer3)
 
 		// Verify all data merged correctly
 		assert.Equal(t, 3, buffer1.GetNumberOfTransactions())
@@ -557,12 +444,12 @@ func TestIndexerBuffer_Merge(t *testing.T) {
 
 		// Verify participants mappings
 		txParticipants := buffer1.GetTransactionsParticipants()
-		assert.Equal(t, set.NewSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewSet("bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob"), txParticipants[tx2.ToID])
 
 		opParticipants := buffer1.GetOperationsParticipants()
-		assert.Equal(t, set.NewSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewSet("bob"), opParticipants[int64(2)])
+		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
+		assert.Equal(t, set.NewThreadUnsafeSet("bob"), opParticipants[int64(2)])
 	})
 }
 
