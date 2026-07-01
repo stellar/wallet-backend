@@ -50,6 +50,8 @@ type SharedContainers struct {
 	sponsoredNewAccountKeyPair    *keypair.Full
 	balanceTestAccount1KeyPair    *keypair.Full
 	balanceTestAccount2KeyPair    *keypair.Full
+	feeBumpSourceKeyPair          *keypair.Full // Fee-bump fee source for the fee-phase balance test (#637); moves only in the fee phase
+	sorobanRefundSourceKeyPair    *keypair.Full // Soroban tx source: pays a refunded resource fee and is touched by its own transfer op
 	masterKeyPair                 *keypair.Full
 	masterAccount                 *txnbuild.SimpleAccount
 
@@ -133,6 +135,8 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 	s.txSourceAccountKeyPair = keypair.MustRandom()
 	s.balanceTestAccount1KeyPair = keypair.MustRandom()
 	s.balanceTestAccount2KeyPair = keypair.MustRandom()
+	s.feeBumpSourceKeyPair = keypair.MustRandom()
+	s.sorobanRefundSourceKeyPair = keypair.MustRandom()
 
 	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
 	s.sponsoredNewAccountKeyPair = keypair.MustRandom()
@@ -145,6 +149,8 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 		s.txSourceAccountKeyPair,
 		s.balanceTestAccount1KeyPair,
 		s.balanceTestAccount2KeyPair,
+		s.feeBumpSourceKeyPair,
+		s.sorobanRefundSourceKeyPair,
 	})
 
 	// Create trustlines - these will be used for the account balances test
@@ -514,6 +520,14 @@ type TestEnvironment struct {
 	SponsoredNewAccountKP *keypair.Full
 	BalanceTestAccount1KP *keypair.Full
 	BalanceTestAccount2KP *keypair.Full
+	// FeeBumpSourceKP pays only a fee-bump fee in the fixtures — touched by no operation —
+	// so its native balance moves only in the fee phase (#637 regression coverage).
+	FeeBumpSourceKP *keypair.Full
+	// SorobanRefundSourceKP is the source of a Soroban transaction that over-declares its resource
+	// fee (so Core issues a refund) and is also the `from` of its transfer op. Its native balance
+	// therefore moves in the fee, operation, and post-apply refund phases of one ledger — exercising
+	// that the refund is folded in and reflects the operation applied before it.
+	SorobanRefundSourceKP *keypair.Full
 	USDCContractAddress   string
 	EURCContractAddress   string
 	// SEP41ContractAddress is the address of the deployed custom SEP-41 token contract.
@@ -632,6 +646,8 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,
+		FeeBumpSourceKP:       containers.feeBumpSourceKeyPair,
+		SorobanRefundSourceKP: containers.sorobanRefundSourceKeyPair,
 		USDCContractAddress:   containers.usdcContractAddress,
 		EURCContractAddress:   containers.eurcContractAddress,
 		// Pass through contract addresses for test assertions

@@ -392,6 +392,21 @@ func createSorobanTx(feeChanges xdr.LedgerEntryChanges, txApplyAfterChanges xdr.
 	return resp
 }
 
+// createFeeAndRefundTx builds a transaction carrying fee-phase ledger changes:
+// feeChanges populate the pre-operation fee debit (read by GetFeeChanges) and
+// postApplyFeeChanges populate the Soroban fee refund (read by GetPostApplyFeeChanges).
+func createFeeAndRefundTx(feeChanges, postApplyFeeChanges xdr.LedgerEntryChanges, isFailed bool) ingest.LedgerTransaction {
+	resp := someTx
+	resp.FeeChanges = feeChanges
+	resp.PostTxApplyFeeChanges = postApplyFeeChanges
+	if isFailed {
+		resp.Result.Result.Result.Code = xdr.TransactionResultCodeTxFailed
+	} else {
+		resp.Result.Result.Result.Code = xdr.TransactionResultCodeTxSuccess
+	}
+	return resp
+}
+
 // makeInvocationTransaction returns a single transaction containing a single
 // invokeHostFunction operation that generates the specified Stellar Asset
 // Contract events in its txmeta.

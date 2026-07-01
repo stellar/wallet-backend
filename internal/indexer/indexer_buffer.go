@@ -77,12 +77,18 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
-	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
-	sacContractsByID               map[string]*data.Contract         // SAC contract metadata extracted from instance entries
-	protocolWasmsByHash            map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
-	wasmBytecodesByHash            map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
-	protocolContractsByID          map[string]data.ProtocolContracts // contractID → ProtocolContracts
-	contractEventsByKey            map[ContractEventKey][]xdr.ContractEvent
+	// Tombstones record the order value at which a create/add was cancelled by a same-ledger
+	// remove. They keep the highest-order-wins invariant intact across the delete, so a later
+	// lower-order change cannot resurrect a removed key. See pushWithTombstone.
+	accountTombstones     map[string]int64
+	trustlineTombstones   map[TrustlineChangeKey]int64
+	sacTombstones         map[SACBalanceChangeKey]int64
+	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
+	sacContractsByID      map[string]*data.Contract         // SAC contract metadata extracted from instance entries
+	protocolWasmsByHash   map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
+	wasmBytecodesByHash   map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
+	protocolContractsByID map[string]data.ProtocolContracts // contractID → ProtocolContracts
+	contractEventsByKey   map[ContractEventKey][]xdr.ContractEvent
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -97,6 +103,9 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
+		accountTombstones:              make(map[string]int64),
+		trustlineTombstones:            make(map[TrustlineChangeKey]int64),
+		sacTombstones:                  make(map[SACBalanceChangeKey]int64),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
@@ -182,6 +191,87 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] 
 	return maps.Clone(b.participantsByToID)
 }
 
+// pushWithTombstone deduplicates change into m, keeping the highest-ordered change per key.
+//
+// A create/add that is later removed within the same ledger nets to nothing: the key is deleted
+// and a tombstone is recorded at the remove's order value. The tombstone drops any subsequent
+// change whose order is <= it (a chronologically-earlier change can no longer resurrect the key),
+// while a strictly-higher order — a genuine later re-create/re-add of the same key — lifts the
+// tombstone and wins. This keeps the highest-order-wins invariant intact across the delete; a bare
+// delete would break it, since the key would look absent and a lower-order change would re-insert a
+// stale phantom.
+func pushWithTombstone[K comparable, V any](
+	m map[K]V,
+	tombstones map[K]int64,
+	key K,
+	change V,
+	order func(V) int64,
+	isNoopRemove func(existing, incoming V) bool,
+) {
+	if tomb, ok := tombstones[key]; ok {
+		if order(change) <= tomb {
+			return
+		}
+		delete(tombstones, key)
+	}
+
+	existing, exists := m[key]
+	if exists && order(existing) > order(change) {
+		return
+	}
+
+	if exists && isNoopRemove(existing, change) {
+		delete(m, key)
+		tombstones[key] = order(change)
+		return
+	}
+
+	m[key] = change
+}
+
+// mergeWithTombstone folds src into dst using the same tombstone-aware dedup as pushWithTombstone.
+// It first merges src's tombstones into dst (keeping the higher order per key and evicting any dst
+// entry the tombstone cancels), then replays src's surviving changes. Merging tombstones is
+// required because a create->remove cancelled entirely within src leaves only a tombstone there,
+// which must carry over so a lower-order change in dst cannot resurrect the key.
+func mergeWithTombstone[K comparable, V any](
+	dst, src map[K]V,
+	dstTombstones, srcTombstones map[K]int64,
+	order func(V) int64,
+	isNoopRemove func(existing, incoming V) bool,
+) {
+	for key, tomb := range srcTombstones {
+		if existing, ok := dstTombstones[key]; !ok || tomb > existing {
+			dstTombstones[key] = tomb
+		}
+		if entry, ok := dst[key]; ok && order(entry) <= dstTombstones[key] {
+			delete(dst, key)
+		}
+	}
+
+	for key, change := range src {
+		pushWithTombstone(dst, dstTombstones, key, change, order, isNoopRemove)
+	}
+}
+
+func accountOrder(c types.AccountChange) int64 { return c.SortKey }
+
+func accountIsNoopRemove(existing, incoming types.AccountChange) bool {
+	return existing.Operation == types.AccountOpCreate && incoming.Operation == types.AccountOpRemove
+}
+
+func trustlineOrder(c types.TrustlineChange) int64 { return c.OperationID }
+
+func trustlineIsNoopRemove(existing, incoming types.TrustlineChange) bool {
+	return existing.Operation == types.TrustlineOpAdd && incoming.Operation == types.TrustlineOpRemove
+}
+
+func sacBalanceOrder(c types.SACBalanceChange) int64 { return c.OperationID }
+
+func sacBalanceIsNoopRemove(existing, incoming types.SACBalanceChange) bool {
+	return existing.Operation == types.SACBalanceOpAdd && incoming.Operation == types.SACBalanceOpRemove
+}
+
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
@@ -207,19 +297,7 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 		AccountID:   trustlineChange.AccountID,
 		TrustlineID: trustlineID,
 	}
-	prevChange, exists := b.trustlineChangesByTrustlineKey[changeKey]
-	if exists && prevChange.OperationID > trustlineChange.OperationID {
-		return
-	}
-
-	// Handle ADD→REMOVE no-op case: if this is a remove operation and we have an add operation for the same trustline from previous operation,
-	// it is a no-op for current ledger.
-	if exists && trustlineChange.Operation == types.TrustlineOpRemove && prevChange.Operation == types.TrustlineOpAdd {
-		delete(b.trustlineChangesByTrustlineKey, changeKey)
-		return
-	}
-
-	b.trustlineChangesByTrustlineKey[changeKey] = trustlineChange
+	pushWithTombstone(b.trustlineChangesByTrustlineKey, b.trustlineTombstones, changeKey, trustlineChange, trustlineOrder, trustlineIsNoopRemove)
 }
 
 // GetTrustlineChanges returns all trustline changes stored in the buffer.
@@ -232,28 +310,14 @@ func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.Trust
 }
 
 // PushAccountChange adds an account change to the buffer with deduplication.
-// Keeps the change with highest OperationID per account. Handles CREATE→REMOVE no-op case.
-// Thread-safe: acquires write lock.
+// Keeps the change with highest SortKey per account. A CREATE→REMOVE within the same ledger nets
+// to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
+// pushWithTombstone). Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	accountID := accountChange.AccountID
-	existing, exists := b.accountChangesByAccountID[accountID]
-
-	// Keep the change with highest OperationID
-	if exists && existing.OperationID > accountChange.OperationID {
-		return
-	}
-
-	// Handle CREATE→REMOVE no-op case: account created and removed in same batch
-	// Note: UPDATE→REMOVE is NOT a no-op (account existed before, needs deletion)
-	if exists && accountChange.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
-		delete(b.accountChangesByAccountID, accountID)
-		return
-	}
-
-	b.accountChangesByAccountID[accountID] = accountChange
+	pushWithTombstone(b.accountChangesByAccountID, b.accountTombstones, accountChange.AccountID, accountChange, accountOrder, accountIsNoopRemove)
 }
 
 // GetAccountChanges returns all account changes stored in the buffer.
@@ -266,8 +330,9 @@ func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 }
 
 // PushSACBalanceChange adds a SAC balance change to the buffer with deduplication.
-// Keeps the change with highest OperationID per (AccountID, ContractID). Handles ADD→REMOVE no-op case.
-// Thread-safe: acquires write lock.
+// Keeps the change with highest OperationID per (AccountID, ContractID). An ADD→REMOVE within the
+// same ledger nets to nothing and is tombstoned so a later lower-key change cannot resurrect it
+// (see pushWithTombstone). Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -276,20 +341,7 @@ func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceCh
 		AccountID:  sacBalanceChange.AccountID,
 		ContractID: sacBalanceChange.ContractID,
 	}
-	existing, exists := b.sacBalanceChangesByKey[key]
-
-	// Keep the change with highest OperationID
-	if exists && existing.OperationID > sacBalanceChange.OperationID {
-		return
-	}
-
-	// Handle ADD→REMOVE no-op case: balance created and removed in same batch
-	if exists && sacBalanceChange.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
-		delete(b.sacBalanceChangesByKey, key)
-		return
-	}
-
-	b.sacBalanceChangesByKey[key] = sacBalanceChange
+	pushWithTombstone(b.sacBalanceChangesByKey, b.sacTombstones, key, sacBalanceChange, sacBalanceOrder, sacBalanceIsNoopRemove)
 }
 
 // GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
@@ -436,56 +488,12 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	// Merge state changes
 	b.stateChanges = append(b.stateChanges, otherBuffer.stateChanges...)
 
-	// Merge trustline changes
-	for key, change := range otherBuffer.trustlineChangesByTrustlineKey {
-		existing, exists := b.trustlineChangesByTrustlineKey[key]
-
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-
-		// Handle ADD→REMOVE no-op case
-		if exists && change.Operation == types.TrustlineOpRemove && existing.Operation == types.TrustlineOpAdd {
-			delete(b.trustlineChangesByTrustlineKey, key)
-			continue
-		}
-
-		b.trustlineChangesByTrustlineKey[key] = change
-	}
-
-	// Merge account changes with deduplication (same logic as PushAccountChange)
-	for accountID, change := range otherBuffer.accountChangesByAccountID {
-		existing, exists := b.accountChangesByAccountID[accountID]
-
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-
-		// Handle CREATE→REMOVE no-op case
-		if exists && change.Operation == types.AccountOpRemove && existing.Operation == types.AccountOpCreate {
-			delete(b.accountChangesByAccountID, accountID)
-			continue
-		}
-
-		b.accountChangesByAccountID[accountID] = change
-	}
-
-	// Merge SAC balance changes with deduplication (same logic as PushSACBalanceChange)
-	for key, change := range otherBuffer.sacBalanceChangesByKey {
-		existing, exists := b.sacBalanceChangesByKey[key]
-
-		if exists && existing.OperationID > change.OperationID {
-			continue
-		}
-
-		// Handle ADD→REMOVE no-op case
-		if exists && change.Operation == types.SACBalanceOpRemove && existing.Operation == types.SACBalanceOpAdd {
-			delete(b.sacBalanceChangesByKey, key)
-			continue
-		}
-
-		b.sacBalanceChangesByKey[key] = change
-	}
+	// Merge trustline, account, and SAC balance changes with the same tombstone-aware dedup as
+	// the Push* methods (highest order wins; a same-ledger create/add→remove nets to nothing and
+	// tombstones the key so a lower-order change cannot resurrect it).
+	mergeWithTombstone(b.trustlineChangesByTrustlineKey, otherBuffer.trustlineChangesByTrustlineKey, b.trustlineTombstones, otherBuffer.trustlineTombstones, trustlineOrder, trustlineIsNoopRemove)
+	mergeWithTombstone(b.accountChangesByAccountID, otherBuffer.accountChangesByAccountID, b.accountTombstones, otherBuffer.accountTombstones, accountOrder, accountIsNoopRemove)
+	mergeWithTombstone(b.sacBalanceChangesByKey, otherBuffer.sacBalanceChangesByKey, b.sacTombstones, otherBuffer.sacTombstones, sacBalanceOrder, sacBalanceIsNoopRemove)
 
 	// Merge unique trustline assets
 	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
@@ -551,6 +559,11 @@ func (b *IndexerBuffer) Clear() {
 	// Clear account and SAC balance changes maps
 	clear(b.accountChangesByAccountID)
 	clear(b.sacBalanceChangesByKey)
+
+	// Clear tombstones
+	clear(b.accountTombstones)
+	clear(b.trustlineTombstones)
+	clear(b.sacTombstones)
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

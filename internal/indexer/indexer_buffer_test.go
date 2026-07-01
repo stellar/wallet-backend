@@ -718,6 +718,33 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		assert.Equal(t, "200", result[key2].Balance)
 		assert.Equal(t, "300", result[key3].Balance)
 	})
+
+	t.Run("🟢 tombstone blocks lower-key resurrection after ADD→REMOVE", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: 100})
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "0", Operation: types.SACBalanceOpRemove, OperationID: 200})
+		// A lower-OperationID change afterward must NOT re-insert the removed balance.
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "50", Operation: types.SACBalanceOpUpdate, OperationID: 50})
+
+		assert.Len(t, buffer.GetSACBalanceChanges(), 0)
+	})
+
+	t.Run("🟢 higher-key change re-adds a tombstoned SAC balance", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: 100})
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "0", Operation: types.SACBalanceOpRemove, OperationID: 200})
+		// A genuine later re-add (higher OperationID) lifts the tombstone and wins.
+		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "700", Operation: types.SACBalanceOpAdd, OperationID: 300})
+
+		changes := buffer.GetSACBalanceChanges()
+		require.Len(t, changes, 1)
+		key := SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}
+		assert.Equal(t, "700", changes[key].Balance)
+	})
 }
 
 func TestIndexerBuffer_MergeSACBalanceChanges(t *testing.T) {
@@ -943,5 +970,334 @@ func TestIndexerBuffer_ProtocolContracts(t *testing.T) {
 
 		contracts := buffer.GetProtocolContracts()
 		assert.Len(t, contracts, 0)
+	})
+}
+
+// accountChangeAddr is an arbitrary account address used as a map key in the
+// account-change dedup tests below (the buffer keys on the string, not its validity).
+const accountChangeAddr = "GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON"
+
+// Dedup phases mirroring AccountsProcessor's canonical ordering: fee < operation < refund.
+const (
+	rankFee    int64 = 0
+	rankOp     int64 = 1
+	rankRefund int64 = 2
+)
+
+// accountRank builds an order-preserving dedup key (phase, then tx, then op) for these tests. It is
+// deliberately NOT the production accountSortKey bit layout: the buffer only compares the int64, so
+// any encoding that preserves (phase, tx, op) ordering exercises the dedup identically. The
+// production encoding and its fee < operation < refund ordering are verified separately by
+// TestAccountSortKey in the processors package. (Valid for the small tx/op values used here.)
+func accountRank(phase, tx, op int64) int64 {
+	return phase*1_000_000 + tx*1_000 + op
+}
+
+func TestIndexerBuffer_PushAccountChange(t *testing.T) {
+	accountChange := func(sortKey, balance int64, op types.AccountOpType) types.AccountChange {
+		return types.AccountChange{
+			AccountID:    accountChangeAddr,
+			SortKey:      sortKey,
+			LedgerNumber: 12345,
+			Operation:    op,
+			Balance:      balance,
+		}
+	}
+
+	t.Run("🟢 stores account change", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		change := accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate)
+		buffer.PushAccountChange(change)
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, change, changes[accountChangeAddr])
+	})
+
+	t.Run("🟢 keeps change with highest sort key", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 2, 1), 200, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 50, types.AccountOpUpdate)) // lower than tx 2 → ignored
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(200), changes[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 handles CREATE→REMOVE no-op case", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
+
+		assert.Len(t, buffer.GetAccountChanges(), 0)
+	})
+
+	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.AccountOpRemove, changes[accountChangeAddr].Operation)
+	})
+
+	t.Run("🟢 fee change captured when uncontested (issue #637)", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(999), changes[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 operation beats fee regardless of push order", func(t *testing.T) {
+		// Fee source in a late tx (9), op participant in an early tx (2): the op still wins
+		// because phase dominates — every operation outranks every fee in the ledger.
+		feeChange := accountChange(accountRank(rankFee, 9, 0), 999, types.AccountOpUpdate)
+		opChange := accountChange(accountRank(rankOp, 2, 1), 500, types.AccountOpUpdate)
+
+		feeFirst := NewIndexerBuffer()
+		feeFirst.PushAccountChange(feeChange)
+		feeFirst.PushAccountChange(opChange)
+		assert.Equal(t, int64(500), feeFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		opFirst := NewIndexerBuffer()
+		opFirst.PushAccountChange(opChange)
+		opFirst.PushAccountChange(feeChange)
+		assert.Equal(t, int64(500), opFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 refund beats operation regardless of push order", func(t *testing.T) {
+		// Refund in an early tx (3) still outranks an op in a later tx (8): phase dominates,
+		// matching the canonical order where all refunds apply after all operations.
+		opChange := accountChange(accountRank(rankOp, 8, 1), 500, types.AccountOpUpdate)
+		refundChange := accountChange(accountRank(rankRefund, 3, 0), 550, types.AccountOpUpdate)
+
+		opFirst := NewIndexerBuffer()
+		opFirst.PushAccountChange(opChange)
+		opFirst.PushAccountChange(refundChange)
+		assert.Equal(t, int64(550), opFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		refundFirst := NewIndexerBuffer()
+		refundFirst.PushAccountChange(refundChange)
+		refundFirst.PushAccountChange(opChange)
+		assert.Equal(t, int64(550), refundFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 later-tx fee wins over earlier-tx fee regardless of push order", func(t *testing.T) {
+		// Same account charged fees in tx 3 and tx 7 (e.g. a shared fee-bump source). The
+		// later tx's cumulative balance wins by key — no longer reliant on push/merge order.
+		early := accountChange(accountRank(rankFee, 3, 0), 100, types.AccountOpUpdate)
+		late := accountChange(accountRank(rankFee, 7, 0), 200, types.AccountOpUpdate)
+
+		earlyFirst := NewIndexerBuffer()
+		earlyFirst.PushAccountChange(early)
+		earlyFirst.PushAccountChange(late)
+		assert.Equal(t, int64(200), earlyFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		lateFirst := NewIndexerBuffer()
+		lateFirst.PushAccountChange(late)
+		lateFirst.PushAccountChange(early)
+		assert.Equal(t, int64(200), lateFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 later-tx refund wins over earlier-tx refund regardless of push order", func(t *testing.T) {
+		early := accountChange(accountRank(rankRefund, 3, 0), 100, types.AccountOpUpdate)
+		late := accountChange(accountRank(rankRefund, 7, 0), 200, types.AccountOpUpdate)
+
+		earlyFirst := NewIndexerBuffer()
+		earlyFirst.PushAccountChange(early)
+		earlyFirst.PushAccountChange(late)
+		assert.Equal(t, int64(200), earlyFirst.GetAccountChanges()[accountChangeAddr].Balance)
+
+		lateFirst := NewIndexerBuffer()
+		lateFirst.PushAccountChange(late)
+		lateFirst.PushAccountChange(early)
+		assert.Equal(t, int64(200), lateFirst.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 refund wins over fee and operation together", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 2, 0), 100, types.AccountOpUpdate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 5, 1), 200, types.AccountOpUpdate)) // later tx than the refund
+		buffer.PushAccountChange(accountChange(accountRank(rankRefund, 2, 0), 300, types.AccountOpUpdate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(300), changes[accountChangeAddr].Balance)
+	})
+
+	t.Run("🟢 tombstone blocks lower-key resurrection after CREATE→REMOVE", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		// Account created then merged within the ledger's operations → nets to nothing.
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
+		// A lower-key change arriving afterward must NOT re-insert the removed account.
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
+
+		assert.Len(t, buffer.GetAccountChanges(), 0)
+	})
+
+	t.Run("🟢 higher-key change re-creates a tombstoned account", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
+		// A genuine later re-creation (higher key) lifts the tombstone and wins.
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 5, 1), 700, types.AccountOpCreate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(700), changes[accountChangeAddr].Balance)
+		assert.Equal(t, types.AccountOpCreate, changes[accountChangeAddr].Operation)
+	})
+}
+
+func TestIndexerBuffer_MergeAccountChanges(t *testing.T) {
+	// Each tx is processed into its own buffer, then merged. Because the dedup key is a
+	// total order with no ties, the winner is the same no matter what order buffers merge —
+	// that is what makes parallel-then-merge safe.
+	accountChange := func(sortKey, balance int64) types.AccountChange {
+		return types.AccountChange{
+			AccountID:    accountChangeAddr,
+			SortKey:      sortKey,
+			LedgerNumber: 12345,
+			Operation:    types.AccountOpUpdate,
+			Balance:      balance,
+		}
+	}
+
+	// mergeBalance pushes a and b into separate buffers, merges them in the given order into
+	// a fresh buffer, and returns the surviving balance for accountChangeAddr.
+	mergeBalance := func(a, b types.AccountChange) int64 {
+		bufA := NewIndexerBuffer()
+		bufA.PushAccountChange(a)
+		bufB := NewIndexerBuffer()
+		bufB.PushAccountChange(b)
+
+		merged := NewIndexerBuffer()
+		merged.Merge(bufA)
+		merged.Merge(bufB)
+		return merged.GetAccountChanges()[accountChangeAddr].Balance
+	}
+
+	t.Run("🟢 operation beats fee across buffers", func(t *testing.T) {
+		op := accountChange(accountRank(rankOp, 2, 1), 500)
+		fee := accountChange(accountRank(rankFee, 9, 0), 999)
+		assert.Equal(t, int64(500), mergeBalance(op, fee))
+		assert.Equal(t, int64(500), mergeBalance(fee, op))
+	})
+
+	t.Run("🟢 refund beats operation across buffers", func(t *testing.T) {
+		op := accountChange(accountRank(rankOp, 8, 1), 500)
+		refund := accountChange(accountRank(rankRefund, 3, 0), 550)
+		assert.Equal(t, int64(550), mergeBalance(op, refund))
+		assert.Equal(t, int64(550), mergeBalance(refund, op))
+	})
+
+	t.Run("🟢 later-tx fee wins independent of merge order", func(t *testing.T) {
+		early := accountChange(accountRank(rankFee, 3, 0), 100)
+		late := accountChange(accountRank(rankFee, 7, 0), 200)
+		assert.Equal(t, int64(200), mergeBalance(early, late))
+		assert.Equal(t, int64(200), mergeBalance(late, early))
+	})
+
+	t.Run("🟢 later-tx refund wins independent of merge order", func(t *testing.T) {
+		early := accountChange(accountRank(rankRefund, 3, 0), 100)
+		late := accountChange(accountRank(rankRefund, 7, 0), 200)
+		assert.Equal(t, int64(200), mergeBalance(early, late))
+		assert.Equal(t, int64(200), mergeBalance(late, early))
+	})
+
+	// cancelledBuffer returns a buffer in which the account was created then removed within its
+	// own operations — its map entry is gone, leaving only a tombstone that Merge must propagate.
+	cancelledBuffer := func() *IndexerBuffer {
+		buf := NewIndexerBuffer()
+		buf.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 1, 1), Operation: types.AccountOpCreate, Balance: 100})
+		buf.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 1, 2), Operation: types.AccountOpRemove})
+		return buf
+	}
+
+	t.Run("🟢 tombstone propagates across merge and blocks lower-key change", func(t *testing.T) {
+		lower := NewIndexerBuffer()
+		lower.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999))
+
+		ab := NewIndexerBuffer()
+		ab.Merge(cancelledBuffer())
+		ab.Merge(lower)
+		assert.Len(t, ab.GetAccountChanges(), 0)
+
+		ba := NewIndexerBuffer()
+		ba.Merge(lower)
+		ba.Merge(cancelledBuffer())
+		assert.Len(t, ba.GetAccountChanges(), 0)
+	})
+
+	t.Run("🟢 higher-key change across merge re-creates a tombstoned account", func(t *testing.T) {
+		recreate := NewIndexerBuffer()
+		recreate.PushAccountChange(types.AccountChange{AccountID: accountChangeAddr, SortKey: accountRank(rankOp, 5, 1), Operation: types.AccountOpCreate, Balance: 700})
+
+		ab := NewIndexerBuffer()
+		ab.Merge(cancelledBuffer())
+		ab.Merge(recreate)
+		require.Len(t, ab.GetAccountChanges(), 1)
+		assert.Equal(t, int64(700), ab.GetAccountChanges()[accountChangeAddr].Balance)
+
+		ba := NewIndexerBuffer()
+		ba.Merge(recreate)
+		ba.Merge(cancelledBuffer())
+		require.Len(t, ba.GetAccountChanges(), 1)
+		assert.Equal(t, int64(700), ba.GetAccountChanges()[accountChangeAddr].Balance)
+	})
+}
+
+func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
+	const asset = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	trustline := func(opID, balance int64, op types.TrustlineOpType) types.TrustlineChange {
+		return types.TrustlineChange{
+			AccountID:   accountChangeAddr,
+			Asset:       asset,
+			OperationID: opID,
+			Operation:   op,
+			Balance:     balance,
+		}
+	}
+
+	t.Run("🟢 tombstone blocks lower-key resurrection after ADD→REMOVE", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
+		buffer.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
+		// A lower-OperationID change afterward must NOT re-insert the removed trustline.
+		buffer.PushTrustlineChange(trustline(50, 500, types.TrustlineOpUpdate))
+
+		assert.Len(t, buffer.GetTrustlineChanges(), 0)
+	})
+
+	t.Run("🟢 higher-key change re-adds a tombstoned trustline", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
+		buffer.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
+		// A genuine later re-add (higher OperationID) lifts the tombstone and wins.
+		buffer.PushTrustlineChange(trustline(300, 700, types.TrustlineOpAdd))
+
+		changes := buffer.GetTrustlineChanges()
+		require.Len(t, changes, 1)
+		for _, c := range changes {
+			assert.Equal(t, int64(700), c.Balance)
+		}
+	})
+
+	t.Run("🟢 tombstone propagates across merge and blocks lower-key change", func(t *testing.T) {
+		cancelled := NewIndexerBuffer()
+		cancelled.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
+		cancelled.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
+		lower := NewIndexerBuffer()
+		lower.PushTrustlineChange(trustline(50, 500, types.TrustlineOpUpdate))
+
+		ab := NewIndexerBuffer()
+		ab.Merge(cancelled)
+		ab.Merge(lower)
+		assert.Len(t, ab.GetTrustlineChanges(), 0)
 	})
 }
