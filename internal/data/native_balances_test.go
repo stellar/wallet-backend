@@ -68,8 +68,8 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO native_balances
-			(account_id, balance, buying_liabilities, selling_liabilities, last_modified_ledger)
-			VALUES ($1, 1000000000, 100, 200, 12345)
+			(account_id, balance, buying_liabilities, selling_liabilities, num_subentries, last_modified_ledger)
+			VALUES ($1, 1000000000, 100, 200, 5, 12345)
 		`, types.AddressBytea(accountAddr))
 		require.NoError(t, err)
 
@@ -81,6 +81,7 @@ func TestNativeBalanceModel_GetByAccount(t *testing.T) {
 		require.Equal(t, int64(1000000000), balance.Balance)
 		require.Equal(t, int64(100), balance.BuyingLiabilities)
 		require.Equal(t, int64(200), balance.SellingLiabilities)
+		require.Equal(t, uint32(5), balance.NumSubEntries)
 		require.Equal(t, uint32(12345), balance.LedgerNumber)
 	})
 }
@@ -134,6 +135,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 				Balance:            1000000000,
 				BuyingLiabilities:  100,
 				SellingLiabilities: 200,
+				NumSubEntries:      7,
 				LedgerNumber:       12345,
 			},
 		}
@@ -147,6 +149,12 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		err = dbConnectionPool.QueryRow(ctx, `SELECT COUNT(*) FROM native_balances WHERE account_id = $1`, types.AddressBytea(accountAddr)).Scan(&count)
 		require.NoError(t, err)
 		require.Equal(t, 1, count)
+
+		// Verify num_subentries round-trips via GetByAccount
+		got, err := m.GetByAccount(ctx, accountAddr)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Equal(t, uint32(7), got.NumSubEntries)
 	})
 
 	t.Run("updates existing balance on conflict", func(t *testing.T) {
@@ -164,9 +172,10 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 		upserts := []NativeBalance{
 			{
-				AccountID:    types.AddressBytea(accountAddr),
-				Balance:      1000,
-				LedgerNumber: 100,
+				AccountID:     types.AddressBytea(accountAddr),
+				Balance:       1000,
+				NumSubEntries: 3,
+				LedgerNumber:  100,
 			},
 		}
 		err = m.BatchUpsert(ctx, pgxTx1, upserts, nil)
@@ -177,6 +186,7 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		pgxTx2, err := dbConnectionPool.Begin(ctx)
 		require.NoError(t, err)
 		upserts[0].Balance = 2000
+		upserts[0].NumSubEntries = 9
 		upserts[0].LedgerNumber = 200
 		err = m.BatchUpsert(ctx, pgxTx2, upserts, nil)
 		require.NoError(t, err)
@@ -185,11 +195,13 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		// Verify update
 		var balance int64
 		var ledger uint32
+		var numSubentries uint32
 		err = dbConnectionPool.QueryRow(ctx,
-			`SELECT balance, last_modified_ledger FROM native_balances WHERE account_id = $1`,
-			types.AddressBytea(accountAddr)).Scan(&balance, &ledger)
+			`SELECT balance, num_subentries, last_modified_ledger FROM native_balances WHERE account_id = $1`,
+			types.AddressBytea(accountAddr)).Scan(&balance, &numSubentries, &ledger)
 		require.NoError(t, err)
 		require.Equal(t, int64(2000), balance)
+		require.Equal(t, uint32(9), numSubentries)
 		require.Equal(t, uint32(200), ledger)
 	})
 
@@ -327,6 +339,7 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 				Balance:            1000000000,
 				BuyingLiabilities:  100,
 				SellingLiabilities: 200,
+				NumSubEntries:      11,
 				LedgerNumber:       12345,
 			},
 		}
@@ -338,14 +351,15 @@ func TestNativeBalanceModel_BatchCopy(t *testing.T) {
 		// Verify all fields
 		var b NativeBalance
 		err = dbConnectionPool.QueryRow(ctx, `
-			SELECT account_id, balance, buying_liabilities, selling_liabilities, last_modified_ledger
+			SELECT account_id, balance, buying_liabilities, selling_liabilities, num_subentries, last_modified_ledger
 			FROM native_balances WHERE account_id = $1
-		`, types.AddressBytea(accountAddr)).Scan(&b.AccountID, &b.Balance, &b.BuyingLiabilities, &b.SellingLiabilities, &b.LedgerNumber)
+		`, types.AddressBytea(accountAddr)).Scan(&b.AccountID, &b.Balance, &b.BuyingLiabilities, &b.SellingLiabilities, &b.NumSubEntries, &b.LedgerNumber)
 		require.NoError(t, err)
 		require.Equal(t, balances[0].AccountID, b.AccountID)
 		require.Equal(t, balances[0].Balance, b.Balance)
 		require.Equal(t, balances[0].BuyingLiabilities, b.BuyingLiabilities)
 		require.Equal(t, balances[0].SellingLiabilities, b.SellingLiabilities)
+		require.Equal(t, balances[0].NumSubEntries, b.NumSubEntries)
 		require.Equal(t, balances[0].LedgerNumber, b.LedgerNumber)
 	})
 

@@ -138,6 +138,7 @@ type ComplexityRoot struct {
 		BuyingLiabilities  func(childComplexity int) int
 		LastModifiedLedger func(childComplexity int) int
 		MinimumBalance     func(childComplexity int) int
+		NumSubentries      func(childComplexity int) int
 		SellingLiabilities func(childComplexity int) int
 		TokenID            func(childComplexity int) int
 		TokenType          func(childComplexity int) int
@@ -880,6 +881,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.NativeBalance.MinimumBalance(childComplexity), true
+	case "NativeBalance.numSubentries":
+		if e.ComplexityRoot.NativeBalance.NumSubentries == nil {
+			break
+		}
+
+		return e.ComplexityRoot.NativeBalance.NumSubentries(childComplexity), true
 	case "NativeBalance.sellingLiabilities":
 		if e.ComplexityRoot.NativeBalance.SellingLiabilities == nil {
 			break
@@ -1902,6 +1909,7 @@ type NativeBalance implements Balance {
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
+    numSubentries: UInt32!
     lastModifiedLedger: UInt32!
 }
 
@@ -5004,6 +5012,35 @@ func (ec *executionContext) fieldContext_NativeBalance_sellingLiabilities(_ cont
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NativeBalance_numSubentries(ctx context.Context, field graphql.CollectedField, obj *NativeBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NativeBalance_numSubentries,
+		func(ctx context.Context) (any, error) {
+			return obj.NumSubentries, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NativeBalance_numSubentries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NativeBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -13065,6 +13102,11 @@ func (ec *executionContext) _NativeBalance(ctx context.Context, sel ast.Selectio
 			}
 		case "sellingLiabilities":
 			out.Values[i] = ec._NativeBalance_sellingLiabilities(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "numSubentries":
+			out.Values[i] = ec._NativeBalance_numSubentries(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

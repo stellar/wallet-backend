@@ -36,6 +36,7 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 		MinimumBalance:     minimumBalanceStr,
 		BuyingLiabilities:  buyingLiabilitiesStr,
 		SellingLiabilities: sellingLiabilitiesStr,
+		NumSubentries:      nativeBalance.NumSubEntries,
 		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
 }

@@ -105,6 +105,7 @@ type NativeBalance struct {
 	BuyingLiabilities  string    `json:"buyingLiabilities"`
 	SellingLiabilities string    `json:"sellingLiabilities"`
 	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+	NumSubentries      uint32    `json:"numSubentries"`
 }
 
 func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }

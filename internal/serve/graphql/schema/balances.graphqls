@@ -12,6 +12,7 @@ type NativeBalance implements Balance {
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
+    numSubentries: UInt32!
     lastModifiedLedger: UInt32!
 }
 
