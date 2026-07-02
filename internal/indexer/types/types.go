@@ -280,6 +280,47 @@ const (
 	SACBalanceOpRemove SACBalanceOp = "REMOVE"
 )
 
+// LiquidityPoolShareChange is an account's pool-share balance change extracted from a
+// pool_share trustline. PoolID is the hex-encoded pool id; Shares is the trustline balance.
+type LiquidityPoolShareChange struct {
+	AccountID    string
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolShareOp
+	Shares       int64
+}
+
+type LiquidityPoolShareOp string
+
+const (
+	LiquidityPoolShareOpAdd    LiquidityPoolShareOp = "ADD"
+	LiquidityPoolShareOpUpdate LiquidityPoolShareOp = "UPDATE"
+	LiquidityPoolShareOpRemove LiquidityPoolShareOp = "REMOVE"
+)
+
+// LiquidityPoolChange is a constant-product pool's reserve change extracted from a
+// LiquidityPoolEntry ledger entry. PoolID is the hex-encoded pool id; AssetA/AssetB are
+// canonical asset strings ("native" or "CODE:ISSUER").
+type LiquidityPoolChange struct {
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolOp
+	AssetA       string
+	ReserveA     int64
+	AssetB       string
+	ReserveB     int64
+}
+
+type LiquidityPoolOp string
+
+const (
+	LiquidityPoolOpAdd    LiquidityPoolOp = "ADD"
+	LiquidityPoolOpUpdate LiquidityPoolOp = "UPDATE"
+	LiquidityPoolOpRemove LiquidityPoolOp = "REMOVE"
+)
+
 type Account struct {
 	StellarAddress AddressBytea `json:"address,omitempty" db:"stellar_address"`
 	CreatedAt      time.Time    `json:"createdAt,omitempty" db:"created_at"`

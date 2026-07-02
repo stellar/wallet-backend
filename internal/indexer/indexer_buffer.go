@@ -57,6 +57,12 @@ type SACBalanceChangeKey struct {
 	ContractID string
 }
 
+// LiquidityPoolShareChangeKey is a composite key for deduplicating pool-share balance changes.
+type LiquidityPoolShareChangeKey struct {
+	AccountID string
+	PoolID    string
+}
+
 // ContractEventKey identifies a contract-event group by transaction and
 // operation index within a single ledger. The indexer extracts contract
 // events once per InvokeHostFunction op (successful txs only) and stashes
@@ -77,12 +83,16 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
+	lpShareChangesByKey            map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
+	lpChangesByPoolID              map[string]types.LiquidityPoolChange
 	// Tombstones record the order value at which a create/add was cancelled by a same-ledger
 	// remove. They keep the highest-order-wins invariant intact across the delete, so a later
 	// lower-order change cannot resurrect a removed key. See pushWithTombstone.
 	accountTombstones     map[string]int64
 	trustlineTombstones   map[TrustlineChangeKey]int64
 	sacTombstones         map[SACBalanceChangeKey]int64
+	lpShareTombstones     map[LiquidityPoolShareChangeKey]int64
+	lpTombstones          map[string]int64
 	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
 	sacContractsByID      map[string]*data.Contract         // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash   map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
@@ -103,9 +113,13 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
+		lpShareChangesByKey:            make(map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange),
+		lpChangesByPoolID:              make(map[string]types.LiquidityPoolChange),
 		accountTombstones:              make(map[string]int64),
 		trustlineTombstones:            make(map[TrustlineChangeKey]int64),
 		sacTombstones:                  make(map[SACBalanceChangeKey]int64),
+		lpShareTombstones:              make(map[LiquidityPoolShareChangeKey]int64),
+		lpTombstones:                   make(map[string]int64),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
@@ -272,6 +286,18 @@ func sacBalanceIsNoopRemove(existing, incoming types.SACBalanceChange) bool {
 	return existing.Operation == types.SACBalanceOpAdd && incoming.Operation == types.SACBalanceOpRemove
 }
 
+func lpShareOrder(c types.LiquidityPoolShareChange) int64 { return c.OperationID }
+
+func lpShareIsNoopRemove(existing, incoming types.LiquidityPoolShareChange) bool {
+	return existing.Operation == types.LiquidityPoolShareOpAdd && incoming.Operation == types.LiquidityPoolShareOpRemove
+}
+
+func lpOrder(c types.LiquidityPoolChange) int64 { return c.OperationID }
+
+func lpIsNoopRemove(existing, incoming types.LiquidityPoolChange) bool {
+	return existing.Operation == types.LiquidityPoolOpAdd && incoming.Operation == types.LiquidityPoolOpRemove
+}
+
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
 // Thread-safe: acquires write lock.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
@@ -351,6 +377,50 @@ func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SAC
 	defer b.mu.RUnlock()
 
 	return b.sacBalanceChangesByKey
+}
+
+// PushLiquidityPoolShareChange adds a pool-share balance change to the buffer with deduplication.
+// Keeps the change with highest OperationID per (AccountID, PoolID). An ADD→REMOVE within the same
+// ledger nets to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
+// pushWithTombstone). Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushLiquidityPoolShareChange(change types.LiquidityPoolShareChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := LiquidityPoolShareChangeKey{
+		AccountID: change.AccountID,
+		PoolID:    change.PoolID,
+	}
+	pushWithTombstone(b.lpShareChangesByKey, b.lpShareTombstones, key, change, lpShareOrder, lpShareIsNoopRemove)
+}
+
+// GetLiquidityPoolShareChanges returns all pool-share balance changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.lpShareChangesByKey
+}
+
+// PushLiquidityPoolChange adds a pool reserve change to the buffer with deduplication.
+// Keeps the change with highest OperationID per PoolID. An ADD→REMOVE within the same ledger nets
+// to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
+// pushWithTombstone). Thread-safe: acquires write lock.
+func (b *IndexerBuffer) PushLiquidityPoolChange(change types.LiquidityPoolChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	pushWithTombstone(b.lpChangesByPoolID, b.lpTombstones, change.PoolID, change, lpOrder, lpIsNoopRemove)
+}
+
+// GetLiquidityPoolChanges returns all pool reserve changes stored in the buffer.
+// Thread-safe: uses read lock.
+func (b *IndexerBuffer) GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.lpChangesByPoolID
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
@@ -494,6 +564,8 @@ func (b *IndexerBuffer) Merge(other IndexerBufferInterface) {
 	mergeWithTombstone(b.trustlineChangesByTrustlineKey, otherBuffer.trustlineChangesByTrustlineKey, b.trustlineTombstones, otherBuffer.trustlineTombstones, trustlineOrder, trustlineIsNoopRemove)
 	mergeWithTombstone(b.accountChangesByAccountID, otherBuffer.accountChangesByAccountID, b.accountTombstones, otherBuffer.accountTombstones, accountOrder, accountIsNoopRemove)
 	mergeWithTombstone(b.sacBalanceChangesByKey, otherBuffer.sacBalanceChangesByKey, b.sacTombstones, otherBuffer.sacTombstones, sacBalanceOrder, sacBalanceIsNoopRemove)
+	mergeWithTombstone(b.lpShareChangesByKey, otherBuffer.lpShareChangesByKey, b.lpShareTombstones, otherBuffer.lpShareTombstones, lpShareOrder, lpShareIsNoopRemove)
+	mergeWithTombstone(b.lpChangesByPoolID, otherBuffer.lpChangesByPoolID, b.lpTombstones, otherBuffer.lpTombstones, lpOrder, lpIsNoopRemove)
 
 	// Merge unique trustline assets
 	maps.Copy(b.uniqueTrustlineAssets, otherBuffer.uniqueTrustlineAssets)
@@ -556,14 +628,18 @@ func (b *IndexerBuffer) Clear() {
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
 
-	// Clear account and SAC balance changes maps
+	// Clear account, SAC, and liquidity-pool balance changes maps
 	clear(b.accountChangesByAccountID)
 	clear(b.sacBalanceChangesByKey)
+	clear(b.lpShareChangesByKey)
+	clear(b.lpChangesByPoolID)
 
 	// Clear tombstones
 	clear(b.accountTombstones)
 	clear(b.trustlineTombstones)
 	clear(b.sacTombstones)
+	clear(b.lpShareTombstones)
+	clear(b.lpTombstones)
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.
