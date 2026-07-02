@@ -87,16 +87,18 @@ func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest
 
 // checkpointTestFixture holds a checkpointService and all mocked dependencies.
 type checkpointTestFixture struct {
-	svc                     *checkpointService
-	reader                  *ChangeReaderMock
-	contractMetadataService *ContractMetadataServiceMock
-	trustlineAssetModel     *wbdata.TrustlineAssetModelMock
-	trustlineBalanceModel   *wbdata.TrustlineBalanceModelMock
-	nativeBalanceModel      *wbdata.NativeBalanceModelMock
-	sacBalanceModel         *wbdata.SACBalanceModelMock
-	contractModel           *wbdata.ContractModelMock
-	protocolWasmModel       *wbdata.ProtocolWasmsModelMock
-	protocolContractsModel  *wbdata.ProtocolContractsModelMock
+	svc                       *checkpointService
+	reader                    *ChangeReaderMock
+	contractMetadataService   *ContractMetadataServiceMock
+	trustlineAssetModel       *wbdata.TrustlineAssetModelMock
+	trustlineBalanceModel     *wbdata.TrustlineBalanceModelMock
+	nativeBalanceModel        *wbdata.NativeBalanceModelMock
+	sacBalanceModel           *wbdata.SACBalanceModelMock
+	liquidityPoolModel        *wbdata.LiquidityPoolModelMock
+	liquidityPoolBalanceModel *wbdata.LiquidityPoolBalanceModelMock
+	contractModel             *wbdata.ContractModelMock
+	protocolWasmModel         *wbdata.ProtocolWasmsModelMock
+	protocolContractsModel    *wbdata.ProtocolContractsModelMock
 }
 
 // setupCheckpointTest creates a checkpointService with mocked dependencies and a real DB pool.
@@ -115,38 +117,48 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	trustlineBalanceModelMock := wbdata.NewTrustlineBalanceModelMock(t)
 	nativeBalanceModelMock := wbdata.NewNativeBalanceModelMock(t)
 	sacBalanceModelMock := wbdata.NewSACBalanceModelMock(t)
+	liquidityPoolModelMock := wbdata.NewLiquidityPoolModelMock(t)
+	liquidityPoolBalanceModelMock := wbdata.NewLiquidityPoolBalanceModelMock(t)
+	// The batch flush always issues a BatchCopy for the liquidity-pool models (with empty slices
+	// when a checkpoint carries no pool data), so accept any invocation across all checkpoint tests.
+	liquidityPoolModelMock.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	liquidityPoolBalanceModelMock.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	contractModelMock := wbdata.NewContractModelMock(t)
 	protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 	protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 
 	svc := &checkpointService{
-		db:                      dbPool,
-		archive:                 &HistoryArchiveMock{},
-		contractMetadataService: contractMetadataServiceMock,
-		trustlineAssetModel:     trustlineAssetModelMock,
-		trustlineBalanceModel:   trustlineBalanceModelMock,
-		nativeBalanceModel:      nativeBalanceModelMock,
-		sacBalanceModel:         sacBalanceModelMock,
-		contractModel:           contractModelMock,
-		protocolWasmModel:       protocolWasmModelMock,
-		protocolContractsModel:  protocolContractsModelMock,
-		networkPassphrase:       network.TestNetworkPassphrase,
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		contractMetadataService:   contractMetadataServiceMock,
+		trustlineAssetModel:       trustlineAssetModelMock,
+		trustlineBalanceModel:     trustlineBalanceModelMock,
+		nativeBalanceModel:        nativeBalanceModelMock,
+		sacBalanceModel:           sacBalanceModelMock,
+		liquidityPoolModel:        liquidityPoolModelMock,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModelMock,
+		contractModel:             contractModelMock,
+		protocolWasmModel:         protocolWasmModelMock,
+		protocolContractsModel:    protocolContractsModelMock,
+		networkPassphrase:         network.TestNetworkPassphrase,
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
 	}
 
 	return checkpointTestFixture{
-		svc:                     svc,
-		reader:                  readerMock,
-		contractMetadataService: contractMetadataServiceMock,
-		trustlineAssetModel:     trustlineAssetModelMock,
-		trustlineBalanceModel:   trustlineBalanceModelMock,
-		nativeBalanceModel:      nativeBalanceModelMock,
-		sacBalanceModel:         sacBalanceModelMock,
-		contractModel:           contractModelMock,
-		protocolWasmModel:       protocolWasmModelMock,
-		protocolContractsModel:  protocolContractsModelMock,
+		svc:                       svc,
+		reader:                    readerMock,
+		contractMetadataService:   contractMetadataServiceMock,
+		trustlineAssetModel:       trustlineAssetModelMock,
+		trustlineBalanceModel:     trustlineBalanceModelMock,
+		nativeBalanceModel:        nativeBalanceModelMock,
+		sacBalanceModel:           sacBalanceModelMock,
+		liquidityPoolModel:        liquidityPoolModelMock,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModelMock,
+		contractModel:             contractModelMock,
+		protocolWasmModel:         protocolWasmModelMock,
+		protocolContractsModel:    protocolContractsModelMock,
 	}
 }
 
@@ -235,6 +247,100 @@ func TestCheckpointService_PopulateFromCheckpoint_AccountEntry(t *testing.T) {
 	).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// makePoolShareChange builds a checkpoint change for a pool_share trustline (per-account shares).
+func makePoolShareChange(account xdr.AccountId, poolID xdr.PoolId, shares int64) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeTrustline,
+			TrustLine: &xdr.TrustLineEntry{
+				AccountId: account,
+				Asset:     xdr.TrustLineAsset{Type: xdr.AssetTypeAssetTypePoolShare, LiquidityPoolId: &poolID},
+				Balance:   xdr.Int64(shares),
+			},
+		}},
+	}
+}
+
+// makeLpEntryChange builds a checkpoint change for a constant-product LiquidityPoolEntry.
+func makeLpEntryChange(poolID xdr.PoolId, assetA, assetB xdr.Asset, reserveA, reserveB int64) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeLiquidityPool,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LiquidityPoolEntry{
+				LiquidityPoolId: poolID,
+				Body: xdr.LiquidityPoolEntryBody{
+					Type: xdr.LiquidityPoolTypeLiquidityPoolConstantProduct,
+					ConstantProduct: &xdr.LiquidityPoolEntryConstantProduct{
+						Params:   xdr.LiquidityPoolConstantProductParameters{AssetA: assetA, AssetB: assetB, Fee: xdr.LiquidityPoolFeeV18},
+						ReserveA: xdr.Int64(reserveA),
+						ReserveB: xdr.Int64(reserveB),
+					},
+				},
+			},
+		}},
+	}
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
+	require.NoError(t, err)
+	defer dbPool.Close()
+
+	issuer := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	account := xdr.MustAddress(issuer)
+	poolID := xdr.PoolId{1, 2, 3}
+	expectedPoolID := xdr.Hash(poolID).HexString()
+	usdc := xdr.MustNewCreditAsset("USDC", issuer)
+
+	readerMock := NewChangeReaderMock(t)
+	readerMock.On("Read").Return(makeLpEntryChange(poolID, xdr.MustNewNativeAsset(), usdc, 100, 200), nil).Once()
+	readerMock.On("Read").Return(makePoolShareChange(account, poolID, 5000), nil).Once()
+	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	readerMock.On("Close").Return(nil).Once()
+
+	trustlineBalanceModel := wbdata.NewTrustlineBalanceModelMock(t)
+	nativeBalanceModel := wbdata.NewNativeBalanceModelMock(t)
+	sacBalanceModel := wbdata.NewSACBalanceModelMock(t)
+	lpModel := wbdata.NewLiquidityPoolModelMock(t)
+	lpBalanceModel := wbdata.NewLiquidityPoolBalanceModelMock(t)
+
+	// The pool-share trustline and LP entry route to the liquidity-pool models, never to
+	// trustline/native/sac (those flush empty).
+	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool {
+		return len(pools) == 1 && pools[0].PoolID == expectedPoolID &&
+			pools[0].AssetA == "native" && pools[0].AmountA == 100 &&
+			pools[0].AssetB == "USDC:"+issuer && pools[0].AmountB == 200
+	})).Return(nil).Once()
+	lpBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(bals []wbdata.LiquidityPoolBalance) bool {
+		return len(bals) == 1 && bals[0].PoolID == expectedPoolID &&
+			bals[0].Shares == 5000 && bals[0].AccountID == types.AddressBytea(issuer)
+	})).Return(nil).Once()
+
+	svc := &checkpointService{
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		trustlineBalanceModel:     trustlineBalanceModel,
+		nativeBalanceModel:        nativeBalanceModel,
+		sacBalanceModel:           sacBalanceModel,
+		liquidityPoolModel:        lpModel,
+		liquidityPoolBalanceModel: lpBalanceModel,
+		networkPassphrase:         network.TestNetworkPassphrase,
+		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
+			return readerMock, nil
+		},
+	}
+
+	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
 }
 
