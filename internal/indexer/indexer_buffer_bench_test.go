@@ -1,100 +1,92 @@
 package indexer
 
 import (
-	"fmt"
+	"context"
+	"path/filepath"
+	"runtime"
 	"testing"
 
-	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/alitto/pond/v2"
+
+	"github.com/stellar/go-stellar-sdk/network"
 )
 
-// Benchmark fixtures model a ledger's worth of per-transaction results with a realistic mix
-// (participants, one operation, a state change, and account/trustline/SAC balance changes each).
-// They are pre-built so the benchmarks measure only buffer folding, not fixture construction.
-const (
-	benchTxCount       = 200
-	benchParticipantsN = 100
-	benchAsset         = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
-)
+// These benchmarks run against the real pubnet ledger fixtures under testdata/ (see
+// loadLedgerFixture), so they exercise the actual transaction/operation/change shapes production
+// ingests rather than synthetic data. Fixtures are pubnet, hence PublicNetworkPassphrase.
 
-var (
-	benchParticipants [benchParticipantsN]string
-	benchResults      [benchTxCount]*TransactionResult
-)
+// benchIndexer builds an Indexer with the real processors. nil metrics is accepted (see
+// TestIndexer_ProcessLedgerTransactions_FeePhaseBalances).
+func benchIndexer() *Indexer {
+	return NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+}
 
-func init() {
-	for i := range benchParticipantsN {
-		benchParticipants[i] = fmt.Sprintf("GPARTICIPANT%053d", i)
+// BenchmarkProcessRealLedger measures a full per-ledger indexing pass: parallel workers build a
+// per-tx TransactionResult, which are folded into one ledger buffer. One sub-benchmark per fixture.
+func BenchmarkProcessRealLedger(b *testing.B) {
+	ctx := context.Background()
+	idx := benchIndexer()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	if err != nil {
+		b.Fatal(err)
 	}
-	for i := range benchTxCount {
-		opID := int64(i*10 + 1)
-		account := fmt.Sprintf("GACCOUNT%056d", i%benchParticipantsN)
-		tx := &types.Transaction{Hash: types.HashBytea(fmt.Sprintf("hash-%d", i)), ToID: int64(i)}
-		op := &types.Operation{ID: opID}
-
-		benchResults[i] = &TransactionResult{
-			Transaction:    tx,
-			TxParticipants: []string{benchParticipants[i%benchParticipantsN], benchParticipants[(i+1)%benchParticipantsN]},
-			Operations:     map[int64]*types.Operation{opID: op},
-			OpParticipants: map[int64][]string{opID: {benchParticipants[i%benchParticipantsN]}},
-			StateChanges: []types.StateChange{
-				{ToID: int64(i), AccountID: types.AddressBytea(account), OperationID: opID},
-			},
-			AccountChanges: []types.AccountChange{
-				{AccountID: account, SortKey: opID, Operation: types.AccountOpUpdate, Balance: int64(i)},
-			},
-			TrustlineChanges: []types.TrustlineChange{
-				{AccountID: account, Asset: benchAsset, OperationID: opID, Operation: types.TrustlineOpAdd, Balance: int64(i)},
-			},
-			SACBalanceChanges: []types.SACBalanceChange{
-				{AccountID: account, ContractID: "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP", Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: opID},
-			},
-			ParticipantCount: 2,
+	for _, path := range paths {
+		lcm := loadLedgerFixture(b, path)
+		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+		if err != nil {
+			b.Fatal(err)
 		}
+
+		b.Run(filepath.Base(path), func(b *testing.B) {
+			buf := NewIndexerBuffer()
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := idx.ProcessLedgerTransactions(ctx, txs, buf); err != nil {
+					b.Fatal(err)
+				}
+				buf.Clear()
+			}
+		})
 	}
 }
 
-// BenchmarkIngestTransactionResult measures folding a single transaction's result into the buffer.
-func BenchmarkIngestTransactionResult(b *testing.B) {
-	buf := NewIndexerBuffer()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		buf.IngestTransactionResult(benchResults[i%benchTxCount])
-		buf.Clear()
-	}
-}
+// BenchmarkFoldRealLedger isolates the serial fold this change actually touches: it pre-builds each
+// real ledger's per-tx results once (untimed) and then measures only IngestTransactionResult + the
+// buffer Clear that mirrors backfill reuse. One sub-benchmark per fixture.
+func BenchmarkFoldRealLedger(b *testing.B) {
+	ctx := context.Background()
+	idx := benchIndexer()
 
-// BenchmarkFoldLedger measures folding a full ledger's worth of results into one buffer and then
-// clearing it — the per-ledger cost the serial fold pays after the parallel workers finish.
-func BenchmarkFoldLedger(b *testing.B) {
-	buf := NewIndexerBuffer()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for _, result := range benchResults {
-			buf.IngestTransactionResult(result)
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, path := range paths {
+		lcm := loadLedgerFixture(b, path)
+		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+		if err != nil {
+			b.Fatal(err)
 		}
-		buf.Clear()
-	}
-}
 
-// BenchmarkPushTransaction isolates the canonical-pointer + participant-set path.
-func BenchmarkPushTransaction(b *testing.B) {
-	buf := NewIndexerBuffer()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		result := benchResults[i%benchTxCount]
-		buf.PushTransaction(result.TxParticipants[0], result.Transaction)
-	}
-}
+		results := make([]*TransactionResult, 0, len(txs))
+		for _, tx := range txs {
+			result, err := idx.processTransaction(ctx, tx)
+			if err != nil {
+				b.Fatal(err)
+			}
+			results = append(results, result)
+		}
 
-// BenchmarkPushAccountChange isolates the tombstone-aware dedup path.
-func BenchmarkPushAccountChange(b *testing.B) {
-	buf := NewIndexerBuffer()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		buf.PushAccountChange(benchResults[i%benchTxCount].AccountChanges[0])
+		b.Run(filepath.Base(path), func(b *testing.B) {
+			buf := NewIndexerBuffer()
+			b.ReportAllocs()
+			for b.Loop() {
+				for _, result := range results {
+					buf.IngestTransactionResult(result)
+				}
+				buf.Clear()
+			}
+		})
 	}
 }

@@ -1103,7 +1103,7 @@ func extractContractEventsViaReader(ctx context.Context, networkPassphrase strin
 // To add fixtures: build ingest.NewLedgerBackend (datastore + PublicNetworkPassphrase),
 // then per sequence call GetLedger, MarshalBinary, gzip, and write
 // testdata/ledger-<seq>.xdr.gz. Keep both wrapper versions represented.
-func loadLedgerFixture(t *testing.T, path string) xdr.LedgerCloseMeta {
+func loadLedgerFixture(t testing.TB, path string) xdr.LedgerCloseMeta {
 	t.Helper()
 	f, err := os.Open(path)
 	require.NoError(t, err)
