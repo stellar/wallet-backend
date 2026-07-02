@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strings"
@@ -30,10 +31,11 @@ const (
 	// The source order is the canonical connection order exposed by Account.balances.
 	// Cursors are opaque to clients, but the resolver must keep this ordering stable
 	// so forward/backward pagination works consistently across mixed balance types.
-	balanceSourceNative  balanceSource = "native"
-	balanceSourceClassic balanceSource = "classic"
-	balanceSourceSAC     balanceSource = "sac"
-	balanceSourceSEP41   balanceSource = "sep41"
+	balanceSourceNative        balanceSource = "native"
+	balanceSourceClassic       balanceSource = "classic"
+	balanceSourceSAC           balanceSource = "sac"
+	balanceSourceSEP41         balanceSource = "sep41"
+	balanceSourceLiquidityPool balanceSource = "lp"
 )
 
 // balanceCursor is the decoded form of our opaque cursor payload:
@@ -49,6 +51,7 @@ const (
 // - native -> literal "native"
 // - classic -> trustline asset UUID
 // - sac/sep41 -> contract UUID
+// - lp -> liquidity pool id (hex string)
 //
 // Example:
 //   - canonical order: native, classic(A), classic(B), sep41(X)
@@ -97,14 +100,14 @@ func balanceInternalError() error {
 // balanceSourcesForAddress returns the ordered set of balance sources that can
 // apply to the requested address type.
 //
-// G-addresses can have native XLM, classic trustlines, and SEP-41 token balances.
-// C-addresses can hold SAC balances and SEP-41 token balances, but never
-// native/classic rows.
+// G-addresses can have native XLM, classic trustlines, SEP-41 token balances, and
+// liquidity-pool share balances. C-addresses can hold SAC balances and SEP-41 token
+// balances, but never native/classic/liquidity-pool rows.
 func balanceSourcesForAddress(address string) []balanceSource {
 	if utils.IsContractAddress(address) {
 		return []balanceSource{balanceSourceSAC, balanceSourceSEP41}
 	}
-	return []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41}
+	return []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41, balanceSourceLiquidityPool}
 }
 
 // balanceSourceIndex maps a source to its canonical order position. The walkers
@@ -166,6 +169,12 @@ func parseBalanceCursor(cursor *string, sources []balanceSource) (*balanceCursor
 		if parts[2] != string(balanceSourceNative) {
 			return nil, balanceBadUserInputError("invalid balance cursor id")
 		}
+	case balanceSourceLiquidityPool:
+		// Liquidity pools are keyed by their pool id (a 32-byte hash rendered as hex),
+		// not a UUID like the other contract/asset-backed sources.
+		if !isValidPoolID(parts[2]) {
+			return nil, balanceBadUserInputError("invalid balance cursor id")
+		}
 	default:
 		if _, err := uuid.Parse(parts[2]); err != nil {
 			return nil, balanceBadUserInputError("invalid balance cursor id")
@@ -176,6 +185,14 @@ func parseBalanceCursor(cursor *string, sources []balanceSource) (*balanceCursor
 		Source: source,
 		ID:     parts[2],
 	}, nil
+}
+
+// isValidPoolID reports whether s is a liquidity pool id: a 32-byte hash rendered as
+// a 64-character hex string. Used to validate the liquidity-pool cursor payload, which
+// (unlike the other contract/asset-backed sources) is keyed by pool id rather than a UUID.
+func isValidPoolID(s string) bool {
+	decoded, err := hex.DecodeString(s)
+	return err == nil && len(decoded) == 32
 }
 
 // uuid converts cursor IDs for the UUID-backed sources. Native uses a sentinel
@@ -412,6 +429,8 @@ func (r *Resolver) getBalanceNodesForSource(
 		return r.getSACBalanceNodes(ctx, address, cursor, sortOrder, limit)
 	case balanceSourceSEP41:
 		return r.getSEP41BalanceNodes(ctx, address, cursor, sortOrder, limit)
+	case balanceSourceLiquidityPool:
+		return r.getLiquidityPoolBalanceNodes(ctx, address, cursor, sortOrder, limit)
 	default:
 		return nil, balanceBadUserInputError("invalid balance source")
 	}
@@ -538,6 +557,39 @@ func (r *Resolver) getSEP41BalanceNodes(
 			Balance: buildSEP41BalanceFromDB(bal),
 			Source:  balanceSourceSEP41,
 			ID:      bal.ContractID.String(),
+		})
+	}
+
+	return nodes, nil
+}
+
+// getLiquidityPoolBalanceNodes pages an account's pool-share balances by their pool id, joining
+// each row with the pool's reserves. Unlike the other contract/asset-backed sources, the keyset
+// cursor is the pool id (a hex string) rather than a UUID.
+func (r *Resolver) getLiquidityPoolBalanceNodes(
+	ctx context.Context,
+	address string,
+	cursor *balanceCursor,
+	sortOrder data.SortOrder,
+	limit int32,
+) ([]*balanceNode, error) {
+	var cursorID *string
+	if cursor != nil {
+		cursorID = &cursor.ID
+	}
+
+	balances, err := r.balanceReader.GetLiquidityPoolBalances(ctx, address, &limit, cursorID, sortOrder)
+	if err != nil {
+		log.Ctx(ctx).Errorf("failed to get paginated liquidity pool balances for %s: %v", address, err)
+		return nil, balanceInternalError()
+	}
+
+	nodes := make([]*balanceNode, 0, len(balances))
+	for _, lp := range balances {
+		nodes = append(nodes, &balanceNode{
+			Balance: buildLiquidityPoolBalanceFromDB(lp),
+			Source:  balanceSourceLiquidityPool,
+			ID:      lp.PoolID,
 		})
 	}
 

@@ -97,13 +97,14 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	Metrics               *metrics.Metrics
-	RPCService            services.RPCService
-	TrustlineBalanceModel data.TrustlineBalanceModelInterface
-	NativeBalanceModel    data.NativeBalanceModelInterface
-	SACBalanceModel       data.SACBalanceModelInterface
-	SEP41BalanceModel     sep41data.BalanceModelInterface
-	SEP41AllowanceModel   sep41data.AllowanceModelInterface
+	Metrics                   *metrics.Metrics
+	RPCService                services.RPCService
+	TrustlineBalanceModel     data.TrustlineBalanceModelInterface
+	NativeBalanceModel        data.NativeBalanceModelInterface
+	SACBalanceModel           data.SACBalanceModelInterface
+	LiquidityPoolBalanceModel data.LiquidityPoolBalanceModelInterface
+	SEP41BalanceModel         sep41data.BalanceModelInterface
+	SEP41AllowanceModel       sep41data.AllowanceModelInterface
 
 	// GraphQL
 	GraphQLComplexityLimit int
@@ -188,19 +189,20 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	return handlerDeps{
-		Models:                 models,
-		RequestAuthVerifier:    requestAuthVerifier,
-		SupportedAssets:        cfg.SupportedAssets,
-		Metrics:                m,
-		RPCService:             rpcService,
-		TrustlineBalanceModel:  models.TrustlineBalance,
-		NativeBalanceModel:     models.NativeBalance,
-		SACBalanceModel:        models.SACBalance,
-		SEP41BalanceModel:      models.SEP41.Balances,
-		SEP41AllowanceModel:    models.SEP41.Allowances,
-		AppTracker:             cfg.AppTracker,
-		NetworkPassphrase:      cfg.NetworkPassphrase,
-		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
+		Models:                    models,
+		RequestAuthVerifier:       requestAuthVerifier,
+		SupportedAssets:           cfg.SupportedAssets,
+		Metrics:                   m,
+		RPCService:                rpcService,
+		TrustlineBalanceModel:     models.TrustlineBalance,
+		NativeBalanceModel:        models.NativeBalance,
+		SACBalanceModel:           models.SACBalance,
+		LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
+		SEP41BalanceModel:         models.SEP41.Balances,
+		SEP41AllowanceModel:       models.SEP41.Allowances,
+		AppTracker:                cfg.AppTracker,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
+		GraphQLComplexityLimit:    cfg.GraphQLComplexityLimit,
 	}, nil
 }
 
@@ -233,7 +235,7 @@ func handler(deps handlerDeps) http.Handler {
 			resolver := resolvers.NewResolver(
 				deps.Models,
 				deps.RPCService,
-				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
 			)

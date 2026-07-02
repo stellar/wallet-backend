@@ -69,6 +69,23 @@ func buildSACBalanceFromDB(sacBalance data.SACBalance) *graphql1.SACBalance {
 	}
 }
 
+// buildLiquidityPoolBalanceFromDB constructs a LiquidityPoolBalance from a liquidity_pool_balances
+// row JOINed with its pool reserves. `balance` is the account's pool shares and `tokenId`/
+// `liquidityPoolId` are the pool id; `reserves` carries the pool's constituent assets and amounts.
+func buildLiquidityPoolBalanceFromDB(lp data.LiquidityPoolBalance) *graphql1.LiquidityPoolBalance {
+	return &graphql1.LiquidityPoolBalance{
+		TokenID:         lp.PoolID,
+		Balance:         amount.StringFromInt64(lp.Shares),
+		TokenType:       graphql1.TokenTypeLiquidityPool,
+		LiquidityPoolID: lp.PoolID,
+		Reserves: []*graphql1.LiquidityPoolReserve{
+			{Asset: lp.AssetA, Amount: amount.StringFromInt64(lp.AmountA)},
+			{Asset: lp.AssetB, Amount: amount.StringFromInt64(lp.AmountB)},
+		},
+		LastModifiedLedger: lp.LedgerNumber,
+	}
+}
+
 // buildTrustlineBalanceFromDB constructs a TrustlineBalance from database trustline balance data.
 func buildTrustlineBalanceFromDB(trustline data.TrustlineBalance, networkPassphrase string) (*graphql1.TrustlineBalance, error) {
 	// Build xdr.Asset to compute contract ID

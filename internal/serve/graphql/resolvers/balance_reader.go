@@ -15,11 +15,12 @@ import (
 // balanceReaderAdapter wraps balance model interfaces to implement BalanceReader.
 // This adapter allows the GraphQL resolver to use a consistent interface for balance reads.
 type balanceReaderAdapter struct {
-	trustlineBalanceModel data.TrustlineBalanceModelInterface
-	nativeBalanceModel    data.NativeBalanceModelInterface
-	sacBalanceModel       data.SACBalanceModelInterface
-	sep41BalanceModel     sep41data.BalanceModelInterface
-	sep41AllowanceModel   sep41data.AllowanceModelInterface
+	trustlineBalanceModel     data.TrustlineBalanceModelInterface
+	nativeBalanceModel        data.NativeBalanceModelInterface
+	sacBalanceModel           data.SACBalanceModelInterface
+	liquidityPoolBalanceModel data.LiquidityPoolBalanceModelInterface
+	sep41BalanceModel         sep41data.BalanceModelInterface
+	sep41AllowanceModel       sep41data.AllowanceModelInterface
 }
 
 // NewBalanceReader creates a BalanceReader from the underlying model interfaces.
@@ -27,15 +28,17 @@ func NewBalanceReader(
 	trustlineBalanceModel data.TrustlineBalanceModelInterface,
 	nativeBalanceModel data.NativeBalanceModelInterface,
 	sacBalanceModel data.SACBalanceModelInterface,
+	liquidityPoolBalanceModel data.LiquidityPoolBalanceModelInterface,
 	sep41BalanceModel sep41data.BalanceModelInterface,
 	sep41AllowanceModel sep41data.AllowanceModelInterface,
 ) BalanceReader {
 	return &balanceReaderAdapter{
-		trustlineBalanceModel: trustlineBalanceModel,
-		nativeBalanceModel:    nativeBalanceModel,
-		sacBalanceModel:       sacBalanceModel,
-		sep41BalanceModel:     sep41BalanceModel,
-		sep41AllowanceModel:   sep41AllowanceModel,
+		trustlineBalanceModel:     trustlineBalanceModel,
+		nativeBalanceModel:        nativeBalanceModel,
+		sacBalanceModel:           sacBalanceModel,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModel,
+		sep41BalanceModel:         sep41BalanceModel,
+		sep41AllowanceModel:       sep41AllowanceModel,
 	}
 }
 
@@ -82,6 +85,17 @@ func (r *balanceReaderAdapter) GetSEP41Balances(ctx context.Context, accountAddr
 	balances, err := r.sep41BalanceModel.GetByAccount(ctx, accountAddress, limit, cursor, sep41Sort)
 	if err != nil {
 		return nil, fmt.Errorf("getting SEP-41 balances: %w", err)
+	}
+	return balances, nil
+}
+
+// GetLiquidityPoolBalances retrieves an account's pool-share balances (with reserves). Pass nil
+// limit/cursor to fetch all rows, or provide them for keyset pagination (the cursor is the last
+// seen pool_id from the previous page).
+func (r *balanceReaderAdapter) GetLiquidityPoolBalances(ctx context.Context, accountAddress string, limit *int32, cursor *string, sortOrder data.SortOrder) ([]data.LiquidityPoolBalance, error) {
+	balances, err := r.liquidityPoolBalanceModel.GetByAccount(ctx, accountAddress, limit, cursor, sortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting liquidity pool balances: %w", err)
 	}
 	return balances, nil
 }
