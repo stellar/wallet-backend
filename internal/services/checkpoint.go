@@ -152,13 +152,14 @@ func (b *batch) addTrustline(accountAddress string, asset wbdata.TrustlineAsset,
 	})
 }
 
-func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, ledger uint32) {
+func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance, buyingLiabilities, sellingLiabilities int64, numSubentries, ledger uint32) {
 	b.nativeBalances = append(b.nativeBalances, wbdata.NativeBalance{
 		AccountID:          types.AddressBytea(accountAddress),
 		Balance:            balance,
 		MinimumBalance:     minimumBalance,
 		BuyingLiabilities:  buyingLiabilities,
 		SellingLiabilities: sellingLiabilities,
+		NumSubEntries:      numSubentries,
 		LedgerNumber:       ledger,
 	})
 }
@@ -297,7 +298,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		numSponsoring := accountEntry.NumSponsoring()
 		numSponsored := accountEntry.NumSponsored()
 		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
-		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), p.checkpointLedger)
+		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(numSubEntries), p.checkpointLedger)
 		p.entries++
 		p.accountCount++
 

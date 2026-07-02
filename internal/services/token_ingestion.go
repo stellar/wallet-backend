@@ -122,6 +122,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 				MinimumBalance:     change.MinimumBalance,
 				BuyingLiabilities:  change.BuyingLiabilities,
 				SellingLiabilities: change.SellingLiabilities,
+				NumSubEntries:      change.NumSubEntries,
 				LedgerNumber:       change.LedgerNumber,
 			})
 		}
