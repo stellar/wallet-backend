@@ -61,6 +61,11 @@ type Fixtures struct {
 	BalanceTestAccount1KP *keypair.Full
 	BalanceTestAccount2KP *keypair.Full
 	LiquidityPoolID       string
+	// LiveLPAccountKP issues its own credit asset and, as a submitted use case, establishes a
+	// pool-share trustline and deposits into a constant-product pool WITHOUT withdrawing — leaving
+	// a live-ingested pool-share balance to assert. LiveLiquidityPoolID is that pool's id.
+	LiveLPAccountKP       *keypair.Full
+	LiveLiquidityPoolID   string
 	RPCService            services.RPCService
 	HolderContractAddress string
 	EURCContractAddress   string
@@ -78,6 +83,7 @@ func NewFixtures(
 	sponsoredNewAccountKP *keypair.Full,
 	balanceTestAccount1KP *keypair.Full,
 	balanceTestAccount2KP *keypair.Full,
+	liveLPAccountKP *keypair.Full,
 	masterAccountKP *keypair.Full,
 	rpcService services.RPCService,
 	holderContractAddress string,
@@ -93,6 +99,7 @@ func NewFixtures(
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,
+		LiveLPAccountKP:       liveLPAccountKP,
 		MasterAccountKP:       masterAccountKP,
 		RPCService:            rpcService,
 		HolderContractAddress: holderContractAddress,
@@ -675,6 +682,68 @@ func (f *Fixtures) prepareLiquidityPoolOps() ([]string, *Set[*keypair.Full], err
 	}
 
 	return b64OpsXDRs, NewSet(f.PrimaryAccountKP), nil
+}
+
+// prepareLiveLiquidityPoolDepositOps establishes a pool-share trustline and deposits into a
+// constant-product pool for LiveLPAccountKP, which issues its own credit asset. Unlike
+// prepareLiquidityPoolOps it deliberately does NOT withdraw or remove the trustline, so a
+// pool-share balance survives live ingestion for AccountBalancesAfterLiveIngestionTestSuite to
+// assert. The initial deposit of equal legs mints TestLPShareStroops shares and leaves
+// TestLPReserveStroops in each reserve.
+func (f *Fixtures) prepareLiveLiquidityPoolDepositOps() ([]string, *Set[*keypair.Full], error) {
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Issuer: f.LiveLPAccountKP.Address(),
+		Code:   TestLiveLPAssetCode,
+	}
+
+	poolID, err := txnbuild.NewLiquidityPoolId(xlmAsset, customAsset)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating live liquidity pool ID: %w", err)
+	}
+	poolIDXDR, err := poolID.ToXDR()
+	if err != nil {
+		return nil, nil, fmt.Errorf("converting live liquidity pool ID to XDR: %w", err)
+	}
+	f.LiveLiquidityPoolID = processors.PoolIDToString(poolIDXDR)
+
+	poolAsset := txnbuild.LiquidityPoolShareChangeTrustAsset{
+		LiquidityPoolParameters: txnbuild.LiquidityPoolParameters{
+			AssetA: xlmAsset,
+			AssetB: customAsset,
+			Fee:    txnbuild.LiquidityPoolFeeV18,
+		},
+	}
+
+	operations := []txnbuild.Operation{
+		// LiveLPAccountKP establishes a trustline to the liquidity pool.
+		&txnbuild.ChangeTrust{
+			Line:          poolAsset,
+			SourceAccount: f.LiveLPAccountKP.Address(),
+		},
+		// LiveLPAccountKP deposits equal legs and keeps the resulting shares.
+		&txnbuild.LiquidityPoolDeposit{
+			LiquidityPoolID: poolID,
+			MaxAmountA:      TestLiquidityPoolAmount, // 100 XLM
+			MaxAmountB:      TestLiquidityPoolAmount, // 100 LPLIVE
+			MinPrice: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1),
+			},
+			MaxPrice: xdr.Price{
+				N: xdr.Int32(1),
+				D: xdr.Int32(1),
+			},
+			SourceAccount: f.LiveLPAccountKP.Address(),
+		},
+	}
+
+	b64OpsXDRs, err := ConvertOperationsToBase64XDR(operations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding operations to base64 XDR: %w", err)
+	}
+
+	return b64OpsXDRs, NewSet(f.LiveLPAccountKP), nil
 }
 
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
@@ -1355,6 +1424,18 @@ func (f *Fixtures) appendClassicUseCases(ctx context.Context, useCases []*UseCas
 		return nil, fmt.Errorf("preparing liquidity pool operations: %w", err)
 	}
 	useCase, err = f.buildMultiOperationUseCase(liquidityPoolOps, txSigners, "liquidityPoolOps", categoryStellarClassic, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	useCases = append(useCases, useCase)
+
+	// LiveLiquidityPoolDepositOps — deposit without withdrawing so a live-ingested pool-share
+	// balance survives for AccountBalancesAfterLiveIngestionTestSuite to assert.
+	liveLPDepositOps, txSigners, err := f.prepareLiveLiquidityPoolDepositOps()
+	if err != nil {
+		return nil, fmt.Errorf("preparing live liquidity pool deposit operations: %w", err)
+	}
+	useCase, err = f.buildMultiOperationUseCase(liveLPDepositOps, txSigners, "liveLiquidityPoolDepositOps", categoryStellarClassic, timeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
