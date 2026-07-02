@@ -92,10 +92,12 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
-		NetworkPassphrase:     cfg.NetworkPassphrase,
-		TrustlineBalanceModel: models.TrustlineBalance,
-		NativeBalanceModel:    models.NativeBalance,
-		SACBalanceModel:       models.SACBalance,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
+		TrustlineBalanceModel:     models.TrustlineBalance,
+		NativeBalanceModel:        models.NativeBalance,
+		SACBalanceModel:           models.SACBalance,
+		LiquidityPoolModel:        models.LiquidityPool,
+		LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
 	})
 
 	// Create ingest service for shared persistence logic

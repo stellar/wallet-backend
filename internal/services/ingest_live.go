@@ -196,6 +196,8 @@ func (m *ingestService) persistLedgerData(
 			buffer.GetTrustlineChanges(),
 			buffer.GetAccountChanges(),
 			buffer.GetSACBalanceChanges(),
+			buffer.GetLiquidityPoolShareChanges(),
+			buffer.GetLiquidityPoolChanges(),
 		); txErr != nil {
 			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
 		}
