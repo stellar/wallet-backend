@@ -251,6 +251,7 @@ type AccountChange struct {
 	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
+	NumSubEntries      uint32
 }
 
 type AccountOpType string

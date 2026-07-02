@@ -88,6 +88,7 @@ type NativeBalance struct {
 	MinimumBalance     string    `json:"minimumBalance"`
 	BuyingLiabilities  string    `json:"buyingLiabilities"`
 	SellingLiabilities string    `json:"sellingLiabilities"`
+	NumSubentries      uint32    `json:"numSubentries"`
 	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
 }
 

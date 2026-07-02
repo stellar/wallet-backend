@@ -202,6 +202,41 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 	}
 }
 
+func TestAccountsProcessor_ProcessOperation_PersistsNumSubEntries(t *testing.T) {
+	processor := NewAccountsProcessor(nil)
+	testAccount := accountA.ToAccountId()
+
+	// accountLedgerEntry defaults NumSubEntries to 0; set 3 to prove the count is carried through.
+	entry := accountLedgerEntry(testAccount, 10000000)
+	entry.Data.Account.NumSubEntries = 3
+
+	op := xdr.Operation{
+		SourceAccount: &accountA,
+		Body: xdr.OperationBody{
+			Type:            xdr.OperationTypeCreateAccount,
+			CreateAccountOp: &xdr.CreateAccountOp{},
+		},
+	}
+	changes := xdr.LedgerEntryChanges{
+		{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: entry},
+	}
+	tx := createTx(op, changes, nil, false)
+	wrapper := &TransactionOperationWrapper{
+		Index:          0,
+		Transaction:    tx,
+		Operation:      op,
+		LedgerSequence: 12345,
+		Network:        networkPassphrase,
+	}
+
+	got, err := processor.ProcessOperation(context.Background(), wrapper)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, uint32(3), got[0].NumSubEntries)
+	// MinimumBalance folds the 3 subentries into the base reserve: (2 + 3) * 5_000_000 + 200.
+	assert.Equal(t, int64(25000200), got[0].MinimumBalance)
+}
+
 func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 	processor := NewAccountsProcessor(nil)
 	testAccount := accountA.ToAccountId()
