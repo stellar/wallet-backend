@@ -632,13 +632,36 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assert.Equal(t, 1, proc.trustlineCount)
 	})
 
-	t.Run("trustline_pool_share_skipped", func(t *testing.T) {
+	t.Run("trustline_pool_share_routed_to_liquidity_pool_balances", func(t *testing.T) {
 		proc := newTestCheckpointProcessor()
-		change := makePoolShareTrustlineChange("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		change := makePoolShareTrustlineChange(address)
 		proc.processEntry(change)
 
+		// Pool-share trustlines are shares, not asset balances: they go to liquidity_pool_balances.
 		assert.Empty(t, proc.batch.trustlineBalances)
-		assert.Equal(t, 0, proc.entries)
+		require.Len(t, proc.batch.liquidityPoolBalances, 1)
+		lpb := proc.batch.liquidityPoolBalances[0]
+		assert.Equal(t, address, string(lpb.AccountID))
+		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), lpb.PoolID)
+		assert.Equal(t, int64(1000), lpb.Shares)
+		assert.Equal(t, 1, proc.entries)
+	})
+
+	t.Run("liquidity_pool_entry_routed_to_liquidity_pools", func(t *testing.T) {
+		proc := newTestCheckpointProcessor()
+		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		change := makeLpEntryChange(xdr.PoolId{4, 5, 6}, xdr.MustNewNativeAsset(), xdr.MustNewCreditAsset("USDC", issuer), 100, 200)
+		proc.processEntry(change)
+
+		require.Len(t, proc.batch.liquidityPools, 1)
+		lp := proc.batch.liquidityPools[0]
+		assert.Equal(t, xdr.Hash(xdr.PoolId{4, 5, 6}).HexString(), lp.PoolID)
+		assert.Equal(t, "native", lp.AssetA)
+		assert.Equal(t, int64(100), lp.AmountA)
+		assert.Equal(t, "USDC:"+issuer, lp.AssetB)
+		assert.Equal(t, int64(200), lp.AmountB)
+		assert.Equal(t, 1, proc.entries)
 	})
 
 	t.Run("contract_instance_non_sac", func(t *testing.T) {

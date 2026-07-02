@@ -166,6 +166,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -203,6 +205,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -214,6 +218,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
@@ -268,6 +274,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -315,6 +323,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -326,6 +336,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
@@ -608,6 +620,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -643,6 +657,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -654,6 +670,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
