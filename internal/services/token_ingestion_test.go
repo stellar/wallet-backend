@@ -369,7 +369,7 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange))
+			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange), make(map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange), make(map[string]types.LiquidityPoolChange))
 		})
 		assert.NoError(t, err)
 	})

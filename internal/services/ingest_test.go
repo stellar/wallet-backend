@@ -1572,9 +1572,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // contractChanges
 			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+			mock.Anything, // lpShareChangesByKey
+			mock.Anything, // lpChangesByPoolID
 		).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -1652,9 +1653,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // contractChanges
 			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+			mock.Anything, // lpShareChangesByKey
+			mock.Anything, // lpChangesByPoolID
 		).Return(fmt.Errorf("db connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -1729,20 +1731,22 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		// Mock AccountTokenService to fail once then succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // trustlineChangesByTrustlineKey
+			mock.Anything, // accountChangesByAccountID
+			mock.Anything, // sacBalanceChangesByKey
+			mock.Anything, // lpShareChangesByKey
+			mock.Anything, // lpChangesByPoolID
 		).Return(fmt.Errorf("transient error")).Once()
 		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // trustlineChangesByTrustlineKey
+			mock.Anything, // accountChangesByAccountID
+			mock.Anything, // sacBalanceChangesByKey
+			mock.Anything, // lpShareChangesByKey
+			mock.Anything, // lpChangesByPoolID
 		).Return(nil).Once()
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -1927,7 +1931,13 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // trustlineChangesByTrustlineKey
+			mock.Anything, // accountChangesByAccountID
+			mock.Anything, // sacBalanceChangesByKey
+			mock.Anything, // lpShareChangesByKey
+			mock.Anything, // lpChangesByPoolID
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2347,7 +2357,13 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
 	mockTokenIngestionService.On("ProcessTokenChanges",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // trustlineChangesByTrustlineKey
+		mock.Anything, // accountChangesByAccountID
+		mock.Anything, // sacBalanceChangesByKey
+		mock.Anything, // lpShareChangesByKey
+		mock.Anything, // lpChangesByPoolID
 	).Return(nil).Maybe()
 
 	// GetLedger always returns an empty (tx-less) ledger, so each iteration persists only the
