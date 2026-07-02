@@ -408,6 +408,14 @@ const balanceFragments = `
 			decimals
 			lastModifiedLedger
 		}
+		... on LiquidityPoolBalance {
+			liquidityPoolId
+			reserves {
+				asset
+				amount
+			}
+			lastModifiedLedger
+		}
 	`
 
 // buildAccountBalancesQuery builds the GraphQL query for fetching account balances.
