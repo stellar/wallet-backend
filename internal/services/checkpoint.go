@@ -332,12 +332,8 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 	case xdr.LedgerEntryTypeAccount:
 		accountEntry := change.Post.Data.MustAccount()
 		liabilities := accountEntry.Liabilities()
-		numSubEntries := accountEntry.NumSubEntries
-		numSponsoring := accountEntry.NumSponsoring()
-		numSponsored := accountEntry.NumSponsored()
-		// Base reserve requirement only (excludes liabilities); mirrors accounts.go and stellar-core getMinBalance.
-		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored) * processors.BaseReserveStroops
-		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(numSubEntries), p.checkpointLedger)
+		minimumBalance := processors.MinimumBalance(accountEntry)
+		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(accountEntry.NumSubEntries), p.checkpointLedger)
 		p.entries++
 		p.accountCount++
 
