@@ -382,6 +382,7 @@ const balanceFragments = `
 			minimumBalance
 			buyingLiabilities
 			sellingLiabilities
+			numSubentries
 			lastModifiedLedger
 		}
 		... on TrustlineBalance {
