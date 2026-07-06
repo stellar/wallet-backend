@@ -52,49 +52,55 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 
 // CheckpointServiceConfig holds configuration for creating a CheckpointService.
 type CheckpointServiceConfig struct {
-	DB                      *pgxpool.Pool
-	Archive                 historyarchive.ArchiveInterface
-	ContractMetadataService ContractMetadataService
-	TrustlineAssetModel     wbdata.TrustlineAssetModelInterface
-	TrustlineBalanceModel   wbdata.TrustlineBalanceModelInterface
-	NativeBalanceModel      wbdata.NativeBalanceModelInterface
-	SACBalanceModel         wbdata.SACBalanceModelInterface
-	ContractModel           wbdata.ContractModelInterface
-	ProtocolWasmsModel      wbdata.ProtocolWasmsModelInterface
-	ProtocolContractsModel  wbdata.ProtocolContractsModelInterface
-	NetworkPassphrase       string
+	DB                        *pgxpool.Pool
+	Archive                   historyarchive.ArchiveInterface
+	ContractMetadataService   ContractMetadataService
+	TrustlineAssetModel       wbdata.TrustlineAssetModelInterface
+	TrustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	NativeBalanceModel        wbdata.NativeBalanceModelInterface
+	SACBalanceModel           wbdata.SACBalanceModelInterface
+	LiquidityPoolModel        wbdata.LiquidityPoolModelInterface
+	LiquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
+	ContractModel             wbdata.ContractModelInterface
+	ProtocolWasmsModel        wbdata.ProtocolWasmsModelInterface
+	ProtocolContractsModel    wbdata.ProtocolContractsModelInterface
+	NetworkPassphrase         string
 }
 
 type checkpointService struct {
-	db                      *pgxpool.Pool
-	archive                 historyarchive.ArchiveInterface
-	contractMetadataService ContractMetadataService
-	trustlineAssetModel     wbdata.TrustlineAssetModelInterface
-	trustlineBalanceModel   wbdata.TrustlineBalanceModelInterface
-	nativeBalanceModel      wbdata.NativeBalanceModelInterface
-	sacBalanceModel         wbdata.SACBalanceModelInterface
-	contractModel           wbdata.ContractModelInterface
-	protocolWasmModel       wbdata.ProtocolWasmsModelInterface
-	protocolContractsModel  wbdata.ProtocolContractsModelInterface
-	networkPassphrase       string
-	readerFactory           readerFactory
+	db                        *pgxpool.Pool
+	archive                   historyarchive.ArchiveInterface
+	contractMetadataService   ContractMetadataService
+	trustlineAssetModel       wbdata.TrustlineAssetModelInterface
+	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel        wbdata.NativeBalanceModelInterface
+	sacBalanceModel           wbdata.SACBalanceModelInterface
+	liquidityPoolModel        wbdata.LiquidityPoolModelInterface
+	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
+	contractModel             wbdata.ContractModelInterface
+	protocolWasmModel         wbdata.ProtocolWasmsModelInterface
+	protocolContractsModel    wbdata.ProtocolContractsModelInterface
+	networkPassphrase         string
+	readerFactory             readerFactory
 }
 
 // NewCheckpointService creates a CheckpointService.
 func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 	return &checkpointService{
-		db:                      cfg.DB,
-		archive:                 cfg.Archive,
-		contractMetadataService: cfg.ContractMetadataService,
-		trustlineAssetModel:     cfg.TrustlineAssetModel,
-		trustlineBalanceModel:   cfg.TrustlineBalanceModel,
-		nativeBalanceModel:      cfg.NativeBalanceModel,
-		sacBalanceModel:         cfg.SACBalanceModel,
-		contractModel:           cfg.ContractModel,
-		protocolWasmModel:       cfg.ProtocolWasmsModel,
-		protocolContractsModel:  cfg.ProtocolContractsModel,
-		networkPassphrase:       cfg.NetworkPassphrase,
-		readerFactory:           defaultReaderFactory,
+		db:                        cfg.DB,
+		archive:                   cfg.Archive,
+		contractMetadataService:   cfg.ContractMetadataService,
+		trustlineAssetModel:       cfg.TrustlineAssetModel,
+		trustlineBalanceModel:     cfg.TrustlineBalanceModel,
+		nativeBalanceModel:        cfg.NativeBalanceModel,
+		sacBalanceModel:           cfg.SACBalanceModel,
+		liquidityPoolModel:        cfg.LiquidityPoolModel,
+		liquidityPoolBalanceModel: cfg.LiquidityPoolBalanceModel,
+		contractModel:             cfg.ContractModel,
+		protocolWasmModel:         cfg.ProtocolWasmsModel,
+		protocolContractsModel:    cfg.ProtocolContractsModel,
+		networkPassphrase:         cfg.NetworkPassphrase,
+		readerFactory:             defaultReaderFactory,
 	}
 }
 
@@ -114,28 +120,38 @@ func newCheckpointData() checkpointData {
 	}
 }
 
-// batch holds a batch of trustline balances, native balances, and SAC balances for streaming insertion.
+// batch holds a batch of trustline, native, SAC, and liquidity-pool balances for streaming insertion.
 type batch struct {
-	trustlineBalances     []wbdata.TrustlineBalance
-	nativeBalances        []wbdata.NativeBalance
-	sacBalances           []wbdata.SACBalance
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface
-	nativeBalanceModel    wbdata.NativeBalanceModelInterface
-	sacBalanceModel       wbdata.SACBalanceModelInterface
+	trustlineBalances         []wbdata.TrustlineBalance
+	nativeBalances            []wbdata.NativeBalance
+	sacBalances               []wbdata.SACBalance
+	liquidityPools            []wbdata.LiquidityPool
+	liquidityPoolBalances     []wbdata.LiquidityPoolBalance
+	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel        wbdata.NativeBalanceModelInterface
+	sacBalanceModel           wbdata.SACBalanceModelInterface
+	liquidityPoolModel        wbdata.LiquidityPoolModelInterface
+	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
 }
 
 func newBatch(
 	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
 	nativeBalanceModel wbdata.NativeBalanceModelInterface,
 	sacBalanceModel wbdata.SACBalanceModelInterface,
+	liquidityPoolModel wbdata.LiquidityPoolModelInterface,
+	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface,
 ) *batch {
 	return &batch{
-		trustlineBalances:     make([]wbdata.TrustlineBalance, 0, flushBatchSize),
-		nativeBalances:        make([]wbdata.NativeBalance, 0, flushBatchSize),
-		sacBalances:           make([]wbdata.SACBalance, 0, flushBatchSize),
-		trustlineBalanceModel: trustlineBalanceModel,
-		nativeBalanceModel:    nativeBalanceModel,
-		sacBalanceModel:       sacBalanceModel,
+		trustlineBalances:         make([]wbdata.TrustlineBalance, 0, flushBatchSize),
+		nativeBalances:            make([]wbdata.NativeBalance, 0, flushBatchSize),
+		sacBalances:               make([]wbdata.SACBalance, 0, flushBatchSize),
+		liquidityPools:            make([]wbdata.LiquidityPool, 0, flushBatchSize),
+		liquidityPoolBalances:     make([]wbdata.LiquidityPoolBalance, 0, flushBatchSize),
+		trustlineBalanceModel:     trustlineBalanceModel,
+		nativeBalanceModel:        nativeBalanceModel,
+		sacBalanceModel:           sacBalanceModel,
+		liquidityPoolModel:        liquidityPoolModel,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModel,
 	}
 }
 
@@ -168,6 +184,19 @@ func (b *batch) addSACBalance(sacBalance wbdata.SACBalance) {
 	b.sacBalances = append(b.sacBalances, sacBalance)
 }
 
+func (b *batch) addLiquidityPool(pool wbdata.LiquidityPool) {
+	b.liquidityPools = append(b.liquidityPools, pool)
+}
+
+func (b *batch) addLiquidityPoolShare(accountAddress string, poolID string, shares int64, ledger uint32) {
+	b.liquidityPoolBalances = append(b.liquidityPoolBalances, wbdata.LiquidityPoolBalance{
+		AccountID:    types.AddressBytea(accountAddress),
+		PoolID:       poolID,
+		Shares:       shares,
+		LedgerNumber: ledger,
+	})
+}
+
 // flush inserts the batch's data into DB.
 func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
 	if err := b.trustlineBalanceModel.BatchCopy(ctx, dbTx, b.trustlineBalances); err != nil {
@@ -179,17 +208,26 @@ func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
 	if err := b.sacBalanceModel.BatchCopy(ctx, dbTx, b.sacBalances); err != nil {
 		return fmt.Errorf("batch inserting SAC balances: %w", err)
 	}
+	if err := b.liquidityPoolModel.BatchCopy(ctx, dbTx, b.liquidityPools); err != nil {
+		return fmt.Errorf("batch inserting liquidity pools: %w", err)
+	}
+	if err := b.liquidityPoolBalanceModel.BatchCopy(ctx, dbTx, b.liquidityPoolBalances); err != nil {
+		return fmt.Errorf("batch inserting liquidity pool balances: %w", err)
+	}
 	return nil
 }
 
 func (b *batch) count() int {
-	return len(b.trustlineBalances) + len(b.nativeBalances) + len(b.sacBalances)
+	return len(b.trustlineBalances) + len(b.nativeBalances) + len(b.sacBalances) +
+		len(b.liquidityPools) + len(b.liquidityPoolBalances)
 }
 
 func (b *batch) reset() {
 	b.trustlineBalances = b.trustlineBalances[:0]
 	b.nativeBalances = b.nativeBalances[:0]
 	b.sacBalances = b.sacBalances[:0]
+	b.liquidityPools = b.liquidityPools[:0]
+	b.liquidityPoolBalances = b.liquidityPoolBalances[:0]
 }
 
 // checkpointProcessor holds per-invocation state for processing a checkpoint.
@@ -235,7 +273,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			dbTx:                        dbTx,
 			checkpointLedger:            checkpointLedger,
 			data:                        newCheckpointData(),
-			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel),
+			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel, s.liquidityPoolModel, s.liquidityPoolBalanceModel),
 			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
 			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
 			startTime:                   time.Now(),
@@ -294,15 +332,22 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 	case xdr.LedgerEntryTypeAccount:
 		accountEntry := change.Post.Data.MustAccount()
 		liabilities := accountEntry.Liabilities()
-		numSubEntries := accountEntry.NumSubEntries
-		numSponsoring := accountEntry.NumSponsoring()
-		numSponsored := accountEntry.NumSponsored()
-		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
-		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(numSubEntries), p.checkpointLedger)
+		minimumBalance := processors.MinimumBalance(accountEntry)
+		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(accountEntry.NumSubEntries), p.checkpointLedger)
 		p.entries++
 		p.accountCount++
 
 	case xdr.LedgerEntryTypeTrustline:
+		// Pool-share trustlines carry an account's liquidity-pool shares rather than an asset
+		// balance; route them to liquidity_pool_balances instead of trustline_balances.
+		trustlineEntry := change.Post.Data.MustTrustLine()
+		if trustlineEntry.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
+			poolID := processors.PoolIDToString(*trustlineEntry.Asset.LiquidityPoolId)
+			p.batch.addLiquidityPoolShare(trustlineEntry.AccountId.Address(), poolID, int64(trustlineEntry.Balance), p.checkpointLedger)
+			p.entries++
+			return
+		}
+
 		accountAddress, asset, xdrFields, skip := p.service.processTrustlineChange(change)
 		if skip {
 			return
@@ -313,6 +358,22 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		if _, exists := p.data.uniqueAssets[asset.ID]; !exists {
 			p.data.uniqueAssets[asset.ID] = &asset
 		}
+
+	case xdr.LedgerEntryTypeLiquidityPool:
+		pool := change.Post.Data.MustLiquidityPool()
+		cp, ok := pool.Body.GetConstantProduct()
+		if !ok {
+			return
+		}
+		p.batch.addLiquidityPool(wbdata.LiquidityPool{
+			PoolID:       processors.PoolIDToString(pool.LiquidityPoolId),
+			AssetA:       cp.Params.AssetA.StringCanonical(),
+			AmountA:      int64(cp.ReserveA),
+			AssetB:       cp.Params.AssetB.StringCanonical(),
+			AmountB:      int64(cp.ReserveB),
+			LedgerNumber: p.checkpointLedger,
+		})
+		p.entries++
 
 	case xdr.LedgerEntryTypeContractData:
 		contractDataEntry := change.Post.Data.MustContractData()

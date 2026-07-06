@@ -382,6 +382,7 @@ const balanceFragments = `
 			minimumBalance
 			buyingLiabilities
 			sellingLiabilities
+			numSubentries
 			lastModifiedLedger
 		}
 		... on TrustlineBalance {
@@ -406,6 +407,14 @@ const balanceFragments = `
 			name
 			symbol
 			decimals
+			lastModifiedLedger
+		}
+		... on LiquidityPoolBalance {
+			liquidityPoolId
+			reserves {
+				asset
+				amount
+			}
 			lastModifiedLedger
 		}
 	`

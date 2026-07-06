@@ -85,6 +85,41 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesSEP41Balance(t *testing.T) {
 	assert.Equal(t, uint32(12345), sep41.LastModifiedLedger)
 }
 
+func Test_BalanceEdge_UnmarshalJSON_DecodesLiquidityPoolBalance(t *testing.T) {
+	payload := []byte(`{
+		"cursor": "cur-1",
+		"node": {
+			"__typename": "LiquidityPoolBalance",
+			"balance": "0.0005000",
+			"tokenId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
+			"tokenType": "LIQUIDITY_POOL",
+			"liquidityPoolId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
+			"reserves": [
+				{"asset": "native", "amount": "10.0000000"},
+				{"asset": "USDC:GISSUER", "amount": "25.0000000"}
+			],
+			"lastModifiedLedger": 12345
+		}
+	}`)
+
+	var edge BalanceEdge
+	err := json.Unmarshal(payload, &edge)
+	require.NoError(t, err)
+	require.NotNil(t, edge.Node)
+
+	lp, ok := edge.Node.(*LiquidityPoolBalance)
+	require.True(t, ok, "expected node to decode into *LiquidityPoolBalance, got %T", edge.Node)
+	assert.Equal(t, "0.0005000", lp.BalanceValue)
+	assert.Equal(t, TokenTypeLiquidityPool, lp.TokenType)
+	assert.Equal(t, "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd", lp.LiquidityPoolID)
+	require.Len(t, lp.Reserves, 2)
+	assert.Equal(t, "native", lp.Reserves[0].Asset)
+	assert.Equal(t, "10.0000000", lp.Reserves[0].Amount)
+	assert.Equal(t, "USDC:GISSUER", lp.Reserves[1].Asset)
+	assert.Equal(t, "25.0000000", lp.Reserves[1].Amount)
+	assert.Equal(t, uint32(12345), lp.LastModifiedLedger)
+}
+
 func Test_BalanceConnection_Balances(t *testing.T) {
 	cursor1, cursor2 := "c1", "c2"
 	native := &NativeBalance{BalanceValue: "100", TokenID: "native", TokenType: TokenTypeNative}

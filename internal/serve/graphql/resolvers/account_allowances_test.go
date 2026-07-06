@@ -57,6 +57,7 @@ func TestAccountResolver_SEP41AllowancesFiltersExpired(t *testing.T) {
 		&data.TrustlineBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.NativeBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.SACBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.LiquidityPoolBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.BalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.AllowanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 	)
@@ -122,6 +123,7 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 		&data.TrustlineBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.NativeBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.SACBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.LiquidityPoolBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.BalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.AllowanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 	)

@@ -58,6 +58,29 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
+// LiquidityPoolBalance represents an account's liquidity-pool share holding. `balance` is the
+// account's pool shares and `tokenId` is the pool id; `reserves` carries the pool's constituent
+// assets and amounts.
+type LiquidityPoolBalance struct {
+	Balance            string                  `json:"balance"`
+	TokenID            string                  `json:"tokenId"`
+	TokenType          TokenType               `json:"tokenType"`
+	LiquidityPoolID    string                  `json:"liquidityPoolId"`
+	Reserves           []*LiquidityPoolReserve `json:"reserves"`
+	LastModifiedLedger uint32                  `json:"lastModifiedLedger"`
+}
+
+func (LiquidityPoolBalance) IsBalance()                   {}
+func (this LiquidityPoolBalance) GetBalance() string      { return this.Balance }
+func (this LiquidityPoolBalance) GetTokenID() string      { return this.TokenID }
+func (this LiquidityPoolBalance) GetTokenType() TokenType { return this.TokenType }
+
+// LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount.
+type LiquidityPoolReserve struct {
+	Asset  string `json:"asset"`
+	Amount string `json:"amount"`
+}
+
 type NativeBalance struct {
 	Balance            string    `json:"balance"`
 	TokenID            string    `json:"tokenId"`
@@ -189,10 +212,11 @@ func (this TrustlineBalance) GetTokenType() TokenType { return this.TokenType }
 type TokenType string
 
 const (
-	TokenTypeNative  TokenType = "NATIVE"
-	TokenTypeClassic TokenType = "CLASSIC"
-	TokenTypeSac     TokenType = "SAC"
-	TokenTypeSep41   TokenType = "SEP41"
+	TokenTypeNative        TokenType = "NATIVE"
+	TokenTypeClassic       TokenType = "CLASSIC"
+	TokenTypeSac           TokenType = "SAC"
+	TokenTypeSep41         TokenType = "SEP41"
+	TokenTypeLiquidityPool TokenType = "LIQUIDITY_POOL"
 )
 
 var AllTokenType = []TokenType{
@@ -200,11 +224,12 @@ var AllTokenType = []TokenType{
 	TokenTypeClassic,
 	TokenTypeSac,
 	TokenTypeSep41,
+	TokenTypeLiquidityPool,
 }
 
 func (e TokenType) IsValid() bool {
 	switch e {
-	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41:
+	case TokenTypeNative, TokenTypeClassic, TokenTypeSac, TokenTypeSep41, TokenTypeLiquidityPool:
 		return true
 	}
 	return false

@@ -35,9 +35,13 @@ type IndexerBufferInterface interface {
 	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetAccountChanges() map[string]types.AccountChange
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
+	GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
+	GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange
 	PushTrustlineChange(trustlineChange types.TrustlineChange)
 	PushAccountChange(accountChange types.AccountChange)
 	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
+	PushLiquidityPoolShareChange(change types.LiquidityPoolShareChange)
+	PushLiquidityPoolChange(change types.LiquidityPoolChange)
 	PushSACContract(c *data.Contract)
 	PushProtocolWasm(wasm data.ProtocolWasms)
 	PushProtocolWasmBytecode(wasmHash string, bytecode []byte)
@@ -91,6 +95,8 @@ type Indexer struct {
 	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
 	accountsProcessor          AccountsProcessorInterface
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
+	lpSharesProcessor          LedgerChangeProcessor[types.LiquidityPoolShareChange]
+	lpProcessor                LedgerChangeProcessor[types.LiquidityPoolChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
 	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
@@ -114,6 +120,8 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 		protocolContractsProcessor: processors.NewProtocolContractsProcessor(ingestionMetrics),
 		accountsProcessor:          processors.NewAccountsProcessor(ingestionMetrics),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(ingestionMetrics),
+		lpSharesProcessor:          processors.NewLiquidityPoolSharesProcessor(ingestionMetrics),
+		lpProcessor:                processors.NewLiquidityPoolsProcessor(ingestionMetrics),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, ingestionMetrics),
 			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
@@ -252,6 +260,22 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		for _, sacChange := range sacBalanceChanges {
 			buffer.PushSACBalanceChange(sacChange)
+		}
+
+		lpShareChanges, lpShareErr := i.lpSharesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if lpShareErr != nil {
+			return 0, fmt.Errorf("processing liquidity pool share changes: %w", lpShareErr)
+		}
+		for _, lpShareChange := range lpShareChanges {
+			buffer.PushLiquidityPoolShareChange(lpShareChange)
+		}
+
+		lpChanges, lpErr := i.lpProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if lpErr != nil {
+			return 0, fmt.Errorf("processing liquidity pool changes: %w", lpErr)
+		}
+		for _, lpChange := range lpChanges {
+			buffer.PushLiquidityPoolChange(lpChange)
 		}
 
 		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)

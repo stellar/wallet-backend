@@ -193,24 +193,28 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	}
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
-		TrustlineBalanceModel: models.TrustlineBalance,
-		NativeBalanceModel:    models.NativeBalance,
-		SACBalanceModel:       models.SACBalance,
-		NetworkPassphrase:     cfg.NetworkPassphrase,
+		TrustlineBalanceModel:     models.TrustlineBalance,
+		NativeBalanceModel:        models.NativeBalance,
+		SACBalanceModel:           models.SACBalance,
+		LiquidityPoolModel:        models.LiquidityPool,
+		LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
 	})
 
 	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
-		DB:                      models.DB,
-		Archive:                 archive,
-		ContractMetadataService: contractMetadataService,
-		TrustlineAssetModel:     models.TrustlineAsset,
-		TrustlineBalanceModel:   models.TrustlineBalance,
-		NativeBalanceModel:      models.NativeBalance,
-		SACBalanceModel:         models.SACBalance,
-		ContractModel:           models.Contract,
-		ProtocolWasmsModel:      models.ProtocolWasms,
-		ProtocolContractsModel:  models.ProtocolContracts,
-		NetworkPassphrase:       cfg.NetworkPassphrase,
+		DB:                        models.DB,
+		Archive:                   archive,
+		ContractMetadataService:   contractMetadataService,
+		TrustlineAssetModel:       models.TrustlineAsset,
+		TrustlineBalanceModel:     models.TrustlineBalance,
+		NativeBalanceModel:        models.NativeBalance,
+		SACBalanceModel:           models.SACBalance,
+		LiquidityPoolModel:        models.LiquidityPool,
+		LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
+		ContractModel:             models.Contract,
+		ProtocolWasmsModel:        models.ProtocolWasms,
+		ProtocolContractsModel:    models.ProtocolContracts,
+		NetworkPassphrase:         cfg.NetworkPassphrase,
 	})
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)

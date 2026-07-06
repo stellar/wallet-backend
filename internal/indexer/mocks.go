@@ -150,3 +150,31 @@ var (
 	_ LedgerChangeProcessor[processors.ProtocolWasmObservation] = &MockProtocolWasmsProcessor{}
 	_ LedgerChangeProcessor[data.ProtocolContracts]             = &MockProtocolContractsProcessor{}
 )
+
+type MockLiquidityPoolSharesProcessor struct {
+	mock.Mock
+}
+
+func (m *MockLiquidityPoolSharesProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.LiquidityPoolShareChange, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]types.LiquidityPoolShareChange), args.Error(1)
+}
+
+func (m *MockLiquidityPoolSharesProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+type MockLiquidityPoolsProcessor struct {
+	mock.Mock
+}
+
+func (m *MockLiquidityPoolsProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.LiquidityPoolChange, error) {
+	args := m.Called(ctx, opWrapper)
+	return args.Get(0).([]types.LiquidityPoolChange), args.Error(1)
+}
+
+func (m *MockLiquidityPoolsProcessor) Name() string {
+	args := m.Called()
+	return args.String(0)
+}

@@ -194,8 +194,8 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 					assert.Equal(t, int64(10000000), change.Balance)
 					assert.Equal(t, int64(100), change.BuyingLiabilities)
 					assert.Equal(t, int64(200), change.SellingLiabilities)
-					// MinimumBalance = (2 + 0 + 0 - 0) * 5_000_000 + 200 = 10_000_200
-					assert.Equal(t, int64(10000200), change.MinimumBalance)
+					// MinimumBalance is the pure base reserve, excluding the 200 selling liabilities: (2 + 0 + 0 - 0) * 5_000_000.
+					assert.Equal(t, int64(10000000), change.MinimumBalance)
 				}
 			}
 		})
@@ -233,8 +233,8 @@ func TestAccountsProcessor_ProcessOperation_PersistsNumSubEntries(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, uint32(3), got[0].NumSubEntries)
-	// MinimumBalance folds the 3 subentries into the base reserve: (2 + 3) * 5_000_000 + 200.
-	assert.Equal(t, int64(25000200), got[0].MinimumBalance)
+	// MinimumBalance folds the 3 subentries into the base reserve (excludes liabilities): (2 + 3) * 5_000_000.
+	assert.Equal(t, int64(25000000), got[0].MinimumBalance)
 }
 
 func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
@@ -331,8 +331,8 @@ func TestAccountsProcessor_ProcessTransactionFees(t *testing.T) {
 				assert.Equal(t, ledgerSeq, got.LedgerNumber)
 				assert.Equal(t, want.sortKey, got.SortKey)
 				assert.Equal(t, want.balance, got.Balance)
-				// Reserve calc still runs on fee-phase entries: (2 + 0 + 0 - 0) * 5_000_000 + 200.
-				assert.Equal(t, int64(10000200), got.MinimumBalance)
+				// Reserve calc still runs on fee-phase entries, excluding liabilities: (2 + 0 + 0 - 0) * 5_000_000.
+				assert.Equal(t, int64(10000000), got.MinimumBalance)
 			}
 		})
 	}

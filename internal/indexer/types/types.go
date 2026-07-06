@@ -244,10 +244,12 @@ type AccountChange struct {
 	// SortKey is a within-ledger dedup rank (phase|tx|op via accountSortKey), not a TOID.
 	// The buffer keeps the highest per account to pick the chronologically-last balance;
 	// it is never persisted.
-	SortKey            int64
-	LedgerNumber       uint32
-	Operation          AccountOpType
-	Balance            int64
+	SortKey      int64
+	LedgerNumber uint32
+	Operation    AccountOpType
+	Balance      int64
+	// MinimumBalance is the base reserve requirement in stroops (excludes liabilities):
+	// (2 + NumSubEntries + numSponsoring - numSponsored) * baseReserve; matches stellar-core getMinBalance.
 	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
@@ -279,6 +281,47 @@ const (
 	SACBalanceOpAdd    SACBalanceOp = "ADD"
 	SACBalanceOpUpdate SACBalanceOp = "UPDATE"
 	SACBalanceOpRemove SACBalanceOp = "REMOVE"
+)
+
+// LiquidityPoolShareChange is an account's pool-share balance change extracted from a
+// pool_share trustline. PoolID is the hex-encoded pool id; Shares is the trustline balance.
+type LiquidityPoolShareChange struct {
+	AccountID    string
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolShareOp
+	Shares       int64
+}
+
+type LiquidityPoolShareOp string
+
+const (
+	LiquidityPoolShareOpAdd    LiquidityPoolShareOp = "ADD"
+	LiquidityPoolShareOpUpdate LiquidityPoolShareOp = "UPDATE"
+	LiquidityPoolShareOpRemove LiquidityPoolShareOp = "REMOVE"
+)
+
+// LiquidityPoolChange is a constant-product pool's reserve change extracted from a
+// LiquidityPoolEntry ledger entry. PoolID is the hex-encoded pool id; AssetA/AssetB are
+// canonical asset strings ("native" or "CODE:ISSUER").
+type LiquidityPoolChange struct {
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolOp
+	AssetA       string
+	ReserveA     int64
+	AssetB       string
+	ReserveB     int64
+}
+
+type LiquidityPoolOp string
+
+const (
+	LiquidityPoolOpAdd    LiquidityPoolOp = "ADD"
+	LiquidityPoolOpUpdate LiquidityPoolOp = "UPDATE"
+	LiquidityPoolOpRemove LiquidityPoolOp = "REMOVE"
 )
 
 type Account struct {

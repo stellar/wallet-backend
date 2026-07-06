@@ -13,7 +13,7 @@ import (
 func TestBuildNativeBalanceFromDB(t *testing.T) {
 	nb := &data.NativeBalance{
 		Balance:            1000000000,
-		MinimumBalance:     10000200,
+		MinimumBalance:     30000000, // pure base reserve for 4 subentries: (2 + 4) * 5_000_000
 		BuyingLiabilities:  100,
 		SellingLiabilities: 200,
 		NumSubEntries:      4,

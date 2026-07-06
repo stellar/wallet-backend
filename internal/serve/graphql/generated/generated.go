@@ -121,6 +121,20 @@ type ComplexityRoot struct {
 		Type            func(childComplexity int) int
 	}
 
+	LiquidityPoolBalance struct {
+		Balance            func(childComplexity int) int
+		LastModifiedLedger func(childComplexity int) int
+		LiquidityPoolID    func(childComplexity int) int
+		Reserves           func(childComplexity int) int
+		TokenID            func(childComplexity int) int
+		TokenType          func(childComplexity int) int
+	}
+
+	LiquidityPoolReserve struct {
+		Amount func(childComplexity int) int
+		Asset  func(childComplexity int) int
+	}
+
 	MetadataChange struct {
 		Account         func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -801,6 +815,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FlagsChange.Type(childComplexity), true
+
+	case "LiquidityPoolBalance.balance":
+		if e.ComplexityRoot.LiquidityPoolBalance.Balance == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.Balance(childComplexity), true
+	case "LiquidityPoolBalance.lastModifiedLedger":
+		if e.ComplexityRoot.LiquidityPoolBalance.LastModifiedLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.LastModifiedLedger(childComplexity), true
+	case "LiquidityPoolBalance.liquidityPoolId":
+		if e.ComplexityRoot.LiquidityPoolBalance.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.LiquidityPoolID(childComplexity), true
+	case "LiquidityPoolBalance.reserves":
+		if e.ComplexityRoot.LiquidityPoolBalance.Reserves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.Reserves(childComplexity), true
+	case "LiquidityPoolBalance.tokenId":
+		if e.ComplexityRoot.LiquidityPoolBalance.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.TokenID(childComplexity), true
+	case "LiquidityPoolBalance.tokenType":
+		if e.ComplexityRoot.LiquidityPoolBalance.TokenType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolBalance.TokenType(childComplexity), true
+
+	case "LiquidityPoolReserve.amount":
+		if e.ComplexityRoot.LiquidityPoolReserve.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolReserve.Amount(childComplexity), true
+	case "LiquidityPoolReserve.asset":
+		if e.ComplexityRoot.LiquidityPoolReserve.Asset == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LiquidityPoolReserve.Asset(childComplexity), true
 
 	case "MetadataChange.account":
 		if e.ComplexityRoot.MetadataChange.Account == nil {
@@ -1906,6 +1970,8 @@ type NativeBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
+    # base reserve requirement (excludes liabilities): (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
+    # Spendable balance = balance - minimumBalance - sellingLiabilities.
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
@@ -1939,6 +2005,27 @@ type SACBalance implements Balance {
     decimals: Int!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
+}
+
+"""LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount."""
+type LiquidityPoolReserve {
+    asset: String!
+    amount: String!
+}
+
+"""
+LiquidityPoolBalance represents an account's liquidity-pool share holding. ` + "`" + `balance` + "`" + ` is the
+account's pool shares and ` + "`" + `tokenId` + "`" + ` is the pool id; ` + "`" + `reserves` + "`" + ` carries the pool's constituent
+assets and amounts.
+"""
+type LiquidityPoolBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+
+    liquidityPoolId: String!
+    reserves: [LiquidityPoolReserve!]!
+    lastModifiedLedger: UInt32!
 }
 
 """SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder."""
@@ -2064,6 +2151,7 @@ enum TokenType {
   CLASSIC
   SAC
   SEP41
+  LIQUIDITY_POOL
 }
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `# GraphQL Filter Input Types - used for filtering queries
@@ -4515,6 +4603,244 @@ func (ec *executionContext) fieldContext_FlagsChange_flags(_ context.Context, fi
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_balance(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_balance,
+		func(ctx context.Context) (any, error) {
+			return obj.Balance, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_balance(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_tokenId(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_tokenType(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_tokenType,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenType, nil
+		},
+		nil,
+		ec.marshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_tokenType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_liquidityPoolId,
+		func(ctx context.Context) (any, error) {
+			return obj.LiquidityPoolID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_reserves(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_reserves,
+		func(ctx context.Context) (any, error) {
+			return obj.Reserves, nil
+		},
+		nil,
+		ec.marshalNLiquidityPoolReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLiquidityPoolReserveᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_reserves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "asset":
+				return ec.fieldContext_LiquidityPoolReserve_asset(ctx, field)
+			case "amount":
+				return ec.fieldContext_LiquidityPoolReserve_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type LiquidityPoolReserve", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolBalance_lastModifiedLedger(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolBalance) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolBalance_lastModifiedLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.LastModifiedLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolBalance_lastModifiedLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolBalance",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolReserve_asset(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolReserve_asset,
+		func(ctx context.Context) (any, error) {
+			return obj.Asset, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolReserve_asset(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LiquidityPoolReserve_amount(ctx context.Context, field graphql.CollectedField, obj *LiquidityPoolReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LiquidityPoolReserve_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LiquidityPoolReserve_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LiquidityPoolReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -11309,6 +11635,13 @@ func (ec *executionContext) _Balance(ctx context.Context, sel ast.SelectionSet, 
 			return graphql.Null
 		}
 		return ec._NativeBalance(ctx, sel, obj)
+	case LiquidityPoolBalance:
+		return ec._LiquidityPoolBalance(ctx, sel, &obj)
+	case *LiquidityPoolBalance:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._LiquidityPoolBalance(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -12779,6 +13112,114 @@ func (ec *executionContext) _FlagsChange(ctx context.Context, sel ast.SelectionS
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var liquidityPoolBalanceImplementors = []string{"LiquidityPoolBalance", "Balance"}
+
+func (ec *executionContext) _LiquidityPoolBalance(ctx context.Context, sel ast.SelectionSet, obj *LiquidityPoolBalance) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, liquidityPoolBalanceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LiquidityPoolBalance")
+		case "balance":
+			out.Values[i] = ec._LiquidityPoolBalance_balance(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._LiquidityPoolBalance_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenType":
+			out.Values[i] = ec._LiquidityPoolBalance_tokenType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "liquidityPoolId":
+			out.Values[i] = ec._LiquidityPoolBalance_liquidityPoolId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reserves":
+			out.Values[i] = ec._LiquidityPoolBalance_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastModifiedLedger":
+			out.Values[i] = ec._LiquidityPoolBalance_lastModifiedLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var liquidityPoolReserveImplementors = []string{"LiquidityPoolReserve"}
+
+func (ec *executionContext) _LiquidityPoolReserve(ctx context.Context, sel ast.SelectionSet, obj *LiquidityPoolReserve) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, liquidityPoolReserveImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LiquidityPoolReserve")
+		case "asset":
+			out.Values[i] = ec._LiquidityPoolReserve_asset(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._LiquidityPoolReserve_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -16538,6 +16979,32 @@ func (ec *executionContext) marshalNInt642int64(ctx context.Context, sel ast.Sel
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNLiquidityPoolReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLiquidityPoolReserveᚄ(ctx context.Context, sel ast.SelectionSet, v []*LiquidityPoolReserve) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNLiquidityPoolReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLiquidityPoolReserve(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNLiquidityPoolReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐLiquidityPoolReserve(ctx context.Context, sel ast.SelectionSet, v *LiquidityPoolReserve) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._LiquidityPoolReserve(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNOperation2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperationᚄ(ctx context.Context, sel ast.SelectionSet, v []*types.Operation) graphql.Marshaler {
