@@ -335,7 +335,8 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		numSubEntries := accountEntry.NumSubEntries
 		numSponsoring := accountEntry.NumSponsoring()
 		numSponsored := accountEntry.NumSponsored()
-		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*processors.BaseReserveStroops + int64(liabilities.Selling)
+		// Base reserve requirement only (excludes liabilities); mirrors accounts.go and stellar-core getMinBalance.
+		minimumBalance := int64(processors.MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored) * processors.BaseReserveStroops
 		p.batch.addNativeBalance(accountEntry.AccountId.Address(), int64(accountEntry.Balance), minimumBalance, int64(liabilities.Buying), int64(liabilities.Selling), uint32(numSubEntries), p.checkpointLedger)
 		p.entries++
 		p.accountCount++

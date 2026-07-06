@@ -190,12 +190,15 @@ func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq u
 	accChange.BuyingLiabilities = int64(liabilities.Buying)
 	accChange.SellingLiabilities = int64(liabilities.Selling)
 
-	// Calculate the minimum balance for base reserves: https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
+	// MinimumBalance is the base reserve requirement in stroops, matching stellar-core's getMinBalance:
+	// (2 + numSubEntries + numSponsoring - numSponsored) * baseReserve. It excludes liabilities;
+	// consumers that need spendable balance subtract selling liabilities themselves.
+	// https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
 	numSubEntries := account.NumSubEntries
 	accChange.NumSubEntries = uint32(numSubEntries)
 	numSponsoring := account.NumSponsoring()
 	numSponsored := account.NumSponsored()
-	accChange.MinimumBalance = int64(MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*BaseReserveStroops + accChange.SellingLiabilities
+	accChange.MinimumBalance = int64(MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored) * BaseReserveStroops
 
 	return accChange, false, nil
 }

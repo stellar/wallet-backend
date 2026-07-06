@@ -99,14 +99,17 @@ type Balance interface {
 
 // NativeBalance represents a native XLM balance
 type NativeBalance struct {
-	BalanceValue       string    `json:"balance"`
-	TokenID            string    `json:"tokenId"`
-	TokenType          TokenType `json:"tokenType"`
-	MinimumBalance     string    `json:"minimumBalance"`
-	BuyingLiabilities  string    `json:"buyingLiabilities"`
-	SellingLiabilities string    `json:"sellingLiabilities"`
-	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
-	NumSubentries      uint32    `json:"numSubentries"`
+	BalanceValue string    `json:"balance"`
+	TokenID      string    `json:"tokenId"`
+	TokenType    TokenType `json:"tokenType"`
+	// MinimumBalance is the base reserve requirement (excludes liabilities):
+	// (2 + numSubentries + numSponsoring - numSponsored) * baseReserve; matches stellar-core getMinBalance.
+	// Spendable balance = balance - MinimumBalance - SellingLiabilities.
+	MinimumBalance     string `json:"minimumBalance"`
+	BuyingLiabilities  string `json:"buyingLiabilities"`
+	SellingLiabilities string `json:"sellingLiabilities"`
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
+	NumSubentries      uint32 `json:"numSubentries"`
 }
 
 func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }

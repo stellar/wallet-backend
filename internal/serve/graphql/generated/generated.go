@@ -1970,6 +1970,8 @@ type NativeBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
+    # base reserve requirement (excludes liabilities): (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
+    # Spendable balance = balance - minimumBalance - sellingLiabilities.
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!

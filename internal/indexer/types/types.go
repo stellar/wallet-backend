@@ -244,10 +244,12 @@ type AccountChange struct {
 	// SortKey is a within-ledger dedup rank (phase|tx|op via accountSortKey), not a TOID.
 	// The buffer keeps the highest per account to pick the chronologically-last balance;
 	// it is never persisted.
-	SortKey            int64
-	LedgerNumber       uint32
-	Operation          AccountOpType
-	Balance            int64
+	SortKey      int64
+	LedgerNumber uint32
+	Operation    AccountOpType
+	Balance      int64
+	// MinimumBalance is the base reserve requirement in stroops (excludes liabilities):
+	// (2 + NumSubEntries + numSponsoring - numSponsored) * baseReserve; matches stellar-core getMinBalance.
 	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
