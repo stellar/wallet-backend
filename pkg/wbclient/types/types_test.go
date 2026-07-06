@@ -91,9 +91,9 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesLiquidityPoolBalance(t *testing.T) {
 		"node": {
 			"__typename": "LiquidityPoolBalance",
 			"balance": "0.0005000",
-			"tokenId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd0",
+			"tokenId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
 			"tokenType": "LIQUIDITY_POOL",
-			"liquidityPoolId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd0",
+			"liquidityPoolId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
 			"reserves": [
 				{"asset": "native", "amount": "10.0000000"},
 				{"asset": "USDC:GISSUER", "amount": "25.0000000"}
@@ -111,7 +111,7 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesLiquidityPoolBalance(t *testing.T) {
 	require.True(t, ok, "expected node to decode into *LiquidityPoolBalance, got %T", edge.Node)
 	assert.Equal(t, "0.0005000", lp.BalanceValue)
 	assert.Equal(t, TokenTypeLiquidityPool, lp.TokenType)
-	assert.Equal(t, "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd0", lp.LiquidityPoolID)
+	assert.Equal(t, "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd", lp.LiquidityPoolID)
 	require.Len(t, lp.Reserves, 2)
 	assert.Equal(t, "native", lp.Reserves[0].Asset)
 	assert.Equal(t, "10.0000000", lp.Reserves[0].Amount)
