@@ -402,7 +402,10 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		s.metrics.CurrentLedger.Set(float64(seq))
 		s.metrics.LedgersProcessed.Inc()
 		intervalLedgers++
-		if seq%progressLogInterval == 0 {
+		// Gate on ledgers processed, not seq%interval: an absolute-seq gate emits nothing for a
+		// run whose span never crosses a multiple of the interval (e.g. a short near-tip
+		// current-state run that hands off before reaching one).
+		if intervalLedgers >= progressLogInterval {
 			wall := time.Since(intervalStart)
 			var lps float64
 			if wall > 0 {
