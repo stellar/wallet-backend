@@ -424,11 +424,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 
 // refreshTargetTip polls the RPC chain tip on tipRefreshInterval and updates the target_tip
 // gauge, keeping the getHealth call off the migration hot path. It is the gauge's sole writer
-// (the loop never reads it), so it needs no synchronization, and returns when ctx is cancelled.
+// (the loop never reads it), so it needs no synchronization. It checks ctx before each poll so
+// cancellation stops further RPC calls promptly, and returns when ctx is cancelled.
 func (s *protocolMigrateEngine) refreshTargetTip(ctx context.Context) {
 	ticker := time.NewTicker(tipRefreshInterval)
 	defer ticker.Stop()
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		if tip, err := s.tipProvider(); err == nil {
 			s.metrics.TargetTip.Set(float64(tip))
 		} else {
