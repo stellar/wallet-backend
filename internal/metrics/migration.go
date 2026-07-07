@@ -54,9 +54,11 @@ func newMigrationMetrics(reg prometheus.Registerer) *MigrationMetrics {
 			Help: "Total ledgers processed during protocol migration.",
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_migration_phase_duration_seconds",
-			Help:    "Duration of each migration phase (fetch, extract, process, flush).",
-			Buckets: []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10},
+			Name: "wallet_migration_phase_duration_seconds",
+			Help: "Duration of each migration phase (fetch, extract, process, flush).",
+			// Tail past 10s covers a large window flush (thousands of ledgers in one commit) so
+			// its p99 quantile isn't pinned to the top bucket; the _sum time-share is exact regardless.
+			Buckets: []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 30},
 		}, []string{"phase"}),
 		TargetTip: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "wallet_migration_target_tip",
