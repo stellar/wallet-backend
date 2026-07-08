@@ -7,7 +7,6 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -29,7 +28,6 @@ func (r *queryResolver) BlendPool(ctx context.Context, address string) (*graphql
 }
 
 // BlendEarnOptions is the resolver for the blendEarnOptions field.
-// Not implemented yet: "where can I earn this asset" catalog view, filled in by Task 5.6.
 func (r *queryResolver) BlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEarnOption, error) {
-	return nil, fmt.Errorf("blendEarnOptions: not implemented")
+	return r.getBlendEarnOptions(ctx)
 }
