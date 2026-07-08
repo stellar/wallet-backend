@@ -11,6 +11,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -118,6 +119,12 @@ func (m *ingestService) persistLedgerData(
 				}
 			}
 
+			// ContractData extraction is lazy and memoized: it runs at most once
+			// per ledger, and only when a processor that won a CAS requires it —
+			// a protocol still backfilling costs nothing extra.
+			var contractDataChanges map[string][]ingest.Change
+			contractDataExtracted := false
+
 			for protocolID, processor := range m.protocolProcessors {
 				// Only attempt the CAS for a cursor m.protocolCursors believes exists (see
 				// snapshotProtocolCursors/reprobeProtocolCursors): a cursor known not yet
@@ -150,13 +157,23 @@ func (m *ingestService) persistLedgerData(
 					continue
 				}
 
+				if processor.RequiresContractData() && !contractDataExtracted {
+					var cdErr error
+					contractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, m.networkPassphrase, *ledgerMeta)
+					if cdErr != nil {
+						return fmt.Errorf("extracting contract data changes for ledger %d: %w", ledgerSeq, cdErr)
+					}
+					contractDataExtracted = true
+				}
+
 				contracts := getEffectiveProtocolContracts(protocolID, committedByProtocol[protocolID], bufferedContracts, classification)
 				input := ProtocolProcessorInput{
-					LedgerSequence:    ledgerSeq,
-					LedgerCloseTime:   ledgerCloseTime,
-					ContractEvents:    contractEvents,
-					ProtocolContracts: contracts,
-					StagingMode:       StagingModeBoth,
+					LedgerSequence:      ledgerSeq,
+					LedgerCloseTime:     ledgerCloseTime,
+					ContractEvents:      contractEvents,
+					ProtocolContracts:   contracts,
+					StagingMode:         StagingModeBoth,
+					ContractDataChanges: contractDataChanges,
 				}
 				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
 				// re-stages cleanly; the processor is long-lived and accumulates across

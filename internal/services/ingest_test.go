@@ -2308,6 +2308,50 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		assert.Equal(t, uint32(100), histCursor)
 	})
 
+	t.Run("H: RequiresContractData true — processor receives non-nil ContractDataChanges", func(t *testing.T) {
+		processor := NewProtocolProcessorMock(t)
+		processor.On("ProtocolID").Return("testproto")
+		processor.On("RequiresContractData").Return(true)
+		processor.On("Reset").Return()
+		processor.On("ProcessLedger", mock.Anything, mock.MatchedBy(func(in ProtocolProcessorInput) bool {
+			return in.ContractDataChanges != nil
+		})).Return(nil)
+		processor.On("PersistHistory", mock.Anything, mock.Anything).Return(nil)
+		processor.On("PersistCurrentState", mock.Anything, mock.Anything).Return(nil)
+
+		ctx, svc, _, pool := setupTest(t, []ProtocolProcessor{processor})
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		buffer := indexer.NewIndexerBuffer()
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+	})
+
+	t.Run("I: RequiresContractData false — processor receives nil ContractDataChanges", func(t *testing.T) {
+		processor := NewProtocolProcessorMock(t)
+		processor.On("ProtocolID").Return("testproto")
+		processor.On("RequiresContractData").Return(false)
+		processor.On("Reset").Return()
+		processor.On("ProcessLedger", mock.Anything, mock.MatchedBy(func(in ProtocolProcessorInput) bool {
+			return in.ContractDataChanges == nil
+		})).Return(nil)
+		processor.On("PersistHistory", mock.Anything, mock.Anything).Return(nil)
+		processor.On("PersistCurrentState", mock.Anything, mock.Anything).Return(nil)
+
+		ctx, svc, _, pool := setupTest(t, []ProtocolProcessor{processor})
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		buffer := indexer.NewIndexerBuffer()
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+	})
+
 	t.Run("G: contract-id lookup failure fails the ledger", func(t *testing.T) {
 		processor := &testProtocolProcessor{id: "testproto"}
 		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
