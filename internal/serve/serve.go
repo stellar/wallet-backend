@@ -367,4 +367,34 @@ func addComplexityCalculation(config *generated.Config) {
 	}
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc
+
+	// Blend fields are unpaginated but bounded by on-chain limits rather than client
+	// first/last args: Query.blendPools/blendEarnOptions fan out over a bounded catalog
+	// (pools ≈ dozens; each pool ≤ MAX_RESERVES=30 reserves on-chain), the same
+	// "unpaginated but bounded" shape as the accounts fan-out above, so they reuse
+	// accountsListComplexityFunc's ×50 multiplier. Account.blendPositions is bounded
+	// per-pool by that pool's max_positions (well under a full page), so it gets a
+	// smaller ×10 multiplier.
+	//
+	// Worst case (every field selected, derived from the actual schema + the complexity
+	// math above: default field complexity = 1 + sum(child complexities)):
+	//   blendPools:       BlendPool = 11 scalars + reserves(1 + 17 BlendReserve scalars = 18)
+	//                     => childComplexity 29 => 29*50 = 1450
+	//   blendEarnOptions: BlendEarnOption = 4 scalars + pools(1 + 4 BlendEarnPoolOption
+	//                     scalars = 5) => childComplexity 9 => 9*50 = 450
+	//   blendPositions:   BlendAccountPositions = pools(1 + [7 scalars + reserves(1+16=17)]
+	//                     = 25) + backstop(1 + [7 scalars + q4w(1+2=3)] = 11)
+	//                     + backstopClaimedBlnd(1) => childComplexity 37 => 37*10 = 370
+	// All comfortably under GRAPHQL_COMPLEXITY_LIMIT=6000. None of this touches
+	// AccountTransactionEdge.operations/stateChanges or any other existing entry above —
+	// those stay exactly as budgeted for the freighter full-detail query.
+	config.Complexity.Query.BlendPools = accountsListComplexityFunc
+	config.Complexity.Query.BlendEarnOptions = accountsListComplexityFunc
+	// Query.blendPool (single pool by address) is left at the default (1 + childComplexity):
+	// same treatment as the other single-item lookups (accountByAddress, operationByID,
+	// transactionByHash) below, which also have no custom entry. It returns one object, not
+	// a list, so no page-size-style multiplier is needed.
+	config.Complexity.Account.BlendPositions = func(childComplexity int) int {
+		return childComplexity * 10
+	}
 }
