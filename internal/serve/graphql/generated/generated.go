@@ -2743,10 +2743,11 @@ type SEP41Allowance {
 `, BuiltIn: false},
 	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
 #
-# Query.blendPools/blendPool/blendEarnOptions are pool-wide catalog views
-# (Tasks 5.5/5.6); their resolvers are not implemented yet. Account.blendPositions
-# is this task's scope: an account's lending, collateral, and backstop positions
-# across every Blend v2 pool it touches.
+# Query.blendPools/blendPool are pool-wide catalog views, independent of any
+# account. Query.blendEarnOptions is a "where can I earn this asset" catalog
+# view (Task 5.6 scope; its resolver is not implemented yet).
+# Account.blendPositions is an account's lending, collateral, and backstop
+# positions across every Blend v2 pool it touches.
 #
 # Money-shaped fields use Float for USD/APY values (nullable wherever a missing
 # oracle price makes the value uncomputable — a genuinely zero balance is still
@@ -2838,7 +2839,17 @@ type BlendQ4W {
   expiration: Int64!
 }
 
-"""BlendPool is a pool-wide catalog view (Tasks 5.5/5.6 scope)."""
+"""
+BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+across reserves; netApy additionally folds in each reserve's
+emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+emissions, not netted against the pool's borrow side.
+"""
 type BlendPool {
   address: String!
   name: String
@@ -2854,7 +2865,12 @@ type BlendPool {
   reserves: [BlendReserve!]!
 }
 
-"""BlendReserve is a pool-wide reserve catalog view (Tasks 5.5/5.6 scope)."""
+"""
+BlendReserve is a pool-wide reserve catalog view: current utilization,
+supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+token amounts, all as of "now" (rates are projected forward from the
+reserve's last on-chain update).
+"""
 type BlendReserve {
   assetContractId: String!
   tokenName: String
