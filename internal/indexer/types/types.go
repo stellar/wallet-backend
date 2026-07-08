@@ -1095,3 +1095,46 @@ type TrustlineRemovedChangeModel struct {
 type BalanceAuthorizationChangeModel struct {
 	StateChange
 }
+
+// Blend v2 state-change models. One per concrete GraphQL type; the category
+// names the on-chain object and the reason the action (see the schema docs).
+
+// BlendSupplyChangeModel maps to BlendSupplyChange in the GraphQL schema.
+type BlendSupplyChangeModel struct {
+	StateChange
+}
+
+// BlendCollateralChangeModel maps to BlendCollateralChange in the GraphQL schema.
+type BlendCollateralChangeModel struct {
+	StateChange
+}
+
+// BlendDebtChangeModel maps to BlendDebtChange in the GraphQL schema.
+type BlendDebtChangeModel struct {
+	StateChange
+}
+
+// BlendAuctionChangeModel maps to BlendAuctionChange in the GraphQL schema.
+type BlendAuctionChangeModel struct {
+	StateChange
+}
+
+// BlendEmissionsClaimChangeModel maps to BlendEmissionsClaimChange in the GraphQL schema.
+type BlendEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopEmissionsClaimChangeModel maps to BlendBackstopEmissionsClaimChange in the GraphQL schema.
+type BlendBackstopEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopChangeModel maps to BlendBackstopChange in the GraphQL schema.
+type BlendBackstopChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopQueueChangeModel maps to BlendBackstopQueueChange in the GraphQL schema.
+type BlendBackstopQueueChangeModel struct {
+	StateChange
+}
