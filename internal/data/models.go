@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
@@ -27,6 +28,7 @@ type Models struct {
 	Transactions         *TransactionModel
 	StateChanges         *StateChangeModel
 	SEP41                sep41.Models
+	Blend                blend.Models
 }
 
 func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error) {
@@ -52,5 +54,6 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error
 		Transactions:         &TransactionModel{DB: pool, Metrics: dbMetrics},
 		StateChanges:         &StateChangeModel{DB: pool, Metrics: dbMetrics},
 		SEP41:                sep41.NewModels(pool, dbMetrics),
+		Blend:                blend.NewModels(pool, dbMetrics),
 	}, nil
 }
