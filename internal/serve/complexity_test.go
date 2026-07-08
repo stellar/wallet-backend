@@ -294,6 +294,128 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 	}
 }
 
+// TestGraphQLComplexityAccountingForBlendFields locks in the multipliers added for the Blend
+// v2 fields in addComplexityCalculation. Each case selects a minimal field set so the expected
+// complexity is easy to verify by hand and stays stable across unrelated schema edits.
+//
+// Worst case (every field selected across the full Blend schema, derived in the comment above
+// the multipliers in addComplexityCalculation): blendPools ≈ 1450, blendEarnOptions ≈ 450,
+// blendPositions ≈ 370 — all comfortably under the production GRAPHQL_COMPLEXITY_LIMIT=6000.
+// This does not touch AccountTransactionEdge.operations/stateChanges or any other existing
+// complexity entry, so the freighter full-detail account-history query budget is unchanged.
+func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
+	testCases := []struct {
+		name            string
+		limit           int
+		query           string
+		expectedMessage string
+	}{
+		{
+			name:  "blendPools carries the accounts-list page-size multiplier",
+			limit: 49,
+			query: `query {
+				blendPools {
+					address
+				}
+			}`,
+			// address=1 => childComplexity 1 => 1*50 = 50.
+			expectedMessage: "operation has complexity 50, which exceeds the limit of 49",
+		},
+		{
+			name:  "blendPools reserves are folded into the multiplied total",
+			limit: 149,
+			query: `query {
+				blendPools {
+					address
+					reserves {
+						assetContractId
+					}
+				}
+			}`,
+			// reserves{assetContractId}: default 1+1=2. address(1)+reserves(2)=3 => 3*50=150.
+			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
+		},
+		{
+			name:  "blendEarnOptions carries the accounts-list page-size multiplier",
+			limit: 149,
+			query: `query {
+				blendEarnOptions {
+					assetContractId
+					pools {
+						poolAddress
+					}
+				}
+			}`,
+			// pools{poolAddress}: default 1+1=2. assetContractId(1)+pools(2)=3 => 3*50=150.
+			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
+		},
+		{
+			name:  "blendPool (single) is left at the default, unmultiplied",
+			limit: 1,
+			query: `query {
+				blendPool(address: "` + complexityTestAccountAddress + `") {
+					address
+				}
+			}`,
+			// default: 1 (blendPool itself) + 1 (address) = 2.
+			expectedMessage: "operation has complexity 2, which exceeds the limit of 1",
+		},
+		{
+			name:  "account blendPositions carries the x10 multiplier",
+			limit: 10,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					blendPositions {
+						backstopClaimedBlnd
+					}
+				}
+			}`,
+			// blendPositions{backstopClaimedBlnd}: childComplexity 1 => 1*10=10.
+			// accountByAddress (default) = 1+10=11.
+			expectedMessage: "operation has complexity 11, which exceeds the limit of 10",
+		},
+		{
+			name:  "account blendPositions nested pools/backstop are folded into the x10 total",
+			limit: 90,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					blendPositions {
+						pools {
+							poolAddress
+							reserves {
+								assetContractId
+							}
+						}
+						backstop {
+							poolAddress
+							q4w {
+								amount
+							}
+						}
+						backstopClaimedBlnd
+					}
+				}
+			}`,
+			// reserves{assetContractId}=1+1=2; pools item=poolAddress(1)+reserves(2)=3; pools field=1+3=4.
+			// q4w{amount}=1+1=2; backstop item=poolAddress(1)+q4w(2)=3; backstop field=1+3=4.
+			// blendPositions childComplexity = pools(4)+backstop(4)+backstopClaimedBlnd(1)=9 => 9*10=90.
+			// accountByAddress (default) = 1+90=91.
+			expectedMessage: "operation has complexity 91, which exceeds the limit of 90",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := performGraphQLRequest(t, newGraphQLTestHandler(t, tc.limit), tc.query)
+
+			require.Len(t, resp.Errors, 1)
+			assert.Equal(t, tc.expectedMessage, resp.Errors[0].Message)
+			assert.Equal(t, "COMPLEXITY_LIMIT_EXCEEDED", resp.Errors[0].Extensions["code"])
+			assert.Equal(t, "null", string(resp.Data))
+		})
+	}
+}
+
 func TestGraphQLComplexityLimitAllowsSmallQueries(t *testing.T) {
 	resp := performGraphQLRequest(t, newGraphQLTestHandler(t, 10), `query {
 		transactionByHash(hash: "`+complexityTestTxHash+`") {
