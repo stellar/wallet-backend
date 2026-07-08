@@ -16,6 +16,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1354,4 +1355,96 @@ func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T
 	}
 	require.True(t, wrapperWithEvents[1], "corpus must include a wrapper-V1 (Protocol 20-22) ledger with extracted contract events")
 	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
+}
+
+// TestExtractContractDataChangesForLedger_Fixtures checks
+// ExtractContractDataChangesForLedger against the same real-ledger fixture
+// corpus used for contract events: every returned group key must be a valid
+// C-address, every change must be a ContractData change grouped under its own
+// owning contract, every change must originate from a successful transaction,
+// and the whole corpus must yield at least one change (otherwise the corpus
+// wouldn't exercise the extractor at all).
+func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	totalChanges := 0
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			got, extractErr := ExtractContractDataChangesForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, extractErr)
+
+			transactions, txErr := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, txErr)
+
+			// Independently derive the expected ContractData change count from
+			// the successful transactions, without calling the function under
+			// test, so the "only successful txs" assertion is meaningful rather
+			// than tautological. A handful of historical (pre-CAP-0046-11)
+			// ContractData entries are keyed by a classic account address rather
+			// than a contract address; those have no owning contract to group
+			// under, so, like the extractor, they're excluded here too.
+			wantCount := 0
+			for i := range transactions {
+				tx := transactions[i]
+				if !tx.Result.Successful() {
+					continue
+				}
+				changes, chErr := tx.GetChanges()
+				require.NoError(t, chErr)
+				for _, change := range changes {
+					if change.Type != xdr.LedgerEntryTypeContractData {
+						continue
+					}
+					entry := change.Post
+					if entry == nil {
+						entry = change.Pre
+					}
+					require.NotNil(t, entry)
+					contractData, ok := entry.Data.GetContractData()
+					require.True(t, ok)
+					if _, ok := contractData.Contract.GetContractId(); ok {
+						wantCount++
+					}
+				}
+			}
+
+			gotCount := 0
+			for groupKey, changes := range got {
+				_, decodeErr := strkey.Decode(strkey.VersionByteContract, groupKey)
+				assert.NoError(t, decodeErr, "group key %q must be a valid C-address strkey", groupKey)
+
+				for _, change := range changes {
+					assert.Equal(t, xdr.LedgerEntryTypeContractData, change.Type, "change must be a ContractData change")
+
+					entry := change.Post
+					if entry == nil {
+						entry = change.Pre
+					}
+					require.NotNil(t, entry, "change must have a Pre or Post entry")
+
+					contractData, ok := entry.Data.GetContractData()
+					require.True(t, ok, "entry must decode as ContractData")
+
+					contractIDBytes, ok := contractData.Contract.GetContractId()
+					require.True(t, ok, "ContractData.Contract must be a contract address")
+
+					wantAddr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+					require.NoError(t, encErr)
+					assert.Equal(t, wantAddr, groupKey, "change must be grouped under its owning contract")
+				}
+				gotCount += len(changes)
+			}
+
+			assert.Equal(t, wantCount, gotCount, "extractor must return exactly the ContractData changes from successful transactions")
+			totalChanges += gotCount
+		})
+	}
+
+	require.Greater(t, totalChanges, 0, "fixture corpus must produce at least one ContractData change")
 }

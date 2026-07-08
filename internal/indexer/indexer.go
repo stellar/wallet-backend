@@ -10,6 +10,7 @@ import (
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -457,6 +458,61 @@ func ExtractContractEventsForLedger(ledgerMeta xdr.LedgerCloseMeta) (map[Contrac
 				continue
 			}
 			out[ContractEventKey{TxIdx: uint32(i + 1), OpIdx: uint32(opIdx)}] = events
+		}
+	}
+	return out, nil
+}
+
+// ExtractContractDataChangesForLedger walks a ledger's successful transactions
+// and returns every ContractData ledger-entry change grouped by the owning
+// contract's C-address strkey. Unlike ExtractContractEventsForLedger it uses
+// the LedgerTransactionReader (GetChanges needs envelope↔meta pairing), so it
+// takes a ctx and the network passphrase and is strictly heavier — callers
+// gate it behind ProtocolProcessor.RequiresContractData.
+//
+// Within a contract, changes preserve transaction application order, so
+// last-write-wins folding per entry key is deterministic. Ledger-level
+// archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
+// per-tx entry removals appear with Post == nil.
+func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[string][]ingest.Change, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+	out := make(map[string][]ingest.Change)
+	for i := range transactions {
+		tx := transactions[i]
+		if !tx.Result.Successful() {
+			continue
+		}
+		changes, chErr := tx.GetChanges()
+		if chErr != nil {
+			return nil, fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerMeta.LedgerSequence(), tx.Index, chErr)
+		}
+		for _, change := range changes {
+			if change.Type != xdr.LedgerEntryTypeContractData {
+				continue
+			}
+			entry := change.Post
+			if entry == nil {
+				entry = change.Pre
+			}
+			if entry == nil {
+				continue
+			}
+			contractData, ok := entry.Data.GetContractData()
+			if !ok {
+				continue
+			}
+			contractIDBytes, ok := contractData.Contract.GetContractId()
+			if !ok {
+				continue
+			}
+			addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+			if encErr != nil {
+				continue
+			}
+			out[addr] = append(out[addr], change)
 		}
 	}
 	return out, nil
