@@ -176,6 +176,31 @@ func mapAddrI128(v xdr.ScVal) (map[string]string, bool) {
 // (a 32-byte sha256 hash), matching xdr.ContractId's array size.
 const contractIDLen = 32
 
+// contractAddressScVal builds the bare ScVal encoding of a contract C-address
+// as a Soroban `Address` value — the shape any `token: Address` (or similar)
+// function parameter expects, e.g. Comet's get_balance(token)/
+// get_normalized_weight(token) (see comet.go). buildSep40StellarAsset wraps
+// this same encoding inside a 2-element ScVec for the SEP-40
+// Asset::Stellar(Address) enum payload.
+func contractAddressScVal(contractAddress string) (xdr.ScVal, error) {
+	raw, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
+	if err != nil {
+		return xdr.ScVal{}, fmt.Errorf("blend: decoding contract address %q: %w", contractAddress, err)
+	}
+	if len(raw) != contractIDLen {
+		return xdr.ScVal{}, fmt.Errorf("blend: contract address %q decoded to %d bytes, want %d", contractAddress, len(raw), contractIDLen)
+	}
+	var cid xdr.ContractId
+	copy(cid[:], raw)
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvAddress,
+		Address: &xdr.ScAddress{
+			Type:       xdr.ScAddressTypeScAddressTypeContract,
+			ContractId: &cid,
+		},
+	}, nil
+}
+
 // buildSep40StellarAsset builds the SEP-40 `Asset::Stellar(Address)`
 // argument ScVal for a lastprice(asset) call against a SEP-40-compatible
 // oracle (e.g. Reflector), given the strkey C-address of the priced Stellar
@@ -196,26 +221,15 @@ const contractIDLen = 32
 // which round-tripped to a real Some(PriceData{...}) response. See
 // TestBuildSep40StellarAsset for the full verification note.
 func buildSep40StellarAsset(contractAddress string) (xdr.ScVal, error) {
-	raw, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
+	addrVal, err := contractAddressScVal(contractAddress)
 	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("blend: decoding SEP-40 asset contract address %q: %w", contractAddress, err)
+		return xdr.ScVal{}, fmt.Errorf("blend: building SEP-40 Asset::Stellar(%q): %w", contractAddress, err)
 	}
-	if len(raw) != contractIDLen {
-		return xdr.ScVal{}, fmt.Errorf("blend: SEP-40 asset contract address %q decoded to %d bytes, want %d", contractAddress, len(raw), contractIDLen)
-	}
-	var cid xdr.ContractId
-	copy(cid[:], raw)
 
 	sym := xdr.ScSymbol("Stellar")
 	vec := &xdr.ScVec{
 		{Type: xdr.ScValTypeScvSymbol, Sym: &sym},
-		{
-			Type: xdr.ScValTypeScvAddress,
-			Address: &xdr.ScAddress{
-				Type:       xdr.ScAddressTypeScAddressTypeContract,
-				ContractId: &cid,
-			},
-		},
+		addrVal,
 	}
 	return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &vec}, nil
 }
