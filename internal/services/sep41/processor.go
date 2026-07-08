@@ -92,6 +92,10 @@ var _ services.ProtocolProcessor = (*processor)(nil)
 
 func (p *processor) ProtocolID() string { return ProtocolID }
 
+// RequiresContractData reports false: SEP-41 folds contract events only and
+// never reads ProtocolProcessorInput.ContractDataChanges.
+func (p *processor) RequiresContractData() bool { return false }
+
 // ProcessLedger consumes contract events that the indexer (or
 // ExtractContractEventsForLedger in the migration path) has already
 // extracted into the buffer. The processor never touches LedgerCloseMeta —

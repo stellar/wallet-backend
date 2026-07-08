@@ -39,6 +39,13 @@ type ProtocolProcessor interface {
 	// migrated with --window-size=1.
 	ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
 
+	// RequiresContractData reports whether ProcessLedger needs
+	// ProtocolProcessorInput.ContractDataChanges populated. The migration
+	// engine and live ingestion run the (heavier) ContractData extraction
+	// only when a selected processor returns true, so event-only protocols
+	// pay nothing for it.
+	RequiresContractData() bool
+
 	// Reset clears the staged sets after a window commits or hands off. The caller
 	// (engine per window; live ingestion per ledger) invokes it.
 	Reset()

@@ -1874,6 +1874,8 @@ type testProtocolProcessor struct {
 
 func (p *testProtocolProcessor) ProtocolID() string { return p.id }
 
+func (p *testProtocolProcessor) RequiresContractData() bool { return false }
+
 func (p *testProtocolProcessor) Reset() { p.stagedLedgerCount = 0 }
 
 func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
