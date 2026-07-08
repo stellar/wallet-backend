@@ -99,7 +99,15 @@ type BlendEarnPoolOption struct {
 	SuppliedUsd *float64 `json:"suppliedUsd,omitempty"`
 }
 
-// BlendPool is a pool-wide catalog view (Tasks 5.5/5.6 scope).
+// BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+// any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+// suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+// the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+// the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+// and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+// across reserves; netApy additionally folds in each reserve's
+// emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+// emissions, not netted against the pool's borrow side.
 type BlendPool struct {
 	Address          string          `json:"address"`
 	Name             *string         `json:"name,omitempty"`
@@ -134,7 +142,10 @@ type BlendQ4w struct {
 	Expiration int64  `json:"expiration"`
 }
 
-// BlendReserve is a pool-wide reserve catalog view (Tasks 5.5/5.6 scope).
+// BlendReserve is a pool-wide reserve catalog view: current utilization,
+// supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+// token amounts, all as of "now" (rates are projected forward from the
+// reserve's last on-chain update).
 type BlendReserve struct {
 	AssetContractID    string   `json:"assetContractId"`
 	TokenName          *string  `json:"tokenName,omitempty"`
