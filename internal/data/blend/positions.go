@@ -31,6 +31,21 @@ type PoolUserKey struct {
 	Pool, User string // Pool: C-address, User: G-address
 }
 
+// Position is a full row of blend_positions, mirroring every column. Writers
+// operate on the narrower structs below instead; this type exists for PR5
+// readers to scan a full row into.
+type Position struct {
+	PoolContractID     types.AddressBytea
+	UserAccountID      types.AddressBytea
+	ReserveIndex       int32
+	SupplyBTokens      string
+	CollateralBTokens  string
+	LiabilityDTokens   string
+	NetSupplied        string
+	NetBorrowed        string
+	LastModifiedLedger uint32
+}
+
 // PositionPresence carries the set of reserve indexes still present in a user's
 // Positions entry for a pool, so absent indexes can be zeroed (a partial exit
 // keeps the row for cost-basis history instead of deleting it).
