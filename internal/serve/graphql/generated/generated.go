@@ -35,6 +35,7 @@ type ResolverRoot interface {
 	AccountTransactionEdge() AccountTransactionEdgeResolver
 	BalanceAuthorizationChange() BalanceAuthorizationChangeResolver
 	FlagsChange() FlagsChangeResolver
+	LendingChange() LendingChangeResolver
 	MetadataChange() MetadataChangeResolver
 	Operation() OperationResolver
 	Query() QueryResolver
@@ -117,6 +118,20 @@ type ComplexityRoot struct {
 		LedgerNumber    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+		Type            func(childComplexity int) int
+	}
+
+	LendingChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 		Type            func(childComplexity int) int
 	}
@@ -399,6 +414,17 @@ type FlagsChangeResolver interface {
 	Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error)
 	Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error)
+}
+type LendingChangeResolver interface {
+	Type(ctx context.Context, obj *types.LendingStateChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.LendingStateChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error)
+	Amount(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error)
+	PoolID(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error)
 }
 type MetadataChangeResolver interface {
 	Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error)
@@ -815,6 +841,73 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.FlagsChange.Type(childComplexity), true
+
+	case "LendingChange.account":
+		if e.ComplexityRoot.LendingChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Account(childComplexity), true
+	case "LendingChange.amount":
+		if e.ComplexityRoot.LendingChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Amount(childComplexity), true
+	case "LendingChange.ingestedAt":
+		if e.ComplexityRoot.LendingChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.IngestedAt(childComplexity), true
+	case "LendingChange.ledgerCreatedAt":
+		if e.ComplexityRoot.LendingChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.LedgerCreatedAt(childComplexity), true
+	case "LendingChange.ledgerNumber":
+		if e.ComplexityRoot.LendingChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.LedgerNumber(childComplexity), true
+	case "LendingChange.operation":
+		if e.ComplexityRoot.LendingChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Operation(childComplexity), true
+	case "LendingChange.poolId":
+		if e.ComplexityRoot.LendingChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.PoolID(childComplexity), true
+	case "LendingChange.reason":
+		if e.ComplexityRoot.LendingChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Reason(childComplexity), true
+	case "LendingChange.tokenId":
+		if e.ComplexityRoot.LendingChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.TokenID(childComplexity), true
+	case "LendingChange.transaction":
+		if e.ComplexityRoot.LendingChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Transaction(childComplexity), true
+	case "LendingChange.type":
+		if e.ComplexityRoot.LendingChange.Type == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LendingChange.Type(childComplexity), true
 
 	case "LiquidityPoolBalance.balance":
 		if e.ComplexityRoot.LiquidityPoolBalance.Balance == nil {
@@ -2121,6 +2214,7 @@ enum StateChangeCategory {
   TRUSTLINE
   RESERVES
   BALANCE_AUTHORIZATION
+  LENDING
 }
 
 # StateChangeReason enum - provides specific reason for the state change
@@ -2144,6 +2238,22 @@ enum StateChangeReason {
   DATA_ENTRY
   SPONSOR
   UNSPONSOR
+
+  SUPPLY
+  WITHDRAW
+  SUPPLY_COLLATERAL
+  WITHDRAW_COLLATERAL
+  BORROW
+  REPAY
+  FLASH_LOAN
+  CLAIM
+  LIQUIDATION
+  BAD_DEBT
+  DEFAULTED_DEBT
+  BACKSTOP_DEPOSIT
+  BACKSTOP_WITHDRAW_QUEUE
+  BACKSTOP_WITHDRAW_CANCEL
+  BACKSTOP_WITHDRAW
 }
 
 enum TokenType {
@@ -2446,6 +2556,21 @@ type BalanceAuthorizationChange implements BaseStateChange{
   tokenId:                    String @goField(forceResolver: true)
   liquidityPoolId:            String
   flags:                      [String!]!
+}
+
+type LendingChange implements BaseStateChange {
+  type:                       StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  tokenId:                    String @goField(forceResolver: true)
+  amount:                     String @goField(forceResolver: true)
+  poolId:                     String @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `# GraphQL Transaction type - represents a blockchain transaction
@@ -4600,6 +4725,385 @@ func (ec *executionContext) _FlagsChange_flags(ctx context.Context, field graphq
 func (ec *executionContext) fieldContext_FlagsChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "FlagsChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_type(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_type,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Type(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_account(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "operationType":
+				return ec.fieldContext_Operation_operationType(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().TokenID(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LendingChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.LendingStateChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_LendingChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.LendingChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_LendingChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LendingChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11697,6 +12201,13 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._MetadataChange(ctx, sel, obj)
+	case types.LendingStateChangeModel:
+		return ec._LendingChange(ctx, sel, &obj)
+	case *types.LendingStateChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._LendingChange(ctx, sel, obj)
 	case types.FlagsStateChangeModel:
 		return ec._FlagsChange(ctx, sel, &obj)
 	case *types.FlagsStateChangeModel:
@@ -13089,6 +13600,331 @@ func (ec *executionContext) _FlagsChange(ctx context.Context, sel ast.SelectionS
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var lendingChangeImplementors = []string{"LendingChange", "BaseStateChange"}
+
+func (ec *executionContext) _LendingChange(ctx context.Context, sel ast.SelectionSet, obj *types.LendingStateChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, lendingChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LendingChange")
+		case "type":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_type(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._LendingChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._LendingChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._LendingChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_operation(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_tokenId(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_amount(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._LendingChange_poolId(ctx, field, obj)
 				return res
 			}
 

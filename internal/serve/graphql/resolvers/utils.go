@@ -160,6 +160,10 @@ func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateC
 		return &types.BalanceAuthorizationStateChangeModel{
 			StateChange: stateChange,
 		}
+	case types.StateChangeCategoryLending:
+		return &types.LendingStateChangeModel{
+			StateChange: stateChange,
+		}
 	default:
 		return nil
 	}
@@ -252,6 +256,10 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "deployerAccountId"
 		case "destinationAddress":
 			fieldName = "destinationAccountId"
+		case "poolId":
+			// LendingChange's poolId is derived from the key_value JSONB map, not a
+			// dedicated column (see internal/services/blend/processor.go:stageHistoryRow).
+			fieldName = "keyValue"
 		case "limit":
 			// GraphQL "limit" field requires both old and new trustline limit columns
 			dbColumns = append(dbColumns, "trustline_limit_old", "trustline_limit_new")

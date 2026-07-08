@@ -900,3 +900,9 @@ type BalanceAuthorizationStateChangeModel struct {
 type ReservesStateChangeModel struct {
 	StateChange
 }
+
+// LendingStateChangeModel represents Blend v2 lending protocol state changes.
+// Maps to LendingChange in GraphQL schema. Exposes tokenId, amount, poolId.
+type LendingStateChangeModel struct {
+	StateChange
+}

@@ -132,6 +132,55 @@ func (r *flagsChangeResolver) Flags(ctx context.Context, obj *types.FlagsStateCh
 }
 
 // Type is the resolver for the type field.
+func (r *lendingChangeResolver) Type(ctx context.Context, obj *types.LendingStateChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *lendingChangeResolver) Reason(ctx context.Context, obj *types.LendingStateChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *lendingChangeResolver) Account(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *lendingChangeResolver) Operation(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *lendingChangeResolver) Transaction(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *lendingChangeResolver) TokenID(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.TokenID), nil
+}
+
+// Amount is the resolver for the amount field.
+func (r *lendingChangeResolver) Amount(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.Amount), nil
+}
+
+// PoolID is the resolver for the poolId field.
+// poolId lives in the KeyValue JSONB map rather than a dedicated column (see
+// internal/services/blend/processor.go:stageHistoryRow); backstop CLAIM rows omit it entirely.
+func (r *lendingChangeResolver) PoolID(ctx context.Context, obj *types.LendingStateChangeModel) (*string, error) {
+	if obj.KeyValue == nil {
+		return nil, nil
+	}
+	poolID, ok := obj.KeyValue["poolId"].(string)
+	if !ok {
+		return nil, nil
+	}
+	return &poolID, nil
+}
+
+// Type is the resolver for the type field.
 func (r *metadataChangeResolver) Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
@@ -423,6 +472,9 @@ func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationCha
 // FlagsChange returns graphql1.FlagsChangeResolver implementation.
 func (r *Resolver) FlagsChange() graphql1.FlagsChangeResolver { return &flagsChangeResolver{r} }
 
+// LendingChange returns graphql1.LendingChangeResolver implementation.
+func (r *Resolver) LendingChange() graphql1.LendingChangeResolver { return &lendingChangeResolver{r} }
+
 // MetadataChange returns graphql1.MetadataChangeResolver implementation.
 func (r *Resolver) MetadataChange() graphql1.MetadataChangeResolver {
 	return &metadataChangeResolver{r}
@@ -455,6 +507,7 @@ type (
 	accountChangeResolver              struct{ *Resolver }
 	balanceAuthorizationChangeResolver struct{ *Resolver }
 	flagsChangeResolver                struct{ *Resolver }
+	lendingChangeResolver              struct{ *Resolver }
 	metadataChangeResolver             struct{ *Resolver }
 	reservesChangeResolver             struct{ *Resolver }
 	signerChangeResolver               struct{ *Resolver }

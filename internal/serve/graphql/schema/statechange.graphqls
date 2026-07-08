@@ -149,3 +149,18 @@ type BalanceAuthorizationChange implements BaseStateChange{
   liquidityPoolId:            String
   flags:                      [String!]!
 }
+
+type LendingChange implements BaseStateChange {
+  type:                       StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  tokenId:                    String @goField(forceResolver: true)
+  amount:                     String @goField(forceResolver: true)
+  poolId:                     String @goField(forceResolver: true)
+}
