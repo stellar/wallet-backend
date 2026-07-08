@@ -200,6 +200,9 @@ models:
   ReservesChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.ReservesStateChangeModel
+  LendingChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.LendingStateChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType
