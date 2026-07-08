@@ -93,8 +93,14 @@ func (d *blendAssembly) buildEarnOption(assetID string, reserves []blenddata.Res
 	}
 	sortEarnPoolOptions(pools)
 
-	meta := d.metaByContractID[assetID]
+	// contract_tokens is the canonical source for token display metadata;
+	// each reserve config carries a decimals copy set at reserve creation, so
+	// it only serves as the fallback for assets the classifier never saw.
+	meta, hasMeta := d.metaByContractID[assetID]
 	decimals := reserves[0].Decimals
+	if hasMeta {
+		decimals = int32(meta.Decimals)
+	}
 
 	return &graphql1.BlendEarnOption{
 		AssetContractID: assetID,
