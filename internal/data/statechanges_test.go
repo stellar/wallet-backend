@@ -549,6 +549,79 @@ func TestStateChangeModel_GetAll(t *testing.T) {
 	assert.Len(t, stateChanges, 2)
 }
 
+func TestStateChangeModel_GetLendingClaimTotals(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	now := time.Now()
+	accountA := keypair.MustRandom().Address()
+	accountB := keypair.MustRandom().Address()
+	poolA := keypair.MustRandom().Address()
+
+	insertLending := func(seq int64, account, category, reason string, keyValue map[string]any, amount string) {
+		_, execErr := dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (
+				to_id, operation_id, state_change_id, state_change_category, state_change_reason,
+				ledger_number, account_id, ledger_created_at, key_value, amount
+			) VALUES ($1, $1, $1, $2, $3, 1, $4, $5, $6, $7)
+		`, seq, category, reason, types.AddressBytea(account), now, keyValue, amount)
+		require.NoError(t, execErr)
+	}
+
+	// accountA: two pool-sourced CLAIM rows against poolA -> summed to 150.
+	insertLending(1, accountA, "LENDING", "CLAIM", map[string]any{"poolId": poolA, "source": "pool"}, "100")
+	insertLending(2, accountA, "LENDING", "CLAIM", map[string]any{"poolId": poolA, "source": "pool"}, "50")
+	// accountA: a backstop CLAIM carries no poolId -> groups under a NULL pool.
+	insertLending(3, accountA, "LENDING", "CLAIM", map[string]any{"source": "backstop"}, "25")
+	// accountA: a non-CLAIM LENDING row must be excluded from the totals.
+	insertLending(4, accountA, "LENDING", "SUPPLY", map[string]any{"poolId": poolA, "source": "pool"}, "999")
+	// accountB: a CLAIM row that must not leak into accountA's totals.
+	insertLending(5, accountB, "LENDING", "CLAIM", map[string]any{"poolId": poolA, "source": "pool"}, "1000")
+
+	got, err := m.GetLendingClaimTotals(ctx, accountA)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	var poolTotal, backstopTotal *LendingClaimTotal
+	for i := range got {
+		if got[i].PoolID == nil {
+			backstopTotal = &got[i]
+		} else {
+			poolTotal = &got[i]
+		}
+	}
+
+	require.NotNil(t, poolTotal, "pool-sourced claim total must be present")
+	assert.Equal(t, poolA, *poolTotal.PoolID)
+	require.NotNil(t, poolTotal.Source)
+	assert.Equal(t, "pool", *poolTotal.Source)
+	assert.Equal(t, "150", poolTotal.Total)
+
+	require.NotNil(t, backstopTotal, "backstop claim total (NULL pool) must be present")
+	assert.Nil(t, backstopTotal.PoolID)
+	require.NotNil(t, backstopTotal.Source)
+	assert.Equal(t, "backstop", *backstopTotal.Source)
+	assert.Equal(t, "25", backstopTotal.Total)
+
+	t.Run("account with no CLAIM rows returns an empty, non-nil slice", func(t *testing.T) {
+		got, err := m.GetLendingClaimTotals(ctx, keypair.MustRandom().Address())
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Empty(t, got)
+	})
+}
+
 func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
