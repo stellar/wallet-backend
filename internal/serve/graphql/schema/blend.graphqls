@@ -1,0 +1,150 @@
+# Blend v2 lending protocol GraphQL surface.
+#
+# Query.blendPools/blendPool/blendEarnOptions are pool-wide catalog views
+# (Tasks 5.5/5.6); their resolvers are not implemented yet. Account.blendPositions
+# is this task's scope: an account's lending, collateral, and backstop positions
+# across every Blend v2 pool it touches.
+#
+# Money-shaped fields use Float for USD/APY values (nullable wherever a missing
+# oracle price makes the value uncomputable — a genuinely zero balance is still
+# 0, not null) and String! for on-chain integer amounts, kept at full precision
+# rather than lossy float64.
+
+extend type Query {
+  blendPools: [BlendPool!]!
+  blendPool(address: String!): BlendPool
+  blendEarnOptions: [BlendEarnOption!]!
+}
+
+extend type Account {
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
+}
+
+"""
+BlendAccountPositions aggregates one account's Blend v2 exposure across every
+pool it has touched. backstopClaimedBlnd is lifetime backstop-emission BLND
+claims; unlike claimedBlnd (per pool), the on-chain backstop claim event
+carries no pool address, so this total can only ever be reported account-wide.
+"""
+type BlendAccountPositions {
+  pools: [BlendPoolPosition!]!
+  backstop: [BlendBackstopPosition!]!
+  backstopClaimedBlnd: String!
+}
+
+"""BlendPoolPosition rolls up an account's reserve positions within one pool."""
+type BlendPoolPosition {
+  poolAddress: String!
+  poolName: String
+  usdValue: Float
+  suppliedUsd: Float
+  borrowedUsd: Float
+  netApy: Float
+  """Lifetime pool-source CLAIM total (state_changes LENDING/CLAIM, source=pool) for this pool."""
+  claimedBlnd: String!
+  reserves: [BlendReservePosition!]!
+}
+
+"""
+BlendReservePosition is an account's position in one reserve of a pool.
+suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+the reserve's b/d emission streams; claimed history is tracked per pool only
+(see BlendPoolPosition.claimedBlnd), not per reserve.
+"""
+type BlendReservePosition {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  suppliedTokens: String!
+  collateralTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  supplyApy: Float
+  borrowApy: Float
+  emissionsApr: Float
+  interestEarned: String!
+  interestPaid: String!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""
+BlendBackstopPosition is an account's backstop deposit in one pool.
+emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+emission stream for this pool.
+"""
+type BlendBackstopPosition {
+  poolAddress: String!
+  poolName: String
+  shares: String!
+  lpTokens: String!
+  usdValue: Float
+  q4w: [BlendQ4W!]!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""BlendQ4W is one queued backstop withdrawal."""
+type BlendQ4W {
+  amount: String!
+  expiration: Int64!
+}
+
+"""BlendPool is a pool-wide catalog view (Tasks 5.5/5.6 scope)."""
+type BlendPool {
+  address: String!
+  name: String
+  status: Int
+  oracleContractId: String
+  backstopRate: Int
+  maxPositions: Int
+  suppliedUsd: Float
+  borrowedUsd: Float
+  backstopUsd: Float
+  interestApy: Float
+  netApy: Float
+  reserves: [BlendReserve!]!
+}
+
+"""BlendReserve is a pool-wide reserve catalog view (Tasks 5.5/5.6 scope)."""
+type BlendReserve {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  enabled: Boolean!
+  utilization: Float
+  supplyApy: Float
+  borrowApy: Float
+  emissionsSupplyApr: Float
+  emissionsBorrowApr: Float
+  suppliedTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  cFactor: Int
+  lFactor: Int
+  priceUsd: Float
+}
+
+"""BlendEarnOption is a "where can I earn this asset" catalog view (Tasks 5.5/5.6 scope)."""
+type BlendEarnOption {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  pools: [BlendEarnPoolOption!]!
+}
+
+"""BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset."""
+type BlendEarnPoolOption {
+  poolAddress: String!
+  poolName: String
+  supplyApy: Float
+  suppliedUsd: Float
+}

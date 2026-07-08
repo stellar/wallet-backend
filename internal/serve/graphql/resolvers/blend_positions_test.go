@@ -1,0 +1,370 @@
+package resolvers
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
+)
+
+// TestAccountResolver_BlendPositions is a hand-computed vector exercising the
+// full Account.blendPositions assembly: two reserves in one pool (a 7-decimal
+// supply-only reserve r0, a 6-decimal debt-only reserve r1), one active and
+// one expired reserve emission stream, a backstop deposit with two queued
+// withdrawals, and lifetime CLAIM totals for both the pool and the backstop.
+//
+// Both reserves' last_time is set far in the future so ProjectRates'
+// documented Δt<=0 branch (rates.go) returns bRate/dRate UNCHANGED
+// deterministically — this exercises the real ProjectRates call path while
+// keeping every downstream number (which otherwise depends on wall-clock
+// "now" at resolver-execution time) exactly hand-computable, with no
+// wall-clock flakiness risk.
+//
+// r0 curve: target=0.8 (util=8_000_000), r_base=0.01 (100_000), r_one=0.02
+// (200_000), ir_mod=1.0. Pool-wide b_supply=100_000_000, d_supply=40_000_000,
+// b_rate=d_rate=1e12 (rate exactly 1.0) => util=40_000_000/100_000_000=0.4.
+// util<=target: utilScalar=0.4/0.8=0.5; borrowApr=irMod*(rBase+utilScalar*rOne)
+// = 1.0*(0.01+0.5*0.02) = 0.02. bstopRate=0.2 (2_000_000) =>
+// supplyApr=borrowApr*util*(1-bstopRate)=0.02*0.4*0.8=0.0064.
+// supplyApy=(1+0.0064/52)^52-1=0.006420127418405475 (python).
+// borrowApy=(1+0.02/365)^365-1=0.020200781032923 (python).
+//
+// r1 curve: same target/r_base/r_one/ir_mod as r0. Pool-wide
+// b_supply=20_000_000, d_supply=10_000_000 => util=0.5. util<=target:
+// utilScalar=0.5/0.8=0.625; borrowApr=1.0*(0.01+0.625*0.02)=0.0225.
+// supplyApr=0.0225*0.5*0.8=0.009.
+// supplyApy=(1+0.009/52)^52-1=0.00903983597743796 (python).
+// borrowApy=(1+0.0225/365)^365-1=0.022754324920237545 (python).
+//
+// Prices (all 7-decimal raw fixed point): assetA=$2.50 (25_000_000),
+// assetB=$1.00 (10_000_000), Comet LP self-price=$1.10 (11_000_000),
+// BLND=$0.05 (500_000).
+func TestAccountResolver_BlendPositions(t *testing.T) {
+	account := keypair.MustRandom().Address()
+	poolAddr := randomContractAddress(t)
+	oracleAddr := randomContractAddress(t)
+	assetA := randomContractAddress(t) // r0's asset, 7 decimals
+	assetB := randomContractAddress(t) // r1's asset, 6 decimals
+	cometAddr := randomContractAddress(t)
+	blndAddr := randomContractAddress(t)
+
+	futureLastTime := int64(4102444800)   // year 2100: guarantees ProjectRates' deltaT<=0 branch
+	futureExpiration := int64(4102444800) // r0's bToken emission: active relative to "now"
+	pastExpiration := int64(1700000000)   // r1's dToken emission: expired relative to "now"
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	dbMetrics := m.DB
+	blendModels := blenddata.NewModels(testDBConnectionPool, dbMetrics)
+	models := &data.Models{
+		Contract:     &data.ContractModel{DB: testDBConnectionPool, Metrics: dbMetrics},
+		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: dbMetrics},
+		Blend:        blendModels,
+	}
+	resolver := &accountResolver{&Resolver{models: models}}
+
+	// --- contract_tokens metadata (name/symbol only; decimals authority is blend_reserves) ---
+	execTestDB(t, `
+		INSERT INTO contract_tokens (id, contract_id, type, name, symbol, decimals) VALUES
+		($1, $2, 'sep41', 'Asset A', 'AAA', 7), ($3, $4, 'sep41', 'Asset B', 'BBB', 6)`,
+		data.DeterministicContractID(assetA), assetA, data.DeterministicContractID(assetB), assetB)
+
+	// --- pool ---
+	execTestDB(t, `
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, last_modified_ledger)
+		VALUES ($1, 'Test Pool', $2, 2000000, 0, 4, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(oracleAddr))
+
+	// --- reserves ---
+	execTestDB(t, `
+		INSERT INTO blend_reserves (
+			pool_contract_id, reserve_index, asset_contract_id,
+			b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+			decimals, c_factor, l_factor, util, max_util,
+			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled, last_modified_ledger
+		) VALUES
+		($1, 0, $2, '1000000000000', '1000000000000', '100000000', '40000000', '10000000', '0', $3,
+			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
+		($1, 1, $4, '1000000000000', '1000000000000', '20000000', '10000000', '10000000', '0', $3,
+			6, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(assetA), futureLastTime, types.AddressBytea(assetB))
+
+	// --- account positions: r0 supply+collateral (net_supplied is a decimal
+	// string with a truncated fractional remainder), r1 liability only ---
+	execTestDB(t, `
+		INSERT INTO blend_positions (
+			pool_contract_id, user_account_id, reserve_index,
+			supply_b_tokens, collateral_b_tokens, liability_d_tokens, net_supplied, net_borrowed, last_modified_ledger
+		) VALUES
+		($1, $2, 0, '5000000', '3000000', '0', '7999000.7500000000000000', '0', 100),
+		($1, $2, 1, '0', '0', '6000000', '0', '5990000', 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(account))
+
+	// --- reserve emissions: r0's bToken (index*2+1=1) active, r1's dToken (index*2=2) expired ---
+	execTestDB(t, `
+		INSERT INTO blend_reserve_emissions (pool_contract_id, reserve_token_id, eps, emission_index, expiration, last_time, last_modified_ledger)
+		VALUES
+		($1, 1, 100000000000, '2000000000000', $2, 100, 100),
+		($1, 2, 999999999999, '3000000000000', $3, 100, 100)`,
+		types.AddressBytea(poolAddr), futureExpiration, pastExpiration)
+
+	// --- user emission accrual: r0 bToken stream (token_id=1), r1 dToken stream (token_id=2) ---
+	execTestDB(t, `
+		INSERT INTO blend_emissions (source_contract_id, user_account_id, token_id, emission_index, accrued, last_modified_ledger)
+		VALUES
+		($1, $2, 1, '1000000000000', '500', 100),
+		($1, $2, 2, '1000000000000', '200', 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(account))
+
+	// --- backstop position + pool-wide backstop totals/emission config ---
+	q4wJSON, err := json.Marshal([]blenddata.Q4W{
+		{Amount: "100000", Expiration: 1800000000},
+		{Amount: "200000", Expiration: 1900000000},
+	})
+	require.NoError(t, err)
+	execTestDB(t, `
+		INSERT INTO blend_backstop_positions (pool_contract_id, user_account_id, shares, q4w, last_modified_ledger)
+		VALUES ($1, $2, '1000000', $3::jsonb, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(account), string(q4wJSON))
+	execTestDB(t, `
+		INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, emis_eps, emis_index, emis_expiration, emis_last_time, last_modified_ledger)
+		VALUES ($1, '10000000', '50000000', '0', 999999999999, '5000000000000', 4102444800, 100, 100)`,
+		types.AddressBytea(poolAddr))
+	// backstop emission stream: token_id = BackstopEmissionTokenID (-1), source = pool
+	execTestDB(t, `
+		INSERT INTO blend_emissions (source_contract_id, user_account_id, token_id, emission_index, accrued, last_modified_ledger)
+		VALUES ($1, $2, -1, '2000000000000', '1000', 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(account))
+
+	// --- oracle prices: reserve assets under the pool's oracle, Comet leg under its own address ---
+	execTestDB(t, `
+		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
+		VALUES
+		($1, $2, '25000000', 7, 100),
+		($1, $3, '10000000', 7, 100),
+		($4, $4, '11000000', 7, 100),
+		($4, $5, '500000', 7, 100)`,
+		types.AddressBytea(oracleAddr), types.AddressBytea(assetA), types.AddressBytea(assetB),
+		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
+
+	// --- lifetime CLAIM totals: two pool-sourced rows (sum to 3000), one backstop-sourced row (4000) ---
+	insertLendingClaim(t, 5_000_000_001, account, map[string]any{"poolId": poolAddr, "source": "pool"}, "1000")
+	insertLendingClaim(t, 5_000_000_002, account, map[string]any{"poolId": poolAddr, "source": "pool"}, "2000")
+	insertLendingClaim(t, 5_000_000_003, account, map[string]any{"source": "backstop"}, "4000")
+
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM blend_positions WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_reserve_emissions WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_emissions WHERE source_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_backstop_positions WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_backstop_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2)`, types.AddressBytea(oracleAddr), types.AddressBytea(cometAddr))
+		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2)`, assetA, assetB)
+		execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1`, types.AddressBytea(account))
+	})
+
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(account)}
+	got, err := resolver.BlendPositions(testCtx, parentAccount)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	assert.Equal(t, "4000", got.BackstopClaimedBlnd)
+	require.Len(t, got.Pools, 1)
+	require.Len(t, got.Backstop, 1)
+
+	pool := got.Pools[0]
+	assert.Equal(t, poolAddr, pool.PoolAddress)
+	require.NotNil(t, pool.PoolName)
+	assert.Equal(t, "Test Pool", *pool.PoolName)
+	assert.Equal(t, "3000", pool.ClaimedBlnd)
+	require.Len(t, pool.Reserves, 2)
+
+	r0, r1 := pool.Reserves[0], pool.Reserves[1]
+	assert.Equal(t, assetA, r0.AssetContractID)
+	assert.Equal(t, assetB, r1.AssetContractID)
+
+	t.Run("r0: supply+collateral reserve, active bToken emissions", func(t *testing.T) {
+		require.NotNil(t, r0.TokenName)
+		assert.Equal(t, "Asset A", *r0.TokenName)
+		require.NotNil(t, r0.TokenSymbol)
+		assert.Equal(t, "AAA", *r0.TokenSymbol)
+		require.NotNil(t, r0.TokenDecimals)
+		assert.EqualValues(t, 7, *r0.TokenDecimals)
+
+		// ProjectRates' deltaT<=0 branch: rates pass through unchanged (rate=1.0), so
+		// underlying == raw token amount.
+		assert.Equal(t, "5000000", r0.SuppliedTokens)
+		assert.Equal(t, "3000000", r0.CollateralTokens)
+		assert.Equal(t, "0", r0.BorrowedTokens)
+
+		require.NotNil(t, r0.SuppliedUsd)
+		assert.InDelta(t, 2.0, *r0.SuppliedUsd, 1e-9)
+		require.NotNil(t, r0.BorrowedUsd)
+		assert.InDelta(t, 0.0, *r0.BorrowedUsd, 1e-9)
+
+		require.NotNil(t, r0.SupplyApy)
+		assert.InDelta(t, 0.006420127418405475, *r0.SupplyApy, 1e-12)
+		require.NotNil(t, r0.BorrowApy)
+		assert.InDelta(t, 0.020200781032923, *r0.BorrowApy, 1e-12)
+
+		require.NotNil(t, r0.EmissionsApr)
+		assert.InDelta(t, 63.072, *r0.EmissionsApr, 1e-9)
+
+		// interestEarned = Underlying(supply+collateral, bRate) - netSupplied
+		//   = 8_000_000 - 7_999_000 (net_supplied's ".75..." truncates away) = 1_000.
+		assert.Equal(t, "1000", r0.InterestEarned)
+		assert.Equal(t, "0", r0.InterestPaid)
+
+		// claimable = accrued(500) + tokenBalance(8_000_000)*(emisIndex-userIndex)(1e12)/scalar(1e14)
+		//   = 500 + 80_000 = 80_500. No dToken-stream row for r0 -> contributes 0.
+		assert.Equal(t, "80500", r0.EmissionsEarnedBlnd)
+		require.NotNil(t, r0.EmissionsEarnedUsd)
+		assert.InDelta(t, 0.0004025, *r0.EmissionsEarnedUsd, 1e-12)
+	})
+
+	t.Run("r1: debt-only reserve, expired dToken emissions", func(t *testing.T) {
+		require.NotNil(t, r1.TokenDecimals)
+		assert.EqualValues(t, 6, *r1.TokenDecimals)
+
+		assert.Equal(t, "0", r1.SuppliedTokens)
+		assert.Equal(t, "0", r1.CollateralTokens)
+		assert.Equal(t, "6000000", r1.BorrowedTokens)
+
+		require.NotNil(t, r1.SuppliedUsd)
+		assert.InDelta(t, 0.0, *r1.SuppliedUsd, 1e-9)
+		require.NotNil(t, r1.BorrowedUsd)
+		assert.InDelta(t, 6.0, *r1.BorrowedUsd, 1e-9)
+
+		require.NotNil(t, r1.SupplyApy)
+		assert.InDelta(t, 0.00903983597743796, *r1.SupplyApy, 1e-12)
+		require.NotNil(t, r1.BorrowApy)
+		assert.InDelta(t, 0.022754324920237545, *r1.BorrowApy, 1e-12)
+
+		// dToken emission config is EXPIRED (pastExpiration < now) -> a concrete 0, not nil.
+		require.NotNil(t, r1.EmissionsApr)
+		assert.InDelta(t, 0.0, *r1.EmissionsApr, 1e-12)
+
+		// interestPaid = Underlying(liability, dRate) - netBorrowed = 6_000_000 - 5_990_000 = 10_000.
+		assert.Equal(t, "0", r1.InterestEarned)
+		assert.Equal(t, "10000", r1.InterestPaid)
+
+		// claimable = accrued(200) + tokenBalance(6_000_000)*(emisIndex-userIndex)(2e12)/scalar(1e13)
+		//   = 200 + 1_200_000 = 1_200_200. Claimable is computed even though the
+		// stream is expired: expiry only zeroes the APR, not the accrued index delta.
+		assert.Equal(t, "1200200", r1.EmissionsEarnedBlnd)
+		require.NotNil(t, r1.EmissionsEarnedUsd)
+		assert.InDelta(t, 0.006001, *r1.EmissionsEarnedUsd, 1e-12)
+	})
+
+	t.Run("pool rollup", func(t *testing.T) {
+		require.NotNil(t, pool.SuppliedUsd)
+		assert.InDelta(t, 2.0, *pool.SuppliedUsd, 1e-9)
+		require.NotNil(t, pool.BorrowedUsd)
+		assert.InDelta(t, 6.0, *pool.BorrowedUsd, 1e-9)
+		require.NotNil(t, pool.UsdValue)
+		assert.InDelta(t, -4.0, *pool.UsdValue, 1e-9)
+		require.NotNil(t, pool.NetApy)
+		assert.InDelta(t, 0.03092142367115358, *pool.NetApy, 1e-9)
+	})
+
+	t.Run("backstop position", func(t *testing.T) {
+		bp := got.Backstop[0]
+		assert.Equal(t, poolAddr, bp.PoolAddress)
+		require.NotNil(t, bp.PoolName)
+		assert.Equal(t, "Test Pool", *bp.PoolName)
+		assert.Equal(t, "1000000", bp.Shares)
+		// lpTokens = shares(1_000_000)*poolTokens(50_000_000)/poolShares(10_000_000) = 5_000_000.
+		assert.Equal(t, "5000000", bp.LpTokens)
+		require.NotNil(t, bp.UsdValue)
+		assert.InDelta(t, 0.55, *bp.UsdValue, 1e-9)
+
+		require.Len(t, bp.Q4w, 2)
+		assert.Equal(t, "100000", bp.Q4w[0].Amount)
+		assert.EqualValues(t, 1800000000, bp.Q4w[0].Expiration)
+		assert.Equal(t, "200000", bp.Q4w[1].Amount)
+		assert.EqualValues(t, 1900000000, bp.Q4w[1].Expiration)
+
+		// claimable = accrued(1000) + tokenBalance(1_000_000)*(emisIndex-userIndex)(3e12)/scalar(1e14)
+		//   = 1000 + 30_000 = 31_000.
+		assert.Equal(t, "31000", bp.EmissionsEarnedBlnd)
+		require.NotNil(t, bp.EmissionsEarnedUsd)
+		assert.InDelta(t, 0.000155, *bp.EmissionsEarnedUsd, 1e-12)
+	})
+
+	t.Run("dropping the reserve asset's price nulls only its USD fields, no error", func(t *testing.T) {
+		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id = $1 AND asset_contract_id = $2`,
+			types.AddressBytea(oracleAddr), types.AddressBytea(assetB))
+		t.Cleanup(func() {
+			execTestDB(t, `
+				INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
+				VALUES ($1, $2, '10000000', 7, 100)`,
+				types.AddressBytea(oracleAddr), types.AddressBytea(assetB))
+		})
+
+		got, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		require.Len(t, got.Pools, 1)
+		require.Len(t, got.Pools[0].Reserves, 2)
+
+		r0After, r1After := got.Pools[0].Reserves[0], got.Pools[0].Reserves[1]
+
+		// r0 (assetA) is unaffected.
+		require.NotNil(t, r0After.SuppliedUsd)
+		assert.InDelta(t, 2.0, *r0After.SuppliedUsd, 1e-9)
+
+		// r1 (assetB): supply side is trivially 0 regardless of price, but the
+		// nonzero borrowed side is now unpriceable.
+		require.NotNil(t, r1After.SuppliedUsd)
+		assert.InDelta(t, 0.0, *r1After.SuppliedUsd, 1e-9)
+		assert.Nil(t, r1After.BorrowedUsd)
+
+		// Pool rollup: suppliedUsd still known (only r0 contributes nonzero supply),
+		// but borrowedUsd/usdValue/netApy become nil since r1 contributes to borrowedUsd.
+		poolAfter := got.Pools[0]
+		require.NotNil(t, poolAfter.SuppliedUsd)
+		assert.InDelta(t, 2.0, *poolAfter.SuppliedUsd, 1e-9)
+		assert.Nil(t, poolAfter.BorrowedUsd)
+		assert.Nil(t, poolAfter.UsdValue)
+		assert.Nil(t, poolAfter.NetApy)
+	})
+}
+
+func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
+	account := keypair.MustRandom().Address()
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models := &data.Models{
+		Contract:     &data.ContractModel{DB: testDBConnectionPool, Metrics: m.DB},
+		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
+		Blend:        blenddata.NewModels(testDBConnectionPool, m.DB),
+	}
+	resolver := &accountResolver{&Resolver{models: models}}
+
+	got, err := resolver.BlendPositions(testCtx, &types.Account{StellarAddress: types.AddressBytea(account)})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Empty(t, got.Pools)
+	assert.Empty(t, got.Backstop)
+	assert.Equal(t, "0", got.BackstopClaimedBlnd)
+}
+
+// insertLendingClaim inserts a single LENDING/CLAIM state_changes row for
+// GetLendingClaimTotals to aggregate, mirroring statechanges_test.go's
+// TestStateChangeModel_GetLendingClaimTotals fixture pattern.
+func insertLendingClaim(t *testing.T, seq int64, account string, keyValue map[string]any, amount string) {
+	t.Helper()
+	execTestDB(t, `
+		INSERT INTO state_changes (
+			to_id, operation_id, state_change_id, state_change_category, state_change_reason,
+			ledger_number, account_id, ledger_created_at, key_value, amount
+		) VALUES ($1, $1, $1, 'LENDING', 'CLAIM', 1, $2, NOW(), $3, $4)`,
+		seq, types.AddressBytea(account), keyValue, amount)
+}
