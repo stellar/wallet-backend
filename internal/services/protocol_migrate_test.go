@@ -181,6 +181,7 @@ type testRecordingProcessor struct {
 	persistedCurrentStateSeqs []uint32
 	lastProcessed             uint32
 	resetCount                int
+	requiresContractData      bool
 }
 
 func (p *testRecordingProcessor) ProtocolID() string { return p.id }
@@ -188,6 +189,8 @@ func (p *testRecordingProcessor) ProtocolID() string { return p.id }
 func (p *testRecordingProcessor) StateChangeOrdinalBase() int64 {
 	return types.StateChangeOrdinalBaseSEP41
 }
+
+func (p *testRecordingProcessor) RequiresContractData() bool { return p.requiresContractData }
 
 func (p *testRecordingProcessor) Reset() { p.resetCount++ }
 

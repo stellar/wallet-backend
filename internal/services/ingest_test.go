@@ -1883,6 +1883,8 @@ func (p *testProtocolProcessor) StateChangeOrdinalBase() int64 {
 	return types.StateChangeOrdinalBaseSEP41
 }
 
+func (p *testProtocolProcessor) RequiresContractData() bool { return false }
+
 func (p *testProtocolProcessor) Reset() { p.stagedLedgerCount = 0 }
 
 func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
