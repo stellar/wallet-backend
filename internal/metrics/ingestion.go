@@ -64,6 +64,16 @@ type IngestionMetrics struct {
 	// by re-running the protocol-setup CLI.
 	// PromQL: rate(wallet_ingestion_wasm_classification_failures_total[5m]) > 0
 	WasmClassificationFailuresTotal *prometheus.CounterVec
+	// ProtocolDecodeFailuresTotal counts protocol events and ledger entries that
+	// carry a recognized key/topic symbol but fail to decode. A recognized symbol
+	// with an unexpected payload shape means the on-chain contract no longer
+	// matches what the decoder models — probable contract drift (an upgrade of a
+	// tracked contract), not routine noise. The dropped event or entry is skipped
+	// entirely, so a nonzero rate means silent data loss for that protocol until
+	// the decoder is updated. The protocol_id label is the owning protocol (e.g.
+	// "BLEND"); kind is "event" or "entry".
+	// PromQL: rate(wallet_ingestion_protocol_decode_failures_total[5m]) > 0
+	ProtocolDecodeFailuresTotal *prometheus.CounterVec
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -142,6 +152,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_wasm_classification_failures_total",
 			Help: "WASM classification failures by attempted validator (protocol_id label; \"unknown\" if spec extraction failed) and reason. The corresponding protocol_wasms.protocol_id column is left NULL; recover via the protocol-setup CLI.",
 		}, []string{"protocol_id", "reason"}),
+		ProtocolDecodeFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_ingestion_protocol_decode_failures_total",
+			Help: "Contract events and ledger entries with a recognized key/topic symbol that failed to decode, by protocol_id and kind (\"event\" or \"entry\"). A recognized symbol with an unexpected payload signals probable contract drift; the affected event or entry is dropped.",
+		}, []string{"protocol_id", "kind"}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -161,6 +175,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.StateChangesTotal,
 		m.ProtocolStateProcessingDuration,
 		m.WasmClassificationFailuresTotal,
+		m.ProtocolDecodeFailuresTotal,
 	)
 	return m
 }

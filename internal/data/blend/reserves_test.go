@@ -246,3 +246,100 @@ func TestReserveModel_BatchUpdateData(t *testing.T) {
 		require.NoError(t, m.BatchUpdateData(ctx, nil, nil))
 	})
 }
+
+func TestReserveModel_BatchUpdateConfig(t *testing.T) {
+	ctx, pool, m, cleanup := newReservesFixture(t)
+	defer cleanup()
+
+	poolAddr := keypair.MustRandom().Address()
+	assetAddr := keypair.MustRandom().Address()
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Reserve{fullReserve(poolAddr, assetAddr, 2, 5)}))
+	})
+
+	t.Run("updates only the ResConfig columns, preserving live data columns", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchUpdateConfig(ctx, tx, []blend.ReserveConfigUpdate{{
+				Pool: poolAddr, Asset: assetAddr,
+				Decimals: 6, CFactor: 800000, LFactor: 850000,
+				Util: 600000, MaxUtil: 900000,
+				RBase: 11000, ROne: 21000, RTwo: 31000, RThree: 41000,
+				Reactivity: 2000, SupplyCap: "2000000", Enabled: false,
+				LedgerNumber: 20,
+			}}))
+		})
+
+		row, ok := getReserve(t, ctx, pool, poolAddr, 2)
+		require.True(t, ok)
+		assert.Equal(t, int32(6), row.Decimals)
+		assert.Equal(t, int32(800000), row.CFactor)
+		assert.Equal(t, int32(850000), row.LFactor)
+		assert.Equal(t, int32(600000), row.Util)
+		assert.Equal(t, int32(900000), row.MaxUtil)
+		assert.Equal(t, int32(11000), row.RBase)
+		assert.Equal(t, int32(2000), row.Reactivity)
+		assert.Equal(t, "2000000", row.SupplyCap)
+		assert.False(t, row.Enabled)
+		assert.Equal(t, int32(20), row.LastModifiedLedger)
+		// Live data columns must be untouched by a config-only update.
+		assert.Equal(t, "1000000000000", row.BRate)
+		assert.Equal(t, "1000000000000", row.DRate)
+		assert.Equal(t, "100", row.BSupply)
+		assert.Equal(t, "50", row.DSupply)
+		assert.Equal(t, int64(1000), row.LastTime)
+	})
+
+	t.Run("last_modified_ledger never regresses (GREATEST)", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchUpdateConfig(ctx, tx, []blend.ReserveConfigUpdate{{
+				Pool: poolAddr, Asset: assetAddr,
+				Decimals: 5, SupplyCap: "1",
+				LedgerNumber: 1, // older than the ledger 20 set above
+			}}))
+		})
+
+		row, ok := getReserve(t, ctx, pool, poolAddr, 2)
+		require.True(t, ok)
+		assert.Equal(t, int32(20), row.LastModifiedLedger, "ledger must not regress")
+		assert.Equal(t, int32(5), row.Decimals)
+	})
+
+	t.Run("unknown (pool, asset) pair updates nothing and returns no error", func(t *testing.T) {
+		unknownAsset := keypair.MustRandom().Address()
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchUpdateConfig(ctx, tx, []blend.ReserveConfigUpdate{{
+				Pool: poolAddr, Asset: unknownAsset,
+				Decimals: 9, SupplyCap: "9", LedgerNumber: 999,
+			}}))
+		})
+
+		row, ok := getReserve(t, ctx, pool, poolAddr, 2)
+		require.True(t, ok)
+		assert.NotEqual(t, int32(9), row.Decimals)
+		assert.NotEqual(t, int32(999), row.LastModifiedLedger)
+	})
+
+	t.Run("rejects duplicate (pool, asset) keys", func(t *testing.T) {
+		before, ok := getReserve(t, ctx, pool, poolAddr, 2)
+		require.True(t, ok)
+
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		err = m.BatchUpdateConfig(ctx, tx, []blend.ReserveConfigUpdate{{
+			Pool: poolAddr, Asset: assetAddr, Decimals: 1, SupplyCap: "1", LedgerNumber: 30,
+		}, {
+			Pool: poolAddr, Asset: assetAddr, Decimals: 2, SupplyCap: "2", LedgerNumber: 31,
+		}})
+		require.ErrorContains(t, err, "duplicate reserve config update")
+		require.ErrorContains(t, err, "pre-aggregated")
+
+		after, ok := getReserve(t, ctx, pool, poolAddr, 2)
+		require.True(t, ok)
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("is a no-op when no rows are staged", func(t *testing.T) {
+		require.NoError(t, m.BatchUpdateConfig(ctx, nil, nil))
+	})
+}
