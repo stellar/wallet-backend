@@ -42,7 +42,9 @@ type PoolModelInterface interface {
 	// BatchUpsert inserts or partially updates pool config rows. Every nullable
 	// column uses COALESCE(EXCLUDED.col, blend_pools.col) so a nil field (not
 	// known/changed by the event that produced this row) never clobbers a
-	// previously known value. last_modified_ledger is always taken from EXCLUDED.
+	// previously known value. last_modified_ledger only moves forward
+	// (GREATEST), so validator enrichment writing ledger 0 never regresses a
+	// ledger recorded by the processor.
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) error
 	// SetRewardZone makes poolIDs the exact reward-zone membership set: listed
 	// pools become members, all other rows non-members. Rows whose membership
@@ -126,7 +128,7 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 			max_positions        = COALESCE(EXCLUDED.max_positions, blend_pools.max_positions),
 			min_collateral       = COALESCE(EXCLUDED.min_collateral, blend_pools.min_collateral),
 			admin                = COALESCE(EXCLUDED.admin, blend_pools.admin),
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_pools.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery,
 		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, admins, ledgers,
 	); err != nil {
