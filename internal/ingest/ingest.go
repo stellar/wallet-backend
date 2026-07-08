@@ -24,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
+	_ "github.com/stellar/wallet-backend/internal/services/blend" // registers BLEND validator + processor via init()
 	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
