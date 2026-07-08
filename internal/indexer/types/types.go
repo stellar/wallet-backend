@@ -504,6 +504,18 @@ const (
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
+
+	// Blend v2 lending categories. Each names the on-chain object an account
+	// position changes against, mirroring the core convention (category =
+	// object, reason = action).
+	StateChangeCategoryBlendSupply            StateChangeCategory = "BLEND_SUPPLY"
+	StateChangeCategoryBlendCollateral        StateChangeCategory = "BLEND_COLLATERAL"
+	StateChangeCategoryBlendDebt              StateChangeCategory = "BLEND_DEBT"
+	StateChangeCategoryBlendAuction           StateChangeCategory = "BLEND_AUCTION"
+	StateChangeCategoryBlendEmissions         StateChangeCategory = "BLEND_EMISSIONS"
+	StateChangeCategoryBlendBackstopEmissions StateChangeCategory = "BLEND_BACKSTOP_EMISSIONS"
+	StateChangeCategoryBlendBackstop          StateChangeCategory = "BLEND_BACKSTOP"
+	StateChangeCategoryBlendBackstopQueue     StateChangeCategory = "BLEND_BACKSTOP_QUEUE"
 )
 
 type StateChangeReason string
@@ -520,6 +532,16 @@ const (
 	StateChangeReasonUpdate StateChangeReason = "UPDATE"
 	StateChangeReasonSet    StateChangeReason = "SET"
 	StateChangeReasonClear  StateChangeReason = "CLEAR"
+
+	// Blend v2 lending reasons. Amount-bearing positions reuse CREDIT/DEBIT
+	// (and the queue ADD/REMOVE, defaulted debt BURN); the verbs below cover
+	// actions with no generic equivalent.
+	StateChangeReasonBorrow    StateChangeReason = "BORROW"
+	StateChangeReasonRepay     StateChangeReason = "REPAY"
+	StateChangeReasonFlashLoan StateChangeReason = "FLASH_LOAN"
+	StateChangeReasonBadDebt   StateChangeReason = "BAD_DEBT"
+	StateChangeReasonFill      StateChangeReason = "FILL"
+	StateChangeReasonClaim     StateChangeReason = "CLAIM"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
