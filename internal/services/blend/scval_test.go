@@ -1,6 +1,8 @@
 package blend
 
 import (
+	"math"
+	"math/big"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -140,5 +142,180 @@ func TestU32Val(t *testing.T) {
 	t.Run("returns false for a non-u32 value", func(t *testing.T) {
 		_, ok := u32Val(i128ScVal(1))
 		assert.False(t, ok)
+	})
+}
+
+// TestBuildSep40StellarAsset verification note ----------------------------
+//
+// SEP-40 (stellar-protocol ecosystem/sep-0040.md, fetched 2026-07-08) defines:
+//
+//	#[contracttype]
+//	enum Asset { Stellar(Address), Other(Symbol) }
+//	fn lastprice(env: Env, asset: Asset) -> Option<PriceData>;
+//	#[contracttype]
+//	pub struct PriceData { price: i128, timestamp: u64 }
+//
+// The tuple-variant enum's 2-element-ScVec([Symbol, payload]) encoding
+// matches this package's existing decodeVecKeyEntry convention for Blend's
+// own persistent storage keys.
+//
+// Live-confirmed on 2026-07-08 against real mainnet contracts (stellar-cli
+// 27.0.0, rpc-url https://mainnet.sorobanrpc.com):
+//   - `stellar contract info interface` against the deployed Reflector
+//     "external CEXs & DEXs" oracle
+//     (CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN) dumped:
+//     `pub enum Asset { Stellar(soroban_sdk::Address), Other(soroban_sdk::Symbol) }`,
+//     `pub struct PriceData { pub price: i128, pub timestamp: u64 }`,
+//     `fn lastprice(env: soroban_sdk::Env, asset: Asset) -> Option<PriceData>;`
+//     — an exact match for the SEP-40 shapes above.
+//   - A live simulation of lastprice(Asset::Stellar(<XLM SAC
+//     CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA>)) against the
+//     Reflector "Stellar Mainnet DEX" oracle
+//     (CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M) round-tripped
+//     to a real `Some(PriceData{price, timestamp})` response, proving the
+//     Asset::Stellar(Address) argument encoding this test asserts is what a
+//     production oracle actually expects.
+func TestBuildSep40StellarAsset(t *testing.T) {
+	const contractAddr = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+	t.Run("encodes Asset::Stellar(Address) as a 2-elem ScVec", func(t *testing.T) {
+		got, err := buildSep40StellarAsset(contractAddr)
+		require.NoError(t, err)
+
+		wantVec := &xdr.ScVec{
+			symScVal("Stellar"),
+			contractAddrScVal(t, contractAddr),
+		}
+		want := xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &wantVec}
+
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("returns an error for a malformed address", func(t *testing.T) {
+		_, err := buildSep40StellarAsset("not-a-strkey-address")
+		assert.Error(t, err)
+	})
+
+	t.Run("returns an error for a well-formed but non-contract strkey address", func(t *testing.T) {
+		// A valid G... (account) strkey decodes cleanly but fails the
+		// VersionByteContract check inside strkey.Decode.
+		_, err := buildSep40StellarAsset("GCYNTH5HDQRNIQ3BSSYPWFO5AHH5ERVZ32C37QRXT6TXK3OJFFOIVXDE")
+		assert.Error(t, err)
+	})
+}
+
+func TestDecodePriceData(t *testing.T) {
+	t.Run("decodes Some(PriceData)", func(t *testing.T) {
+		// Field-name Symbols in alphabetical order, matching how a Soroban
+		// SDK #[contracttype] struct actually serializes.
+		v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		m := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("price"), Val: i128ScVal(1_000_000)},
+			xdr.ScMapEntry{Key: symScVal("timestamp"), Val: u64ScVal(1_700_000_000)},
+		)
+		v.Map = &m
+
+		pd, err := decodePriceData(v)
+		require.NoError(t, err)
+		require.NotNil(t, pd)
+		assert.Equal(t, big.NewInt(1_000_000), pd.Price)
+		assert.Equal(t, uint64(1_700_000_000), pd.Timestamp)
+	})
+
+	t.Run("decodes None (ScvVoid) to (nil, nil)", func(t *testing.T) {
+		pd, err := decodePriceData(voidScVal())
+		require.NoError(t, err)
+		assert.Nil(t, pd)
+	})
+
+	t.Run("returns an error for a value that is neither a map nor void", func(t *testing.T) {
+		_, err := decodePriceData(u32ScVal(1))
+		assert.Error(t, err)
+	})
+
+	t.Run("returns an error when the price field is missing", func(t *testing.T) {
+		v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		m := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("timestamp"), Val: u64ScVal(1_700_000_000)},
+		)
+		v.Map = &m
+
+		_, err := decodePriceData(v)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns an error when the timestamp field is missing", func(t *testing.T) {
+		v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		m := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("price"), Val: i128ScVal(1_000_000)},
+		)
+		v.Map = &m
+
+		_, err := decodePriceData(v)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns an error when timestamp is not a u64", func(t *testing.T) {
+		v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		m := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("price"), Val: i128ScVal(1_000_000)},
+			xdr.ScMapEntry{Key: symScVal("timestamp"), Val: i128ScVal(1_700_000_000)},
+		)
+		v.Map = &m
+
+		_, err := decodePriceData(v)
+		assert.Error(t, err)
+	})
+
+	t.Run("returns an error when price is not an i128", func(t *testing.T) {
+		v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		m := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("price"), Val: u32ScVal(1)},
+			xdr.ScMapEntry{Key: symScVal("timestamp"), Val: u64ScVal(1_700_000_000)},
+		)
+		v.Map = &m
+
+		_, err := decodePriceData(v)
+		assert.Error(t, err)
+	})
+}
+
+func TestI128ToBigInt(t *testing.T) {
+	t.Run("decodes zero", func(t *testing.T) {
+		got := i128ToBigInt(xdr.Int128Parts{Hi: 0, Lo: 0})
+		assert.Equal(t, big.NewInt(0), got)
+	})
+
+	t.Run("decodes a small positive value", func(t *testing.T) {
+		got := i128ToBigInt(xdr.Int128Parts{Hi: 0, Lo: 42})
+		assert.Equal(t, big.NewInt(42), got)
+	})
+
+	t.Run("decodes a value greater than 2^64 (Hi > 0)", func(t *testing.T) {
+		got := i128ToBigInt(xdr.Int128Parts{Hi: 1, Lo: 0})
+		want, ok := new(big.Int).SetString("18446744073709551616", 10) // 2^64
+		require.True(t, ok)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("decodes -1 (Hi=-1, Lo=MaxUint64 two's-complement encoding)", func(t *testing.T) {
+		got := i128ToBigInt(xdr.Int128Parts{Hi: -1, Lo: xdr.Uint64(math.MaxUint64)})
+		assert.Equal(t, big.NewInt(-1), got)
+	})
+
+	t.Run("decodes a negative value with Hi < -1", func(t *testing.T) {
+		got := i128ToBigInt(xdr.Int128Parts{Hi: -2, Lo: 0})
+		want, ok := new(big.Int).SetString("-36893488147419103232", 10) // -2 * 2^64
+		require.True(t, ok)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("round-trips against independently computed big.Int arithmetic", func(t *testing.T) {
+		parts := xdr.Int128Parts{Hi: 5, Lo: 12345}
+		got := i128ToBigInt(parts)
+
+		want := new(big.Int).Lsh(big.NewInt(int64(parts.Hi)), 64)
+		want.Add(want, new(big.Int).SetUint64(uint64(parts.Lo)))
+		assert.Equal(t, want, got)
 	})
 }
