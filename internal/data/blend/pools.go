@@ -42,7 +42,9 @@ type PoolModelInterface interface {
 	// BatchUpsert inserts or partially updates pool config rows. Every nullable
 	// column uses COALESCE(EXCLUDED.col, blend_pools.col) so a nil field (not
 	// known/changed by the event that produced this row) never clobbers a
-	// previously known value. last_modified_ledger is always taken from EXCLUDED.
+	// previously known value. last_modified_ledger only moves forward
+	// (GREATEST), so validator enrichment writing ledger 0 never regresses a
+	// ledger recorded by the processor.
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) error
 	// SetRewardZone makes poolIDs the exact reward-zone membership set: listed
 	// pools become members, all other rows non-members. Rows whose membership
