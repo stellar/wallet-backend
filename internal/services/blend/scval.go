@@ -1,13 +1,14 @@
 // Package blend implements the BLEND v2 lending protocol's on-chain
 // interface: matching candidate WASM signatures against the Blend Pool and
-// Backstop contract interfaces (this file's caller, validator.go) and, in
-// later tasks, decoding Blend contract events into state changes.
+// Backstop contract interfaces (validator.go), decoding their ContractData
+// ledger entries into typed payloads (entries.go), and, in later tasks,
+// decoding Blend contract events into state changes.
 //
-// scval.go collects the minimal xdr.ScVal decoding helpers the validator
-// needs to turn a get_config() PoolConfig map into a blend_pools row. Every
-// helper follows the SDK's Get*/ok convention — a wrong-typed or malformed
-// value reports ok=false rather than panicking, so a caller can log-and-skip
-// a single bad field without aborting the whole decode.
+// scval.go collects the xdr.ScVal decoding helpers validator.go and
+// entries.go build on. Every helper follows the SDK's Get*/ok convention — a
+// wrong-typed or malformed value reports ok=false rather than panicking, so a
+// caller can log-and-skip a single bad field, or wrap the failure with
+// context, without the helper itself aborting anything.
 package blend
 
 import (
@@ -69,4 +70,67 @@ func u32Val(v xdr.ScVal) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(u), true
+}
+
+// u64Val decodes an ScVal holding a u64.
+func u64Val(v xdr.ScVal) (uint64, bool) {
+	u, ok := v.GetU64()
+	if !ok {
+		return 0, false
+	}
+	return uint64(u), true
+}
+
+// boolVal decodes an ScVal holding a bool.
+func boolVal(v xdr.ScVal) (bool, bool) {
+	return v.GetB()
+}
+
+// stringVal decodes an ScVal holding a Soroban String (distinct from a
+// Symbol) into a Go string.
+func stringVal(v xdr.ScVal) (string, bool) {
+	s, ok := v.GetStr()
+	if !ok {
+		return "", false
+	}
+	return string(s), true
+}
+
+// vecVal decodes an ScVal holding a Vec into its element slice.
+func vecVal(v xdr.ScVal) ([]xdr.ScVal, bool) {
+	vec, ok := v.GetVec()
+	if !ok {
+		return nil, false
+	}
+	if vec == nil {
+		return []xdr.ScVal{}, true
+	}
+	return []xdr.ScVal(*vec), true
+}
+
+// mapU32I128 decodes an ScVal holding a Map<u32, i128> — the shape used by a
+// Blend Positions entry's collateral/liabilities/supply fields, keyed by
+// reserve_index — into a Go map from reserve index to the i128's base-10
+// string. An empty on-chain map decodes to an empty (non-nil) Go map.
+func mapU32I128(v xdr.ScVal) (map[uint32]string, bool) {
+	m, ok := v.GetMap()
+	if !ok {
+		return nil, false
+	}
+	if m == nil {
+		return map[uint32]string{}, true
+	}
+	out := make(map[uint32]string, len(*m))
+	for _, entry := range *m {
+		k, ok := u32Val(entry.Key)
+		if !ok {
+			return nil, false
+		}
+		val, ok := i128String(entry.Val)
+		if !ok {
+			return nil, false
+		}
+		out[k] = val
+	}
+	return out, true
 }
