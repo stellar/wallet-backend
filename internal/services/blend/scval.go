@@ -134,3 +134,30 @@ func mapU32I128(v xdr.ScVal) (map[uint32]string, bool) {
 	}
 	return out, true
 }
+
+// mapAddrI128 decodes an ScVal holding a Map<Address, i128> — the shape used
+// by a Blend fill_auction event's AuctionData bid/lot fields, keyed by asset
+// contract address — into a Go map from strkey address to the i128's base-10
+// string. An empty on-chain map decodes to an empty (non-nil) Go map.
+func mapAddrI128(v xdr.ScVal) (map[string]string, bool) {
+	m, ok := v.GetMap()
+	if !ok {
+		return nil, false
+	}
+	if m == nil {
+		return map[string]string{}, true
+	}
+	out := make(map[string]string, len(*m))
+	for _, entry := range *m {
+		k, ok := addrString(entry.Key)
+		if !ok {
+			return nil, false
+		}
+		val, ok := i128String(entry.Val)
+		if !ok {
+			return nil, false
+		}
+		out[k] = val
+	}
+	return out, true
+}
