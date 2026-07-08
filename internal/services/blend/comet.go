@@ -52,10 +52,14 @@ const cometPriceDecimals = 7
 const cometTokenCount = 2
 
 // cometState is a Comet weighted pool's raw on-chain balances, weights, and
-// LP total supply, already split into BLND and USDC legs. All fields are
-// 7-decimal fixed-point big.Ints (Comet's STROOP scale) — the same shape
-// cometValuation consumes.
+// LP total supply, already split into BLND and USDC legs. Balance/weight/
+// supply fields are 7-decimal fixed-point big.Ints (Comet's STROOP scale) —
+// the same shape cometValuation consumes. BLNDAddress is the strkey
+// C-address of the BLND leg's token contract (get_tokens()[blndIdx]) — the
+// price snapshot task (prices.go) needs it to key the derived BLND price row
+// by the real BLND token address rather than the Comet pool's own address.
 type cometState struct {
+	BLNDAddress string
 	BLNDBalance *big.Int
 	USDCBalance *big.Int
 	BLNDWeight  *big.Int
@@ -235,6 +239,7 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 	usdcIdx := 1 - blndIdx
 
 	return &cometState{
+		BLNDAddress: tokens[blndIdx],
 		BLNDBalance: balances[blndIdx],
 		USDCBalance: balances[usdcIdx],
 		BLNDWeight:  weights[blndIdx],
