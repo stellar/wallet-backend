@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -198,4 +200,65 @@ func stringPtrFromAny(v any) *string {
 		return nil
 	}
 	return &s
+}
+
+// resolveRequiredKeyValueString extracts a non-null string field from a Blend
+// state change's KeyValue payload. A missing key on a row whose schema field
+// is non-null is a data-integrity failure, so it surfaces as an error rather
+// than an empty string.
+func (r *Resolver) resolveRequiredKeyValueString(kv types.NullableJSONB, key string) (string, error) {
+	s, ok := kv[key].(string)
+	if !ok {
+		return "", fmt.Errorf("state change key_value is missing required key %q", key)
+	}
+	return s, nil
+}
+
+// resolveRequiredKeyValueInt32 extracts a non-null integer field from a Blend
+// state change's KeyValue payload. JSONB numbers unmarshal as float64.
+func (r *Resolver) resolveRequiredKeyValueInt32(kv types.NullableJSONB, key string) (int32, error) {
+	f, ok := kv[key].(float64)
+	if !ok {
+		return 0, fmt.Errorf("state change key_value is missing required numeric key %q", key)
+	}
+	return int32(f), nil
+}
+
+// resolveAuctionType maps a BLEND_AUCTION row's on-chain auction-type ordinal
+// (key_value["auctionType"]) to the BlendAuctionType enum.
+func (r *Resolver) resolveAuctionType(kv types.NullableJSONB) (generated.BlendAuctionType, error) {
+	f, ok := kv["auctionType"].(float64)
+	if !ok {
+		return "", fmt.Errorf("state change key_value is missing required numeric key %q", "auctionType")
+	}
+	switch int(f) {
+	case 0:
+		return generated.BlendAuctionTypeUserLiquidation, nil
+	case 1:
+		return generated.BlendAuctionTypeBadDebt, nil
+	case 2:
+		return generated.BlendAuctionTypeInterest, nil
+	default:
+		return "", fmt.Errorf("unknown blend auction type %d", int(f))
+	}
+}
+
+// resolveAuctionAmounts converts a BLEND_AUCTION row's lot/bid map
+// (key_value[key]: asset contract ID → decimal-string amount) into a
+// deterministic asset-sorted list.
+func (r *Resolver) resolveAuctionAmounts(kv types.NullableJSONB, key string) ([]*generated.BlendAuctionAmount, error) {
+	raw, ok := kv[key].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("state change key_value is missing required map key %q", key)
+	}
+	out := make([]*generated.BlendAuctionAmount, 0, len(raw))
+	for asset, v := range raw {
+		amount, amountOk := v.(string)
+		if !amountOk {
+			return nil, fmt.Errorf("state change key_value %s[%s] is not a string amount", key, asset)
+		}
+		out = append(out, &generated.BlendAuctionAmount{AssetContractID: asset, Amount: amount})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].AssetContractID < out[j].AssetContractID })
+	return out, nil
 }

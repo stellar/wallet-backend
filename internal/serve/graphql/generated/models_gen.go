@@ -83,6 +83,13 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
+// BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
+type BlendAuctionAmount struct {
+	AssetContractID string `json:"assetContractId"`
+	// Raw on-chain integer amount at the asset's native decimals, NOT a USD value.
+	Amount string `json:"amount"`
+}
+
 // An account's liquidity-pool share holding. `balance` is the account's pool
 // shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 // assets and amounts.
@@ -352,6 +359,67 @@ func (e *AssetType) UnmarshalJSON(b []byte) error {
 }
 
 func (e AssetType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which object a Blend v2 Dutch auction sells off.
+type BlendAuctionType string
+
+const (
+	// A user's collateral, sold to cover their debt.
+	BlendAuctionTypeUserLiquidation BlendAuctionType = "USER_LIQUIDATION"
+	// Backstop LP tokens, sold to cover debt socialized to the backstop.
+	BlendAuctionTypeBadDebt BlendAuctionType = "BAD_DEBT"
+	// Accrued pool interest, sold for backstop LP tokens.
+	BlendAuctionTypeInterest BlendAuctionType = "INTEREST"
+)
+
+var AllBlendAuctionType = []BlendAuctionType{
+	BlendAuctionTypeUserLiquidation,
+	BlendAuctionTypeBadDebt,
+	BlendAuctionTypeInterest,
+}
+
+func (e BlendAuctionType) IsValid() bool {
+	switch e {
+	case BlendAuctionTypeUserLiquidation, BlendAuctionTypeBadDebt, BlendAuctionTypeInterest:
+		return true
+	}
+	return false
+}
+
+func (e BlendAuctionType) String() string {
+	return string(e)
+}
+
+func (e *BlendAuctionType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendAuctionType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendAuctionType", str)
+	}
+	return nil
+}
+
+func (e BlendAuctionType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendAuctionType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendAuctionType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
