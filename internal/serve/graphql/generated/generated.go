@@ -71,6 +71,7 @@ type ComplexityRoot struct {
 	Account struct {
 		Address         func(childComplexity int) int
 		Balances        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		BlendPositions  func(childComplexity int) int
 		Operations      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 		Sep41Allowances func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges    func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
@@ -178,6 +179,12 @@ type ComplexityRoot struct {
 		Node   func(childComplexity int) int
 	}
 
+	BlendAccountPositions struct {
+		Backstop            func(childComplexity int) int
+		BackstopClaimedBlnd func(childComplexity int) int
+		Pools               func(childComplexity int) int
+	}
+
 	BlendAuctionAmount struct {
 		Amount          func(childComplexity int) int
 		AssetContractID func(childComplexity int) int
@@ -225,6 +232,17 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
+	BlendBackstopPosition struct {
+		EmissionsEarnedBlnd func(childComplexity int) int
+		EmissionsEarnedUsd  func(childComplexity int) int
+		LpTokens            func(childComplexity int) int
+		PoolAddress         func(childComplexity int) int
+		PoolName            func(childComplexity int) int
+		Q4w                 func(childComplexity int) int
+		Shares              func(childComplexity int) int
+		UsdValue            func(childComplexity int) int
+	}
+
 	BlendBackstopQueueChange struct {
 		Account         func(childComplexity int) int
 		Amount          func(childComplexity int) int
@@ -266,6 +284,21 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
+	BlendEarnOption struct {
+		AssetContractID func(childComplexity int) int
+		Pools           func(childComplexity int) int
+		TokenDecimals   func(childComplexity int) int
+		TokenName       func(childComplexity int) int
+		TokenSymbol     func(childComplexity int) int
+	}
+
+	BlendEarnPoolOption struct {
+		PoolAddress func(childComplexity int) int
+		PoolName    func(childComplexity int) int
+		SuppliedUsd func(childComplexity int) int
+		SupplyApy   func(childComplexity int) int
+	}
+
 	BlendEmissionsClaimChange struct {
 		Account         func(childComplexity int) int
 		Amount          func(childComplexity int) int
@@ -278,6 +311,76 @@ type ComplexityRoot struct {
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 		Transaction     func(childComplexity int) int
+	}
+
+	BlendPool struct {
+		Address          func(childComplexity int) int
+		BackstopRate     func(childComplexity int) int
+		BackstopUsd      func(childComplexity int) int
+		BorrowedUsd      func(childComplexity int) int
+		InterestApy      func(childComplexity int) int
+		MaxPositions     func(childComplexity int) int
+		Name             func(childComplexity int) int
+		NetApy           func(childComplexity int) int
+		OracleContractID func(childComplexity int) int
+		Reserves         func(childComplexity int) int
+		Status           func(childComplexity int) int
+		SuppliedUsd      func(childComplexity int) int
+	}
+
+	BlendPoolPosition struct {
+		BorrowedUsd func(childComplexity int) int
+		ClaimedBlnd func(childComplexity int) int
+		NetApy      func(childComplexity int) int
+		PoolAddress func(childComplexity int) int
+		PoolName    func(childComplexity int) int
+		Reserves    func(childComplexity int) int
+		SuppliedUsd func(childComplexity int) int
+		UsdValue    func(childComplexity int) int
+	}
+
+	BlendQ4W struct {
+		Amount     func(childComplexity int) int
+		Expiration func(childComplexity int) int
+	}
+
+	BlendReserve struct {
+		AssetContractID    func(childComplexity int) int
+		BorrowApy          func(childComplexity int) int
+		BorrowedTokens     func(childComplexity int) int
+		BorrowedUsd        func(childComplexity int) int
+		CFactor            func(childComplexity int) int
+		EmissionsBorrowApr func(childComplexity int) int
+		EmissionsSupplyApr func(childComplexity int) int
+		Enabled            func(childComplexity int) int
+		LFactor            func(childComplexity int) int
+		PriceUsd           func(childComplexity int) int
+		SuppliedTokens     func(childComplexity int) int
+		SuppliedUsd        func(childComplexity int) int
+		SupplyApy          func(childComplexity int) int
+		TokenDecimals      func(childComplexity int) int
+		TokenName          func(childComplexity int) int
+		TokenSymbol        func(childComplexity int) int
+		Utilization        func(childComplexity int) int
+	}
+
+	BlendReservePosition struct {
+		AssetContractID     func(childComplexity int) int
+		BorrowApy           func(childComplexity int) int
+		BorrowedTokens      func(childComplexity int) int
+		BorrowedUsd         func(childComplexity int) int
+		CollateralTokens    func(childComplexity int) int
+		EmissionsApr        func(childComplexity int) int
+		EmissionsEarnedBlnd func(childComplexity int) int
+		EmissionsEarnedUsd  func(childComplexity int) int
+		InterestEarned      func(childComplexity int) int
+		InterestPaid        func(childComplexity int) int
+		SuppliedTokens      func(childComplexity int) int
+		SuppliedUsd         func(childComplexity int) int
+		SupplyApy           func(childComplexity int) int
+		TokenDecimals       func(childComplexity int) int
+		TokenName           func(childComplexity int) int
+		TokenSymbol         func(childComplexity int) int
 	}
 
 	BlendSupplyChange struct {
@@ -428,6 +531,9 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AccountByAddress  func(childComplexity int, address string) int
+		BlendEarnOptions  func(childComplexity int) int
+		BlendPool         func(childComplexity int, address string) int
+		BlendPools        func(childComplexity int) int
 		OperationByID     func(childComplexity int, id int64) int
 		TransactionByHash func(childComplexity int, hash string) int
 	}
@@ -614,6 +720,7 @@ type AccountResolver interface {
 	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*SEP41AllowanceConnection, error)
+	BlendPositions(ctx context.Context, obj *types.Account) (*BlendAccountPositions, error)
 }
 type AccountCreatedChangeResolver interface {
 	Category(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeCategory, error)
@@ -837,6 +944,9 @@ type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
+	BlendPools(ctx context.Context) ([]*BlendPool, error)
+	BlendPool(ctx context.Context, address string) (*BlendPool, error)
+	BlendEarnOptions(ctx context.Context) ([]*BlendEarnOption, error)
 }
 type SignerAddedChangeResolver interface {
 	Category(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeCategory, error)
@@ -952,6 +1062,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Account.Balances(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+	case "Account.blendPositions":
+		if e.ComplexityRoot.Account.BlendPositions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Account.BlendPositions(childComplexity), true
 	case "Account.operations":
 		if e.ComplexityRoot.Account.Operations == nil {
 			break
@@ -1433,6 +1549,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
 
+	case "BlendAccountPositions.backstop":
+		if e.ComplexityRoot.BlendAccountPositions.Backstop == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.Backstop(childComplexity), true
+	case "BlendAccountPositions.backstopClaimedBlnd":
+		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimedBlnd(childComplexity), true
+	case "BlendAccountPositions.pools":
+		if e.ComplexityRoot.BlendAccountPositions.Pools == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.Pools(childComplexity), true
+
 	case "BlendAuctionAmount.amount":
 		if e.ComplexityRoot.BlendAuctionAmount.Amount == nil {
 			break
@@ -1647,6 +1782,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Transaction(childComplexity), true
 
+	case "BlendBackstopPosition.emissionsEarnedBlnd":
+		if e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedBlnd(childComplexity), true
+	case "BlendBackstopPosition.emissionsEarnedUsd":
+		if e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedUsd(childComplexity), true
+	case "BlendBackstopPosition.lpTokens":
+		if e.ComplexityRoot.BlendBackstopPosition.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.LpTokens(childComplexity), true
+	case "BlendBackstopPosition.poolAddress":
+		if e.ComplexityRoot.BlendBackstopPosition.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.PoolAddress(childComplexity), true
+	case "BlendBackstopPosition.poolName":
+		if e.ComplexityRoot.BlendBackstopPosition.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.PoolName(childComplexity), true
+	case "BlendBackstopPosition.q4w":
+		if e.ComplexityRoot.BlendBackstopPosition.Q4w == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Q4w(childComplexity), true
+	case "BlendBackstopPosition.shares":
+		if e.ComplexityRoot.BlendBackstopPosition.Shares == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Shares(childComplexity), true
+	case "BlendBackstopPosition.usdValue":
+		if e.ComplexityRoot.BlendBackstopPosition.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.UsdValue(childComplexity), true
+
 	case "BlendBackstopQueueChange.account":
 		if e.ComplexityRoot.BlendBackstopQueueChange.Account == nil {
 			break
@@ -1842,6 +2026,62 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BlendDebtChange.Transaction(childComplexity), true
 
+	case "BlendEarnOption.assetContractId":
+		if e.ComplexityRoot.BlendEarnOption.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnOption.AssetContractID(childComplexity), true
+	case "BlendEarnOption.pools":
+		if e.ComplexityRoot.BlendEarnOption.Pools == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnOption.Pools(childComplexity), true
+	case "BlendEarnOption.tokenDecimals":
+		if e.ComplexityRoot.BlendEarnOption.TokenDecimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnOption.TokenDecimals(childComplexity), true
+	case "BlendEarnOption.tokenName":
+		if e.ComplexityRoot.BlendEarnOption.TokenName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnOption.TokenName(childComplexity), true
+	case "BlendEarnOption.tokenSymbol":
+		if e.ComplexityRoot.BlendEarnOption.TokenSymbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnOption.TokenSymbol(childComplexity), true
+
+	case "BlendEarnPoolOption.poolAddress":
+		if e.ComplexityRoot.BlendEarnPoolOption.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnPoolOption.PoolAddress(childComplexity), true
+	case "BlendEarnPoolOption.poolName":
+		if e.ComplexityRoot.BlendEarnPoolOption.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnPoolOption.PoolName(childComplexity), true
+	case "BlendEarnPoolOption.suppliedUsd":
+		if e.ComplexityRoot.BlendEarnPoolOption.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnPoolOption.SuppliedUsd(childComplexity), true
+	case "BlendEarnPoolOption.supplyApy":
+		if e.ComplexityRoot.BlendEarnPoolOption.SupplyApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnPoolOption.SupplyApy(childComplexity), true
+
 	case "BlendEmissionsClaimChange.account":
 		if e.ComplexityRoot.BlendEmissionsClaimChange.Account == nil {
 			break
@@ -1908,6 +2148,341 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendEmissionsClaimChange.Transaction(childComplexity), true
+
+	case "BlendPool.address":
+		if e.ComplexityRoot.BlendPool.Address == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Address(childComplexity), true
+	case "BlendPool.backstopRate":
+		if e.ComplexityRoot.BlendPool.BackstopRate == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BackstopRate(childComplexity), true
+	case "BlendPool.backstopUsd":
+		if e.ComplexityRoot.BlendPool.BackstopUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BackstopUsd(childComplexity), true
+	case "BlendPool.borrowedUsd":
+		if e.ComplexityRoot.BlendPool.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BorrowedUsd(childComplexity), true
+	case "BlendPool.interestApy":
+		if e.ComplexityRoot.BlendPool.InterestApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.InterestApy(childComplexity), true
+	case "BlendPool.maxPositions":
+		if e.ComplexityRoot.BlendPool.MaxPositions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.MaxPositions(childComplexity), true
+	case "BlendPool.name":
+		if e.ComplexityRoot.BlendPool.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Name(childComplexity), true
+	case "BlendPool.netApy":
+		if e.ComplexityRoot.BlendPool.NetApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.NetApy(childComplexity), true
+	case "BlendPool.oracleContractId":
+		if e.ComplexityRoot.BlendPool.OracleContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.OracleContractID(childComplexity), true
+	case "BlendPool.reserves":
+		if e.ComplexityRoot.BlendPool.Reserves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Reserves(childComplexity), true
+	case "BlendPool.status":
+		if e.ComplexityRoot.BlendPool.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Status(childComplexity), true
+	case "BlendPool.suppliedUsd":
+		if e.ComplexityRoot.BlendPool.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.SuppliedUsd(childComplexity), true
+
+	case "BlendPoolPosition.borrowedUsd":
+		if e.ComplexityRoot.BlendPoolPosition.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.BorrowedUsd(childComplexity), true
+	case "BlendPoolPosition.claimedBlnd":
+		if e.ComplexityRoot.BlendPoolPosition.ClaimedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.ClaimedBlnd(childComplexity), true
+	case "BlendPoolPosition.netApy":
+		if e.ComplexityRoot.BlendPoolPosition.NetApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.NetApy(childComplexity), true
+	case "BlendPoolPosition.poolAddress":
+		if e.ComplexityRoot.BlendPoolPosition.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.PoolAddress(childComplexity), true
+	case "BlendPoolPosition.poolName":
+		if e.ComplexityRoot.BlendPoolPosition.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.PoolName(childComplexity), true
+	case "BlendPoolPosition.reserves":
+		if e.ComplexityRoot.BlendPoolPosition.Reserves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.Reserves(childComplexity), true
+	case "BlendPoolPosition.suppliedUsd":
+		if e.ComplexityRoot.BlendPoolPosition.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.SuppliedUsd(childComplexity), true
+	case "BlendPoolPosition.usdValue":
+		if e.ComplexityRoot.BlendPoolPosition.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.UsdValue(childComplexity), true
+
+	case "BlendQ4W.amount":
+		if e.ComplexityRoot.BlendQ4W.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.Amount(childComplexity), true
+	case "BlendQ4W.expiration":
+		if e.ComplexityRoot.BlendQ4W.Expiration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.Expiration(childComplexity), true
+
+	case "BlendReserve.assetContractId":
+		if e.ComplexityRoot.BlendReserve.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.AssetContractID(childComplexity), true
+	case "BlendReserve.borrowApy":
+		if e.ComplexityRoot.BlendReserve.BorrowApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowApy(childComplexity), true
+	case "BlendReserve.borrowedTokens":
+		if e.ComplexityRoot.BlendReserve.BorrowedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowedTokens(childComplexity), true
+	case "BlendReserve.borrowedUsd":
+		if e.ComplexityRoot.BlendReserve.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowedUsd(childComplexity), true
+	case "BlendReserve.cFactor":
+		if e.ComplexityRoot.BlendReserve.CFactor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.CFactor(childComplexity), true
+	case "BlendReserve.emissionsBorrowApr":
+		if e.ComplexityRoot.BlendReserve.EmissionsBorrowApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.EmissionsBorrowApr(childComplexity), true
+	case "BlendReserve.emissionsSupplyApr":
+		if e.ComplexityRoot.BlendReserve.EmissionsSupplyApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.EmissionsSupplyApr(childComplexity), true
+	case "BlendReserve.enabled":
+		if e.ComplexityRoot.BlendReserve.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.Enabled(childComplexity), true
+	case "BlendReserve.lFactor":
+		if e.ComplexityRoot.BlendReserve.LFactor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.LFactor(childComplexity), true
+	case "BlendReserve.priceUsd":
+		if e.ComplexityRoot.BlendReserve.PriceUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.PriceUsd(childComplexity), true
+	case "BlendReserve.suppliedTokens":
+		if e.ComplexityRoot.BlendReserve.SuppliedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SuppliedTokens(childComplexity), true
+	case "BlendReserve.suppliedUsd":
+		if e.ComplexityRoot.BlendReserve.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SuppliedUsd(childComplexity), true
+	case "BlendReserve.supplyApy":
+		if e.ComplexityRoot.BlendReserve.SupplyApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SupplyApy(childComplexity), true
+	case "BlendReserve.tokenDecimals":
+		if e.ComplexityRoot.BlendReserve.TokenDecimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenDecimals(childComplexity), true
+	case "BlendReserve.tokenName":
+		if e.ComplexityRoot.BlendReserve.TokenName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenName(childComplexity), true
+	case "BlendReserve.tokenSymbol":
+		if e.ComplexityRoot.BlendReserve.TokenSymbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenSymbol(childComplexity), true
+	case "BlendReserve.utilization":
+		if e.ComplexityRoot.BlendReserve.Utilization == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.Utilization(childComplexity), true
+
+	case "BlendReservePosition.assetContractId":
+		if e.ComplexityRoot.BlendReservePosition.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.AssetContractID(childComplexity), true
+	case "BlendReservePosition.borrowApy":
+		if e.ComplexityRoot.BlendReservePosition.BorrowApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowApy(childComplexity), true
+	case "BlendReservePosition.borrowedTokens":
+		if e.ComplexityRoot.BlendReservePosition.BorrowedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowedTokens(childComplexity), true
+	case "BlendReservePosition.borrowedUsd":
+		if e.ComplexityRoot.BlendReservePosition.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowedUsd(childComplexity), true
+	case "BlendReservePosition.collateralTokens":
+		if e.ComplexityRoot.BlendReservePosition.CollateralTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.CollateralTokens(childComplexity), true
+	case "BlendReservePosition.emissionsApr":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsApr(childComplexity), true
+	case "BlendReservePosition.emissionsEarnedBlnd":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsEarnedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsEarnedBlnd(childComplexity), true
+	case "BlendReservePosition.emissionsEarnedUsd":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsEarnedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsEarnedUsd(childComplexity), true
+	case "BlendReservePosition.interestEarned":
+		if e.ComplexityRoot.BlendReservePosition.InterestEarned == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.InterestEarned(childComplexity), true
+	case "BlendReservePosition.interestPaid":
+		if e.ComplexityRoot.BlendReservePosition.InterestPaid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.InterestPaid(childComplexity), true
+	case "BlendReservePosition.suppliedTokens":
+		if e.ComplexityRoot.BlendReservePosition.SuppliedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SuppliedTokens(childComplexity), true
+	case "BlendReservePosition.suppliedUsd":
+		if e.ComplexityRoot.BlendReservePosition.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SuppliedUsd(childComplexity), true
+	case "BlendReservePosition.supplyApy":
+		if e.ComplexityRoot.BlendReservePosition.SupplyApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SupplyApy(childComplexity), true
+	case "BlendReservePosition.tokenDecimals":
+		if e.ComplexityRoot.BlendReservePosition.TokenDecimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenDecimals(childComplexity), true
+	case "BlendReservePosition.tokenName":
+		if e.ComplexityRoot.BlendReservePosition.TokenName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenName(childComplexity), true
+	case "BlendReservePosition.tokenSymbol":
+		if e.ComplexityRoot.BlendReservePosition.TokenSymbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenSymbol(childComplexity), true
 
 	case "BlendSupplyChange.account":
 		if e.ComplexityRoot.BlendSupplyChange.Account == nil {
@@ -2563,6 +3138,29 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AccountByAddress(childComplexity, args["address"].(string)), true
+	case "Query.blendEarnOptions":
+		if e.ComplexityRoot.Query.BlendEarnOptions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.BlendEarnOptions(childComplexity), true
+	case "Query.blendPool":
+		if e.ComplexityRoot.Query.BlendPool == nil {
+			break
+		}
+
+		args, err := ec.field_Query_blendPool_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.BlendPool(childComplexity, args["address"].(string)), true
+	case "Query.blendPools":
+		if e.ComplexityRoot.Query.BlendPools == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.BlendPools(childComplexity), true
 
 	case "Query.operationById":
 		if e.ComplexityRoot.Query.OperationByID == nil {
@@ -3616,6 +4214,157 @@ type SEP41Allowance {
     expirationLedger: UInt32!
     """Ledger in which this allowance was last modified."""
     lastModifiedLedger: UInt32!
+}
+`, BuiltIn: false},
+	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
+#
+# Query.blendPools/blendPool/blendEarnOptions are pool-wide catalog views
+# (Tasks 5.5/5.6); their resolvers are not implemented yet. Account.blendPositions
+# is this task's scope: an account's lending, collateral, and backstop positions
+# across every Blend v2 pool it touches.
+#
+# Money-shaped fields use Float for USD/APY values (nullable wherever a missing
+# oracle price makes the value uncomputable — a genuinely zero balance is still
+# 0, not null) and String! for on-chain integer amounts, kept at full precision
+# rather than lossy float64.
+
+extend type Query {
+  blendPools: [BlendPool!]!
+  blendPool(address: String!): BlendPool
+  blendEarnOptions: [BlendEarnOption!]!
+}
+
+extend type Account {
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
+}
+
+"""
+BlendAccountPositions aggregates one account's Blend v2 exposure across every
+pool it has touched. backstopClaimedBlnd is lifetime backstop-emission BLND
+claims; unlike claimedBlnd (per pool), the on-chain backstop claim event
+carries no pool address, so this total can only ever be reported account-wide.
+"""
+type BlendAccountPositions {
+  pools: [BlendPoolPosition!]!
+  backstop: [BlendBackstopPosition!]!
+  backstopClaimedBlnd: String!
+}
+
+"""BlendPoolPosition rolls up an account's reserve positions within one pool."""
+type BlendPoolPosition {
+  poolAddress: String!
+  poolName: String
+  usdValue: Float
+  suppliedUsd: Float
+  borrowedUsd: Float
+  netApy: Float
+  """Lifetime pool-source CLAIM total (state_changes LENDING/CLAIM, source=pool) for this pool."""
+  claimedBlnd: String!
+  reserves: [BlendReservePosition!]!
+}
+
+"""
+BlendReservePosition is an account's position in one reserve of a pool.
+suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+the reserve's b/d emission streams; claimed history is tracked per pool only
+(see BlendPoolPosition.claimedBlnd), not per reserve.
+"""
+type BlendReservePosition {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  suppliedTokens: String!
+  collateralTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  supplyApy: Float
+  borrowApy: Float
+  emissionsApr: Float
+  interestEarned: String!
+  interestPaid: String!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""
+BlendBackstopPosition is an account's backstop deposit in one pool.
+emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+emission stream for this pool.
+"""
+type BlendBackstopPosition {
+  poolAddress: String!
+  poolName: String
+  shares: String!
+  lpTokens: String!
+  usdValue: Float
+  q4w: [BlendQ4W!]!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""BlendQ4W is one queued backstop withdrawal."""
+type BlendQ4W {
+  amount: String!
+  expiration: Int64!
+}
+
+"""BlendPool is a pool-wide catalog view (Tasks 5.5/5.6 scope)."""
+type BlendPool {
+  address: String!
+  name: String
+  status: Int
+  oracleContractId: String
+  backstopRate: Int
+  maxPositions: Int
+  suppliedUsd: Float
+  borrowedUsd: Float
+  backstopUsd: Float
+  interestApy: Float
+  netApy: Float
+  reserves: [BlendReserve!]!
+}
+
+"""BlendReserve is a pool-wide reserve catalog view (Tasks 5.5/5.6 scope)."""
+type BlendReserve {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  enabled: Boolean!
+  utilization: Float
+  supplyApy: Float
+  borrowApy: Float
+  emissionsSupplyApr: Float
+  emissionsBorrowApr: Float
+  suppliedTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  cFactor: Int
+  lFactor: Int
+  priceUsd: Float
+}
+
+"""BlendEarnOption is a "where can I earn this asset" catalog view (Tasks 5.5/5.6 scope)."""
+type BlendEarnOption {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  pools: [BlendEarnPoolOption!]!
+}
+
+"""BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset."""
+type BlendEarnPoolOption {
+  poolAddress: String!
+  poolName: String
+  supplyApy: Float
+  suppliedUsd: Float
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -4859,6 +5608,17 @@ func (ec *executionContext) field_Query_accountByAddress_args(ctx context.Contex
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_blendPool_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "address", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["address"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_operationById_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -5249,6 +6009,43 @@ func (ec *executionContext) fieldContext_Account_sep41Allowances(ctx context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_blendPositions(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Account_blendPositions,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Account().BlendPositions(ctx, obj)
+		},
+		nil,
+		ec.marshalNBlendAccountPositions2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Account_blendPositions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "pools":
+				return ec.fieldContext_BlendAccountPositions_pools(ctx, field)
+			case "backstop":
+				return ec.fieldContext_BlendAccountPositions_backstop(ctx, field)
+			case "backstopClaimedBlnd":
+				return ec.fieldContext_BlendAccountPositions_backstopClaimedBlnd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAccountPositions", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AccountCreatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5430,6 +6227,8 @@ func (ec *executionContext) fieldContext_AccountCreatedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -5751,6 +6550,8 @@ func (ec *executionContext) fieldContext_AccountFlagsChange_account(_ context.Co
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6072,6 +6873,8 @@ func (ec *executionContext) fieldContext_AccountMergedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6633,6 +7436,8 @@ func (ec *executionContext) fieldContext_AllowanceChange_account(_ context.Conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7041,6 +7846,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_account(_ co
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7420,6 +8227,8 @@ func (ec *executionContext) fieldContext_BalanceChange_account(_ context.Context
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7750,6 +8559,129 @@ func (ec *executionContext) fieldContext_BalanceEdge_cursor(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendAccountPositions_pools(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_pools,
+		func(ctx context.Context) (any, error) {
+			return obj.Pools, nil
+		},
+		nil,
+		ec.marshalNBlendPoolPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_pools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendPoolPosition_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendPoolPosition_poolName(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendPoolPosition_usdValue(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPoolPosition_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPoolPosition_borrowedUsd(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPoolPosition_netApy(ctx, field)
+			case "claimedBlnd":
+				return ec.fieldContext_BlendPoolPosition_claimedBlnd(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPoolPosition_reserves(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolPosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAccountPositions_backstop(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_backstop,
+		func(ctx context.Context) (any, error) {
+			return obj.Backstop, nil
+		},
+		nil,
+		ec.marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstop(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendBackstopPosition_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendBackstopPosition_poolName(ctx, field)
+			case "shares":
+				return ec.fieldContext_BlendBackstopPosition_shares(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendBackstopPosition_lpTokens(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendBackstopPosition_usdValue(ctx, field)
+			case "q4w":
+				return ec.fieldContext_BlendBackstopPosition_q4w(ctx, field)
+			case "emissionsEarnedBlnd":
+				return ec.fieldContext_BlendBackstopPosition_emissionsEarnedBlnd(ctx, field)
+			case "emissionsEarnedUsd":
+				return ec.fieldContext_BlendBackstopPosition_emissionsEarnedUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendBackstopPosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAccountPositions_backstopClaimedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_backstopClaimedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopClaimedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendAuctionAmount_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendAuctionAmount) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -7989,6 +8921,8 @@ func (ec *executionContext) fieldContext_BlendAuctionChange_account(_ context.Co
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8467,6 +9401,8 @@ func (ec *executionContext) fieldContext_BlendBackstopChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8817,6 +9753,8 @@ func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_accou
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8952,6 +9890,244 @@ func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_amoun
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_shares(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_shares,
+		func(ctx context.Context) (any, error) {
+			return obj.Shares, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_shares(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_q4w(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_q4w,
+		func(ctx context.Context) (any, error) {
+			return obj.Q4w, nil
+		},
+		nil,
+		ec.marshalNBlendQ4W2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4wᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_q4w(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "amount":
+				return ec.fieldContext_BlendQ4W_amount(ctx, field)
+			case "expiration":
+				return ec.fieldContext_BlendQ4W_expiration(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendQ4W", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_emissionsEarnedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_emissionsEarnedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_emissionsEarnedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_emissionsEarnedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_emissionsEarnedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9138,6 +10314,8 @@ func (ec *executionContext) fieldContext_BlendBackstopQueueChange_account(_ cont
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -9488,6 +10666,8 @@ func (ec *executionContext) fieldContext_BlendCollateralChange_account(_ context
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -9867,6 +11047,8 @@ func (ec *executionContext) fieldContext_BlendDebtChange_account(_ context.Conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -10065,6 +11247,277 @@ func (ec *executionContext) fieldContext_BlendDebtChange_poolId(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendEarnOption_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnOption_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnOption_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnOption_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnOption_tokenName,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnOption_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnOption_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnOption_tokenSymbol,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenSymbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnOption_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnOption_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnOption_tokenDecimals,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenDecimals, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnOption_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnOption_pools(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnOption_pools,
+		func(ctx context.Context) (any, error) {
+			return obj.Pools, nil
+		},
+		nil,
+		ec.marshalNBlendEarnPoolOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOptionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnOption_pools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendEarnPoolOption_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendEarnPoolOption_poolName(ctx, field)
+			case "supplyApy":
+				return ec.fieldContext_BlendEarnPoolOption_supplyApy(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendEarnPoolOption_suppliedUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendEarnPoolOption", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnPoolOption_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnPoolOption_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnPoolOption_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnPoolOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnPoolOption_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnPoolOption_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnPoolOption_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnPoolOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnPoolOption_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnPoolOption_supplyApy,
+		func(ctx context.Context) (any, error) {
+			return obj.SupplyApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnPoolOption_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnPoolOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnPoolOption_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnPoolOption_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnPoolOption_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnPoolOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendEmissionsClaimChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -10246,6 +11699,8 @@ func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_account(_ con
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -10444,6 +11899,1671 @@ func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_poolId(_ cont
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendPool_address(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_address,
+		func(ctx context.Context) (any, error) {
+			return obj.Address, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_address(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_name(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_status(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_oracleContractId(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_oracleContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.OracleContractID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_oracleContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_backstopRate(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_backstopRate,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopRate, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_backstopRate(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_maxPositions(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_maxPositions,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxPositions, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_maxPositions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_backstopUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_backstopUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_backstopUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_interestApy(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_interestApy,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_interestApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_netApy(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_netApy,
+		func(ctx context.Context) (any, error) {
+			return obj.NetApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_netApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_reserves(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_reserves,
+		func(ctx context.Context) (any, error) {
+			return obj.Reserves, nil
+		},
+		nil,
+		ec.marshalNBlendReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserveᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_reserves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendReserve_assetContractId(ctx, field)
+			case "tokenName":
+				return ec.fieldContext_BlendReserve_tokenName(ctx, field)
+			case "tokenSymbol":
+				return ec.fieldContext_BlendReserve_tokenSymbol(ctx, field)
+			case "tokenDecimals":
+				return ec.fieldContext_BlendReserve_tokenDecimals(ctx, field)
+			case "enabled":
+				return ec.fieldContext_BlendReserve_enabled(ctx, field)
+			case "utilization":
+				return ec.fieldContext_BlendReserve_utilization(ctx, field)
+			case "supplyApy":
+				return ec.fieldContext_BlendReserve_supplyApy(ctx, field)
+			case "borrowApy":
+				return ec.fieldContext_BlendReserve_borrowApy(ctx, field)
+			case "emissionsSupplyApr":
+				return ec.fieldContext_BlendReserve_emissionsSupplyApr(ctx, field)
+			case "emissionsBorrowApr":
+				return ec.fieldContext_BlendReserve_emissionsBorrowApr(ctx, field)
+			case "suppliedTokens":
+				return ec.fieldContext_BlendReserve_suppliedTokens(ctx, field)
+			case "borrowedTokens":
+				return ec.fieldContext_BlendReserve_borrowedTokens(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendReserve_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendReserve_borrowedUsd(ctx, field)
+			case "cFactor":
+				return ec.fieldContext_BlendReserve_cFactor(ctx, field)
+			case "lFactor":
+				return ec.fieldContext_BlendReserve_lFactor(ctx, field)
+			case "priceUsd":
+				return ec.fieldContext_BlendReserve_priceUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendReserve", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_netApy(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_netApy,
+		func(ctx context.Context) (any, error) {
+			return obj.NetApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_netApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_claimedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_claimedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.ClaimedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_claimedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_reserves(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_reserves,
+		func(ctx context.Context) (any, error) {
+			return obj.Reserves, nil
+		},
+		nil,
+		ec.marshalNBlendReservePosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_reserves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendReservePosition_assetContractId(ctx, field)
+			case "tokenName":
+				return ec.fieldContext_BlendReservePosition_tokenName(ctx, field)
+			case "tokenSymbol":
+				return ec.fieldContext_BlendReservePosition_tokenSymbol(ctx, field)
+			case "tokenDecimals":
+				return ec.fieldContext_BlendReservePosition_tokenDecimals(ctx, field)
+			case "suppliedTokens":
+				return ec.fieldContext_BlendReservePosition_suppliedTokens(ctx, field)
+			case "collateralTokens":
+				return ec.fieldContext_BlendReservePosition_collateralTokens(ctx, field)
+			case "borrowedTokens":
+				return ec.fieldContext_BlendReservePosition_borrowedTokens(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendReservePosition_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendReservePosition_borrowedUsd(ctx, field)
+			case "supplyApy":
+				return ec.fieldContext_BlendReservePosition_supplyApy(ctx, field)
+			case "borrowApy":
+				return ec.fieldContext_BlendReservePosition_borrowApy(ctx, field)
+			case "emissionsApr":
+				return ec.fieldContext_BlendReservePosition_emissionsApr(ctx, field)
+			case "interestEarned":
+				return ec.fieldContext_BlendReservePosition_interestEarned(ctx, field)
+			case "interestPaid":
+				return ec.fieldContext_BlendReservePosition_interestPaid(ctx, field)
+			case "emissionsEarnedBlnd":
+				return ec.fieldContext_BlendReservePosition_emissionsEarnedBlnd(ctx, field)
+			case "emissionsEarnedUsd":
+				return ec.fieldContext_BlendReservePosition_emissionsEarnedUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendReservePosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_amount(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_expiration(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_expiration,
+		func(ctx context.Context) (any, error) {
+			return obj.Expiration, nil
+		},
+		nil,
+		ec.marshalNInt642int64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_expiration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int64 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenName,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenSymbol,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenSymbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenDecimals,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenDecimals, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_enabled(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_utilization(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_utilization,
+		func(ctx context.Context) (any, error) {
+			return obj.Utilization, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_utilization(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_supplyApy,
+		func(ctx context.Context) (any, error) {
+			return obj.SupplyApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowApy(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowApy,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_emissionsSupplyApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsSupplyApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_emissionsBorrowApr(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_emissionsBorrowApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsBorrowApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_emissionsBorrowApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_suppliedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_suppliedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_suppliedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_cFactor(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_cFactor,
+		func(ctx context.Context) (any, error) {
+			return obj.CFactor, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_cFactor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_lFactor(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_lFactor,
+		func(ctx context.Context) (any, error) {
+			return obj.LFactor, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_lFactor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_priceUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_priceUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_priceUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenName,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenSymbol,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenSymbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenDecimals,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenDecimals, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_suppliedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_suppliedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_suppliedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_collateralTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_collateralTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.CollateralTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_collateralTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_supplyApy,
+		func(ctx context.Context) (any, error) {
+			return obj.SupplyApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowApy(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowApy,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_interestEarned(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_interestEarned,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestEarned, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_interestEarned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_interestPaid(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_interestPaid,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestPaid, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_interestPaid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsEarnedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsEarnedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsEarnedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsEarnedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsEarnedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendSupplyChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -10625,6 +13745,8 @@ func (ec *executionContext) fieldContext_BlendSupplyChange_account(_ context.Con
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -11004,6 +14126,8 @@ func (ec *executionContext) fieldContext_DataEntryAddedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -11354,6 +14478,8 @@ func (ec *executionContext) fieldContext_DataEntryRemovedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -11704,6 +14830,8 @@ func (ec *executionContext) fieldContext_DataEntryUpdatedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -12083,6 +15211,8 @@ func (ec *executionContext) fieldContext_HomeDomainClearedChange_account(_ conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -12404,6 +15534,8 @@ func (ec *executionContext) fieldContext_HomeDomainSetChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -12725,6 +15857,8 @@ func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_account(_ conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -13654,6 +16788,8 @@ func (ec *executionContext) fieldContext_Operation_accounts(_ context.Context, f
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -14080,6 +17216,8 @@ func (ec *executionContext) fieldContext_Query_accountByAddress(ctx context.Cont
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -14159,6 +17297,169 @@ func (ec *executionContext) fieldContext_Query_operationById(ctx context.Context
 	if fc.Args, err = ec.field_Query_operationById_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_blendPools(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_blendPools,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().BlendPools(ctx)
+		},
+		nil,
+		ec.marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_blendPools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_BlendPool_address(ctx, field)
+			case "name":
+				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "status":
+				return ec.fieldContext_BlendPool_status(ctx, field)
+			case "oracleContractId":
+				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
+			case "backstopRate":
+				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
+			case "maxPositions":
+				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
+			case "backstopUsd":
+				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
+			case "interestApy":
+				return ec.fieldContext_BlendPool_interestApy(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPool_netApy(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_blendPool(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_blendPool,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().BlendPool(ctx, fc.Args["address"].(string))
+		},
+		nil,
+		ec.marshalOBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_blendPool(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_BlendPool_address(ctx, field)
+			case "name":
+				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "status":
+				return ec.fieldContext_BlendPool_status(ctx, field)
+			case "oracleContractId":
+				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
+			case "backstopRate":
+				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
+			case "maxPositions":
+				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
+			case "backstopUsd":
+				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
+			case "interestApy":
+				return ec.fieldContext_BlendPool_interestApy(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPool_netApy(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_blendPool_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_blendEarnOptions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_blendEarnOptions,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().BlendEarnOptions(ctx)
+		},
+		nil,
+		ec.marshalNBlendEarnOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOptionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_blendEarnOptions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendEarnOption_assetContractId(ctx, field)
+			case "tokenName":
+				return ec.fieldContext_BlendEarnOption_tokenName(ctx, field)
+			case "tokenSymbol":
+				return ec.fieldContext_BlendEarnOption_tokenSymbol(ctx, field)
+			case "tokenDecimals":
+				return ec.fieldContext_BlendEarnOption_tokenDecimals(ctx, field)
+			case "pools":
+				return ec.fieldContext_BlendEarnOption_pools(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendEarnOption", field.Name)
+		},
 	}
 	return fc, nil
 }
@@ -15207,6 +18508,8 @@ func (ec *executionContext) fieldContext_SignerAddedChange_account(_ context.Con
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -15557,6 +18860,8 @@ func (ec *executionContext) fieldContext_SignerRemovedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -15907,6 +19212,8 @@ func (ec *executionContext) fieldContext_SignerUpdatedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -16418,6 +19725,8 @@ func (ec *executionContext) fieldContext_ThresholdChange_account(_ context.Conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -16902,6 +20211,8 @@ func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context,
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -17137,6 +20448,8 @@ func (ec *executionContext) fieldContext_TrustlineAddedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -17864,6 +21177,8 @@ func (ec *executionContext) fieldContext_TrustlineRemovedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -18214,6 +21529,8 @@ func (ec *executionContext) fieldContext_TrustlineUpdatedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -20423,6 +23740,42 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "blendPositions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Account_blendPositions(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22521,6 +25874,55 @@ func (ec *executionContext) _BalanceEdge(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var blendAccountPositionsImplementors = []string{"BlendAccountPositions"}
+
+func (ec *executionContext) _BlendAccountPositions(ctx context.Context, sel ast.SelectionSet, obj *BlendAccountPositions) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAccountPositionsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAccountPositions")
+		case "pools":
+			out.Values[i] = ec._BlendAccountPositions_pools(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backstop":
+			out.Values[i] = ec._BlendAccountPositions_backstop(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backstopClaimedBlnd":
+			out.Values[i] = ec._BlendAccountPositions_backstopClaimedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var blendAuctionAmountImplementors = []string{"BlendAuctionAmount"}
 
 func (ec *executionContext) _BlendAuctionAmount(ctx context.Context, sel ast.SelectionSet, obj *BlendAuctionAmount) graphql.Marshaler {
@@ -23576,6 +26978,71 @@ func (ec *executionContext) _BlendBackstopEmissionsClaimChange(ctx context.Conte
 	return out
 }
 
+var blendBackstopPositionImplementors = []string{"BlendBackstopPosition"}
+
+func (ec *executionContext) _BlendBackstopPosition(ctx context.Context, sel ast.SelectionSet, obj *BlendBackstopPosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopPositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopPosition")
+		case "poolAddress":
+			out.Values[i] = ec._BlendBackstopPosition_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendBackstopPosition_poolName(ctx, field, obj)
+		case "shares":
+			out.Values[i] = ec._BlendBackstopPosition_shares(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendBackstopPosition_lpTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "usdValue":
+			out.Values[i] = ec._BlendBackstopPosition_usdValue(ctx, field, obj)
+		case "q4w":
+			out.Values[i] = ec._BlendBackstopPosition_q4w(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedBlnd":
+			out.Values[i] = ec._BlendBackstopPosition_emissionsEarnedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedUsd":
+			out.Values[i] = ec._BlendBackstopPosition_emissionsEarnedUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var blendBackstopQueueChangeImplementors = []string{"BlendBackstopQueueChange", "BaseStateChange"}
 
 func (ec *executionContext) _BlendBackstopQueueChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendBackstopQueueChangeModel) graphql.Marshaler {
@@ -24551,6 +28018,101 @@ func (ec *executionContext) _BlendDebtChange(ctx context.Context, sel ast.Select
 	return out
 }
 
+var blendEarnOptionImplementors = []string{"BlendEarnOption"}
+
+func (ec *executionContext) _BlendEarnOption(ctx context.Context, sel ast.SelectionSet, obj *BlendEarnOption) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendEarnOptionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendEarnOption")
+		case "assetContractId":
+			out.Values[i] = ec._BlendEarnOption_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenName":
+			out.Values[i] = ec._BlendEarnOption_tokenName(ctx, field, obj)
+		case "tokenSymbol":
+			out.Values[i] = ec._BlendEarnOption_tokenSymbol(ctx, field, obj)
+		case "tokenDecimals":
+			out.Values[i] = ec._BlendEarnOption_tokenDecimals(ctx, field, obj)
+		case "pools":
+			out.Values[i] = ec._BlendEarnOption_pools(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendEarnPoolOptionImplementors = []string{"BlendEarnPoolOption"}
+
+func (ec *executionContext) _BlendEarnPoolOption(ctx context.Context, sel ast.SelectionSet, obj *BlendEarnPoolOption) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendEarnPoolOptionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendEarnPoolOption")
+		case "poolAddress":
+			out.Values[i] = ec._BlendEarnPoolOption_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendEarnPoolOption_poolName(ctx, field, obj)
+		case "supplyApy":
+			out.Values[i] = ec._BlendEarnPoolOption_supplyApy(ctx, field, obj)
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendEarnPoolOption_suppliedUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var blendEmissionsClaimChangeImplementors = []string{"BlendEmissionsClaimChange", "BaseStateChange"}
 
 func (ec *executionContext) _BlendEmissionsClaimChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendEmissionsClaimChangeModel) graphql.Marshaler {
@@ -24862,6 +28424,340 @@ func (ec *executionContext) _BlendEmissionsClaimChange(ctx context.Context, sel 
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolImplementors = []string{"BlendPool"}
+
+func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet, obj *BlendPool) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPool")
+		case "address":
+			out.Values[i] = ec._BlendPool_address(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._BlendPool_name(ctx, field, obj)
+		case "status":
+			out.Values[i] = ec._BlendPool_status(ctx, field, obj)
+		case "oracleContractId":
+			out.Values[i] = ec._BlendPool_oracleContractId(ctx, field, obj)
+		case "backstopRate":
+			out.Values[i] = ec._BlendPool_backstopRate(ctx, field, obj)
+		case "maxPositions":
+			out.Values[i] = ec._BlendPool_maxPositions(ctx, field, obj)
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendPool_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendPool_borrowedUsd(ctx, field, obj)
+		case "backstopUsd":
+			out.Values[i] = ec._BlendPool_backstopUsd(ctx, field, obj)
+		case "interestApy":
+			out.Values[i] = ec._BlendPool_interestApy(ctx, field, obj)
+		case "netApy":
+			out.Values[i] = ec._BlendPool_netApy(ctx, field, obj)
+		case "reserves":
+			out.Values[i] = ec._BlendPool_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolPositionImplementors = []string{"BlendPoolPosition"}
+
+func (ec *executionContext) _BlendPoolPosition(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolPosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolPositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolPosition")
+		case "poolAddress":
+			out.Values[i] = ec._BlendPoolPosition_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendPoolPosition_poolName(ctx, field, obj)
+		case "usdValue":
+			out.Values[i] = ec._BlendPoolPosition_usdValue(ctx, field, obj)
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendPoolPosition_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendPoolPosition_borrowedUsd(ctx, field, obj)
+		case "netApy":
+			out.Values[i] = ec._BlendPoolPosition_netApy(ctx, field, obj)
+		case "claimedBlnd":
+			out.Values[i] = ec._BlendPoolPosition_claimedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reserves":
+			out.Values[i] = ec._BlendPoolPosition_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendQ4WImplementors = []string{"BlendQ4W"}
+
+func (ec *executionContext) _BlendQ4W(ctx context.Context, sel ast.SelectionSet, obj *BlendQ4w) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendQ4WImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendQ4W")
+		case "amount":
+			out.Values[i] = ec._BlendQ4W_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expiration":
+			out.Values[i] = ec._BlendQ4W_expiration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendReserveImplementors = []string{"BlendReserve"}
+
+func (ec *executionContext) _BlendReserve(ctx context.Context, sel ast.SelectionSet, obj *BlendReserve) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendReserveImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendReserve")
+		case "assetContractId":
+			out.Values[i] = ec._BlendReserve_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenName":
+			out.Values[i] = ec._BlendReserve_tokenName(ctx, field, obj)
+		case "tokenSymbol":
+			out.Values[i] = ec._BlendReserve_tokenSymbol(ctx, field, obj)
+		case "tokenDecimals":
+			out.Values[i] = ec._BlendReserve_tokenDecimals(ctx, field, obj)
+		case "enabled":
+			out.Values[i] = ec._BlendReserve_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "utilization":
+			out.Values[i] = ec._BlendReserve_utilization(ctx, field, obj)
+		case "supplyApy":
+			out.Values[i] = ec._BlendReserve_supplyApy(ctx, field, obj)
+		case "borrowApy":
+			out.Values[i] = ec._BlendReserve_borrowApy(ctx, field, obj)
+		case "emissionsSupplyApr":
+			out.Values[i] = ec._BlendReserve_emissionsSupplyApr(ctx, field, obj)
+		case "emissionsBorrowApr":
+			out.Values[i] = ec._BlendReserve_emissionsBorrowApr(ctx, field, obj)
+		case "suppliedTokens":
+			out.Values[i] = ec._BlendReserve_suppliedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "borrowedTokens":
+			out.Values[i] = ec._BlendReserve_borrowedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendReserve_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendReserve_borrowedUsd(ctx, field, obj)
+		case "cFactor":
+			out.Values[i] = ec._BlendReserve_cFactor(ctx, field, obj)
+		case "lFactor":
+			out.Values[i] = ec._BlendReserve_lFactor(ctx, field, obj)
+		case "priceUsd":
+			out.Values[i] = ec._BlendReserve_priceUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendReservePositionImplementors = []string{"BlendReservePosition"}
+
+func (ec *executionContext) _BlendReservePosition(ctx context.Context, sel ast.SelectionSet, obj *BlendReservePosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendReservePositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendReservePosition")
+		case "assetContractId":
+			out.Values[i] = ec._BlendReservePosition_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenName":
+			out.Values[i] = ec._BlendReservePosition_tokenName(ctx, field, obj)
+		case "tokenSymbol":
+			out.Values[i] = ec._BlendReservePosition_tokenSymbol(ctx, field, obj)
+		case "tokenDecimals":
+			out.Values[i] = ec._BlendReservePosition_tokenDecimals(ctx, field, obj)
+		case "suppliedTokens":
+			out.Values[i] = ec._BlendReservePosition_suppliedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "collateralTokens":
+			out.Values[i] = ec._BlendReservePosition_collateralTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "borrowedTokens":
+			out.Values[i] = ec._BlendReservePosition_borrowedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendReservePosition_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendReservePosition_borrowedUsd(ctx, field, obj)
+		case "supplyApy":
+			out.Values[i] = ec._BlendReservePosition_supplyApy(ctx, field, obj)
+		case "borrowApy":
+			out.Values[i] = ec._BlendReservePosition_borrowApy(ctx, field, obj)
+		case "emissionsApr":
+			out.Values[i] = ec._BlendReservePosition_emissionsApr(ctx, field, obj)
+		case "interestEarned":
+			out.Values[i] = ec._BlendReservePosition_interestEarned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "interestPaid":
+			out.Values[i] = ec._BlendReservePosition_interestPaid(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedBlnd":
+			out.Values[i] = ec._BlendReservePosition_emissionsEarnedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedUsd":
+			out.Values[i] = ec._BlendReservePosition_emissionsEarnedUsd(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -27585,6 +31481,69 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_operationById(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "blendPools":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_blendPools(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "blendPool":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_blendPool(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "blendEarnOptions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_blendEarnOptions(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -31112,6 +35071,20 @@ func (ec *executionContext) marshalNBaseStateChange2ᚕgithubᚗcomᚋstellarᚋ
 	return ret
 }
 
+func (ec *executionContext) marshalNBlendAccountPositions2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions(ctx context.Context, sel ast.SelectionSet, v BlendAccountPositions) graphql.Marshaler {
+	return ec._BlendAccountPositions(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNBlendAccountPositions2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions(ctx context.Context, sel ast.SelectionSet, v *BlendAccountPositions) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAccountPositions(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendAuctionAmount) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -31146,6 +35119,214 @@ func (ec *executionContext) unmarshalNBlendAuctionType2githubᚗcomᚋstellarᚋ
 
 func (ec *executionContext) marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType(ctx context.Context, sel ast.SelectionSet, v BlendAuctionType) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopPosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPosition(ctx context.Context, sel ast.SelectionSet, v *BlendBackstopPosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendBackstopPosition(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendEarnOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOptionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendEarnOption) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendEarnOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOption(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendEarnOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOption(ctx context.Context, sel ast.SelectionSet, v *BlendEarnOption) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendEarnOption(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendEarnPoolOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOptionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendEarnPoolOption) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendEarnPoolOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOption(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendEarnPoolOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOption(ctx context.Context, sel ast.SelectionSet, v *BlendEarnPoolOption) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendEarnPoolOption(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPool) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPool(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPoolPosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendPoolPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendPoolPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPosition(ctx context.Context, sel ast.SelectionSet, v *BlendPoolPosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPoolPosition(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendQ4W2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4wᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendQ4w) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendQ4W2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4w(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendQ4W2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4w(ctx context.Context, sel ast.SelectionSet, v *BlendQ4w) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendQ4W(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserveᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendReserve) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserve(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserve(ctx context.Context, sel ast.SelectionSet, v *BlendReserve) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendReserve(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendReservePosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendReservePosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendReservePosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendReservePosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePosition(ctx context.Context, sel ast.SelectionSet, v *BlendReservePosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendReservePosition(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
@@ -31705,6 +35886,13 @@ func (ec *executionContext) unmarshalOAccountStateChangeFilterInput2ᚖgithubᚗ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalOBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._BlendPool(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalOBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -31733,6 +35921,23 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) unmarshalOInt2ᚖint32(ctx context.Context, v any) (*int32, error) {
