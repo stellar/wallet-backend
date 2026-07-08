@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -369,16 +370,32 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		}
 		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 
+		// Extract ContractData changes once per ledger, only when a tracker that
+		// will fold this ledger requires them; all trackers share the map.
+		var ledgerContractDataChanges map[string][]ingest.Change
+		if trackersRequireContractData(trackers, seq) {
+			cdStart := time.Now()
+			var cdErr error
+			ledgerContractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, s.networkPassphrase, ledgerMeta)
+			cdDur := time.Since(cdStart)
+			timers.extract += cdDur
+			s.metrics.PhaseDuration.WithLabelValues("extract").Observe(cdDur.Seconds())
+			if cdErr != nil {
+				return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract data changes for ledger %d: %w", seq, cdErr)
+			}
+		}
+
 		for _, t := range trackers {
 			if t.handedOff || t.cursorValue+t.pending >= seq {
 				continue
 			}
 			input := ProtocolProcessorInput{
-				LedgerSequence:    seq,
-				LedgerCloseTime:   ledgerCloseTime,
-				ContractEvents:    ledgerEvents,
-				ProtocolContracts: contractsByProtocol[t.protocolID],
-				StagingMode:       s.strategy.Mode,
+				LedgerSequence:      seq,
+				LedgerCloseTime:     ledgerCloseTime,
+				ContractEvents:      ledgerEvents,
+				ProtocolContracts:   contractsByProtocol[t.protocolID],
+				StagingMode:         s.strategy.Mode,
+				ContractDataChanges: ledgerContractDataChanges,
 			}
 			processStart := time.Now()
 			processErr := t.processor.ProcessLedger(ctx, input)
@@ -550,6 +567,20 @@ func allHandedOff(trackers []*protocolTracker) bool {
 		}
 	}
 	return true
+}
+
+// trackersRequireContractData reports whether any tracker that will fold this
+// ledger has a processor needing ContractData changes.
+func trackersRequireContractData(trackers []*protocolTracker, seq uint32) bool {
+	for _, t := range trackers {
+		if t.handedOff || t.cursorValue+t.pending >= seq {
+			continue
+		}
+		if t.processor.RequiresContractData() {
+			return true
+		}
+	}
+	return false
 }
 
 // handedOffProtocolIDs returns the IDs of trackers that have been handed off to live ingestion.
