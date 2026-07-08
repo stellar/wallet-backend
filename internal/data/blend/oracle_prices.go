@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -148,4 +149,96 @@ func (m *OraclePriceModel) BatchUpsert(ctx context.Context, rows []OraclePrice) 
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", oraclePricesTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchUpsert", oraclePricesTable).Observe(float64(len(rows)))
 	return nil
+}
+
+// GetByOracles returns the blend_oracle_prices rows quoted by the given
+// oracle contract IDs, ordered by (oracle_contract_id, asset_contract_id).
+// Returns an empty, non-nil slice without querying when oracleIDs is empty.
+func (m *OraclePriceModel) GetByOracles(ctx context.Context, oracleIDs []string) ([]OraclePrice, error) {
+	if len(oracleIDs) == 0 {
+		return []OraclePrice{}, nil
+	}
+	oracles, err := addressesToBytes(oracleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("converting oracle addresses for price lookup: %w", err)
+	}
+
+	start := time.Now()
+	const query = `
+		SELECT oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp, updated_at
+		FROM blend_oracle_prices
+		WHERE oracle_contract_id = ANY($1::bytea[])
+		ORDER BY oracle_contract_id, asset_contract_id`
+	rows, err := m.DB.Query(ctx, query, oracles)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByOracles", oraclePricesTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend oracle prices by oracles: %w", err)
+	}
+	defer rows.Close()
+
+	prices, err := scanOraclePrices(rows)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByOracles", oraclePricesTable, utils.GetDBErrorType(err)).Inc()
+		return nil, err
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByOracles", oraclePricesTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByOracles", oraclePricesTable).Inc()
+	m.Metrics.BatchSize.WithLabelValues("GetByOracles", oraclePricesTable).Observe(float64(len(oracleIDs)))
+	return prices, nil
+}
+
+// GetBackstopLPPrices returns every blend_oracle_prices row that shares an
+// oracle with a self-priced row (oracle_contract_id = asset_contract_id) —
+// i.e. a Comet LP token's self-quoted price plus its sibling BLND price
+// quoted under the same oracle.
+//
+// No de-duplication is needed: (oracle_contract_id, asset_contract_id) is the
+// table's primary key, so at most one row per oracle_contract_id can satisfy
+// the self-priced predicate (asset = oracle). The self-join therefore cannot
+// multiply matches — each output row corresponds to exactly one (self-priced
+// row, sibling row) pair, keyed by a distinct oracle_contract_id.
+func (m *OraclePriceModel) GetBackstopLPPrices(ctx context.Context) ([]OraclePrice, error) {
+	start := time.Now()
+	const query = `
+		SELECT o2.oracle_contract_id, o2.asset_contract_id, o2.price, o2.price_decimals, o2.price_timestamp, o2.updated_at
+		FROM blend_oracle_prices o1
+		JOIN blend_oracle_prices o2 ON o2.oracle_contract_id = o1.oracle_contract_id
+		WHERE o1.oracle_contract_id = o1.asset_contract_id
+		ORDER BY o2.oracle_contract_id, o2.asset_contract_id`
+	rows, err := m.DB.Query(ctx, query)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetBackstopLPPrices", oraclePricesTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend backstop LP oracle prices: %w", err)
+	}
+	defer rows.Close()
+
+	prices, err := scanOraclePrices(rows)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetBackstopLPPrices", oraclePricesTable, utils.GetDBErrorType(err)).Inc()
+		return nil, err
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetBackstopLPPrices", oraclePricesTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetBackstopLPPrices", oraclePricesTable).Inc()
+	return prices, nil
+}
+
+// scanOraclePrices scans every row of rows into an OraclePrice slice, matching
+// blend_oracle_prices' column order. Shared by GetByOracles and GetBackstopLPPrices.
+func scanOraclePrices(rows pgx.Rows) ([]OraclePrice, error) {
+	prices := []OraclePrice{}
+	for rows.Next() {
+		var p OraclePrice
+		if err := rows.Scan(&p.OracleContractID, &p.AssetContractID, &p.Price, &p.PriceDecimals, &p.PriceTimestamp, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning blend oracle price row: %w", err)
+		}
+		prices = append(prices, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating blend oracle price rows: %w", err)
+	}
+	return prices, nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -132,6 +133,64 @@ func TestContractModel_GetExisting(t *testing.T) {
 		require.NoError(t, err)
 
 		cleanUpDB()
+	})
+}
+
+func TestContractModel_GetTokenMetadataByContractIDs(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
+		require.NoError(t, err)
+	}
+	defer cleanUpDB()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &ContractModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	name1, symbol1 := "USD Coin", "USDC"
+	name2, symbol2 := "BLND Token", "BLND"
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return m.BatchInsert(ctx, dbTx, []*Contract{
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sep41", Name: &name1, Symbol: &symbol1, Decimals: 7},
+			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name2, Symbol: &symbol2, Decimals: 7},
+		})
+	})
+	require.NoError(t, err)
+
+	t.Run("returns metadata for requested contracts, silently skipping unknown ones", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, []string{"contract1", "contract3"})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "contract1", got[0].ContractID)
+		require.NotNil(t, got[0].Name)
+		assert.Equal(t, "USD Coin", *got[0].Name)
+		require.NotNil(t, got[0].Symbol)
+		assert.Equal(t, "USDC", *got[0].Symbol)
+		assert.Equal(t, uint32(7), got[0].Decimals)
+	})
+
+	t.Run("returns metadata for every requested contract that exists", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, []string{"contract1", "contract2"})
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+	})
+
+	t.Run("empty contractIDs returns an empty slice without querying", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, nil)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Empty(t, got)
 	})
 }
 
