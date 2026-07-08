@@ -153,6 +153,34 @@ func NetworkOption(configKey *string) *config.ConfigOption {
 	}
 }
 
+// BlendPriceIntervalOption returns the config option for the wait between Blend v2 oracle
+// price snapshot passes. Setting it to 0 disables the snapshot task entirely.
+func BlendPriceIntervalOption(configKey *time.Duration) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:           "blend-price-interval",
+		Usage:          `Interval between Blend v2 oracle price snapshot passes (Go duration string, e.g. "60s"). 0 disables the snapshot task.`,
+		OptType:        types.String,
+		CustomSetValue: SetConfigOptionDuration,
+		ConfigKey:      configKey,
+		FlagDefault:    "60s",
+		Required:       false,
+	}
+}
+
+// BlendBackstopLPContractIDOption returns the config option for the Blend v2 backstop's
+// Comet BLND:USDC weighted pool. Its C-address enables the price snapshot task's BLND/LP-share
+// derived-pricing leg; leaving it empty disables that leg.
+func BlendBackstopLPContractIDOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "blend-backstop-lp-contract-id",
+		Usage:       "C-address of the Blend v2 backstop's Comet BLND:USDC weighted pool, enabling the BLND/LP-share price leg. Empty disables it.",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "",
+		Required:    false,
+	}
+}
+
 func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-complexity-limit",
