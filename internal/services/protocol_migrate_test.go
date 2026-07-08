@@ -622,6 +622,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
+		processorMock.On("RequiresContractData").Return(false)
 		processorMock.On("ProcessLedger", mock.Anything, mock.Anything).Return(fmt.Errorf("simulated ProcessLedger error"))
 
 		backend := &multiLedgerBackend{
@@ -666,6 +667,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
+		processorMock.On("RequiresContractData").Return(false)
 		processorMock.On("ProcessLedger", mock.Anything, mock.Anything).Return(nil)
 		processorMock.On("PersistHistory", mock.Anything, mock.Anything).Return(fmt.Errorf("simulated PersistHistory error"))
 
@@ -1123,6 +1125,130 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		cursorVal := getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor")
 		assert.Equal(t, uint32(201), cursorVal)
 		assert.Equal(t, []uint32{100}, processor.persistedHistorySeqs)
+	})
+
+	t.Run("ContractDataChanges populated when a selected processor requires it", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('cdproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		// cdProc requires ContractData; noProc does not. Both use testCursorAdvancingProcessor
+		// to trigger CAS handoff on the last ledger, allowing the unbounded loop to terminate.
+		cdProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "cdproto", ingestStore: ingestStore, requiresContractData: true},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"cdproto", "noproto"}).Return([]data.Protocols{
+			{ID: "cdproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "noproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
+
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "cdproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "noproto").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{cdProc, noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"cdproto", "noproto"})
+		require.NoError(t, err)
+
+		// The requiring processor sees a non-nil (extraction ran) map on every ledger it folded.
+		require.Len(t, cdProc.processedInputs, 2)
+		for _, input := range cdProc.processedInputs {
+			assert.NotNil(t, input.ContractDataChanges, "ledger %d: requiring processor must see non-nil ContractDataChanges", input.LedgerSequence)
+		}
+
+		// The map is computed once per ledger and shared across trackers, so the
+		// non-requiring processor also receives it (and is expected to ignore it).
+		require.Len(t, noProc.processedInputs, 2)
+		for _, input := range noProc.processedInputs {
+			assert.NotNil(t, input.ContractDataChanges, "ledger %d: shared map must also reach the non-requiring processor", input.LedgerSequence)
+		}
+	})
+
+	t.Run("ContractDataChanges left nil when no selected processor requires it", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto2', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto2", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"noproto2"}).Return([]data.Protocols{
+			{ID: "noproto2", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusSuccess).Return(nil)
+
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "noproto2").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"noproto2"})
+		require.NoError(t, err)
+
+		// No selected processor requires ContractData, so extraction never ran — the
+		// field must stay nil for every recorded input.
+		require.Len(t, noProc.processedInputs, 2)
+		for _, input := range noProc.processedInputs {
+			assert.Nil(t, input.ContractDataChanges, "ledger %d: extraction must be skipped", input.LedgerSequence)
+		}
 	})
 }
 

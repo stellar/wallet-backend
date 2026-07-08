@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -76,4 +77,10 @@ type ProtocolProcessorInput struct {
 	ProtocolContracts []data.ProtocolContracts
 	// StagingMode selects which staged sets the processor builds for this ledger.
 	StagingMode StagingMode
+	// ContractDataChanges groups this ledger's ContractData ledger-entry
+	// changes (successful transactions only) by owning contract C-address.
+	// Populated only when some selected processor's RequiresContractData()
+	// returns true; nil otherwise. Processors that do not require it must
+	// ignore it.
+	ContractDataChanges map[string][]ingest.Change
 }
