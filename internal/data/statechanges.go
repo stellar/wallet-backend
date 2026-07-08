@@ -256,6 +256,39 @@ func (m *StateChangeModel) BatchCopy(
 	return len(stateChanges), nil
 }
 
+// LendingClaimTotal is one (pool, source) group's lifetime claimed BLND total
+// for an account, aggregated from LENDING/CLAIM state_changes rows. PoolID is
+// nil for backstop claims, whose on-chain event carries no pool address.
+type LendingClaimTotal struct {
+	PoolID *string `db:"pool_id"`
+	Source *string `db:"source"`
+	Total  string  `db:"total"`
+}
+
+// GetLendingClaimTotals returns lifetime claimed BLND totals for accountID,
+// grouped by (pool, source) from LENDING/CLAIM state_changes rows. Backstop
+// claims carry no poolId in key_value (the on-chain event has none), so they
+// group together under a NULL PoolID.
+func (m *StateChangeModel) GetLendingClaimTotals(ctx context.Context, accountID string) ([]LendingClaimTotal, error) {
+	const query = `
+		SELECT key_value->>'poolId' AS pool_id, key_value->>'source' AS source, SUM(amount::numeric)::text AS total
+		FROM state_changes
+		WHERE account_id = $1 AND state_change_category = 'LENDING' AND state_change_reason = 'CLAIM'
+		GROUP BY 1, 2
+		ORDER BY 1 NULLS FIRST, 2`
+
+	start := time.Now()
+	totals, err := db.QueryMany[LendingClaimTotal](ctx, m.DB, query, types.AddressBytea(accountID))
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetLendingClaimTotals", "state_changes").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetLendingClaimTotals", "state_changes").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetLendingClaimTotals", "state_changes", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend lending claim totals: %w", err)
+	}
+	return totals, nil
+}
+
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to
 // the parent transaction's ledger_created_at for partition-column chunk exclusion.
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
