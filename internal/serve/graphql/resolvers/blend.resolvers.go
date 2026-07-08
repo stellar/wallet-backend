@@ -19,15 +19,13 @@ func (r *accountResolver) BlendPositions(ctx context.Context, obj *types.Account
 }
 
 // BlendPools is the resolver for the blendPools field.
-// Not implemented yet: pool-wide catalog view, filled in by Task 5.5.
 func (r *queryResolver) BlendPools(ctx context.Context) ([]*graphql1.BlendPool, error) {
-	return nil, fmt.Errorf("blendPools: not implemented")
+	return r.getBlendPools(ctx)
 }
 
 // BlendPool is the resolver for the blendPool field.
-// Not implemented yet: pool-wide catalog view, filled in by Task 5.5.
 func (r *queryResolver) BlendPool(ctx context.Context, address string) (*graphql1.BlendPool, error) {
-	return nil, fmt.Errorf("blendPool: not implemented")
+	return r.getBlendPool(ctx, address)
 }
 
 // BlendEarnOptions is the resolver for the blendEarnOptions field.

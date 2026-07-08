@@ -234,6 +234,73 @@ func (d *blendAssembly) emissionsAPRFor(poolAddr string, tokenID int32, sideRaw,
 	return &f
 }
 
+// reserveRates holds one reserve's current-rate-curve outputs: utilization,
+// supply/borrow APY, and the b/dRate projected forward to "now". It is
+// computed once per reserve by computeReserveRates and shared by both the
+// per-account position assembly (buildReservePosition) and the pool-wide
+// catalog assembly (blend_pools.go's buildPoolReserve) — the two differ only
+// in which raw b/dToken amount they apply these rates to (a user's holdings
+// vs. the reserve's pool-wide BSupply/DSupply, both of which this struct
+// carries so callers never need to re-parse the reserve row).
+type reserveRates struct {
+	BRate, DRate     *big.Int // current (unprojected) on-chain rates
+	BSupply, DSupply *big.Int // pool-wide token supply, current on-chain
+	CurrentUtil      *big.Rat
+	SupplyApy        float64
+	BorrowApy        float64
+	PB, PD           *big.Int // b/dRate projected forward to "now"
+}
+
+// computeReserveRates parses reserve's rate/curve columns and derives its
+// current utilization, supply/borrow APY, and rates projected to "now" — the
+// shared reactive-rate-curve computation underlying every Blend v2 GraphQL
+// view of a reserve. bstopRate comes from the owning pool (poolAddr) via
+// poolBackstopRate.
+func (d *blendAssembly) computeReserveRates(poolAddr string, reserve blenddata.Reserve) (*reserveRates, error) {
+	bRate, err := parseBigInt(reserve.BRate)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend reserve b_rate: %w", err)
+	}
+	dRate, err := parseBigInt(reserve.DRate)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend reserve d_rate: %w", err)
+	}
+	bSupply, err := parseBigInt(reserve.BSupply)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend reserve b_supply: %w", err)
+	}
+	dSupply, err := parseBigInt(reserve.DSupply)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend reserve d_supply: %w", err)
+	}
+	irModRaw, err := parseBigInt(reserve.IRMod)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend reserve ir_mod: %w", err)
+	}
+	irMod := new(big.Rat).SetFrac(irModRaw, big.NewInt(scalar7))
+
+	curve := blendrates.Curve{Util: reserve.Util, RBase: reserve.RBase, ROne: reserve.ROne, RTwo: reserve.RTwo, RThree: reserve.RThree}
+	currentUtil := blendrates.Utilization(bSupply, bRate, dSupply, dRate)
+	borrowAPR := blendrates.BorrowAPR(currentUtil, curve, irMod)
+
+	bstopRate := d.poolBackstopRate(poolAddr)
+	supplyAPR := blendrates.SupplyAPR(borrowAPR, currentUtil, bstopRate)
+	supplyApy := blendrates.ToAPY(supplyAPR, blendrates.SupplyAPYCompoundingPeriods)
+	borrowApy := blendrates.ToAPY(borrowAPR, blendrates.BorrowAPYCompoundingPeriods)
+
+	pB, pD := blendrates.ProjectRates(bRate, dRate, borrowAPR, currentUtil, bstopRate, reserve.LastTime, d.now)
+
+	return &reserveRates{
+		BRate: bRate, DRate: dRate,
+		BSupply: bSupply, DSupply: dSupply,
+		CurrentUtil: currentUtil,
+		SupplyApy:   supplyApy,
+		BorrowApy:   borrowApy,
+		PB:          pB,
+		PD:          pD,
+	}, nil
+}
+
 // buildReservePosition assembles one blend_positions row into a
 // BlendReservePosition. Returns (nil, nil) when the row's reserve config
 // can't be found — defensive only; every position is written against an
@@ -272,42 +339,14 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 		return nil, fmt.Errorf("parsing blend position net_borrowed: %w", err)
 	}
 
-	bRate, err := parseBigInt(reserve.BRate)
+	rr, err := d.computeReserveRates(poolAddr, reserve)
 	if err != nil {
-		return nil, fmt.Errorf("parsing blend reserve b_rate: %w", err)
+		return nil, err
 	}
-	dRate, err := parseBigInt(reserve.DRate)
-	if err != nil {
-		return nil, fmt.Errorf("parsing blend reserve d_rate: %w", err)
-	}
-	bSupply, err := parseBigInt(reserve.BSupply)
-	if err != nil {
-		return nil, fmt.Errorf("parsing blend reserve b_supply: %w", err)
-	}
-	dSupply, err := parseBigInt(reserve.DSupply)
-	if err != nil {
-		return nil, fmt.Errorf("parsing blend reserve d_supply: %w", err)
-	}
-	irModRaw, err := parseBigInt(reserve.IRMod)
-	if err != nil {
-		return nil, fmt.Errorf("parsing blend reserve ir_mod: %w", err)
-	}
-	irMod := new(big.Rat).SetFrac(irModRaw, big.NewInt(scalar7))
 
-	curve := blendrates.Curve{Util: reserve.Util, RBase: reserve.RBase, ROne: reserve.ROne, RTwo: reserve.RTwo, RThree: reserve.RThree}
-	currentUtil := blendrates.Utilization(bSupply, bRate, dSupply, dRate)
-	borrowAPR := blendrates.BorrowAPR(currentUtil, curve, irMod)
-
-	bstopRate := d.poolBackstopRate(poolAddr)
-	supplyAPR := blendrates.SupplyAPR(borrowAPR, currentUtil, bstopRate)
-	supplyApy := blendrates.ToAPY(supplyAPR, blendrates.SupplyAPYCompoundingPeriods)
-	borrowApy := blendrates.ToAPY(borrowAPR, blendrates.BorrowAPYCompoundingPeriods)
-
-	pB, pD := blendrates.ProjectRates(bRate, dRate, borrowAPR, currentUtil, bstopRate, reserve.LastTime, d.now)
-
-	suppliedTokens := blendrates.Underlying(supplyB, pB)
-	collateralTokens := blendrates.Underlying(collateralB, pB)
-	borrowedTokens := blendrates.Underlying(liabilityD, pD)
+	suppliedTokens := blendrates.Underlying(supplyB, rr.PB)
+	collateralTokens := blendrates.Underlying(collateralB, rr.PB)
+	borrowedTokens := blendrates.Underlying(liabilityD, rr.PD)
 
 	oracle := types.AddressBytea("")
 	if pool, ok := d.poolByID[poolAddr]; ok {
@@ -334,9 +373,9 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 	var emissionsApr *float64
 	switch {
 	case bSideBalance.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, bTokenID, bSupply, bRate, reserve.Decimals, price)
+		emissionsApr = d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.BRate, reserve.Decimals, price)
 	case liabilityD.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, dTokenID, dSupply, dRate, reserve.Decimals, price)
+		emissionsApr = d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.DRate, reserve.Decimals, price)
 	default:
 		zero := 0.0
 		emissionsApr = &zero
@@ -359,12 +398,12 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 	claimableBLND := new(big.Int).Add(bClaimable, dClaimable)
 	emissionsEarnedUsd := usdValueOrNil(claimableBLND, blndDecimals, d.blndPrice)
 
-	interestEarned := blendrates.EarnedInterest(supplyB, collateralB, pB, netSupplied)
+	interestEarned := blendrates.EarnedInterest(supplyB, collateralB, rr.PB, netSupplied)
 	// interestPaid mirrors EarnedInterest's shape for the debt side: current
 	// underlying liability minus net borrowed principal. rates.go has no
 	// dedicated helper for this side (EarnedInterest is specifically the
 	// supply+collateral combination), so it's derived directly here.
-	interestPaid := new(big.Int).Sub(blendrates.Underlying(liabilityD, pD), netBorrowed)
+	interestPaid := new(big.Int).Sub(blendrates.Underlying(liabilityD, rr.PD), netBorrowed)
 
 	meta := d.metaByContractID[string(reserve.AssetContractID)]
 	decimals := reserve.Decimals
@@ -379,8 +418,8 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 		BorrowedTokens:      borrowedTokens.String(),
 		SuppliedUsd:         suppliedUsd,
 		BorrowedUsd:         borrowedUsd,
-		SupplyApy:           &supplyApy,
-		BorrowApy:           &borrowApy,
+		SupplyApy:           &rr.SupplyApy,
+		BorrowApy:           &rr.BorrowApy,
 		EmissionsApr:        emissionsApr,
 		InterestEarned:      interestEarned.String(),
 		InterestPaid:        interestPaid.String(),
