@@ -58,3 +58,28 @@ func TestStateChangeEnums(t *testing.T) {
 		require.ErrorContains(t, err, "state_changes_state_change_reason_check")
 	})
 }
+
+func TestBlendTablesExist(t *testing.T) {
+	ctx, pool, cleanup := newStateChangesFixture(t)
+	defer cleanup()
+
+	tables := []string{
+		"blend_pools",
+		"blend_positions",
+		"blend_reserves",
+		"blend_backstop_positions",
+		"blend_backstop_pools",
+		"blend_reserve_emissions",
+		"blend_emissions",
+		"blend_oracle_prices",
+	}
+
+	for _, table := range tables {
+		t.Run(table, func(t *testing.T) {
+			var count int
+			err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
+			require.NoError(t, err)
+			require.Zero(t, count)
+		})
+	}
+}
