@@ -69,6 +69,14 @@ func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *s
 }
 
 // AccountByAddress is the resolver for the accountByAddress field.
+//
+// For a classic (G...) address the account exists on-chain only if it has a
+// native_balances row: that row is written when the account ledger entry is created
+// and removed when the account is merged. Returning null (rather than a synthesized
+// Account) when the row is absent lets callers distinguish an existing account from a
+// never-created, merged, or contract-token-only address — the nullable accountByAddress
+// field is the account-existence signal. Contract (C...) addresses are not classic
+// accounts, so the existence gate does not apply to them.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
 	if !utils.IsValidStellarAddress(address) {
 		return nil, &gqlerror.Error{
@@ -77,6 +85,15 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 				"code":    "INVALID_ADDRESS",
 				"address": address,
 			},
+		}
+	}
+	if !utils.IsContractAddress(address) {
+		nb, err := r.balanceReader.GetNativeBalance(ctx, address)
+		if err != nil {
+			return nil, fmt.Errorf("checking account existence for %s: %w", address, err)
+		}
+		if nb == nil {
+			return nil, nil
 		}
 	}
 	return &types.Account{StellarAddress: types.AddressBytea(address)}, nil

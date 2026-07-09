@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -227,25 +229,54 @@ func TestQueryResolver_Transactions(t *testing.T) {
 }
 
 func TestQueryResolver_Account(t *testing.T) {
-	resolver := &queryResolver{&Resolver{}}
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	reader := NewBalanceReader(
+		&data.TrustlineBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.NativeBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.SACBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.LiquidityPoolBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&sep41data.BalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&sep41data.AllowanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+	)
+	resolver := &queryResolver{&Resolver{balanceReader: reader}}
 
-	t.Run("success", func(t *testing.T) {
-		acc, err := resolver.AccountByAddress(testCtx, sharedTestAccountAddress)
+	t.Run("funded classic account returns account", func(t *testing.T) {
+		// A native_balances row is the "classic account exists" signal.
+		fundedAddr := keypair.MustRandom().Address()
+		execTestDB(t, `INSERT INTO native_balances (account_id, balance, last_modified_ledger) VALUES ($1, $2, $3)`,
+			mustAddressBytes(t, fundedAddr), int64(10_000_000), int64(1000))
+		t.Cleanup(func() {
+			execTestDB(t, `DELETE FROM native_balances WHERE account_id = $1`, mustAddressBytes(t, fundedAddr))
+		})
+
+		acc, err := resolver.AccountByAddress(testCtx, fundedAddr)
 		require.NoError(t, err)
-		assert.Equal(t, sharedTestAccountAddress, string(acc.StellarAddress))
+		require.NotNil(t, acc)
+		assert.Equal(t, fundedAddr, string(acc.StellarAddress))
 	})
 
-	t.Run("any valid address returns account", func(t *testing.T) {
+	t.Run("classic address with no native balance returns nil", func(t *testing.T) {
+		// No classic account (no native_balances row) -> null. Covers never-funded,
+		// merged, and contract-token-only holders; the resolver keys only off the native row.
 		acc, err := resolver.AccountByAddress(testCtx, sharedNonExistentAccountAddress)
 		require.NoError(t, err)
-		assert.NotNil(t, acc)
-		assert.Equal(t, sharedNonExistentAccountAddress, string(acc.StellarAddress))
+		assert.Nil(t, acc)
 	})
 
-	t.Run("empty address", func(t *testing.T) {
+	t.Run("contract address returns account without native lookup", func(t *testing.T) {
+		acc, err := resolver.AccountByAddress(testCtx, MainnetNativeContractAddress)
+		require.NoError(t, err)
+		require.NotNil(t, acc)
+		assert.Equal(t, MainnetNativeContractAddress, string(acc.StellarAddress))
+	})
+
+	t.Run("empty address returns INVALID_ADDRESS", func(t *testing.T) {
 		acc, err := resolver.AccountByAddress(testCtx, "")
 		require.Error(t, err)
 		assert.Nil(t, acc)
+		var gqlErr *gqlerror.Error
+		require.ErrorAs(t, err, &gqlErr)
+		assert.Equal(t, "INVALID_ADDRESS", gqlErr.Extensions["code"])
 	})
 }
 
