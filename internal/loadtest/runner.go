@@ -208,7 +208,7 @@ func runIngestionLoop(
 		ingestStart := time.Now()
 		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
-		_, err = indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer)
+		_, _, err = indexer.ProcessLedger(ctx, cfg.NetworkPassphrase, ledgerMeta, ledgerIndexer, buffer)
 		if err != nil {
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}

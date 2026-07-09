@@ -465,20 +465,30 @@ func ExtractContractEventsForLedger(ledgerMeta xdr.LedgerCloseMeta) (map[Contrac
 
 // ExtractContractDataChangesForLedger walks a ledger's successful transactions
 // and returns every ContractData ledger-entry change grouped by the owning
-// contract's C-address strkey. Unlike ExtractContractEventsForLedger it uses
+// contract's C-address strkey. It materializes the ledger's transactions via
 // the LedgerTransactionReader (GetChanges needs envelope↔meta pairing), so it
-// takes a ctx and the network passphrase and is strictly heavier — callers
-// gate it behind ProtocolProcessor.RequiresContractData.
-//
-// Within a contract, changes preserve transaction application order, so
-// last-write-wins folding per entry key is deterministic. Ledger-level
-// archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
-// per-tx entry removals appear with Post == nil.
+// is strictly heavier than ExtractContractEventsForLedger — callers gate it
+// behind ProtocolProcessor.RequiresContractData. Callers that already hold
+// the ledger's transactions (live ingestion's main pipeline) use
+// ExtractContractDataChangesFromTransactions directly instead of paying for
+// a second reader build.
 func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[string][]ingest.Change, error) {
 	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
+	return ExtractContractDataChangesFromTransactions(transactions, ledgerMeta.LedgerSequence())
+}
+
+// ExtractContractDataChangesFromTransactions is
+// ExtractContractDataChangesForLedger over already-materialized transactions;
+// ledgerSeq is used only for error context.
+//
+// Within a contract, changes preserve transaction application order, so
+// last-write-wins folding per entry key is deterministic. Ledger-level
+// archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
+// per-tx entry removals appear with Post == nil.
+func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTransaction, ledgerSeq uint32) (map[string][]ingest.Change, error) {
 	out := make(map[string][]ingest.Change)
 	for i := range transactions {
 		tx := transactions[i]
@@ -487,7 +497,7 @@ func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase 
 		}
 		changes, chErr := tx.GetChanges()
 		if chErr != nil {
-			return nil, fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerMeta.LedgerSequence(), tx.Index, chErr)
+			return nil, fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
 		}
 		for _, change := range changes {
 			if change.Type != xdr.LedgerEntryTypeContractData {
@@ -512,7 +522,7 @@ func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase 
 			if encErr != nil {
 				// Callers rely on this function returning every ContractData
 				// change; silently dropping one would corrupt downstream state.
-				return nil, fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerMeta.LedgerSequence(), tx.Index, encErr)
+				return nil, fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, tx.Index, encErr)
 			}
 			out[addr] = append(out[addr], change)
 		}
@@ -521,18 +531,22 @@ func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase 
 }
 
 // ProcessLedger extracts transactions from a ledger and indexes them.
-// Returns the participant count for optional metrics recording.
-func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
+// Returns the participant count for optional metrics recording, plus the
+// materialized transactions so callers with further per-transaction work
+// (live ingestion's ContractData extraction) can reuse them instead of
+// paying for a second LedgerTransactionReader build — its constructor
+// re-hashes every transaction envelope.
+func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, []ingest.LedgerTransaction, error) {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
 	if err != nil {
-		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
 	participantCount, err := ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
 	if err != nil {
-		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, nil, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	return participantCount, nil
+	return participantCount, transactions, nil
 }

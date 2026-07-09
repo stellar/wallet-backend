@@ -34,13 +34,19 @@ const (
 // It handles: trustline assets, contract tokens, filtered data insertion,
 // token changes, and cursor update.
 func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
-	return m.persistLedgerData(ctx, ledgerSeq, nil, buffer, cursorName)
+	return m.persistLedgerData(ctx, ledgerSeq, nil, nil, buffer, cursorName)
 }
 
+// persistLedgerData takes the ledger's already-materialized transactions
+// (from the processLedger staging pass) so protocol ContractData extraction
+// reuses them instead of rebuilding a LedgerTransactionReader; transactions
+// is nil exactly when ledgerMeta is (the loadtest path), which also skips the
+// protocol section.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
 	ledgerMeta *xdr.LedgerCloseMeta,
+	transactions []ingest.LedgerTransaction,
 	buffer *indexer.IndexerBuffer,
 	cursorName string,
 ) (int, int, error) {
@@ -159,7 +165,7 @@ func (m *ingestService) persistLedgerData(
 				if processor.RequiresContractData() {
 					if !contractDataExtracted {
 						var cdErr error
-						contractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, m.networkPassphrase, *ledgerMeta)
+						contractDataChanges, cdErr = indexer.ExtractContractDataChangesFromTransactions(transactions, ledgerSeq)
 						if cdErr != nil {
 							return fmt.Errorf("extracting contract data changes for ledger %d: %w", ledgerSeq, cdErr)
 						}
@@ -387,7 +393,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		totalStart := time.Now()
 		processStart := time.Now()
 		buffer := indexer.NewIndexerBuffer()
-		err := m.processLedger(ctx, ledgerMeta, buffer)
+		transactions, err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -396,7 +402,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, transactions, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -504,6 +510,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
+	transactions []ingest.LedgerTransaction,
 	buffer *indexer.IndexerBuffer,
 ) (int, int, error) {
 	var lastErr error
@@ -514,7 +521,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, transactions, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}

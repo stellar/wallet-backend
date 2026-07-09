@@ -1382,6 +1382,13 @@ func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
 			transactions, txErr := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
 			require.NoError(t, txErr)
 
+			// The slice-based variant (what live ingestion uses, sharing the main
+			// pipeline's already-materialized transactions) must be exactly
+			// equivalent to the ledger-based wrapper.
+			fromTxs, fromTxsErr := ExtractContractDataChangesFromTransactions(transactions, lcm.LedgerSequence())
+			require.NoError(t, fromTxsErr)
+			assert.Equal(t, got, fromTxs)
+
 			// Independently derive the expected ContractData change count from
 			// the successful transactions, without calling the function under
 			// test, so the "only successful txs" assertion is meaningful rather
