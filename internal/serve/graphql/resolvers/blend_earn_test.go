@@ -247,3 +247,57 @@ func TestQueryResolver_BlendEarnOptions_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, got)
 }
+
+func TestQueryResolver_BlendEarnOptions_UnenrichedMetadataFallsBackToReserveDecimals(t *testing.T) {
+	// SEP-41 classification inserts a contract_tokens row (nil name/symbol,
+	// decimals 0) BEFORE RPC enrichment fills it. Until enrichment lands, the
+	// reserve config's decimals — set on-chain from the token itself — are
+	// authoritative for the earn view.
+	asset := randomContractAddress(t)
+	poolAddr := randomContractAddress(t)
+	oracleAddr := randomContractAddress(t)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models := &data.Models{
+		Contract: &data.ContractModel{DB: testDBConnectionPool, Metrics: m.DB},
+		Blend:    blenddata.NewModels(testDBConnectionPool, m.DB),
+	}
+	resolver := &queryResolver{&Resolver{models: models}}
+
+	execTestDB(t, `
+		INSERT INTO contract_tokens (id, contract_id, type, name, symbol, decimals) VALUES
+		($1, $2, 'sep41', NULL, NULL, 0)`,
+		data.DeterministicContractID(asset), asset)
+	execTestDB(t, `
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, last_modified_ledger)
+		VALUES ($1, 'Pool U', $2, 2000000, 0, 4, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(oracleAddr))
+	execTestDB(t, `
+		INSERT INTO blend_reserves (
+			pool_contract_id, reserve_index, asset_contract_id,
+			b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+			decimals, c_factor, l_factor, util, max_util,
+			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled, last_modified_ledger
+		) VALUES ($1, 0, $2, '1000000000000', '1000000000000', '100000000', '40000000', '10000000', '0', 4102444800,
+			6, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(asset))
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id = $1`, asset)
+	})
+
+	got, err := resolver.BlendEarnOptions(testCtx)
+	require.NoError(t, err)
+
+	var opt *graphql1.BlendEarnOption
+	for _, o := range got {
+		if o.AssetContractID == asset {
+			opt = o
+		}
+	}
+	require.NotNil(t, opt)
+	assert.Nil(t, opt.TokenName, "unenriched row has no name")
+	require.NotNil(t, opt.TokenDecimals)
+	assert.EqualValues(t, 6, *opt.TokenDecimals, "reserve decimals win over the unenriched row's 0")
+}
