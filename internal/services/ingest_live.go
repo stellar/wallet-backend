@@ -76,9 +76,11 @@ func (m *ingestService) persistLedgerData(
 		// so any RPC calls (e.g. SEP-41 metadata) already happened;
 		// ApplyClassificationPlan only performs each validator's DB writes
 		// here, atomically with the classification verdict and wasm/contract
-		// rows below. Live protocol processors then stage ledger state from
-		// the classification result before the generic protocol_wasms /
-		// protocol_contracts rows are persisted below.
+		// rows below. Wasm rows are persisted next, then live protocol
+		// processors stage ledger state from the classification result, and
+		// the generic protocol_contracts rows are persisted after them so a
+		// processor's name-enriched row lands first (the generic insert's
+		// COALESCE preserves it).
 		bufferedWasms := buffer.GetProtocolWasms()
 		bufferedContracts := buffer.GetProtocolContracts()
 
@@ -93,6 +95,25 @@ func (m *ingestService) persistLedgerData(
 		}
 		if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
 			return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		// Persist this ledger's wasm rows BEFORE processors run: a processor
+		// enriching protocol_contracts (e.g. contract names decoded from
+		// instance storage) inserts rows that are FK-filtered against
+		// protocol_wasms, so a contract deployed in the same ledger as its
+		// wasm upload would otherwise be silently dropped.
+		if len(bufferedWasms) > 0 {
+			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
+			for hash, wasm := range bufferedWasms {
+				if pid, ok := classification[types.HashBytea(hash)]; ok {
+					stamped := pid
+					wasm.ProtocolID = &stamped
+				}
+				wasmSlice = append(wasmSlice, wasm)
+			}
+			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
+			}
 		}
 
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
@@ -220,19 +241,6 @@ func (m *ingestService) persistLedgerData(
 			}
 		}
 
-		if len(bufferedWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
-			for hash, wasm := range bufferedWasms {
-				if pid, ok := classification[types.HashBytea(hash)]; ok {
-					stamped := pid
-					wasm.ProtocolID = &stamped
-				}
-				wasmSlice = append(wasmSlice, wasm)
-			}
-			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
 		if len(contractSlice) > 0 {
 			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)

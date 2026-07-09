@@ -2409,7 +2409,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 	})
 
