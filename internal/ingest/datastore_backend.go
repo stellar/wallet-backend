@@ -401,7 +401,7 @@ func (buf *ledgerBuffer) downloadAndStore(sequence uint32) {
 // directly to the decoder, streaming through zstd without an intermediate allocation.
 func (buf *ledgerBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMetaBatch, error) {
 	objectKey := buf.schema.GetObjectKeyFromSequenceNumber(sequence)
-	reader, err := buf.dataStore.GetFile(buf.ctx, objectKey)
+	reader, _, err := buf.dataStore.GetFile(buf.ctx, objectKey)
 	if err != nil {
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("fetching ledger file %s: %w", objectKey, err)
 	}

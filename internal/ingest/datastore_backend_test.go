@@ -23,12 +23,13 @@ type mockDataStore struct {
 	mock.Mock
 }
 
-func (m *mockDataStore) GetFile(ctx context.Context, path string) (io.ReadCloser, error) {
+func (m *mockDataStore) GetFile(ctx context.Context, path string) (io.ReadCloser, int64, error) {
 	args := m.Called(ctx, path)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, 0, args.Error(1)
 	}
-	return args.Get(0).(io.ReadCloser), args.Error(1)
+	// Size (second return) is unused by the streaming decode path, so it is always 0 here.
+	return args.Get(0).(io.ReadCloser), 0, args.Error(1)
 }
 
 func (m *mockDataStore) GetFileMetadata(ctx context.Context, path string) (map[string]string, error) {

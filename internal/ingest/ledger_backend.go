@@ -112,7 +112,7 @@ func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (l
 	}
 	config := goloadtest.LedgerBackendConfig{
 		NetworkPassphrase:   cfg.NetworkPassphrase,
-		LedgersFilePath:     cfg.LedgersFilePath,
+		LedgersFilePaths:    []string{cfg.LedgersFilePath},
 		LedgerCloseDuration: cfg.LedgerCloseDuration,
 		LedgerBackend:       dsBackend,
 	}
