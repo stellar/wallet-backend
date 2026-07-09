@@ -143,6 +143,40 @@ func claimableStream(userEmission blenddata.Emission, hasUser bool, configIndex 
 	return blendrates.ClaimableEmissions(accrued, userIndex, emisIndex, tokenBalance, scalar), nil
 }
 
+// isFreshPrice reports whether a stored oracle price is still usable as of
+// now. The Blend pool contract itself refuses prices older than
+// blendrates.MaxPriceAge (pool.rs::load_price), so a staler row cannot
+// honestly value anything — treating it as missing makes every USD/APY
+// field go null exactly like a never-priced asset, instead of quietly
+// pricing off a dead oracle's last snapshot forever.
+func isFreshPrice(op blenddata.OraclePrice, now int64) bool {
+	return op.PriceTimestamp >= now-int64(blendrates.MaxPriceAge/time.Second)
+}
+
+// freshPriceMap indexes price rows by "oracle|asset", dropping stale rows
+// per isFreshPrice.
+func freshPriceMap(rows []blenddata.OraclePrice, now int64) map[string]blenddata.OraclePrice {
+	m := make(map[string]blenddata.OraclePrice, len(rows))
+	for _, op := range rows {
+		if !isFreshPrice(op, now) {
+			continue
+		}
+		m[string(op.OracleContractID)+"|"+string(op.AssetContractID)] = op
+	}
+	return m
+}
+
+// freshPrices filters price rows to the fresh ones per isFreshPrice.
+func freshPrices(rows []blenddata.OraclePrice, now int64) []blenddata.OraclePrice {
+	out := make([]blenddata.OraclePrice, 0, len(rows))
+	for _, op := range rows {
+		if isFreshPrice(op, now) {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
 // findBackstopPrices picks the (LP, BLND) price pair out of
 // OraclePrices.GetBackstopLPPrices' result set. Rows share an
 // oracle_contract_id in groups of (one self-priced LP row, its sibling BLND
@@ -636,12 +670,9 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	if err != nil {
 		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
 	}
-	lpPrice, blndPrice := findBackstopPrices(backstopLPPrices)
-
-	priceByOracleAsset := make(map[string]blenddata.OraclePrice, len(oraclePrices))
-	for _, op := range oraclePrices {
-		priceByOracleAsset[string(op.OracleContractID)+"|"+string(op.AssetContractID)] = op
-	}
+	now := time.Now().Unix()
+	lpPrice, blndPrice := findBackstopPrices(freshPrices(backstopLPPrices, now))
+	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	reserveByPoolIndex := make(map[string]blenddata.Reserve, len(reserves))
 	assetIDSet := map[string]struct{}{}
@@ -703,7 +734,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		lpPrice:                    lpPrice,
 		blndPrice:                  blndPrice,
 		claimedByPool:              claimedByPool,
-		now:                        time.Now().Unix(),
+		now:                        now,
 	}
 
 	// Group reserve positions by pool, preserving GetByAccount's

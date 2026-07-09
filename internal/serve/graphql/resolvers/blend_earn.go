@@ -172,16 +172,14 @@ func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEa
 	if err != nil {
 		return nil, fmt.Errorf("getting blend oracle prices: %w", err)
 	}
-	priceByOracleAsset := make(map[string]blenddata.OraclePrice, len(oraclePrices))
-	for _, op := range oraclePrices {
-		priceByOracleAsset[string(op.OracleContractID)+"|"+string(op.AssetContractID)] = op
-	}
+	now := time.Now().Unix()
+	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	assembly := &blendAssembly{
 		poolByID:           poolByID,
 		priceByOracleAsset: priceByOracleAsset,
 		metaByContractID:   metaByContractID,
-		now:                time.Now().Unix(),
+		now:                now,
 	}
 
 	out := make([]*graphql1.BlendEarnOption, 0, len(assetIDs))

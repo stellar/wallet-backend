@@ -143,9 +143,9 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 	execTestDB(t, `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
 		VALUES
-		($1, $2, '25000000', 7, 100),
-		($3, $2, '10000000', 7, 100),
-		($4, $5, '30000000', 7, 100)`,
+		($1, $2, '25000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($3, $2, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($4, $5, '30000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 		types.AddressBytea(oracleOne), types.AddressBytea(assetX),
 		types.AddressBytea(oracleTwo),
 		types.AddressBytea(oracleFive), types.AddressBytea(assetY))
