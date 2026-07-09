@@ -279,7 +279,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 	// (validate() requires ClassificationStatus == StatusSuccess).
 	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(trackers))
 	for _, t := range trackers {
-		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
+		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, s.db, t.protocolID)
 		if loadErr != nil {
 			return nil, fmt.Errorf("loading contracts for %s: %w", t.protocolID, loadErr)
 		}

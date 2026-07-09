@@ -305,7 +305,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
 		backend := &multiLedgerBackend{
@@ -378,7 +378,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Maybe()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Maybe()
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -503,7 +503,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
 		backend := &multiLedgerBackend{
@@ -565,7 +565,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -624,7 +624,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
 		processorMock.On("RequiresContractData").Return(false)
@@ -669,7 +669,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
 		processorMock.On("RequiresContractData").Return(false)
@@ -722,7 +722,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// causes the run to fail, so the engine marks it as failed.
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{}}
 
@@ -783,8 +783,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -860,8 +860,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -940,8 +940,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1021,8 +1021,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// proto2 should be marked failed (ProcessLedger error)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto2"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1100,7 +1100,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &transientErrorBackend{
 			multiLedgerBackend: multiLedgerBackend{
@@ -1168,8 +1168,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "cdproto").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "noproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1228,7 +1228,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "noproto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1275,7 +1275,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Advancing the cursor at 105 makes the second window's CAS fail -> handoff -> loop ends.
 		processor := &testCursorAdvancingProcessor{
@@ -1334,7 +1334,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processor := &testCursorAdvancingProcessor{
 			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
@@ -1379,7 +1379,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		// GetLedger(102) blocks (102 never closes) -> ctx timeout -> run fails. No handoff
 		// happened (the partial window's CAS succeeded), so the active protocol is marked failed.
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Plain recording processor (no cursor advance): the partial window's CAS succeeds,
 		// so we observe a committed partial flush rather than a handoff.
@@ -1432,7 +1432,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Hands off only on the 4th window (at 111); the first three windows commit cleanly.
 		processor := &testCursorAdvancingProcessor{
@@ -1499,8 +1499,8 @@ func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		// Both processors advance at 104 (last available ledger) so both hand off,
 		// terminating the loop via tip-shrink+handoff (WindowSize=10 never fills).
@@ -1561,7 +1561,7 @@ func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Hand off at 102 so the loop terminates; WindowSize=10 would coalesce all three
 		// ledgers if the tip were readable.

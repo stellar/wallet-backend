@@ -349,8 +349,8 @@ func (m *ProtocolContractsModelMock) BatchInsert(ctx context.Context, dbTx pgx.T
 	return args.Error(0)
 }
 
-func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
-	args := m.Called(ctx, protocolID)
+func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error) {
+	args := m.Called(ctx, q, protocolID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
