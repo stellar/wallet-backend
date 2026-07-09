@@ -98,8 +98,12 @@ func usdValueOrNil(amount *big.Int, decimals int32, price *blenddata.OraclePrice
 
 // claimableStream computes claimable (uncollected) BLND for one emission
 // stream, per rates.go's ClaimableEmissions. hasUser reports whether the
-// account has ever accrued against this stream at all; when false, the
-// account never interacted with it and claimable is exactly 0.
+// account has a blend_emissions row for this stream. When false but the
+// stream is configured and the account holds a balance, the contract's
+// "user had tokens before emissions began" branch applies (distributor.rs's
+// update_user_emissions): the holder is owed balance*index/scalar the first
+// time their emissions are touched — the full index counts, from a zero
+// starting point, with nothing pre-accrued.
 //
 // configIndex is the stream's own current emission_index (from
 // blend_reserve_emissions or blend_backstop_pools.emis_index), used as the
@@ -110,7 +114,14 @@ func usdValueOrNil(amount *big.Int, decimals int32, price *blenddata.OraclePrice
 // user's own index is used as both sides of the delta.
 func claimableStream(userEmission blenddata.Emission, hasUser bool, configIndex *string, tokenBalance, scalar *big.Int) (*big.Int, error) {
 	if !hasUser {
-		return big.NewInt(0), nil
+		if configIndex == nil || tokenBalance.Sign() <= 0 {
+			return big.NewInt(0), nil
+		}
+		emisIndex, err := parseBigInt(*configIndex)
+		if err != nil {
+			return nil, fmt.Errorf("parsing blend emission config index: %w", err)
+		}
+		return blendrates.ClaimableEmissions(big.NewInt(0), big.NewInt(0), emisIndex, tokenBalance, scalar), nil
 	}
 	accrued, err := parseBigInt(userEmission.Accrued)
 	if err != nil {
@@ -729,8 +740,8 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	}
 
 	return &graphql1.BlendAccountPositions{
-		Pools:               poolPositions,
-		Backstop:            backstopOut,
+		Pools:             poolPositions,
+		Backstop:          backstopOut,
 		BackstopClaimedBlnd: backstopClaimed,
 	}, nil
 }
