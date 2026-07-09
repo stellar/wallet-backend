@@ -322,19 +322,32 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.Equal(t, poolAddr, bp.PoolAddress)
 		require.NotNil(t, bp.PoolName)
 		assert.Equal(t, "Test Pool", *bp.PoolName)
+		// shares is the ACTIVE (non-queued) share balance only.
 		assert.Equal(t, "1000000", bp.Shares)
-		// lpTokens = shares(1_000_000)*poolTokens(50_000_000)/poolShares(10_000_000) = 5_000_000.
-		assert.Equal(t, "5000000", bp.LpTokens)
+		// lpTokens/usdValue include queued shares — still the user's slashable,
+		// interest-earning capital until withdrawn: totalShares = active
+		// (1_000_000) + queued (100_000 + 200_000) = 1_300_000; lpTokens =
+		// 1_300_000*poolTokens(50_000_000)/poolShares(10_000_000) = 6_500_000.
+		assert.Equal(t, "6500000", bp.LpTokens)
 		require.NotNil(t, bp.UsdValue)
-		assert.InDelta(t, 0.55, *bp.UsdValue, 1e-9)
+		assert.InDelta(t, 0.715, *bp.UsdValue, 1e-9)
 
+		// Each queued entry is valued through the same shares→LP→USD chain.
 		require.Len(t, bp.Q4w, 2)
 		assert.Equal(t, "100000", bp.Q4w[0].Amount)
 		assert.EqualValues(t, 1800000000, bp.Q4w[0].Expiration)
+		assert.Equal(t, "500000", bp.Q4w[0].LpTokens)
+		require.NotNil(t, bp.Q4w[0].UsdValue)
+		assert.InDelta(t, 0.055, *bp.Q4w[0].UsdValue, 1e-9)
 		assert.Equal(t, "200000", bp.Q4w[1].Amount)
 		assert.EqualValues(t, 1900000000, bp.Q4w[1].Expiration)
+		assert.Equal(t, "1000000", bp.Q4w[1].LpTokens)
+		require.NotNil(t, bp.Q4w[1].UsdValue)
+		assert.InDelta(t, 0.11, *bp.Q4w[1].UsdValue, 1e-9)
 
-		// claimable = accrued(1000) + tokenBalance(1_000_000)*(emisIndex-userIndex)(3e12)/scalar(1e14)
+		// Emissions accrue on ACTIVE shares only (queued shares are not
+		// emission-eligible): claimable = accrued(1000) +
+		// tokenBalance(1_000_000)*(emisIndex-userIndex)(3e12)/scalar(1e14)
 		//   = 1000 + 30_000 = 31_000.
 		assert.Equal(t, "31000", bp.EmissionsEarnedBlnd)
 		require.NotNil(t, bp.EmissionsEarnedUsd)
