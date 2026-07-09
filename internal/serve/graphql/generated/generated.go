@@ -172,6 +172,8 @@ type ComplexityRoot struct {
 	BlendQ4W struct {
 		Amount     func(childComplexity int) int
 		Expiration func(childComplexity int) int
+		LpTokens   func(childComplexity int) int
+		UsdValue   func(childComplexity int) int
 	}
 
 	BlendReserve struct {
@@ -1161,6 +1163,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendQ4W.Expiration(childComplexity), true
+	case "BlendQ4W.lpTokens":
+		if e.ComplexityRoot.BlendQ4W.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.LpTokens(childComplexity), true
+	case "BlendQ4W.usdValue":
+		if e.ComplexityRoot.BlendQ4W.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.UsdValue(childComplexity), true
 
 	case "BlendReserve.assetContractId":
 		if e.ComplexityRoot.BlendReserve.AssetContractID == nil {
@@ -2820,9 +2834,13 @@ type BlendReservePosition {
 }
 
 """
-BlendBackstopPosition is an account's backstop deposit in one pool.
-emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
-emission stream for this pool.
+BlendBackstopPosition is an account's backstop deposit in one pool. shares
+is the ACTIVE (non-queued) backstop share balance; lpTokens/usdValue value
+the whole deposit — active plus queued-for-withdrawal shares — since queued
+shares keep earning pool interest and remain slashable first-loss capital
+until actually withdrawn. emissionsEarnedBlnd is CLAIMABLE (uncollected)
+BLND accrued on the backstop emission stream for this pool; it accrues on
+active shares only (queued shares earn no emissions).
 """
 type BlendBackstopPosition {
   poolAddress: String!
@@ -2835,10 +2853,16 @@ type BlendBackstopPosition {
   emissionsEarnedUsd: Float
 }
 
-"""BlendQ4W is one queued backstop withdrawal."""
+"""
+BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+through the same shares→LP→USD conversion as the position's totals.
+"""
 type BlendQ4W {
   amount: String!
   expiration: Int64!
+  lpTokens: String!
+  usdValue: Float
 }
 
 """
@@ -5529,6 +5553,10 @@ func (ec *executionContext) fieldContext_BlendBackstopPosition_q4w(_ context.Con
 				return ec.fieldContext_BlendQ4W_amount(ctx, field)
 			case "expiration":
 				return ec.fieldContext_BlendQ4W_expiration(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendQ4W_lpTokens(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendQ4W_usdValue(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendQ4W", field.Name)
 		},
@@ -6568,6 +6596,64 @@ func (ec *executionContext) fieldContext_BlendQ4W_expiration(_ context.Context, 
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int64 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
 		},
 	}
 	return fc, nil
@@ -17074,6 +17160,13 @@ func (ec *executionContext) _BlendQ4W(ctx context.Context, sel ast.SelectionSet,
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendQ4W_lpTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "usdValue":
+			out.Values[i] = ec._BlendQ4W_usdValue(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

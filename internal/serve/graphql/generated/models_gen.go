@@ -70,9 +70,13 @@ type BlendAccountPositions struct {
 	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
 }
 
-// BlendBackstopPosition is an account's backstop deposit in one pool.
-// emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
-// emission stream for this pool.
+// BlendBackstopPosition is an account's backstop deposit in one pool. shares
+// is the ACTIVE (non-queued) backstop share balance; lpTokens/usdValue value
+// the whole deposit — active plus queued-for-withdrawal shares — since queued
+// shares keep earning pool interest and remain slashable first-loss capital
+// until actually withdrawn. emissionsEarnedBlnd is CLAIMABLE (uncollected)
+// BLND accrued on the backstop emission stream for this pool; it accrues on
+// active shares only (queued shares earn no emissions).
 type BlendBackstopPosition struct {
 	PoolAddress         string      `json:"poolAddress"`
 	PoolName            *string     `json:"poolName,omitempty"`
@@ -138,10 +142,14 @@ type BlendPoolPosition struct {
 	Reserves    []*BlendReservePosition `json:"reserves"`
 }
 
-// BlendQ4W is one queued backstop withdrawal.
+// BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+// seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+// through the same shares→LP→USD conversion as the position's totals.
 type BlendQ4w struct {
-	Amount     string `json:"amount"`
-	Expiration int64  `json:"expiration"`
+	Amount     string   `json:"amount"`
+	Expiration int64    `json:"expiration"`
+	LpTokens   string   `json:"lpTokens"`
+	UsdValue   *float64 `json:"usdValue,omitempty"`
 }
 
 // BlendReserve is a pool-wide reserve catalog view: current utilization,
