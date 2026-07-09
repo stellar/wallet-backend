@@ -296,6 +296,13 @@ func (m *PositionModel) BatchUpsertSnapshots(ctx context.Context, dbTx pgx.Tx, r
 // ZeroBorrowed, when true, replaces net_borrowed with NetBorrowedDelta instead
 // of adding to it — used to fold a bad_debt event, which resets the borrower's
 // liability cost basis rather than accumulating against it.
+//
+// Each (Pool, User, Asset) key must appear at most once per batch: Postgres's
+// UPDATE ... FROM applies only ONE matching source row per target row, so a
+// duplicate key would silently drop deltas. Duplicates can't be merged here
+// either — ZeroBorrowed makes combination order-dependent, and the batch
+// carries no ordering — so the caller must pre-aggregate (the processor's
+// staged fold does) and duplicates are rejected with an error.
 func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, deltas []PositionNetDelta) error {
 	if len(deltas) == 0 {
 		return nil
@@ -310,6 +317,7 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 	netBorrowedDeltas := make([]string, len(deltas))
 	zeroBorrowedFlags := make([]bool, len(deltas))
 	ledgers := make([]int32, len(deltas))
+	seen := make(map[PoolUserKey]map[string]struct{}, len(deltas))
 	for i, d := range deltas {
 		poolBytes, err := addressToBytes(d.Pool)
 		if err != nil {
@@ -323,6 +331,14 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 		if err != nil {
 			return fmt.Errorf("converting asset address for net-delta apply: %w", err)
 		}
+		groupKey := PoolUserKey{Pool: d.Pool, User: d.User}
+		if _, dup := seen[groupKey][d.Asset]; dup {
+			return fmt.Errorf("duplicate net delta for pool=%s user=%s asset=%s: deltas must be pre-aggregated per key", d.Pool, d.User, d.Asset)
+		}
+		if seen[groupKey] == nil {
+			seen[groupKey] = make(map[string]struct{})
+		}
+		seen[groupKey][d.Asset] = struct{}{}
 		pools[i] = poolBytes
 		users[i] = userBytes
 		assets[i] = assetBytes
@@ -356,13 +372,24 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 
 // applyAuctionAdjustmentsSQL divides by rateScalar to convert protocol-token
 // amounts (lot/bid, scaled by b_rate/d_rate) to underlying-asset amounts.
+//
+// The UNNEST rows are pre-aggregated per (pool, user, asset): Postgres's
+// UPDATE ... FROM applies only ONE matching source row per target row, so two
+// fills against the same position in one batch would otherwise silently drop
+// an adjustment. Auction deltas are purely additive, so summing is exact.
 var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 	UPDATE blend_positions p SET
-		net_supplied = (p.net_supplied::numeric + u.lot_b::numeric * r.b_rate::numeric / %[1]s)::text,
-		net_borrowed = (p.net_borrowed::numeric + u.bid_d::numeric * r.d_rate::numeric / %[1]s)::text,
+		net_supplied = (p.net_supplied::numeric + u.lot_b * r.b_rate::numeric / %[1]s)::text,
+		net_borrowed = (p.net_borrowed::numeric + u.bid_d * r.d_rate::numeric / %[1]s)::text,
 		last_modified_ledger = GREATEST(p.last_modified_ledger, u.ledger)
-	FROM UNNEST($1::bytea[], $2::bytea[], $3::bytea[], $4::text[], $5::text[], $6::integer[])
-		AS u(pool, usr, asset, lot_b, bid_d, ledger)
+	FROM (
+		SELECT raw.pool, raw.usr, raw.asset,
+			SUM(raw.lot_b::numeric) AS lot_b, SUM(raw.bid_d::numeric) AS bid_d,
+			MAX(raw.ledger) AS ledger
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::bytea[], $4::text[], $5::text[], $6::integer[])
+			AS raw(pool, usr, asset, lot_b, bid_d, ledger)
+		GROUP BY raw.pool, raw.usr, raw.asset
+	) u
 	JOIN blend_reserves r ON r.pool_contract_id = u.pool AND r.asset_contract_id = u.asset
 	WHERE p.pool_contract_id = u.pool AND p.user_account_id = u.usr AND p.reserve_index = r.reserve_index`,
 	rateScalar,
@@ -371,7 +398,9 @@ var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 // ApplyAuctionAdjustments values protocol-token auction fills (lot/bid amounts)
 // at the reserve's current b_rate/d_rate and applies the resulting underlying
 // amount to cost basis. Adjustments whose asset has no matching blend_reserves
-// row for the pool are silently skipped (0 rows affected).
+// row for the pool are silently skipped (0 rows affected). Multiple
+// adjustments for the same (pool, user, asset) in one batch are summed
+// server-side before applying.
 func (m *PositionModel) ApplyAuctionAdjustments(ctx context.Context, dbTx pgx.Tx, adjs []PositionAuctionAdjustment) error {
 	if len(adjs) == 0 {
 		return nil
