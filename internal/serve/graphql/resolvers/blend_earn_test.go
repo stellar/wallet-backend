@@ -59,6 +59,13 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 	poolThree := randomContractAddress(t)
 	poolFour := randomContractAddress(t)
 
+	// Supply-rejecting pools: the contract refuses supply for status >= 4
+	// (4 Admin Frozen, 5 Frozen, 6 Setup), and an unknown (NULL) status can't
+	// be confirmed eligible. Their enabled Asset X reserves must not appear.
+	poolFrozen := randomContractAddress(t)
+	poolSetup := randomContractAddress(t)
+	poolUnknown := randomContractAddress(t)
+
 	oracleOne := randomContractAddress(t)
 	oracleTwo := randomContractAddress(t)
 	oracleFive := randomContractAddress(t)
@@ -108,12 +115,16 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		($3, 'Pool Two', $4, 2000000, 0, 4, 100),
 		($5, 'Pool Five', $6, 1000000, 0, 4, 100),
 		($7, 'Pool Three', $8, 2000000, 0, 4, 100),
-		($9, 'Pool Four', $10, 2000000, 0, 4, 100)`,
+		($9, 'Pool Four', $10, 2000000, 0, 4, 100),
+		($11, 'Pool Frozen', $2, 2000000, 4, 4, 100),
+		($12, 'Pool Setup', $2, 2000000, 6, 4, 100),
+		($13, 'Pool Unknown', $2, 2000000, NULL, 4, 100)`,
 		types.AddressBytea(poolOne), types.AddressBytea(oracleOne),
 		types.AddressBytea(poolTwo), types.AddressBytea(oracleTwo),
 		types.AddressBytea(poolFive), types.AddressBytea(oracleFive),
 		types.AddressBytea(poolThree), types.AddressBytea(oracleThree),
-		types.AddressBytea(poolFour), types.AddressBytea(oracleFour))
+		types.AddressBytea(poolFour), types.AddressBytea(oracleFour),
+		types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
 
 	// --- reserves ---
 	execTestDB(t, `
@@ -134,10 +145,17 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		($8, 0, $2, '1000000000000', '1000000000000', '10000000', '4000000', '10000000', '0', $3,
 			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
 		($9, 0, $2, '1000000000000', '1000000000000', '10000000', '4000000', '10000000', '0', $3,
+			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
+		($10, 0, $2, '1000000000000', '1000000000000', '10000000', '4000000', '10000000', '0', $3,
+			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
+		($11, 0, $2, '1000000000000', '1000000000000', '10000000', '4000000', '10000000', '0', $3,
+			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
+		($12, 0, $2, '1000000000000', '1000000000000', '10000000', '4000000', '10000000', '0', $3,
 			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100)`,
 		types.AddressBytea(poolOne), types.AddressBytea(assetX), futureLastTime, types.AddressBytea(assetZ),
 		types.AddressBytea(poolTwo), types.AddressBytea(poolFive), types.AddressBytea(assetY),
-		types.AddressBytea(poolThree), types.AddressBytea(poolFour))
+		types.AddressBytea(poolThree), types.AddressBytea(poolFour),
+		types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
 
 	// --- oracle prices: Pool Three/Four intentionally have none for Asset X ---
 	execTestDB(t, `
@@ -151,12 +169,14 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		types.AddressBytea(oracleFive), types.AddressBytea(assetY))
 
 	t.Cleanup(func() {
-		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id IN ($1, $2, $3, $4, $5)`,
+		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id IN ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			types.AddressBytea(poolOne), types.AddressBytea(poolTwo), types.AddressBytea(poolFive),
-			types.AddressBytea(poolThree), types.AddressBytea(poolFour))
-		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id IN ($1, $2, $3, $4, $5)`,
+			types.AddressBytea(poolThree), types.AddressBytea(poolFour),
+			types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
+		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id IN ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			types.AddressBytea(poolOne), types.AddressBytea(poolTwo), types.AddressBytea(poolFive),
-			types.AddressBytea(poolThree), types.AddressBytea(poolFour))
+			types.AddressBytea(poolThree), types.AddressBytea(poolFour),
+			types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
 		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2, $3)`,
 			types.AddressBytea(oracleOne), types.AddressBytea(oracleTwo), types.AddressBytea(oracleFive))
 		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2)`, assetX, assetY)
@@ -213,6 +233,14 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		assert.Nil(t, p3.SuppliedUsd)
 		assert.Equal(t, loP34, p2.PoolAddress)
 		assert.Equal(t, hiP34, p3.PoolAddress)
+	})
+
+	t.Run("supply-rejecting pools (status >= 4 or unknown) are not earn destinations", func(t *testing.T) {
+		for _, p := range x.Pools {
+			assert.NotEqual(t, poolFrozen, p.PoolAddress, "Admin Frozen (4) rejects supply on-chain")
+			assert.NotEqual(t, poolSetup, p.PoolAddress, "Setup (6) rejects supply on-chain")
+			assert.NotEqual(t, poolUnknown, p.PoolAddress, "a NULL status can't be confirmed supply-eligible")
+		}
 	})
 
 	t.Run("Asset Y metadata and single pool", func(t *testing.T) {
