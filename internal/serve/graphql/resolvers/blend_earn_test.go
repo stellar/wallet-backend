@@ -157,16 +157,30 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		types.AddressBytea(poolThree), types.AddressBytea(poolFour),
 		types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
 
-	// --- oracle prices: Pool Three/Four intentionally have none for Asset X ---
+	// --- oracle prices: Pool Three/Four intentionally have none for Asset X;
+	// the Comet self-priced LP row + BLND sibling ($0.05) feed emissions APR ---
+	cometAddr := randomContractAddress(t)
+	blndAddr := randomContractAddress(t)
 	execTestDB(t, `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
 		VALUES
 		($1, $2, '25000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
 		($3, $2, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
-		($4, $5, '30000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
+		($4, $5, '30000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($6, $6, '11000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($6, $7, '500000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 		types.AddressBytea(oracleOne), types.AddressBytea(assetX),
 		types.AddressBytea(oracleTwo),
-		types.AddressBytea(oracleFive), types.AddressBytea(assetY))
+		types.AddressBytea(oracleFive), types.AddressBytea(assetY),
+		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
+
+	// --- reserve emissions: Pool One's Asset X bToken (index*2+1 = 1) active,
+	// mirroring blend_pools_test's Pool Alpha r0 stream (emissionsSupplyApr =
+	// (eps/1e14 · 31536000 · blndUSD 0.05) / suppliedUsd 25.0 = 63.072) ---
+	execTestDB(t, `
+		INSERT INTO blend_reserve_emissions (pool_contract_id, reserve_token_id, eps, emission_index, expiration, last_time, last_modified_ledger)
+		VALUES ($1, 1, 100000000000, '2000000000000', 4102444800, 100, 100)`,
+		types.AddressBytea(poolOne))
 
 	t.Cleanup(func() {
 		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id IN ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -177,8 +191,10 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 			types.AddressBytea(poolOne), types.AddressBytea(poolTwo), types.AddressBytea(poolFive),
 			types.AddressBytea(poolThree), types.AddressBytea(poolFour),
 			types.AddressBytea(poolFrozen), types.AddressBytea(poolSetup), types.AddressBytea(poolUnknown))
-		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2, $3)`,
-			types.AddressBytea(oracleOne), types.AddressBytea(oracleTwo), types.AddressBytea(oracleFive))
+		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2, $3, $4)`,
+			types.AddressBytea(oracleOne), types.AddressBytea(oracleTwo), types.AddressBytea(oracleFive),
+			types.AddressBytea(cometAddr))
+		execTestDB(t, `DELETE FROM blend_reserve_emissions WHERE pool_contract_id = $1`, types.AddressBytea(poolOne))
 		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2)`, assetX, assetY)
 	})
 
@@ -220,12 +236,19 @@ func TestQueryResolver_BlendEarnOptions(t *testing.T) {
 		assert.InDelta(t, 0.006420127418405475, *p0.SupplyApy, 1e-12)
 		require.NotNil(t, p0.SuppliedUsd)
 		assert.InDelta(t, 25.0, *p0.SuppliedUsd, 1e-9)
+		// Active bToken emission stream: same hand-computed vector as
+		// blend_pools_test's Pool Alpha r0.
+		require.NotNil(t, p0.EmissionsSupplyApr)
+		assert.InDelta(t, 63.072, *p0.EmissionsSupplyApr, 1e-9)
 
 		assert.Equal(t, poolTwo, p1.PoolAddress)
 		require.NotNil(t, p1.SupplyApy)
 		assert.InDelta(t, 0.00903983597743796, *p1.SupplyApy, 1e-12)
 		require.NotNil(t, p1.SuppliedUsd)
 		assert.InDelta(t, 20.0, *p1.SuppliedUsd, 1e-9)
+		// No emission stream configured -> a concrete 0, not nil.
+		require.NotNil(t, p1.EmissionsSupplyApr)
+		assert.InDelta(t, 0.0, *p1.EmissionsSupplyApr, 1e-12)
 
 		// Pool Three/Four: no oracle price at all -> suppliedUsd nil, sorted
 		// last, ties broken by ascending pool address.
