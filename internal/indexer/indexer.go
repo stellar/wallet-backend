@@ -510,7 +510,9 @@ func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase 
 			}
 			addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
 			if encErr != nil {
-				continue
+				// Callers rely on this function returning every ContractData
+				// change; silently dropping one would corrupt downstream state.
+				return nil, fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerMeta.LedgerSequence(), tx.Index, encErr)
 			}
 			out[addr] = append(out[addr], change)
 		}

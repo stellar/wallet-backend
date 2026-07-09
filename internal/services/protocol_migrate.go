@@ -379,7 +379,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			ledgerContractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, s.networkPassphrase, ledgerMeta)
 			cdDur := time.Since(cdStart)
 			timers.extract += cdDur
-			s.metrics.PhaseDuration.WithLabelValues("extract").Observe(cdDur.Seconds())
+			// Distinct phase label: the events extraction already observes one
+			// "extract" sample per ledger, and dashboards assume that cardinality.
+			s.metrics.PhaseDuration.WithLabelValues("extract_contract_data").Observe(cdDur.Seconds())
 			if cdErr != nil {
 				return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract data changes for ledger %d: %w", seq, cdErr)
 			}
