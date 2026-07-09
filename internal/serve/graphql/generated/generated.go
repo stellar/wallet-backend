@@ -2759,14 +2759,14 @@ type SEP41Allowance {
 #
 # Query.blendPools/blendPool are pool-wide catalog views, independent of any
 # account. Query.blendEarnOptions is a "where can I earn this asset" catalog
-# view (Task 5.6 scope; its resolver is not implemented yet).
-# Account.blendPositions is an account's lending, collateral, and backstop
-# positions across every Blend v2 pool it touches.
+# view. Account.blendPositions is an account's lending, collateral, and
+# backstop positions across every Blend v2 pool it touches.
 #
 # Money-shaped fields use Float for USD/APY values (nullable wherever a missing
 # oracle price makes the value uncomputable — a genuinely zero balance is still
 # 0, not null) and String! for on-chain integer amounts, kept at full precision
-# rather than lossy float64.
+# rather than lossy float64. A stored price older than 24h counts as missing:
+# the pool contract itself refuses prices past that age.
 
 extend type Query {
   blendPools: [BlendPool!]!
@@ -2879,8 +2879,18 @@ emissions, not netted against the pool's borrow side.
 type BlendPool {
   address: String!
   name: String
+  """
+  Raw on-chain pool status: 0 Admin Active, 1 Active, 2 Admin On-Ice,
+  3 On-Ice, 4 Admin Frozen, 5 Frozen, 6 Setup. Statuses 0-3 accept supply
+  (deposits); 0-1 also allow borrowing; 4-6 reject both. Null until the
+  pool's config entry has been ingested.
+  """
   status: Int
   oracleContractId: String
+  """
+  Share of borrower interest routed to the pool's backstop, as 7-decimal
+  fixed point (4750000 = 47.5%).
+  """
   backstopRate: Int
   maxPositions: Int
   suppliedUsd: Float
@@ -2912,12 +2922,19 @@ type BlendReserve {
   borrowedTokens: String!
   suppliedUsd: Float
   borrowedUsd: Float
+  """Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral."""
   cFactor: Int
+  """Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports."""
   lFactor: Int
   priceUsd: Float
 }
 
-"""BlendEarnOption is a "where can I earn this asset" catalog view (Tasks 5.5/5.6 scope)."""
+"""
+BlendEarnOption is a "where can I earn this asset" catalog view: one entry
+per asset with at least one enabled reserve in a pool that currently accepts
+supply (status 0-3). Frozen (4-5) and Setup (6) pools reject deposits
+on-chain, so their reserves are never earn options.
+"""
 type BlendEarnOption {
   assetContractId: String!
   tokenName: String
