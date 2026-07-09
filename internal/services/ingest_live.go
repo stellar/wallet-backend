@@ -135,16 +135,31 @@ func (m *ingestService) persistLedgerData(
 					continue
 				}
 
-				if processor.RequiresContractData() && !contractDataExtracted {
-					var cdErr error
-					contractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, m.networkPassphrase, *ledgerMeta)
-					if cdErr != nil {
-						return fmt.Errorf("extracting contract data changes for ledger %d: %w", ledgerSeq, cdErr)
+				committed := committedByProtocol[protocolID]
+				if processor.RequiresContractData() {
+					if !contractDataExtracted {
+						var cdErr error
+						contractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, m.networkPassphrase, *ledgerMeta)
+						if cdErr != nil {
+							return fmt.Errorf("extracting contract data changes for ledger %d: %w", ledgerSeq, cdErr)
+						}
+						contractDataExtracted = true
 					}
-					contractDataExtracted = true
+
+					// ContractData-driven processors need the protocol's FULL committed
+					// membership, not just this ledger's event emitters: entries can
+					// change on a contract that emitted no event this ledger, and event
+					// decoding may disambiguate against tracked contracts that appear
+					// only in another contract's topics. Protocols requiring contract
+					// data have bounded membership, so the per-ledger query stays cheap.
+					var fullErr error
+					committed, fullErr = m.models.ProtocolContracts.GetByProtocolID(ctx, protocolID)
+					if fullErr != nil {
+						return fmt.Errorf("resolving full protocol contracts for ledger %d protocol %s: %w", ledgerSeq, protocolID, fullErr)
+					}
 				}
 
-				contracts := getEffectiveProtocolContracts(protocolID, committedByProtocol[protocolID], bufferedContracts, classification)
+				contracts := getEffectiveProtocolContracts(protocolID, committed, bufferedContracts, classification)
 				input := ProtocolProcessorInput{
 					LedgerSequence:      ledgerSeq,
 					LedgerCloseTime:     ledgerCloseTime,

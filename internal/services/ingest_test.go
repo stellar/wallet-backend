@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"testing"
@@ -2267,6 +2268,66 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
 		_, _, err := svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+	})
+
+	t.Run("J: RequiresContractData true — full committed membership reaches the processor", func(t *testing.T) {
+		// A classified contract that emits NO events this ledger must still be
+		// in a ContractData-requiring processor's ProtocolContracts (entries can
+		// change without events, and event decoding disambiguates against the
+		// full tracked set). Event-only processors keep the cheaper
+		// event-derived membership, which is empty for this event-less ledger.
+		contractID := []byte("contract_no_events_this_ledger33")
+		wasmHash := []byte("wasm_hash_for_membership_test333")
+
+		requiring := NewProtocolProcessorMock(t)
+		requiring.On("ProtocolID").Return("testproto")
+		requiring.On("RequiresContractData").Return(true)
+		requiring.On("Reset").Return()
+		// ContractID scans BYTEA into its hex form (the same convention
+		// bufferedContracts keys use), so compare against the hex encoding.
+		wantContractID := hex.EncodeToString(contractID)
+		requiring.On("ProcessLedger", mock.Anything, mock.MatchedBy(func(in ProtocolProcessorInput) bool {
+			for _, c := range in.ProtocolContracts {
+				if string(c.ContractID) == wantContractID {
+					return true
+				}
+			}
+			return false
+		})).Return(nil)
+		requiring.On("PersistHistory", mock.Anything, mock.Anything).Return(nil)
+		requiring.On("PersistCurrentState", mock.Anything, mock.Anything).Return(nil)
+
+		eventOnly := NewProtocolProcessorMock(t)
+		eventOnly.On("ProtocolID").Return("otherproto")
+		eventOnly.On("RequiresContractData").Return(false)
+		eventOnly.On("Reset").Return()
+		eventOnly.On("ProcessLedger", mock.Anything, mock.MatchedBy(func(in ProtocolProcessorInput) bool {
+			return len(in.ProtocolContracts) == 0
+		})).Return(nil)
+		eventOnly.On("PersistHistory", mock.Anything, mock.Anything).Return(nil)
+		eventOnly.On("PersistCurrentState", mock.Anything, mock.Anything).Return(nil)
+
+		ctx, svc, _, pool := setupTest(t, []ProtocolProcessor{requiring, eventOnly})
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		// setupProtocolCursors seeds "testproto" only; otherproto needs its own
+		// cursors for the CAS swap to succeed.
+		_, err := pool.Exec(ctx,
+			`INSERT INTO ingest_store (key, value) VALUES ($1, '99'), ($2, '99')`,
+			utils.ProtocolHistoryCursorName("otherproto"), utils.ProtocolCurrentStateCursorName("otherproto"))
+		require.NoError(t, err)
+
+		_, err = pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto'), ('otherproto') ON CONFLICT (id) DO NOTHING`)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO protocol_wasms (wasm_hash, protocol_id) VALUES ($1, 'testproto')`, wasmHash)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO protocol_contracts (contract_id, wasm_hash) VALUES ($1, $2)`, contractID, wasmHash)
+		require.NoError(t, err)
+
+		buffer := indexer.NewIndexerBuffer()
+		meta := dummyLedgerMeta(100)
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
 	})
 
