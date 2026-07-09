@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,6 +15,46 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// TestClaimableStream covers the contract's three update_user_emissions
+// branches (pool/src/emissions/distributor.rs @ ba22b487), most importantly
+// the "user had tokens before emissions began" branch: a holder with a
+// balance but NO UserEmissionData entry is owed balance*index/scalar the
+// moment an emission stream exists — not zero.
+func TestClaimableStream(t *testing.T) {
+	scalar := big.NewInt(100_000_000_000_000) // 1e14: 7-decimal token, 10^7 * SCALAR_7
+	index := "1234000000000000"               // 1.234e15
+
+	t.Run("no user row, balance held: historical accrual owed", func(t *testing.T) {
+		// balance*index/scalar = 5_000_000 * 1.234e15 / 1e14 = 61_700_000 —
+		// the contract's own test vector for this branch minus the
+		// pre-accrued 1_000_000 (there is no user row to carry accrued).
+		got, err := claimableStream(blenddata.Emission{}, false, &index, big.NewInt(5_000_000), scalar)
+		require.NoError(t, err)
+		assert.Equal(t, "61700000", got.String())
+	})
+
+	t.Run("no user row, no emission config: zero", func(t *testing.T) {
+		got, err := claimableStream(blenddata.Emission{}, false, nil, big.NewInt(5_000_000), scalar)
+		require.NoError(t, err)
+		assert.Equal(t, "0", got.String())
+	})
+
+	t.Run("no user row, zero balance: zero", func(t *testing.T) {
+		got, err := claimableStream(blenddata.Emission{}, false, &index, big.NewInt(0), scalar)
+		require.NoError(t, err)
+		assert.Equal(t, "0", got.String())
+	})
+
+	t.Run("user row present: accrued plus indexed delta", func(t *testing.T) {
+		// The contract's test_update_user_emissions_accrues vector:
+		// 1_000_000 + floor(5_000_000 * 1.234e15 / 1e14) = 62_700_000.
+		userEmission := blenddata.Emission{Accrued: "1000000", EmissionIndex: "0"}
+		got, err := claimableStream(userEmission, true, &index, big.NewInt(5_000_000), scalar)
+		require.NoError(t, err)
+		assert.Equal(t, "62700000", got.String())
+	})
+}
 
 // TestAccountResolver_BlendPositions is a hand-computed vector exercising the
 // full Account.blendPositions assembly: two reserves in one pool (a 7-decimal
