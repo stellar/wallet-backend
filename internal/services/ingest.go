@@ -64,6 +64,12 @@ type IngestServiceConfig struct {
 	// === Live Mode Dependencies ===
 	TokenIngestionService TokenIngestionService
 	CheckpointService     CheckpointService
+	// PostLockTasks are long-lived background tasks started only after live
+	// ingestion acquires its advisory lock, so an instance that loses the
+	// lock never runs them (e.g. the Blend price snapshot task, which would
+	// otherwise duplicate RPC load and writes). Each runs in its own
+	// goroutine for the life of the ingestion context.
+	PostLockTasks []func(context.Context)
 
 	// === Protocol Processors ===
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
@@ -121,6 +127,7 @@ type ingestService struct {
 	ledgerBackendFactory      LedgerBackendFactory
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
+	postLockTasks             []func(context.Context)
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	getLedgersLimit           int
@@ -174,6 +181,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
+		postLockTasks:             cfg.PostLockTasks,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
