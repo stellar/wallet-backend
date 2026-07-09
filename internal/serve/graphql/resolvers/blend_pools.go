@@ -284,7 +284,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
 	}
 	now := time.Now().Unix()
-	lpPrice, blndPrice := findBackstopPrices(freshPrices(backstopLPPrices, now))
+	lpPrice, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	reserveEmissionByPoolToken := make(map[string]blenddata.ReserveEmission, len(reserveEmissions))
