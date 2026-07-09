@@ -366,11 +366,11 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 			query: `query {
 				accountByAddress(address: "` + complexityTestAccountAddress + `") {
 					blendPositions {
-						backstopClaimedBlnd
+						backstopClaimedLp
 					}
 				}
 			}`,
-			// blendPositions{backstopClaimedBlnd}: childComplexity 1 => 1*10=10.
+			// blendPositions{backstopClaimedLp}: childComplexity 1 => 1*10=10.
 			// accountByAddress (default) = 1+10=11.
 			expectedMessage: "operation has complexity 11, which exceeds the limit of 10",
 		},
@@ -392,13 +392,13 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 								amount
 							}
 						}
-						backstopClaimedBlnd
+						backstopClaimedLp
 					}
 				}
 			}`,
 			// reserves{assetContractId}=1+1=2; pools item=poolAddress(1)+reserves(2)=3; pools field=1+3=4.
 			// q4w{amount}=1+1=2; backstop item=poolAddress(1)+q4w(2)=3; backstop field=1+3=4.
-			// blendPositions childComplexity = pools(4)+backstop(4)+backstopClaimedBlnd(1)=9 => 9*10=90.
+			// blendPositions childComplexity = pools(4)+backstop(4)+backstopClaimedLp(1)=9 => 9*10=90.
 			// accountByAddress (default) = 1+90=91.
 			expectedMessage: "operation has complexity 91, which exceeds the limit of 90",
 		},

@@ -112,9 +112,9 @@ type ComplexityRoot struct {
 	}
 
 	BlendAccountPositions struct {
-		Backstop            func(childComplexity int) int
-		BackstopClaimedBlnd func(childComplexity int) int
-		Pools               func(childComplexity int) int
+		Backstop          func(childComplexity int) int
+		BackstopClaimedLp func(childComplexity int) int
+		Pools             func(childComplexity int) int
 	}
 
 	BlendBackstopPosition struct {
@@ -909,12 +909,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendAccountPositions.Backstop(childComplexity), true
-	case "BlendAccountPositions.backstopClaimedBlnd":
-		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimedBlnd == nil {
+	case "BlendAccountPositions.backstopClaimedLp":
+		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimedLp == nil {
 			break
 		}
 
-		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimedBlnd(childComplexity), true
+		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimedLp(childComplexity), true
 	case "BlendAccountPositions.pools":
 		if e.ComplexityRoot.BlendAccountPositions.Pools == nil {
 			break
@@ -2767,14 +2767,16 @@ extend type Account {
 
 """
 BlendAccountPositions aggregates one account's Blend v2 exposure across every
-pool it has touched. backstopClaimedBlnd is lifetime backstop-emission BLND
-claims; unlike claimedBlnd (per pool), the on-chain backstop claim event
-carries no pool address, so this total can only ever be reported account-wide.
+pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
+Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
+token and re-deposits it, so LP tokens are what the claimer actually receives.
+Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
+pool address, so this total can only ever be reported account-wide.
 """
 type BlendAccountPositions {
   pools: [BlendPoolPosition!]!
   backstop: [BlendBackstopPosition!]!
-  backstopClaimedBlnd: String!
+  backstopClaimedLp: String!
 }
 
 """BlendPoolPosition rolls up an account's reserve positions within one pool."""
@@ -4088,8 +4090,8 @@ func (ec *executionContext) fieldContext_Account_blendPositions(_ context.Contex
 				return ec.fieldContext_BlendAccountPositions_pools(ctx, field)
 			case "backstop":
 				return ec.fieldContext_BlendAccountPositions_backstop(ctx, field)
-			case "backstopClaimedBlnd":
-				return ec.fieldContext_BlendAccountPositions_backstopClaimedBlnd(ctx, field)
+			case "backstopClaimedLp":
+				return ec.fieldContext_BlendAccountPositions_backstopClaimedLp(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendAccountPositions", field.Name)
 		},
@@ -5325,14 +5327,14 @@ func (ec *executionContext) fieldContext_BlendAccountPositions_backstop(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _BlendAccountPositions_backstopClaimedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+func (ec *executionContext) _BlendAccountPositions_backstopClaimedLp(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_BlendAccountPositions_backstopClaimedBlnd,
+		ec.fieldContext_BlendAccountPositions_backstopClaimedLp,
 		func(ctx context.Context) (any, error) {
-			return obj.BackstopClaimedBlnd, nil
+			return obj.BackstopClaimedLp, nil
 		},
 		nil,
 		ec.marshalNString2string,
@@ -5341,7 +5343,7 @@ func (ec *executionContext) _BlendAccountPositions_backstopClaimedBlnd(ctx conte
 	)
 }
 
-func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimedLp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendAccountPositions",
 		Field:      field,
@@ -16740,8 +16742,8 @@ func (ec *executionContext) _BlendAccountPositions(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "backstopClaimedBlnd":
-			out.Values[i] = ec._BlendAccountPositions_backstopClaimedBlnd(ctx, field, obj)
+		case "backstopClaimedLp":
+			out.Values[i] = ec._BlendAccountPositions_backstopClaimedLp(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

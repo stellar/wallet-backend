@@ -24,14 +24,16 @@ extend type Account {
 
 """
 BlendAccountPositions aggregates one account's Blend v2 exposure across every
-pool it has touched. backstopClaimedBlnd is lifetime backstop-emission BLND
-claims; unlike claimedBlnd (per pool), the on-chain backstop claim event
-carries no pool address, so this total can only ever be reported account-wide.
+pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
+Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
+token and re-deposits it, so LP tokens are what the claimer actually receives.
+Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
+pool address, so this total can only ever be reported account-wide.
 """
 type BlendAccountPositions {
   pools: [BlendPoolPosition!]!
   backstop: [BlendBackstopPosition!]!
-  backstopClaimedBlnd: String!
+  backstopClaimedLp: String!
 }
 
 """BlendPoolPosition rolls up an account's reserve positions within one pool."""
