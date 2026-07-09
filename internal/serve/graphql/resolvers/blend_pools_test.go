@@ -160,15 +160,16 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		($2, '1000000', '4000000', '0', 100)`,
 		types.AddressBytea(poolA), types.AddressBytea(poolB))
 
-	// --- oracle prices: reserve assets under each pool's own oracle, Comet leg under its own address ---
+	// --- oracle prices: reserve assets under each pool's own oracle, Comet leg under its own address.
+	// price_timestamp must be fresh: rows older than blendrates.MaxPriceAge are treated as missing. ---
 	execTestDB(t, `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
 		VALUES
-		($1, $2, '25000000', 7, 100),
-		($1, $3, '10000000', 7, 100),
-		($4, $5, '30000000', 7, 100),
-		($6, $6, '11000000', 7, 100),
-		($6, $7, '500000', 7, 100)`,
+		($1, $2, '25000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($1, $3, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($4, $5, '30000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($6, $6, '11000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($6, $7, '500000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 		types.AddressBytea(oracleA), types.AddressBytea(assetA1), types.AddressBytea(assetA2),
 		types.AddressBytea(oracleB), types.AddressBytea(assetB1),
 		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
@@ -342,7 +343,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		t.Cleanup(func() {
 			execTestDB(t, `
 				INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
-				VALUES ($1, $2, '10000000', 7, 100)`,
+				VALUES ($1, $2, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 				types.AddressBytea(oracleA), types.AddressBytea(assetA2))
 		})
 
@@ -386,6 +387,58 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.InDelta(t, 1500.0, *betaAfter.SuppliedUsd, 1e-9)
 		require.NotNil(t, betaAfter.NetApy)
 		assert.InDelta(t, 0.01596366724981446, *betaAfter.NetApy, 1e-9)
+	})
+
+	t.Run("a stale price is treated exactly like a missing one", func(t *testing.T) {
+		// Age r1's (assetA2) price past MaxPriceAge: the pool contract would
+		// reject it, so the API must null the same fields a deleted row does.
+		execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint - 90000
+			WHERE oracle_contract_id = $1 AND asset_contract_id = $2`,
+			types.AddressBytea(oracleA), types.AddressBytea(assetA2))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint
+				WHERE oracle_contract_id = $1 AND asset_contract_id = $2`,
+				types.AddressBytea(oracleA), types.AddressBytea(assetA2))
+		})
+
+		got, err := resolver.BlendPools(testCtx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+
+		var alphaAfter *graphql1.BlendPool
+		for _, p := range got {
+			if p.Address == poolA {
+				alphaAfter = p
+			}
+		}
+		require.NotNil(t, alphaAfter)
+
+		// r0 (assetA1, fresh price) is unaffected; r1 and the pool aggregates
+		// null out exactly as in the deleted-price case above.
+		require.NotNil(t, alphaAfter.Reserves[0].SuppliedUsd)
+		assert.InDelta(t, 25.0, *alphaAfter.Reserves[0].SuppliedUsd, 1e-9)
+		assert.Nil(t, alphaAfter.Reserves[1].SuppliedUsd)
+		assert.Nil(t, alphaAfter.Reserves[1].BorrowedUsd)
+		assert.Nil(t, alphaAfter.SuppliedUsd)
+		assert.Nil(t, alphaAfter.BorrowedUsd)
+		assert.Nil(t, alphaAfter.InterestApy)
+		assert.Nil(t, alphaAfter.NetApy)
+	})
+
+	t.Run("stale Comet LP rows null backstopUsd", func(t *testing.T) {
+		execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint - 90000
+			WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint
+				WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))
+		})
+
+		got, err := resolver.BlendPools(testCtx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		for _, p := range got {
+			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil once the LP price is stale", p.Address)
+		}
 	})
 
 	t.Run("blendPool single-pool lookup returns the matching pool", func(t *testing.T) {

@@ -196,7 +196,7 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 	require.NoError(t, err)
 
 	// Oracle-reported timestamps must be recent: SnapshotOnce skips prices
-	// older than maxPriceAge against the wall clock.
+	// older than MaxPriceAge against the wall clock.
 	tsX := uint64(time.Now().Unix() - 60)
 	tsY := tsX + 1
 	tsZ := tsX + 2
@@ -315,7 +315,7 @@ func TestSnapshotOnce_NonePriceSkipped(t *testing.T) {
 }
 
 // TestSnapshotOnce_StalePriceSkipped covers the staleness guard: a price
-// whose oracle-reported timestamp is older than maxPriceAge is not persisted
+// whose oracle-reported timestamp is older than MaxPriceAge is not persisted
 // (the pool contract would reject it anyway), counted as a "stale" fetch
 // outcome, and still drives the oldest-price-age gauge so a dead oracle is
 // observable.
@@ -336,7 +336,7 @@ func TestSnapshotOnce_StalePriceSkipped(t *testing.T) {
 	assetStaleArg, err := buildSep40StellarAsset(assetStale)
 	require.NoError(t, err)
 
-	staleAge := int64(25 * 60 * 60) // 25h, just past the 24h maxPriceAge
+	staleAge := int64(25 * 60 * 60) // 25h, just past the 24h MaxPriceAge
 	meta := services.NewContractMetadataServiceMock(t)
 	meta.On("FetchSingleField", mock.Anything, oracle, "decimals", []xdr.ScVal(nil)).
 		Return(u32ScVal(7), nil).Once()

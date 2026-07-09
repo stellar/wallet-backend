@@ -188,10 +188,10 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	execTestDB(t, `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
 		VALUES
-		($1, $2, '25000000', 7, 100),
-		($1, $3, '10000000', 7, 100),
-		($4, $4, '11000000', 7, 100),
-		($4, $5, '500000', 7, 100)`,
+		($1, $2, '25000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($1, $3, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($4, $4, '11000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($4, $5, '500000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 		types.AddressBytea(oracleAddr), types.AddressBytea(assetA), types.AddressBytea(assetB),
 		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
 
@@ -347,7 +347,7 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		t.Cleanup(func() {
 			execTestDB(t, `
 				INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
-				VALUES ($1, $2, '10000000', 7, 100)`,
+				VALUES ($1, $2, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 				types.AddressBytea(oracleAddr), types.AddressBytea(assetB))
 		})
 
