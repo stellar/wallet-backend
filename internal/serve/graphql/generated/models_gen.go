@@ -59,13 +59,15 @@ type BalanceEdge struct {
 }
 
 // BlendAccountPositions aggregates one account's Blend v2 exposure across every
-// pool it has touched. backstopClaimedBlnd is lifetime backstop-emission BLND
-// claims; unlike claimedBlnd (per pool), the on-chain backstop claim event
-// carries no pool address, so this total can only ever be reported account-wide.
+// pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
+// Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
+// token and re-deposits it, so LP tokens are what the claimer actually receives.
+// Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
+// pool address, so this total can only ever be reported account-wide.
 type BlendAccountPositions struct {
-	Pools               []*BlendPoolPosition     `json:"pools"`
-	Backstop            []*BlendBackstopPosition `json:"backstop"`
-	BackstopClaimedBlnd string                   `json:"backstopClaimedBlnd"`
+	Pools             []*BlendPoolPosition     `json:"pools"`
+	Backstop          []*BlendBackstopPosition `json:"backstop"`
+	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
 }
 
 // BlendBackstopPosition is an account's backstop deposit in one pool.

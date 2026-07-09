@@ -384,7 +384,7 @@ func addComplexityCalculation(config *generated.Config) {
 	//                     scalars = 5) => childComplexity 9 => 9*50 = 450
 	//   blendPositions:   BlendAccountPositions = pools(1 + [7 scalars + reserves(1+16=17)]
 	//                     = 25) + backstop(1 + [7 scalars + q4w(1+2=3)] = 11)
-	//                     + backstopClaimedBlnd(1) => childComplexity 37 => 37*10 = 370
+	//                     + backstopClaimedLp(1) => childComplexity 37 => 37*10 = 370
 	// All comfortably under GRAPHQL_COMPLEXITY_LIMIT=6000. None of this touches
 	// AccountTransactionEdge.operations/stateChanges or any other existing entry above —
 	// those stay exactly as budgeted for the freighter full-detail query.

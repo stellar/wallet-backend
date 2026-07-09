@@ -742,6 +742,6 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	return &graphql1.BlendAccountPositions{
 		Pools:             poolPositions,
 		Backstop:          backstopOut,
-		BackstopClaimedBlnd: backstopClaimed,
+		BackstopClaimedLp: backstopClaimed,
 	}, nil
 }
