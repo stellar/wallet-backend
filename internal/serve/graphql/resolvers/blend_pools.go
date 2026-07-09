@@ -283,12 +283,9 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 	if err != nil {
 		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
 	}
-	lpPrice, blndPrice := findBackstopPrices(backstopLPPrices)
-
-	priceByOracleAsset := make(map[string]blenddata.OraclePrice, len(oraclePrices))
-	for _, op := range oraclePrices {
-		priceByOracleAsset[string(op.OracleContractID)+"|"+string(op.AssetContractID)] = op
-	}
+	now := time.Now().Unix()
+	lpPrice, blndPrice := findBackstopPrices(freshPrices(backstopLPPrices, now))
+	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	reserveEmissionByPoolToken := make(map[string]blenddata.ReserveEmission, len(reserveEmissions))
 	for _, re := range reserveEmissions {
@@ -308,7 +305,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		metaByContractID:           metaByContractID,
 		lpPrice:                    lpPrice,
 		blndPrice:                  blndPrice,
-		now:                        time.Now().Unix(),
+		now:                        now,
 	}
 
 	out := make([]*graphql1.BlendPool, 0, len(pools))
