@@ -74,14 +74,14 @@ func mustBigInt(s string) *big.Int {
 }
 
 func TestUtilization(t *testing.T) {
-	t.Run("zero when bSupply is zero", func(t *testing.T) {
+	t.Run("clamped to 1 when bSupply is zero but debt is outstanding", func(t *testing.T) {
 		got := Utilization(big.NewInt(0), big.NewInt(999), big.NewInt(500), big.NewInt(999))
-		assertRatEqual(t, big.NewRat(0, 1), got)
+		assertRatEqual(t, big.NewRat(1, 1), got)
 	})
 
-	t.Run("zero when bRate is zero", func(t *testing.T) {
+	t.Run("clamped to 1 when bRate is zero but debt is outstanding", func(t *testing.T) {
 		got := Utilization(big.NewInt(500), big.NewInt(0), big.NewInt(500), big.NewInt(999))
-		assertRatEqual(t, big.NewRat(0, 1), got)
+		assertRatEqual(t, big.NewRat(1, 1), got)
 	})
 
 	t.Run("clean 2/3 ratio", func(t *testing.T) {
@@ -97,6 +97,34 @@ func TestUtilization(t *testing.T) {
 		want := bigRatFromDecimalString(t, "24350456626743911085123661", "30208878726760821871629735")
 		got := Utilization(realBSupply, realBRate, realDSupply, realDRate)
 		assertRatEqual(t, want, got)
+	})
+
+	// The contract clamps utilization at exactly 100% ("This is capped at
+	// 100% to ensure interest calculations are fair", reserve.rs). Without
+	// the clamp, a bad-debt reserve (liabilities > supply) would push
+	// BorrowAPR's >95% branch past its [0,1] domain and display an
+	// unbounded rate.
+	t.Run("clamped to 1 when liabilities exceed supply", func(t *testing.T) {
+		got := Utilization(big.NewInt(100), mustBigInt("1000000000000"), big.NewInt(150), mustBigInt("1000000000000"))
+		assertRatEqual(t, big.NewRat(1, 1), got)
+	})
+
+	t.Run("clamped to 1 when liabilities equal supply", func(t *testing.T) {
+		got := Utilization(big.NewInt(100), mustBigInt("1000000000000"), big.NewInt(100), mustBigInt("1000000000000"))
+		assertRatEqual(t, big.NewRat(1, 1), got)
+	})
+
+	t.Run("clamped to 1 when supply is zero but liabilities are not", func(t *testing.T) {
+		// The contract's branch order: liabilities==0 wins first, then
+		// liabilities >= supply clamps — so zero supply with outstanding
+		// debt is 100% utilization, not 0.
+		got := Utilization(big.NewInt(0), big.NewInt(0), big.NewInt(100), mustBigInt("1000000000000"))
+		assertRatEqual(t, big.NewRat(1, 1), got)
+	})
+
+	t.Run("zero when liabilities are zero regardless of supply", func(t *testing.T) {
+		got := Utilization(big.NewInt(100), mustBigInt("1000000000000"), big.NewInt(0), big.NewInt(999))
+		assertRatEqual(t, big.NewRat(0, 1), got)
 	})
 }
 
