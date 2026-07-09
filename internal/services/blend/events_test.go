@@ -336,20 +336,37 @@ func TestParseEvent_FillAuction(t *testing.T) {
 		assert.ElementsMatch(t, want, got.AuctionAdjs)
 	})
 
-	t.Run("auction_type 1 (BadDebtAuction) folds only the user; filler row is still emitted", func(t *testing.T) {
+	t.Run("auction_type 1 (BadDebtAuction) folds the bid side for user and filler; lot is not pool state", func(t *testing.T) {
 		got, err := ParseEvent(buildEvent(1), "", alwaysUntracked)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 
-		require.Len(t, got.Rows, 2, "filler row must still be emitted even though the filler isn't folded")
+		require.Len(t, got.Rows, 2)
 		assert.Equal(t, fillerAddr, got.Rows[1].Account)
 
+		// fill_bad_debt_auction moves the bid dTokens from the backstop's
+		// Positions (the auction "user") to the filler's; the lot (backstop
+		// LP tokens) is drawn straight to the filler's wallet and never
+		// touches pool Positions, so it must not be folded for anyone.
 		want := []AuctionFold{
-			{User: userAddr, Asset: assetA, LotBTokensDelta: "-1000", BidDTokensDelta: "0"},
-			{User: userAddr, Asset: assetB, LotBTokensDelta: "-2000", BidDTokensDelta: "0"},
 			{User: userAddr, Asset: assetC, LotBTokensDelta: "0", BidDTokensDelta: "-300"},
+			{User: fillerAddr, Asset: assetC, LotBTokensDelta: "0", BidDTokensDelta: "300"},
 		}
 		assert.ElementsMatch(t, want, got.AuctionAdjs)
+	})
+
+	t.Run("auction_type 2 (InterestAuction) folds nothing; both rows still emitted", func(t *testing.T) {
+		got, err := ParseEvent(buildEvent(2), "", alwaysUntracked)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
+		require.Len(t, got.Rows, 2)
+		// fill_interest_auction settles entirely outside pool Positions: the
+		// bid (backstop tokens) is donated to the backstop and the lot
+		// (underlying interest) is paid from the reserves' backstop_credit,
+		// which the ResData entry snapshot captures. Any fold here would
+		// fabricate a cost-basis adjustment the chain never made.
+		assert.Empty(t, got.AuctionAdjs)
 	})
 }
 
@@ -434,10 +451,10 @@ func TestParseEvent_ClaimDisambiguation(t *testing.T) {
 		require.Len(t, got.Rows, 1)
 		row := got.Rows[0]
 		assert.Equal(t, types.StateChangeReasonClaim, row.Reason)
-		assert.Equal(t, blndToken, row.Token)
+		assert.Equal(t, "", row.Token, "backstop claim pays out Comet LP tokens (auto-deposited), never raw BLND")
 		assert.Equal(t, "750", row.Amount)
 		assert.Equal(t, "", row.PoolID, "backstop claim carries no pool address")
-		assert.Equal(t, map[string]any{"source": "backstop"}, row.Extra)
+		assert.Equal(t, map[string]any{"source": "backstop", "units": "backstop_lp"}, row.Extra)
 	})
 
 	t.Run("blndToken empty leaves Token empty on both shapes", func(t *testing.T) {

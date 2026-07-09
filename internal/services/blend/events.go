@@ -96,9 +96,11 @@ type DecodedEvent struct {
 // history rows and cost-basis folds. It never panics.
 //
 // blndToken is the BLND SAC C-address for the current network (see
-// blndTokenAddress); CLAIM rows use it as their Token. It may be "" on an
-// unrecognized network, in which case CLAIM rows leave Token "" (their
-// token_id column is then NULL rather than misattributed).
+// blndTokenAddress); pool CLAIM rows use it as their Token (backstop CLAIM
+// rows pay out Comet LP tokens instead and leave Token empty — see
+// decodeClaimAmbiguous). It may be "" on an unrecognized network, in which
+// case pool CLAIM rows also leave Token "" (their token_id column is then
+// NULL rather than misattributed).
 //
 // isTracked reports whether addr is a contract this run classifies as
 // Blend (pool or backstop) — see the withdraw/claim disambiguation notes
@@ -381,12 +383,20 @@ func decodeDefaultedDebt(topics []xdr.ScVal, data xdr.ScVal, poolID string) (*De
 // no additional fill_percent scaling is applied here.
 //
 // Two rows are emitted (user and filler both experienced a LIQUIDATION
-// state change), and the user's side of every asset touched by bid or lot
-// is folded via AuctionFold. auction_type 0 (UserLiquidation) additionally
-// mirrors those folds onto the filler with the opposite sign, since the
-// filler inherits the seized collateral and assumed debt; auction_type 1
-// (bad-debt) and 2 (interest) settle against the backstop instead, so the
-// filler's position is unaffected.
+// state change). Cost-basis folds mirror exactly the pool-Positions
+// mutations each fill performs on-chain (pool/src/auctions/*.rs @ ba22b487):
+//   - auction_type 0 (UserLiquidation): the user loses the lot (collateral
+//     bTokens) and the bid (liability dTokens), and the filler inherits
+//     both — fold every touched asset for both sides, opposite signs.
+//   - auction_type 1 (BadDebtAuction): fill_bad_debt_auction moves the bid
+//     dTokens from the backstop's Positions (the auction "user" is always
+//     the backstop address) to the filler's; the lot (backstop LP tokens)
+//     is drawn straight to the filler's wallet and never touches pool
+//     Positions — fold the bid side only, for both sides.
+//   - auction_type 2 (InterestAuction): fill_interest_auction settles
+//     entirely outside pool Positions (bid donated to the backstop, lot
+//     paid from the reserves' backstop_credit, which the ResData entry
+//     snapshot captures) — no folds at all.
 func decodeFillAuction(topics []xdr.ScVal, data xdr.ScVal, poolID string) (*DecodedEvent, error) {
 	if len(topics) != 3 {
 		return nil, fmt.Errorf("blend: fill_auction: expected 3 topics, got %d", len(topics))
@@ -444,11 +454,20 @@ func decodeFillAuction(topics []xdr.ScVal, data xdr.ScVal, poolID string) (*Deco
 		{Reason: types.StateChangeReasonLiquidation, Account: filler, PoolID: poolID, Extra: extraFor(user)},
 	}
 
-	assets := unionAssetKeys(lot, bid)
+	foldLot := lot
+	switch auctionType {
+	case 0: // UserLiquidation: both lot and bid are pool-Positions moves.
+	case 1: // BadDebtAuction: only the bid dTokens move through Positions.
+		foldLot = nil
+	default: // InterestAuction (2) and any future type: no Positions moves.
+		return &DecodedEvent{Rows: rows}, nil
+	}
+
+	assets := unionAssetKeys(foldLot, bid)
 	folds := make([]AuctionFold, 0, 2*len(assets))
 	for _, asset := range assets {
 		lotDelta, bidDelta := "0", "0"
-		if amt, present := lot[asset]; present {
+		if amt, present := foldLot[asset]; present {
 			lotDelta = negateDecimalString(amt)
 		}
 		if amt, present := bid[asset]; present {
@@ -456,17 +475,16 @@ func decodeFillAuction(topics []xdr.ScVal, data xdr.ScVal, poolID string) (*Deco
 		}
 		folds = append(folds, AuctionFold{User: user, Asset: asset, LotBTokensDelta: lotDelta, BidDTokensDelta: bidDelta})
 	}
-	if auctionType == 0 { // UserLiquidation: filler inherits the seized position.
-		for _, asset := range assets {
-			lotDelta, bidDelta := "0", "0"
-			if amt, present := lot[asset]; present {
-				lotDelta = amt
-			}
-			if amt, present := bid[asset]; present {
-				bidDelta = amt
-			}
-			folds = append(folds, AuctionFold{User: filler, Asset: asset, LotBTokensDelta: lotDelta, BidDTokensDelta: bidDelta})
+	// The filler inherits every Positions move the user side lost.
+	for _, asset := range assets {
+		lotDelta, bidDelta := "0", "0"
+		if amt, present := foldLot[asset]; present {
+			lotDelta = amt
 		}
+		if amt, present := bid[asset]; present {
+			bidDelta = amt
+		}
+		folds = append(folds, AuctionFold{User: filler, Asset: asset, LotBTokensDelta: lotDelta, BidDTokensDelta: bidDelta})
 	}
 
 	return &DecodedEvent{Rows: rows, AuctionAdjs: folds}, nil
@@ -561,9 +579,15 @@ func decodeClaimAmbiguous(topics []xdr.ScVal, data xdr.ScVal, poolID string, bln
 		if !amtOk {
 			return nil, fmt.Errorf("blend: claim (backstop): data is not i128 (type %v)", data.Type)
 		}
+		// A backstop claim never pays out raw BLND: execute_claim swaps the
+		// claimed BLND into Comet LP tokens and re-deposits them (emitting
+		// real deposit events per pool), and the event's amount is the LP
+		// tokens minted (backstop/src/contract.rs claim -> execute_claim's
+		// lp_tokens_out @ ba22b487). Token stays NULL — the same
+		// backstop-LP convention every backstop share row uses.
 		row := EventRow{
-			Reason: types.StateChangeReasonClaim, Account: from, Token: blndToken, Amount: amount, PoolID: "",
-			Extra: map[string]any{"source": "backstop"},
+			Reason: types.StateChangeReasonClaim, Account: from, Token: "", Amount: amount, PoolID: "",
+			Extra: map[string]any{"source": "backstop", "units": "backstop_lp"},
 		}
 		return &DecodedEvent{Rows: []EventRow{row}}, nil
 	default:
