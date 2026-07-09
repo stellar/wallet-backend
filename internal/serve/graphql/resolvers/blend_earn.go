@@ -38,10 +38,11 @@ func poolAcceptsSupply(poolByID map[string]blenddata.Pool, poolAddr string) bool
 }
 
 // buildEarnPoolOption assembles one enabled reserve into a
-// BlendEarnPoolOption: the reserve's projected supplyApy and pool-wide
-// suppliedUsd (Underlying(BSupply, pB) priced against the pool's own
-// oracle), the identical numbers buildPoolReserve computes for this same
-// reserve's BlendReserve.supplyApy/suppliedUsd.
+// BlendEarnPoolOption: the reserve's projected supplyApy, its supply-side
+// BLND-emission APR, and pool-wide suppliedUsd (Underlying(BSupply, pB)
+// priced against the pool's own oracle) — the identical numbers
+// buildPoolReserve computes for this same reserve's
+// BlendReserve.supplyApy/emissionsSupplyApr/suppliedUsd.
 func (d *blendAssembly) buildEarnPoolOption(reserve blenddata.Reserve) (*graphql1.BlendEarnPoolOption, error) {
 	poolAddr := string(reserve.PoolContractID)
 	rr, err := d.computeReserveRates(poolAddr, reserve)
@@ -59,12 +60,16 @@ func (d *blendAssembly) buildEarnPoolOption(reserve blenddata.Reserve) (*graphql
 	price := d.priceLookup(oracle, reserve.AssetContractID)
 	suppliedUsd := usdValueOrNil(suppliedTokens, reserve.Decimals, price)
 
+	bTokenID := reserve.ReserveIndex*2 + 1
+	emissionsSupplyApr := d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.BRate, reserve.Decimals, price)
+
 	supplyApy := rr.SupplyApy
 	return &graphql1.BlendEarnPoolOption{
-		PoolAddress: poolAddr,
-		PoolName:    pool.Name,
-		SupplyApy:   &supplyApy,
-		SuppliedUsd: suppliedUsd,
+		PoolAddress:        poolAddr,
+		PoolName:           pool.Name,
+		SupplyApy:          &supplyApy,
+		EmissionsSupplyApr: emissionsSupplyApr,
+		SuppliedUsd:        suppliedUsd,
 	}, nil
 }
 
@@ -187,14 +192,36 @@ func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEa
 	if err != nil {
 		return nil, fmt.Errorf("getting blend oracle prices: %w", err)
 	}
+	backstopLPPrices, err := r.models.Blend.OraclePrices.GetBackstopLPPrices(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
+	}
 	now := time.Now().Unix()
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
+	// Only the BLND leg matters here — it prices the emission APR; the LP-share
+	// price has no earn-view use.
+	_, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
+
+	poolIDs := make([]string, 0, len(poolByID))
+	for id := range poolByID {
+		poolIDs = append(poolIDs, id)
+	}
+	reserveEmissions, err := r.models.Blend.ReserveEmissions.GetByPools(ctx, poolIDs)
+	if err != nil {
+		return nil, fmt.Errorf("getting blend reserve emissions: %w", err)
+	}
+	reserveEmissionByPoolToken := make(map[string]blenddata.ReserveEmission, len(reserveEmissions))
+	for _, re := range reserveEmissions {
+		reserveEmissionByPoolToken[poolTokenKey(string(re.PoolContractID), re.ReserveTokenID)] = re
+	}
 
 	assembly := &blendAssembly{
-		poolByID:           poolByID,
-		priceByOracleAsset: priceByOracleAsset,
-		metaByContractID:   metaByContractID,
-		now:                now,
+		poolByID:                   poolByID,
+		reserveEmissionByPoolToken: reserveEmissionByPoolToken,
+		priceByOracleAsset:         priceByOracleAsset,
+		metaByContractID:           metaByContractID,
+		blndPrice:                  blndPrice,
+		now:                        now,
 	}
 
 	out := make([]*graphql1.BlendEarnOption, 0, len(assetIDs))

@@ -486,6 +486,7 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 		InterestPaid:        interestPaid.String(),
 		EmissionsEarnedBlnd: claimableBLND.String(),
 		EmissionsEarnedUsd:  emissionsEarnedUsd,
+		PriceUsd:            priceUsdOrNil(price),
 	}, nil
 }
 

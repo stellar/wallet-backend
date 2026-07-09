@@ -293,10 +293,11 @@ type ComplexityRoot struct {
 	}
 
 	BlendEarnPoolOption struct {
-		PoolAddress func(childComplexity int) int
-		PoolName    func(childComplexity int) int
-		SuppliedUsd func(childComplexity int) int
-		SupplyApy   func(childComplexity int) int
+		EmissionsSupplyApr func(childComplexity int) int
+		PoolAddress        func(childComplexity int) int
+		PoolName           func(childComplexity int) int
+		SuppliedUsd        func(childComplexity int) int
+		SupplyApy          func(childComplexity int) int
 	}
 
 	BlendEmissionsClaimChange struct {
@@ -377,6 +378,7 @@ type ComplexityRoot struct {
 		EmissionsEarnedUsd  func(childComplexity int) int
 		InterestEarned      func(childComplexity int) int
 		InterestPaid        func(childComplexity int) int
+		PriceUsd            func(childComplexity int) int
 		SuppliedTokens      func(childComplexity int) int
 		SuppliedUsd         func(childComplexity int) int
 		SupplyApy           func(childComplexity int) int
@@ -2059,6 +2061,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BlendEarnOption.TokenSymbol(childComplexity), true
 
+	case "BlendEarnPoolOption.emissionsSupplyApr":
+		if e.ComplexityRoot.BlendEarnPoolOption.EmissionsSupplyApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEarnPoolOption.EmissionsSupplyApr(childComplexity), true
 	case "BlendEarnPoolOption.poolAddress":
 		if e.ComplexityRoot.BlendEarnPoolOption.PoolAddress == nil {
 			break
@@ -2461,6 +2469,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendReservePosition.InterestPaid(childComplexity), true
+	case "BlendReservePosition.priceUsd":
+		if e.ComplexityRoot.BlendReservePosition.PriceUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.PriceUsd(childComplexity), true
 	case "BlendReservePosition.suppliedTokens":
 		if e.ComplexityRoot.BlendReservePosition.SuppliedTokens == nil {
 			break
@@ -4306,6 +4320,8 @@ type BlendReservePosition {
   interestPaid: String!
   emissionsEarnedBlnd: String!
   emissionsEarnedUsd: Float
+  """The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD."""
+  priceUsd: Float
 }
 
 """
@@ -4418,11 +4434,18 @@ type BlendEarnOption {
   pools: [BlendEarnPoolOption!]!
 }
 
-"""BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset."""
+"""
+BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
+supplyApy is the interest-only yield; emissionsSupplyApr is the reserve's
+BLND-emission yield on the supply side (0 when no active stream, null when
+the BLND price is unavailable) — supplyApy + emissionsSupplyApr is the
+emissions-inclusive rate a wallet shows as the earn headline.
+"""
 type BlendEarnPoolOption {
   poolAddress: String!
   poolName: String
   supplyApy: Float
+  emissionsSupplyApr: Float
   suppliedUsd: Float
 }
 `, BuiltIn: false},
@@ -11456,6 +11479,8 @@ func (ec *executionContext) fieldContext_BlendEarnOption_pools(_ context.Context
 				return ec.fieldContext_BlendEarnPoolOption_poolName(ctx, field)
 			case "supplyApy":
 				return ec.fieldContext_BlendEarnPoolOption_supplyApy(ctx, field)
+			case "emissionsSupplyApr":
+				return ec.fieldContext_BlendEarnPoolOption_emissionsSupplyApr(ctx, field)
 			case "suppliedUsd":
 				return ec.fieldContext_BlendEarnPoolOption_suppliedUsd(ctx, field)
 			}
@@ -11540,6 +11565,35 @@ func (ec *executionContext) _BlendEarnPoolOption_supplyApy(ctx context.Context, 
 }
 
 func (ec *executionContext) fieldContext_BlendEarnPoolOption_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEarnPoolOption",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEarnPoolOption_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEarnPoolOption_emissionsSupplyApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsSupplyApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEarnPoolOption_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendEarnPoolOption",
 		Field:      field,
@@ -12605,6 +12659,8 @@ func (ec *executionContext) fieldContext_BlendPoolPosition_reserves(_ context.Co
 				return ec.fieldContext_BlendReservePosition_emissionsEarnedBlnd(ctx, field)
 			case "emissionsEarnedUsd":
 				return ec.fieldContext_BlendReservePosition_emissionsEarnedUsd(ctx, field)
+			case "priceUsd":
+				return ec.fieldContext_BlendReservePosition_priceUsd(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendReservePosition", field.Name)
 		},
@@ -13673,6 +13729,35 @@ func (ec *executionContext) _BlendReservePosition_emissionsEarnedUsd(ctx context
 }
 
 func (ec *executionContext) fieldContext_BlendReservePosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_priceUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_priceUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_priceUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendReservePosition",
 		Field:      field,
@@ -28209,6 +28294,8 @@ func (ec *executionContext) _BlendEarnPoolOption(ctx context.Context, sel ast.Se
 			out.Values[i] = ec._BlendEarnPoolOption_poolName(ctx, field, obj)
 		case "supplyApy":
 			out.Values[i] = ec._BlendEarnPoolOption_supplyApy(ctx, field, obj)
+		case "emissionsSupplyApr":
+			out.Values[i] = ec._BlendEarnPoolOption_emissionsSupplyApr(ctx, field, obj)
 		case "suppliedUsd":
 			out.Values[i] = ec._BlendEarnPoolOption_suppliedUsd(ctx, field, obj)
 		default:
@@ -28886,6 +28973,8 @@ func (ec *executionContext) _BlendReservePosition(ctx context.Context, sel ast.S
 			}
 		case "emissionsEarnedUsd":
 			out.Values[i] = ec._BlendReservePosition_emissionsEarnedUsd(ctx, field, obj)
+		case "priceUsd":
+			out.Values[i] = ec._BlendReservePosition_priceUsd(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
