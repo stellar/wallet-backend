@@ -212,8 +212,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
-	// Start the Blend v2 oracle price snapshot task. Live-only: backfill replays historical
+	// The Blend v2 oracle price snapshot task. Live-only: backfill replays historical
 	// ledgers and has no use for a periodic wall-clock snapshot of current prices.
+	var postLockTasks []func(context.Context)
 	if cfg.IngestionMode == services.IngestionModeLive && cfg.BlendPriceInterval > 0 {
 		blendPrices, err := blend.NewPriceSnapshotService(blend.PriceSnapshotConfig{
 			OraclePrices:         models.Blend.OraclePrices,
@@ -225,7 +226,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		if err != nil {
 			return nil, nil, fmt.Errorf("instantiating blend price snapshot service: %w", err)
 		}
-		go blendPrices.Run(ctx)
+		// Started by the ingest service only after it acquires the live
+		// advisory lock — a lock-losing instance must not snapshot prices.
+		postLockTasks = append(postLockTasks, blendPrices.Run)
 	}
 
 	// Build a single ProtocolDeps to pass through both the validator and
@@ -327,6 +330,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
 		ContractMetadataService:   contractMetadataService,
+		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)
