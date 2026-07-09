@@ -335,6 +335,21 @@ func TestPositionModel_BatchApplyNetDeltas(t *testing.T) {
 	t.Run("is a no-op when no deltas are staged", func(t *testing.T) {
 		require.NoError(t, m.BatchApplyNetDeltas(ctx, nil, nil))
 	})
+
+	t.Run("rejects duplicate (pool, user, asset) keys", func(t *testing.T) {
+		// UPDATE ... FROM would apply only one of the two source rows, and
+		// merging them here would be order-dependent because of ZeroBorrowed —
+		// the model demands pre-aggregated input instead.
+		userAddr := keypair.MustRandom().Address()
+		tx, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback(ctx) }()
+		err = m.BatchApplyNetDeltas(ctx, tx, []blend.PositionNetDelta{
+			{Pool: poolAddr, User: userAddr, Asset: assetAddr, NetSuppliedDelta: "10", NetBorrowedDelta: "0", LedgerNumber: 5},
+			{Pool: poolAddr, User: userAddr, Asset: assetAddr, NetSuppliedDelta: "20", NetBorrowedDelta: "0", LedgerNumber: 5},
+		})
+		require.ErrorContains(t, err, "pre-aggregated")
+	})
 }
 
 func TestPositionModel_ApplyAuctionAdjustments(t *testing.T) {
@@ -364,6 +379,28 @@ func TestPositionModel_ApplyAuctionAdjustments(t *testing.T) {
 		// 1000 bid d-tokens * 1.05 d_rate = 1050 underlying added to net_borrowed.
 		assert.Equal(t, "1050.0000000000000000", row.NetBorrowed)
 		assert.Equal(t, int32(77), row.LastModifiedLedger)
+	})
+
+	t.Run("sums duplicate (pool, user, asset) adjustments before applying", func(t *testing.T) {
+		userAddr := keypair.MustRandom().Address()
+		insertPosition(t, ctx, pool, poolAddr, userAddr, 4, "0", "0", "0", "0", "0")
+
+		// Two fills against the same position in one batch: without the
+		// GROUP BY pre-aggregation, UPDATE ... FROM would apply only one.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.ApplyAuctionAdjustments(ctx, tx, []blend.PositionAuctionAdjustment{
+				{Pool: poolAddr, User: userAddr, Asset: assetAddr, LotBTokensDelta: "1000", BidDTokensDelta: "1000", LedgerNumber: 77},
+				{Pool: poolAddr, User: userAddr, Asset: assetAddr, LotBTokensDelta: "500", BidDTokensDelta: "500", LedgerNumber: 78},
+			}))
+		})
+
+		row, ok := getPosition(t, ctx, pool, poolAddr, userAddr, 4)
+		require.True(t, ok)
+		// (1000 + 500) lot b-tokens * 1.1 b_rate = 1650 underlying.
+		assert.Equal(t, "1650.0000000000000000", row.NetSupplied)
+		// (1000 + 500) bid d-tokens * 1.05 d_rate = 1575 underlying.
+		assert.Equal(t, "1575.0000000000000000", row.NetBorrowed)
+		assert.Equal(t, int32(78), row.LastModifiedLedger, "ledger takes the MAX across the batch")
 	})
 
 	t.Run("is a no-op when no adjustments are staged", func(t *testing.T) {
