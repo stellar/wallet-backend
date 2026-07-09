@@ -218,7 +218,7 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	assert.Equal(t, "4000", got.BackstopClaimedBlnd)
+	assert.Equal(t, "4000", got.BackstopClaimedLp)
 	require.Len(t, got.Pools, 1)
 	require.Len(t, got.Backstop, 1)
 
@@ -394,7 +394,7 @@ func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Empty(t, got.Pools)
 	assert.Empty(t, got.Backstop)
-	assert.Equal(t, "0", got.BackstopClaimedBlnd)
+	assert.Equal(t, "0", got.BackstopClaimedLp)
 }
 
 // insertLendingClaim inserts a single LENDING/CLAIM state_changes row for
