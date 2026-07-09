@@ -88,7 +88,10 @@ type BlendBackstopPosition struct {
 	EmissionsEarnedUsd  *float64    `json:"emissionsEarnedUsd,omitempty"`
 }
 
-// BlendEarnOption is a "where can I earn this asset" catalog view (Tasks 5.5/5.6 scope).
+// BlendEarnOption is a "where can I earn this asset" catalog view: one entry
+// per asset with at least one enabled reserve in a pool that currently accepts
+// supply (status 0-3). Frozen (4-5) and Setup (6) pools reject deposits
+// on-chain, so their reserves are never earn options.
 type BlendEarnOption struct {
 	AssetContractID string                 `json:"assetContractId"`
 	TokenName       *string                `json:"tokenName,omitempty"`
@@ -115,18 +118,24 @@ type BlendEarnPoolOption struct {
 // emissionsSupplyApr — i.e. it is the supply-side yield including BLND
 // emissions, not netted against the pool's borrow side.
 type BlendPool struct {
-	Address          string          `json:"address"`
-	Name             *string         `json:"name,omitempty"`
-	Status           *int32          `json:"status,omitempty"`
-	OracleContractID *string         `json:"oracleContractId,omitempty"`
-	BackstopRate     *int32          `json:"backstopRate,omitempty"`
-	MaxPositions     *int32          `json:"maxPositions,omitempty"`
-	SuppliedUsd      *float64        `json:"suppliedUsd,omitempty"`
-	BorrowedUsd      *float64        `json:"borrowedUsd,omitempty"`
-	BackstopUsd      *float64        `json:"backstopUsd,omitempty"`
-	InterestApy      *float64        `json:"interestApy,omitempty"`
-	NetApy           *float64        `json:"netApy,omitempty"`
-	Reserves         []*BlendReserve `json:"reserves"`
+	Address string  `json:"address"`
+	Name    *string `json:"name,omitempty"`
+	// Raw on-chain pool status: 0 Admin Active, 1 Active, 2 Admin On-Ice,
+	// 3 On-Ice, 4 Admin Frozen, 5 Frozen, 6 Setup. Statuses 0-3 accept supply
+	// (deposits); 0-1 also allow borrowing; 4-6 reject both. Null until the
+	// pool's config entry has been ingested.
+	Status           *int32  `json:"status,omitempty"`
+	OracleContractID *string `json:"oracleContractId,omitempty"`
+	// Share of borrower interest routed to the pool's backstop, as 7-decimal
+	// fixed point (4750000 = 47.5%).
+	BackstopRate *int32          `json:"backstopRate,omitempty"`
+	MaxPositions *int32          `json:"maxPositions,omitempty"`
+	SuppliedUsd  *float64        `json:"suppliedUsd,omitempty"`
+	BorrowedUsd  *float64        `json:"borrowedUsd,omitempty"`
+	BackstopUsd  *float64        `json:"backstopUsd,omitempty"`
+	InterestApy  *float64        `json:"interestApy,omitempty"`
+	NetApy       *float64        `json:"netApy,omitempty"`
+	Reserves     []*BlendReserve `json:"reserves"`
 }
 
 // BlendPoolPosition rolls up an account's reserve positions within one pool.
@@ -171,9 +180,11 @@ type BlendReserve struct {
 	BorrowedTokens     string   `json:"borrowedTokens"`
 	SuppliedUsd        *float64 `json:"suppliedUsd,omitempty"`
 	BorrowedUsd        *float64 `json:"borrowedUsd,omitempty"`
-	CFactor            *int32   `json:"cFactor,omitempty"`
-	LFactor            *int32   `json:"lFactor,omitempty"`
-	PriceUsd           *float64 `json:"priceUsd,omitempty"`
+	// Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral.
+	CFactor *int32 `json:"cFactor,omitempty"`
+	// Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports.
+	LFactor  *int32   `json:"lFactor,omitempty"`
+	PriceUsd *float64 `json:"priceUsd,omitempty"`
 }
 
 // BlendReservePosition is an account's position in one reserve of a pool.
