@@ -188,17 +188,23 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 	assetZArg, err := buildSep40StellarAsset(assetZ)
 	require.NoError(t, err)
 
+	// Oracle-reported timestamps must be recent: SnapshotOnce skips prices
+	// older than maxPriceAge against the wall clock.
+	tsX := uint64(time.Now().Unix() - 60)
+	tsY := tsX + 1
+	tsZ := tsX + 2
+
 	meta := services.NewContractMetadataServiceMock(t)
 	meta.On("FetchSingleField", mock.Anything, oracle1, "decimals", []xdr.ScVal(nil)).
 		Return(u32ScVal(7), nil).Once()
 	meta.On("FetchSingleField", mock.Anything, oracle1, "lastprice", []xdr.ScVal{assetXArg}).
-		Return(priceDataScVal(100_000_000, 1_700_000_000), nil).Once()
+		Return(priceDataScVal(100_000_000, tsX), nil).Once()
 	meta.On("FetchSingleField", mock.Anything, oracle1, "lastprice", []xdr.ScVal{assetYArg}).
-		Return(priceDataScVal(200_000_000, 1_700_000_001), nil).Once()
+		Return(priceDataScVal(200_000_000, tsY), nil).Once()
 	meta.On("FetchSingleField", mock.Anything, oracle2, "decimals", []xdr.ScVal(nil)).
 		Return(u32ScVal(14), nil).Once()
 	meta.On("FetchSingleField", mock.Anything, oracle2, "lastprice", []xdr.ScVal{assetZArg}).
-		Return(priceDataScVal(300_000_000, 1_700_000_002), nil).Once()
+		Return(priceDataScVal(300_000_000, tsZ), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
 	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
@@ -209,7 +215,7 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "100000000", rowX.Price)
 	assert.Equal(t, int32(7), rowX.PriceDecimals)
-	assert.Equal(t, int64(1_700_000_000), rowX.PriceTimestamp)
+	assert.Equal(t, int64(tsX), rowX.PriceTimestamp)
 
 	rowY, ok := getOraclePriceRow(t, ctx, pool, oracle1, assetY)
 	require.True(t, ok)
@@ -224,6 +230,8 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 	assert.Equal(t, 3, countOraclePriceRows(t, ctx, pool))
 	assert.Equal(t, 3.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
 	assert.Equal(t, 3.0, testutil.ToFloat64(bpm.PricesTracked))
+	assert.InDelta(t, 60, testutil.ToFloat64(bpm.OldestPriceAge), 5,
+		"oldest-price-age gauge should reflect the oldest oracle-reported timestamp")
 }
 
 // TestSnapshotOnce_NonePriceSkipped covers a SEP-40 Option::None response
@@ -260,6 +268,92 @@ func TestSnapshotOnce_NonePriceSkipped(t *testing.T) {
 	assert.Equal(t, 0.0, testutil.ToFloat64(bpm.PricesTracked))
 }
 
+// TestSnapshotOnce_StalePriceSkipped covers the staleness guard: a price
+// whose oracle-reported timestamp is older than maxPriceAge is not persisted
+// (the pool contract would reject it anyway), counted as a "stale" fetch
+// outcome, and still drives the oldest-price-age gauge so a dead oracle is
+// observable.
+func TestSnapshotOnce_StalePriceSkipped(t *testing.T) {
+	ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+	defer cleanup()
+
+	oracle := randomContractAddr(t)
+	poolA := randomContractAddr(t)
+	assetFresh := randomContractAddr(t)
+	assetStale := randomContractAddr(t)
+	insertBlendPool(t, ctx, pool, poolA, oracle)
+	insertBlendReserve(t, ctx, pool, poolA, assetFresh, 0)
+	insertBlendReserve(t, ctx, pool, poolA, assetStale, 1)
+
+	assetFreshArg, err := buildSep40StellarAsset(assetFresh)
+	require.NoError(t, err)
+	assetStaleArg, err := buildSep40StellarAsset(assetStale)
+	require.NoError(t, err)
+
+	staleAge := int64(25 * 60 * 60) // 25h, just past the 24h maxPriceAge
+	meta := services.NewContractMetadataServiceMock(t)
+	meta.On("FetchSingleField", mock.Anything, oracle, "decimals", []xdr.ScVal(nil)).
+		Return(u32ScVal(7), nil).Once()
+	meta.On("FetchSingleField", mock.Anything, oracle, "lastprice", []xdr.ScVal{assetFreshArg}).
+		Return(priceDataScVal(100_000_000, uint64(time.Now().Unix())), nil).Once()
+	meta.On("FetchSingleField", mock.Anything, oracle, "lastprice", []xdr.ScVal{assetStaleArg}).
+		Return(priceDataScVal(200_000_000, uint64(time.Now().Unix()-staleAge)), nil).Once()
+
+	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+
+	require.NoError(t, svc.SnapshotOnce(ctx))
+
+	_, ok := getOraclePriceRow(t, ctx, pool, oracle, assetFresh)
+	assert.True(t, ok, "the fresh price must persist")
+	_, ok = getOraclePriceRow(t, ctx, pool, oracle, assetStale)
+	assert.False(t, ok, "the stale price must not persist")
+	assert.Equal(t, 1, countOraclePriceRows(t, ctx, pool))
+
+	assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("stale")))
+	assert.InDelta(t, staleAge, testutil.ToFloat64(bpm.OldestPriceAge), 5,
+		"the gauge must include skipped-as-stale prices — that's the dead-oracle signal")
+}
+
+// TestSnapshotOnce_NonPositivePriceSkipped covers the validity guard: a zero
+// or negative price is never persisted (the pool contract rejects it) and is
+// counted as an "invalid" fetch outcome, without erroring the pass.
+func TestSnapshotOnce_NonPositivePriceSkipped(t *testing.T) {
+	ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+	defer cleanup()
+
+	oracle := randomContractAddr(t)
+	poolA := randomContractAddr(t)
+	assetZero := randomContractAddr(t)
+	assetNegative := randomContractAddr(t)
+	insertBlendPool(t, ctx, pool, poolA, oracle)
+	insertBlendReserve(t, ctx, pool, poolA, assetZero, 0)
+	insertBlendReserve(t, ctx, pool, poolA, assetNegative, 1)
+
+	assetZeroArg, err := buildSep40StellarAsset(assetZero)
+	require.NoError(t, err)
+	assetNegativeArg, err := buildSep40StellarAsset(assetNegative)
+	require.NoError(t, err)
+
+	meta := services.NewContractMetadataServiceMock(t)
+	meta.On("FetchSingleField", mock.Anything, oracle, "decimals", []xdr.ScVal(nil)).
+		Return(u32ScVal(7), nil).Once()
+	meta.On("FetchSingleField", mock.Anything, oracle, "lastprice", []xdr.ScVal{assetZeroArg}).
+		Return(priceDataScVal(0, uint64(time.Now().Unix())), nil).Once()
+	meta.On("FetchSingleField", mock.Anything, oracle, "lastprice", []xdr.ScVal{assetNegativeArg}).
+		Return(priceDataScVal(-5, uint64(time.Now().Unix())), nil).Once()
+
+	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+
+	require.NoError(t, svc.SnapshotOnce(ctx))
+
+	assert.Equal(t, 0, countOraclePriceRows(t, ctx, pool))
+	assert.Equal(t, 2.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("invalid")))
+	assert.Equal(t, 0.0, testutil.ToFloat64(bpm.PricesTracked))
+}
+
 // TestSnapshotOnce_OracleErrorIsolated covers one oracle's failure not
 // preventing another oracle's rows from being persisted.
 func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
@@ -287,7 +381,7 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 	meta.On("FetchSingleField", mock.Anything, oracleGood, "decimals", []xdr.ScVal(nil)).
 		Return(u32ScVal(7), nil).Once()
 	meta.On("FetchSingleField", mock.Anything, oracleGood, "lastprice", []xdr.ScVal{assetGoodArg}).
-		Return(priceDataScVal(500_000_000, 1_700_000_000), nil).Once()
+		Return(priceDataScVal(500_000_000, uint64(time.Now().Unix())), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
 	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
