@@ -95,24 +95,25 @@ func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, er
 	}, nil
 }
 
-// Run snapshots once immediately, then every s.interval until ctx is
-// cancelled. A failed pass is logged, never fatal — the next tick tries
-// again. Mirrors protocol_migrate.go's refreshTargetTip ticker-loop shape.
+// Run snapshots once immediately, then repeatedly until ctx is cancelled,
+// waiting s.interval AFTER each pass completes (end-to-start delay). A
+// ticker would queue a tick while a slow pass runs — many oracle targets
+// plus RPC retries can exceed the interval — and the next pass would then
+// start immediately, hammering RPC/DB back-to-back. A failed pass is
+// logged, never fatal — the next pass tries again.
 func (s *PriceSnapshotService) Run(ctx context.Context) {
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(0) // fires immediately: the first pass runs at startup
+	defer timer.Stop()
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return
+		case <-timer.C:
 		}
 		if err := s.SnapshotOnce(ctx); err != nil {
 			log.Ctx(ctx).Warnf("blend: price snapshot pass failed: %v", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
+		timer.Reset(s.interval)
 	}
 }
 
