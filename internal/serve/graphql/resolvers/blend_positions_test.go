@@ -392,6 +392,55 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	})
 }
 
+// TestFindBackstopPrices pins findBackstopPrices' selection contract:
+// (nil, nil) without a complete (self-priced LP, sibling BLND) group, and a
+// deterministic lowest-oracle-key pick if more than one complete group ever
+// appears (a config-error state — see the function's doc).
+func TestFindBackstopPrices(t *testing.T) {
+	mk := func(oracle, asset string) blenddata.OraclePrice {
+		return blenddata.OraclePrice{
+			OracleContractID: types.AddressBytea(oracle),
+			AssetContractID:  types.AddressBytea(asset),
+		}
+	}
+
+	t.Run("no rows", func(t *testing.T) {
+		lp, blnd := findBackstopPrices(testCtx, nil)
+		assert.Nil(t, lp)
+		assert.Nil(t, blnd)
+	})
+
+	t.Run("self-priced row without a BLND sibling is incomplete", func(t *testing.T) {
+		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "COMET")})
+		assert.Nil(t, lp)
+		assert.Nil(t, blnd)
+	})
+
+	t.Run("one complete group", func(t *testing.T) {
+		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "COMET"), mk("COMET", "BLND")})
+		require.NotNil(t, lp)
+		require.NotNil(t, blnd)
+		assert.EqualValues(t, "COMET", lp.AssetContractID)
+		assert.EqualValues(t, "BLND", blnd.AssetContractID)
+	})
+
+	t.Run("two complete groups pick the lowest oracle key, deterministically", func(t *testing.T) {
+		rows := []blenddata.OraclePrice{
+			mk("COMET_B", "COMET_B"), mk("COMET_B", "BLND_B"),
+			mk("COMET_A", "COMET_A"), mk("COMET_A", "BLND_A"),
+		}
+		// Repeat to flush out Go map-iteration randomness: every call must
+		// land on the same group.
+		for range 50 {
+			lp, blnd := findBackstopPrices(testCtx, rows)
+			require.NotNil(t, lp)
+			require.NotNil(t, blnd)
+			assert.EqualValues(t, "COMET_A", lp.OracleContractID)
+			assert.EqualValues(t, "BLND_A", blnd.AssetContractID)
+		}
+	})
+}
+
 func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 	account := keypair.MustRandom().Address()
 	m := metrics.NewMetrics(prometheus.NewRegistry())

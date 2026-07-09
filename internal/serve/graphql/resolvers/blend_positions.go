@@ -11,7 +11,10 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sort"
 	"time"
+
+	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
@@ -181,9 +184,13 @@ func freshPrices(rows []blenddata.OraclePrice, now int64) []blenddata.OraclePric
 // OraclePrices.GetBackstopLPPrices' result set. Rows share an
 // oracle_contract_id in groups of (one self-priced LP row, its sibling BLND
 // row) — see GetBackstopLPPrices' doc. Blend v2 has a single protocol-wide
-// backstop LP token, so in practice there is at most one complete group;
-// returns (nil, nil) if none is found.
-func findBackstopPrices(rows []blenddata.OraclePrice) (lp, blnd *blenddata.OraclePrice) {
+// backstop LP token — the emitter can swap it, but only sequentially, never
+// two at once — so more than one complete group means a misconfigured
+// Comet/oracle address: that state is logged loudly and resolved by always
+// picking the lowest oracle key, keeping the choice deterministic instead
+// of flapping with Go's map-iteration order. Returns (nil, nil) if no
+// complete group is found.
+func findBackstopPrices(ctx context.Context, rows []blenddata.OraclePrice) (lp, blnd *blenddata.OraclePrice) {
 	selfPriced := map[string]blenddata.OraclePrice{}
 	siblings := map[string][]blenddata.OraclePrice{}
 	for _, row := range rows {
@@ -193,15 +200,24 @@ func findBackstopPrices(rows []blenddata.OraclePrice) (lp, blnd *blenddata.Oracl
 			siblings[string(row.OracleContractID)] = append(siblings[string(row.OracleContractID)], row)
 		}
 	}
-	for oracle, self := range selfPriced {
-		sibs := siblings[oracle]
-		if len(sibs) == 0 {
-			continue
+
+	complete := make([]string, 0, len(selfPriced))
+	for oracle := range selfPriced {
+		if len(siblings[oracle]) > 0 {
+			complete = append(complete, oracle)
 		}
-		sib := sibs[0]
-		return &self, &sib
 	}
-	return nil, nil
+	if len(complete) == 0 {
+		return nil, nil
+	}
+	sort.Strings(complete)
+	if len(complete) > 1 {
+		log.Ctx(ctx).Errorf("blend: %d self-priced backstop LP price groups found (expected exactly 1 — misconfigured Comet/oracle address?); using oracle %s", len(complete), complete[0])
+	}
+
+	self := selfPriced[complete[0]]
+	sib := siblings[complete[0]][0]
+	return &self, &sib
 }
 
 // blendAssembly holds every batch-fetched Blend v2 row and derived lookup
@@ -690,7 +706,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
 	}
 	now := time.Now().Unix()
-	lpPrice, blndPrice := findBackstopPrices(freshPrices(backstopLPPrices, now))
+	lpPrice, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	reserveByPoolIndex := make(map[string]blenddata.Reserve, len(reserves))
