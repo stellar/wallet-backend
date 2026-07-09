@@ -19,6 +19,11 @@
 // snapshot's own wall-clock time (unix seconds), since the Comet getters
 // carry no oracle-reported timestamp of their own.
 //
+// A price the pool contract itself would reject is never persisted: an
+// oracle-reported timestamp older than maxPriceAge is skipped as "stale" and
+// a price ≤ 0 as "invalid" (both observable via the fetch-outcome counter,
+// staleness additionally via the oldest-price-age gauge).
+//
 // A failure fetching one oracle's decimals or any of its lastprice targets
 // is isolated to that oracle: it never aborts the rest of the pass. All such
 // failures (and a Comet leg failure, when configured) are joined with
@@ -39,6 +44,12 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 )
+
+// maxPriceAge is how old an oracle-reported price may be and still be
+// persisted. It mirrors the Blend v2 pool contract's own rejection window:
+// pool.rs::load_price panics on prices older than 24h (and on prices ≤ 0),
+// so a price past this age could never be used by the pool it prices for.
+const maxPriceAge = 24 * time.Hour
 
 // PriceSnapshotConfig configures a PriceSnapshotService.
 type PriceSnapshotConfig struct {
@@ -139,14 +150,37 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 		byOracle[oracle] = append(byOracle[oracle], target)
 	}
 
+	now := time.Now().Unix()
 	var rows []blenddata.OraclePrice
 	var errs []error
+	var oldestAge int64
+	var decodedAnyPrice bool
 	for oracle, oracleTargets := range byOracle {
-		oracleRows, oracleErr := s.snapshotOracle(ctx, oracle, oracleTargets)
+		oracleRows, oracleOldestAge, oracleErr := s.snapshotOracle(ctx, oracle, oracleTargets, now)
 		if oracleErr != nil {
 			errs = append(errs, fmt.Errorf("blend: price snapshot: oracle %s: %w", oracle, oracleErr))
 		}
+		// A decoded positive price either yields a row or, when skipped as
+		// stale, pushes the oldest age past zero — so this disjunction is
+		// exactly "this oracle reported at least one usable-looking price".
+		if len(oracleRows) > 0 || oracleOldestAge > 0 {
+			decodedAnyPrice = true
+		}
+		if oracleOldestAge > oldestAge {
+			oldestAge = oracleOldestAge
+		}
 		rows = append(rows, oracleRows...)
+	}
+	// The gauge measures SEP-40 lastprice staleness only — the Comet leg's
+	// prices are derived from ledger entries and carry the snapshot's own
+	// clock, so they say nothing about oracle freshness and are not counted
+	// here. A pass that decoded no oracle price at all (every fetch failed,
+	// or there were no targets) has nothing to report: writing 0 would read
+	// as "every price is current", inverting the signal. Skipping the write
+	// keeps the last real reading, which Prometheus then shows ageing, while
+	// FetchesTotal{result="error"} carries the failure.
+	if decodedAnyPrice {
+		s.metrics.OldestPriceAge.Set(float64(oldestAge))
 	}
 
 	if s.cometID != "" {
@@ -173,24 +207,29 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 
 // snapshotOracle fetches decimals() once for oracle, then lastprice(asset)
 // for each of targets, skipping (not erroring on) a SEP-40 Option::None
-// response. A decimals() failure aborts this oracle's whole batch — every
-// target's price is meaningless without it — but is isolated to this oracle
-// by the caller. A single target's lastprice failure is isolated to that
-// target: the rest of this oracle's targets are still attempted.
-func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string, targets []blenddata.PriceTarget) ([]blenddata.OraclePrice, error) {
+// response, a price the pool contract would reject as stale (older than
+// maxPriceAge against now) or invalid (≤ 0). A decimals() failure aborts
+// this oracle's whole batch — every target's price is meaningless without
+// it — but is isolated to this oracle by the caller. A single target's
+// lastprice failure is isolated to that target: the rest of this oracle's
+// targets are still attempted. The second return value is the age in
+// seconds of the oldest price decoded (including skipped-as-stale ones —
+// that growth is the dead-oracle signal the gauge exists for).
+func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string, targets []blenddata.PriceTarget, now int64) ([]blenddata.OraclePrice, int64, error) {
 	decimalsVal, err := s.metadata.FetchSingleField(ctx, oracle, "decimals")
 	if err != nil {
 		s.metrics.FetchesTotal.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("fetching decimals: %w", err)
+		return nil, 0, fmt.Errorf("fetching decimals: %w", err)
 	}
 	decimals, ok := u32Val(decimalsVal)
 	if !ok {
 		s.metrics.FetchesTotal.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("decimals: expected u32, got %v", decimalsVal.Type)
+		return nil, 0, fmt.Errorf("decimals: expected u32, got %v", decimalsVal.Type)
 	}
 
 	rows := make([]blenddata.OraclePrice, 0, len(targets))
 	var errs []error
+	var oldestAge int64
 	for _, target := range targets {
 		assetArg, buildErr := buildSep40StellarAsset(string(target.AssetContractID))
 		if buildErr != nil {
@@ -216,6 +255,17 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 			s.metrics.FetchesTotal.WithLabelValues("none").Inc()
 			continue
 		}
+		if priceData.Price.Sign() <= 0 {
+			s.metrics.FetchesTotal.WithLabelValues("invalid").Inc()
+			continue
+		}
+		if age := now - int64(priceData.Timestamp); age > oldestAge {
+			oldestAge = age
+		}
+		if int64(priceData.Timestamp) < now-int64(maxPriceAge/time.Second) {
+			s.metrics.FetchesTotal.WithLabelValues("stale").Inc()
+			continue
+		}
 
 		s.metrics.FetchesTotal.WithLabelValues("success").Inc()
 		rows = append(rows, blenddata.OraclePrice{
@@ -227,7 +277,7 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 		})
 	}
 
-	return rows, errors.Join(errs...)
+	return rows, oldestAge, errors.Join(errs...)
 }
 
 // snapshotComet derives the BLND and Comet LP-share USD prices from the
