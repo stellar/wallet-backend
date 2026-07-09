@@ -108,16 +108,23 @@ func ratFromFixed7(v int32) *big.Rat {
 // Utilization returns a reserve's current utilization — the fraction of its
 // underlying supply currently borrowed — as (dSupply*dRate)/(bSupply*
 // bRate). dRate and bRate share the same fixed-point scale (SCALAR_12 for
-// v2), so that scale cancels in the ratio and needs no explicit
-// descaling. Returns exact 0 when the b-side (bSupply*bRate, the pool's
-// total underlying supply) is zero — an unliquidated pool has undefined
-// utilization, not a divide-by-zero panic.
+// v2), so that scale cancels in the ratio and needs no explicit descaling.
+//
+// Branch order mirrors reserve.rs's utilization exactly: zero liabilities
+// is 0, and liabilities >= supply clamps to exactly 1 ("This is capped at
+// 100% to ensure interest calculations are fair") — a reachable bad-debt
+// state; unclamped, it would push BorrowAPR's >95% slope past its [0,1]
+// domain and display an unbounded rate. The clamp also covers zero supply
+// with outstanding debt, so there is no divide-by-zero path.
 func Utilization(bSupply, bRate, dSupply, dRate *big.Int) *big.Rat {
-	supply := new(big.Int).Mul(bSupply, bRate)
-	if supply.Sign() == 0 {
+	liabilities := new(big.Int).Mul(dSupply, dRate)
+	if liabilities.Sign() == 0 {
 		return new(big.Rat)
 	}
-	liabilities := new(big.Int).Mul(dSupply, dRate)
+	supply := new(big.Int).Mul(bSupply, bRate)
+	if liabilities.Cmp(supply) >= 0 {
+		return big.NewRat(1, 1)
+	}
 	return new(big.Rat).SetFrac(liabilities, supply)
 }
 
