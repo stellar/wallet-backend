@@ -5,8 +5,9 @@
 // buildPoolReserve already exercises (via the shared blendAssembly and
 // computeReserveRates) by asset instead of by pool — the two views differ
 // only in that grouping, and in which reserves are in scope: a disabled
-// reserve still shows up as a (disabled) BlendReserve in the pool-wide
-// catalog, but accepts no new deposits, so it is never an earn option here.
+// reserve, or any reserve of a pool whose status rejects supply on-chain
+// (poolAcceptsSupply), still shows up in the pool-wide catalog, but accepts
+// no new deposits, so it is never an earn option here.
 package resolvers
 
 import (
@@ -21,6 +22,20 @@ import (
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	blendrates "github.com/stellar/wallet-backend/internal/services/blend"
 )
+
+// poolStatusRejectsSupply is the lowest pool status that rejects supply
+// on-chain (pool.rs::require_action_allowed): 4 Admin Frozen, 5 Frozen, and
+// 6 Setup refuse deposits, while Active (0-1) and On-Ice (2-3) accept them.
+const poolStatusRejectsSupply int32 = 4
+
+// poolAcceptsSupply reports whether poolAddr's pool accepts supply: its
+// status must be known AND below poolStatusRejectsSupply. An unknown pool or
+// a NULL status (config entry not ingested yet) can't be confirmed
+// supply-eligible, so it is excluded rather than advertised.
+func poolAcceptsSupply(poolByID map[string]blenddata.Pool, poolAddr string) bool {
+	pool, ok := poolByID[poolAddr]
+	return ok && pool.Status != nil && *pool.Status < poolStatusRejectsSupply
+}
 
 // buildEarnPoolOption assembles one enabled reserve into a
 // BlendEarnPoolOption: the reserve's projected supplyApy and pool-wide
@@ -142,7 +157,7 @@ func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEa
 	reservesByAsset := map[string][]blenddata.Reserve{}
 	assetIDSet := map[string]struct{}{}
 	for _, res := range reserves {
-		if !res.Enabled {
+		if !res.Enabled || !poolAcceptsSupply(poolByID, string(res.PoolContractID)) {
 			continue
 		}
 		assetID := string(res.AssetContractID)
