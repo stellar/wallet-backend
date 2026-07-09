@@ -260,6 +260,9 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		require.NotNil(t, r0.EmissionsApr)
 		assert.InDelta(t, 63.072, *r0.EmissionsApr, 1e-9)
 
+		require.NotNil(t, r0.PriceUsd)
+		assert.InDelta(t, 2.5, *r0.PriceUsd, 1e-12)
+
 		// interestEarned = Underlying(supply+collateral, bRate) - netSupplied
 		//   = 8_000_000 - 7_999_000 (net_supplied's ".75..." truncates away) = 1_000.
 		assert.Equal(t, "1000", r0.InterestEarned)
@@ -293,6 +296,9 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		// dToken emission config is EXPIRED (pastExpiration < now) -> a concrete 0, not nil.
 		require.NotNil(t, r1.EmissionsApr)
 		assert.InDelta(t, 0.0, *r1.EmissionsApr, 1e-12)
+
+		require.NotNil(t, r1.PriceUsd)
+		assert.InDelta(t, 1.0, *r1.PriceUsd, 1e-12)
 
 		// interestPaid = Underlying(liability, dRate) - netBorrowed = 6_000_000 - 5_990_000 = 10_000.
 		assert.Equal(t, "0", r1.InterestEarned)
@@ -376,10 +382,11 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.InDelta(t, 2.0, *r0After.SuppliedUsd, 1e-9)
 
 		// r1 (assetB): supply side is trivially 0 regardless of price, but the
-		// nonzero borrowed side is now unpriceable.
+		// nonzero borrowed side is now unpriceable, and priceUsd itself is gone.
 		require.NotNil(t, r1After.SuppliedUsd)
 		assert.InDelta(t, 0.0, *r1After.SuppliedUsd, 1e-9)
 		assert.Nil(t, r1After.BorrowedUsd)
+		assert.Nil(t, r1After.PriceUsd)
 
 		// Pool rollup: suppliedUsd still known (only r0 contributes nonzero supply),
 		// but borrowedUsd/usdValue/netApy become nil since r1 contributes to borrowedUsd.

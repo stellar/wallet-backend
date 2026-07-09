@@ -74,6 +74,8 @@ type BlendReservePosition {
   interestPaid: String!
   emissionsEarnedBlnd: String!
   emissionsEarnedUsd: Float
+  """The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD."""
+  priceUsd: Float
 }
 
 """
@@ -186,10 +188,17 @@ type BlendEarnOption {
   pools: [BlendEarnPoolOption!]!
 }
 
-"""BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset."""
+"""
+BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
+supplyApy is the interest-only yield; emissionsSupplyApr is the reserve's
+BLND-emission yield on the supply side (0 when no active stream, null when
+the BLND price is unavailable) — supplyApy + emissionsSupplyApr is the
+emissions-inclusive rate a wallet shows as the earn headline.
+"""
 type BlendEarnPoolOption {
   poolAddress: String!
   poolName: String
   supplyApy: Float
+  emissionsSupplyApr: Float
   suppliedUsd: Float
 }
