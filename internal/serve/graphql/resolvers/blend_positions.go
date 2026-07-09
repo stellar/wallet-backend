@@ -549,7 +549,13 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 }
 
 // buildBackstopPosition assembles one blend_backstop_positions row into a
-// BlendBackstopPosition.
+// BlendBackstopPosition. bp.Shares holds only the ACTIVE share balance —
+// queued-for-withdrawal shares live in bp.Q4W — but queued shares keep
+// earning pool interest and remain slashable first-loss capital until
+// withdrawn, so lpTokens/usdValue value active+queued together, with each
+// Q4W entry also valued individually through the same shares→LP→USD chain.
+// Emissions are the one queued-share exception: they accrue on active
+// shares only, so claimableStream gets the active balance.
 func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*graphql1.BlendBackstopPosition, error) {
 	poolAddr := string(bp.PoolContractID)
 
@@ -571,13 +577,26 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 		}
 		configIndex = backstopPool.EmisIndex
 	}
-	lpTokens := blendrates.BackstopLPTokens(shares, poolShares, poolTokens)
-	usdValue := usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
 
+	totalShares := new(big.Int).Set(shares)
 	q4w := make([]*graphql1.BlendQ4w, 0, len(bp.Q4W))
 	for _, w := range bp.Q4W {
-		q4w = append(q4w, &graphql1.BlendQ4w{Amount: w.Amount, Expiration: w.Expiration})
+		queuedShares, parseErr := parseBigInt(w.Amount)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing blend backstop Q4W amount: %w", parseErr)
+		}
+		totalShares.Add(totalShares, queuedShares)
+		queuedLP := blendrates.BackstopLPTokens(queuedShares, poolShares, poolTokens)
+		q4w = append(q4w, &graphql1.BlendQ4w{
+			Amount:     w.Amount,
+			Expiration: w.Expiration,
+			LpTokens:   queuedLP.String(),
+			UsdValue:   usdValueOrNil(queuedLP, backstopLPDecimals, d.lpPrice),
+		})
 	}
+
+	lpTokens := blendrates.BackstopLPTokens(totalShares, poolShares, poolTokens)
+	usdValue := usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
 
 	userEmission, hasUser := d.userEmissionByPoolToken[poolTokenKey(poolAddr, blenddata.BackstopEmissionTokenID)]
 	claimable, err := claimableStream(userEmission, hasUser, configIndex, shares, backstopClaimScalar)
