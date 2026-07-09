@@ -20,6 +20,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -1195,6 +1196,86 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		require.Len(t, noProc.processedInputs, 2)
 		for _, input := range noProc.processedInputs {
 			assert.NotNil(t, input.ContractDataChanges, "ledger %d: shared map must also reach the non-requiring processor", input.LedgerSequence)
+		}
+	})
+
+	t.Run("ProtocolContracts membership refreshed per flushed window for requiring processors", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('cdproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		cdProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "cdproto", ingestStore: ingestStore, requiresContractData: true},
+			dbPool:                 dbPool,
+			advanceAtSeq:           102,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           102,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"cdproto", "noproto"}).Return([]data.Protocols{
+			{ID: "cdproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "noproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
+
+		contractA := data.ProtocolContracts{ContractID: types.HashBytea("contract-a")}
+		contractB := data.ProtocolContracts{ContractID: types.HashBytea("contract-b")}
+		// The requiring tracker's membership is re-read after every committed
+		// window (WindowSize defaults to 1, so after every ledger): the run-start
+		// snapshot returns only A, every refresh returns A+B — simulating live
+		// ingestion classifying B while the migration is in flight. The
+		// event-only tracker keeps the run-start snapshot: exactly one load.
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+				102: dummyLedgerMeta(102),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{cdProc, noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"cdproto", "noproto"})
+		require.NoError(t, err)
+
+		// Requiring processor: ledger 100 folded with the run-start snapshot,
+		// ledgers 101-102 with the refreshed membership including contract B.
+		require.Len(t, cdProc.processedInputs, 3)
+		assert.Len(t, cdProc.processedInputs[0].ProtocolContracts, 1, "ledger 100 folds with the run-start snapshot")
+		for _, input := range cdProc.processedInputs[1:] {
+			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: refreshed membership must include the newly classified contract", input.LedgerSequence)
+		}
+
+		// Event-only processor: the run-start snapshot is never refreshed (its
+		// single .Once() mock expectation also fails the test on extra calls).
+		require.Len(t, noProc.processedInputs, 3)
+		for _, input := range noProc.processedInputs {
+			assert.Len(t, input.ProtocolContracts, 1, "ledger %d: event-only membership stays the snapshot", input.LedgerSequence)
 		}
 	})
 

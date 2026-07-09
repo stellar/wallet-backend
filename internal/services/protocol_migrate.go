@@ -222,7 +222,7 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 // less often than the progress-log interval.
 type stageTimers struct {
 	fetch   time.Duration // GetLedger wait (consumer stall, not download time); ≈0 while the datastore prefetch keeps up, rises only when it can't
-	extract time.Duration // ExtractContractEventsForLedger
+	extract time.Duration // ExtractContractEventsForLedger + ExtractContractDataChangesForLedger
 	process time.Duration // ProcessLedger across all trackers
 	flush   time.Duration // flushWindow (CAS + Persist), including tip flushes
 }
@@ -275,8 +275,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		})
 	}
 
-	// Load contracts once — all relevant contracts are in the DB before migration starts
-	// (validate() requires ClassificationStatus == StatusSuccess).
+	// Load each tracker's classified-contract membership. For event-only
+	// processors this run-start snapshot is final — validate() requires
+	// ClassificationStatus == StatusSuccess, so everything classified before
+	// the run is already here. Processors that require ContractData get their
+	// membership refreshed after every committed window instead (see
+	// refreshTrackerContracts): live ingestion's validator classifies newly
+	// deployed contracts concurrently with this run, and those processors
+	// interpret events and entries by membership, so folding the rest of the
+	// run against a stale snapshot would silently drop that contract's state.
 	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(trackers))
 	for _, t := range trackers {
 		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
@@ -339,7 +346,7 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// next (blocking) GetLedger never strands the cursor behind the frontier.
 		var flushErr error
 		tipFlushStart := time.Now()
-		cachedTip, flushErr = s.flushWindowsAtTip(ctx, trackers, seq, cachedTip)
+		cachedTip, flushErr = s.flushWindowsAtTip(ctx, trackers, seq, cachedTip, contractsByProtocol)
 		timers.flush += time.Since(tipFlushStart)
 		if flushErr != nil {
 			return handedOffProtocolIDs(trackers), flushErr
@@ -415,6 +422,9 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 				if flushWinErr != nil {
 					return handedOffProtocolIDs(trackers), flushWinErr
 				}
+				if refreshErr := s.refreshTrackerContracts(ctx, t, contractsByProtocol); refreshErr != nil {
+					return handedOffProtocolIDs(trackers), refreshErr
+				}
 			}
 		}
 
@@ -484,7 +494,7 @@ func (s *protocolMigrateEngine) refreshTargetTip(ctx context.Context) {
 // GetLatestLedgerSequence call per ledger; the tip is monotonic, so a stale value at worst
 // costs one extra refresh. The updated cachedTip is returned for the next iteration. A
 // flush can hand off the last active tracker, so callers must re-check allHandedOff after.
-func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers []*protocolTracker, seq, cachedTip uint32) (uint32, error) {
+func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers []*protocolTracker, seq, cachedTip uint32, contractsByProtocol map[string][]data.ProtocolContracts) (uint32, error) {
 	if seq <= cachedTip {
 		return cachedTip, nil
 	}
@@ -498,8 +508,30 @@ func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers 
 		if err := s.flushWindow(ctx, t); err != nil {
 			return cachedTip, err
 		}
+		if err := s.refreshTrackerContracts(ctx, t, contractsByProtocol); err != nil {
+			return cachedTip, err
+		}
 	}
 	return cachedTip, nil
+}
+
+// refreshTrackerContracts re-reads a tracker's classified-contract membership
+// after a window commit, but only for processors that require ContractData —
+// they interpret events and entries by classified-set membership, so a
+// contract classified mid-run (live ingestion's validator runs concurrently)
+// must reach them on the next window rather than never. Event-only processors
+// keep the cheaper run-start snapshot. Handed-off trackers fold no further
+// ledgers, so their membership no longer matters.
+func (s *protocolMigrateEngine) refreshTrackerContracts(ctx context.Context, t *protocolTracker, contractsByProtocol map[string][]data.ProtocolContracts) error {
+	if t.handedOff || !t.processor.RequiresContractData() {
+		return nil
+	}
+	contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
+	if err != nil {
+		return fmt.Errorf("refreshing contracts for %s: %w", t.protocolID, err)
+	}
+	contractsByProtocol[t.protocolID] = contracts
+	return nil
 }
 
 // flushWindow commits a tracker's open window [cursorValue+1, cursorValue+pending] in a
