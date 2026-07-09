@@ -93,12 +93,15 @@ func (d *blendAssembly) buildEarnOption(assetID string, reserves []blenddata.Res
 	}
 	sortEarnPoolOptions(pools)
 
-	// contract_tokens is the canonical source for token display metadata;
-	// each reserve config carries a decimals copy set at reserve creation, so
-	// it only serves as the fallback for assets the classifier never saw.
+	// contract_tokens is the canonical source for token display metadata, but
+	// classification inserts a default row (nil name, decimals 0) before RPC
+	// enrichment fills it in. The reserve config's decimals copy (set at
+	// reserve creation from the token itself) is authoritative until the row
+	// is genuinely enriched — a real zero-decimals token still wins here once
+	// its name is populated.
 	meta, hasMeta := d.metaByContractID[assetID]
 	decimals := reserves[0].Decimals
-	if hasMeta {
+	if hasMeta && (meta.Name != nil || meta.Decimals > 0) {
 		decimals = int32(meta.Decimals)
 	}
 
