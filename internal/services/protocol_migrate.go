@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -378,12 +380,19 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 
 		// Extract ContractData changes once per ledger, only when a tracker that
-		// will fold this ledger requires them; all trackers share the map.
+		// will fold this ledger requires them; all trackers share the map. The
+		// union of those trackers' memberships gates the extraction: ledgers
+		// whose transaction footprints touch no tracked contract skip the
+		// change walk entirely (the overwhelmingly common case).
 		var ledgerContractDataChanges map[string][]ingest.Change
 		if trackersRequireContractData(trackers, seq) {
 			cdStart := time.Now()
+			tracked, trackErr := trackedContractIDSet(trackers, seq, contractsByProtocol)
+			if trackErr != nil {
+				return handedOffProtocolIDs(trackers), trackErr
+			}
 			var cdErr error
-			ledgerContractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ctx, s.networkPassphrase, ledgerMeta)
+			ledgerContractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ledgerMeta, tracked)
 			cdDur := time.Since(cdStart)
 			timers.extract += cdDur
 			// Distinct phase label: the events extraction already observes one
@@ -615,6 +624,29 @@ func trackersRequireContractData(trackers []*protocolTracker, seq uint32) bool {
 		}
 	}
 	return false
+}
+
+// trackedContractIDSet unions the classified-contract membership of every
+// ContractData-requiring tracker that will fold seq, as raw 32-byte contract
+// IDs — the footprint gate's lookup key. Rebuilt per ledger so a membership
+// refresh (refreshTrackerContracts) takes effect immediately; the sets are
+// small (a protocol requiring ContractData has bounded membership), so the
+// per-ledger cost is noise.
+func trackedContractIDSet(trackers []*protocolTracker, seq uint32, contractsByProtocol map[string][]data.ProtocolContracts) (map[xdr.ContractId]struct{}, error) {
+	tracked := map[xdr.ContractId]struct{}{}
+	for _, t := range trackers {
+		if t.handedOff || t.cursorValue+t.pending >= seq || !t.processor.RequiresContractData() {
+			continue
+		}
+		for _, c := range contractsByProtocol[t.protocolID] {
+			idBytes, err := hex.DecodeString(string(c.ContractID))
+			if err != nil || len(idBytes) != len(xdr.ContractId{}) {
+				return nil, fmt.Errorf("protocol %s contract id %q is not a 32-byte hex hash: %w", t.protocolID, c.ContractID, err)
+			}
+			tracked[xdr.ContractId(idBytes)] = struct{}{}
+		}
+	}
+	return tracked, nil
 }
 
 // handedOffProtocolIDs returns the IDs of trackers that have been handed off to live ingestion.
