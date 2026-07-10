@@ -463,31 +463,103 @@ func ExtractContractEventsForLedger(ledgerMeta xdr.LedgerCloseMeta) (map[Contrac
 	return out, nil
 }
 
-// ExtractContractDataChangesForLedger walks a ledger's successful transactions
-// and returns every ContractData ledger-entry change grouped by the owning
-// contract's C-address strkey. It materializes the ledger's transactions via
-// the LedgerTransactionReader (GetChanges needs envelope↔meta pairing), so it
-// is strictly heavier than ExtractContractEventsForLedger — callers gate it
-// behind ProtocolProcessor.RequiresContractData. Callers that already hold
-// the ledger's transactions (live ingestion's main pipeline) use
-// ExtractContractDataChangesFromTransactions directly instead of paying for
-// a second reader build.
-func ExtractContractDataChangesForLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[string][]ingest.Change, error) {
-	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
-	if err != nil {
-		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+// ExtractContractDataChangesForLedger returns every ContractData ledger-entry
+// change from a ledger's successful transactions, grouped by the owning
+// contract's C-address strkey — but only after a cheap footprint gate: if no
+// transaction's read-write footprint contains a ContractData key owned by a
+// tracked contract, the ledger is skipped outright (empty map). Soroban
+// guarantees writes ⊆ the declared read-write footprint (host storage is
+// footprint-seeded and a write outside it traps; RestoreFootprint restores
+// exactly the read-write keys; protocol-23 auto-restores are indices into it),
+// so the gate can never skip a ledger that actually changes a tracked
+// contract's entries.
+//
+// Both the gate and the extraction walk the already-decoded LedgerCloseMeta
+// directly — GetChanges reads only the transaction meta, result, and ledger
+// version, so no LedgerTransactionReader (which re-hashes every envelope just
+// to pair envelopes with metas) is ever built. When the gate passes, the FULL
+// ledger's ContractData changes are returned, not just the tracked subset:
+// the map is shared across protocols and each processor filters by its own
+// membership.
+func ExtractContractDataChangesForLedger(ledgerMeta xdr.LedgerCloseMeta, trackedContracts map[xdr.ContractId]struct{}) (map[string][]ingest.Change, error) {
+	if !ledgerTouchesTrackedContractData(ledgerMeta, trackedContracts) {
+		return map[string][]ingest.Change{}, nil
 	}
-	return ExtractContractDataChangesFromTransactions(transactions, ledgerMeta.LedgerSequence())
+
+	ledgerSeq := ledgerMeta.LedgerSequence()
+	out := make(map[string][]ingest.Change)
+	for i := 0; i < ledgerMeta.CountTransactions(); i++ {
+		resultPair := ledgerMeta.TransactionResultPair(i)
+		if !resultPair.Result.Successful() {
+			continue
+		}
+		// A minimal LedgerTransaction: GetChanges touches only these fields
+		// (verified by the fixture equivalence test against the reader-based
+		// reference) — the envelope is deliberately absent. Result pairs and
+		// TxApplyProcessing share application order, the same index alignment
+		// ExtractContractEventsForLedger relies on.
+		tx := ingest.LedgerTransaction{
+			Index:         uint32(i + 1),
+			Result:        resultPair,
+			UnsafeMeta:    ledgerMeta.TxApplyProcessing(i),
+			LedgerVersion: ledgerMeta.ProtocolVersion(),
+			Ledger:        ledgerMeta,
+		}
+		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
-// ExtractContractDataChangesFromTransactions is
-// ExtractContractDataChangesForLedger over already-materialized transactions;
-// ledgerSeq is used only for error context.
-//
-// Within a contract, changes preserve transaction application order, so
-// last-write-wins folding per entry key is deterministic. Ledger-level
-// archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
-// per-tx entry removals appear with Post == nil.
+// ledgerTouchesTrackedContractData reports whether any transaction in the
+// ledger declares a read-write footprint ContractData key owned by a tracked
+// contract. It walks envelopes in whatever order the ledger stores them —
+// fine for a ledger-level boolean, which is exactly why the gate is
+// per-ledger rather than per-transaction: envelopes are in tx-set order while
+// metas are in application order, and matching the two is the expensive
+// pairing this function exists to avoid.
+func ledgerTouchesTrackedContractData(ledgerMeta xdr.LedgerCloseMeta, trackedContracts map[xdr.ContractId]struct{}) bool {
+	if len(trackedContracts) == 0 {
+		return false
+	}
+	for _, env := range ledgerMeta.TransactionEnvelopes() {
+		var ext xdr.TransactionExt
+		switch env.Type {
+		case xdr.EnvelopeTypeEnvelopeTypeTx:
+			ext = env.V1.Tx.Ext
+		case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+			ext = env.FeeBump.Tx.InnerTx.V1.Tx.Ext
+		default:
+			// V0 envelopes predate Soroban: no footprint, no ContractData.
+			continue
+		}
+		sorobanData, ok := ext.GetSorobanData()
+		if !ok {
+			continue
+		}
+		for _, key := range sorobanData.Resources.Footprint.ReadWrite {
+			if key.Type != xdr.LedgerEntryTypeContractData {
+				continue
+			}
+			contractID, ok := key.ContractData.Contract.GetContractId()
+			if !ok {
+				continue
+			}
+			if _, tracked := trackedContracts[contractID]; tracked {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ExtractContractDataChangesFromTransactions extracts the same
+// contract-grouped ContractData changes as ExtractContractDataChangesForLedger
+// over already-materialized transactions, ungated — live ingestion's main
+// pipeline has the transactions in hand and processes one ledger per close,
+// so a footprint gate buys nothing there. ledgerSeq is used only for error
+// context.
 func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTransaction, ledgerSeq uint32) (map[string][]ingest.Change, error) {
 	out := make(map[string][]ingest.Change)
 	for i := range transactions {
@@ -495,39 +567,53 @@ func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTran
 		if !tx.Result.Successful() {
 			continue
 		}
-		changes, chErr := tx.GetChanges()
-		if chErr != nil {
-			return nil, fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
-		}
-		for _, change := range changes {
-			if change.Type != xdr.LedgerEntryTypeContractData {
-				continue
-			}
-			entry := change.Post
-			if entry == nil {
-				entry = change.Pre
-			}
-			if entry == nil {
-				continue
-			}
-			contractData, ok := entry.Data.GetContractData()
-			if !ok {
-				continue
-			}
-			contractIDBytes, ok := contractData.Contract.GetContractId()
-			if !ok {
-				continue
-			}
-			addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
-			if encErr != nil {
-				// Callers rely on this function returning every ContractData
-				// change; silently dropping one would corrupt downstream state.
-				return nil, fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, tx.Index, encErr)
-			}
-			out[addr] = append(out[addr], change)
+		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// collectContractDataChanges appends tx's ContractData changes into out,
+// grouped by the owning contract's C-address strkey.
+//
+// Within a contract, changes preserve transaction application order, so
+// last-write-wins folding per entry key is deterministic. Ledger-level
+// archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
+// per-tx entry removals appear with Post == nil.
+func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, out map[string][]ingest.Change) error {
+	changes, chErr := tx.GetChanges()
+	if chErr != nil {
+		return fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
+	}
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeContractData {
+			continue
+		}
+		entry := change.Post
+		if entry == nil {
+			entry = change.Pre
+		}
+		if entry == nil {
+			continue
+		}
+		contractData, ok := entry.Data.GetContractData()
+		if !ok {
+			continue
+		}
+		contractIDBytes, ok := contractData.Contract.GetContractId()
+		if !ok {
+			continue
+		}
+		addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+		if encErr != nil {
+			// Callers rely on this function returning every ContractData
+			// change; silently dropping one would corrupt downstream state.
+			return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, tx.Index, encErr)
+		}
+		out[addr] = append(out[addr], change)
+	}
+	return nil
 }
 
 // ProcessLedger extracts transactions from a ledger and indexes them.

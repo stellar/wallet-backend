@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1233,8 +1234,10 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
 
-		contractA := data.ProtocolContracts{ContractID: types.HashBytea("contract-a")}
-		contractB := data.ProtocolContracts{ContractID: types.HashBytea("contract-b")}
+		// Realistic 32-byte hex IDs (the BYTEA scan form): the footprint gate
+		// hex-decodes tracked contract IDs and fails the run on malformed ones.
+		contractA := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("aa", 32))}
+		contractB := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("bb", 32))}
 		// The requiring tracker's membership is re-read after every committed
 		// window (WindowSize defaults to 1, so after every ledger): the run-start
 		// snapshot returns only A, every refresh returns A+B — simulating live

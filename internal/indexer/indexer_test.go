@@ -1357,13 +1357,67 @@ func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T
 	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
 }
 
-// TestExtractContractDataChangesForLedger_Fixtures checks
-// ExtractContractDataChangesForLedger against the same real-ledger fixture
-// corpus used for contract events: every returned group key must be a valid
-// C-address, every change must be a ContractData change grouped under its own
-// owning contract, every change must originate from a successful transaction,
-// and the whole corpus must yield at least one change (otherwise the corpus
-// wouldn't exercise the extractor at all).
+// contractDataChangeProjection is the payload-relevant subset of an
+// ingest.Change used to compare the reader-based and meta-based extraction
+// paths: the two build different LedgerTransaction carriers (the meta-based
+// one has no envelope), so whole-Change equality would compare carrier
+// internals no consumer reads.
+type contractDataChangeProjection struct {
+	Type           xdr.LedgerEntryType
+	Reason         ingest.LedgerEntryChangeReason
+	OperationIndex uint32
+	Pre            *xdr.LedgerEntry
+	Post           *xdr.LedgerEntry
+}
+
+func projectContractDataChanges(m map[string][]ingest.Change) map[string][]contractDataChangeProjection {
+	out := make(map[string][]contractDataChangeProjection, len(m))
+	for k, changes := range m {
+		ps := make([]contractDataChangeProjection, 0, len(changes))
+		for _, c := range changes {
+			ps = append(ps, contractDataChangeProjection{
+				Type:           c.Type,
+				Reason:         c.Reason,
+				OperationIndex: c.OperationIndex,
+				Pre:            c.Pre,
+				Post:           c.Post,
+			})
+		}
+		out[k] = ps
+	}
+	return out
+}
+
+// extractContractDataChangesViaReader is the reader-based reference
+// implementation: materialize transactions through the
+// LedgerTransactionReader (envelope↔meta pairing via hashing) and extract
+// from those. Kept test-only as the merge gate for the production meta-based
+// path, mirroring extractContractEventsViaReader.
+func extractContractDataChangesViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, map[string][]ingest.Change, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, nil, err
+	}
+	changes, err := ExtractContractDataChangesFromTransactions(transactions, ledgerMeta.LedgerSequence())
+	return transactions, changes, err
+}
+
+// TestExtractContractDataChangesForLedger_Fixtures checks the ContractData
+// extraction paths against the same real-ledger fixture corpus used for
+// contract events: every returned group key must be a valid C-address, every
+// change must be a ContractData change grouped under its own owning contract,
+// every change must originate from a successful transaction, and the whole
+// corpus must yield at least one change (otherwise the corpus wouldn't
+// exercise the extractor at all).
+//
+// It also pins the two load-bearing properties of the production
+// (footprint-gated, meta-based) ExtractContractDataChangesForLedger:
+//   - Equivalence: gated extraction with every changed contract tracked
+//     returns exactly the reader-based reference output.
+//   - Gate soundness: for EVERY contract that has changes, tracking just that
+//     contract must trigger the gate — i.e. on real ledgers, a ContractData
+//     change always has its key in some transaction's read-write footprint
+//     (the Soroban writes ⊆ footprint guarantee the gate relies on).
 func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
 	ctx := context.Background()
 
@@ -1376,18 +1430,41 @@ func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			lcm := loadLedgerFixture(t, path)
 
-			got, extractErr := ExtractContractDataChangesForLedger(ctx, network.PublicNetworkPassphrase, lcm)
+			transactions, got, extractErr := extractContractDataChangesViaReader(ctx, network.PublicNetworkPassphrase, lcm)
 			require.NoError(t, extractErr)
+			wantProjection := projectContractDataChanges(got)
 
-			transactions, txErr := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
-			require.NoError(t, txErr)
+			// Tracked set = every contract with changes this ledger.
+			trackedAll := map[xdr.ContractId]struct{}{}
+			for groupKey := range got {
+				raw, decodeErr := strkey.Decode(strkey.VersionByteContract, groupKey)
+				require.NoError(t, decodeErr)
+				trackedAll[xdr.ContractId(raw)] = struct{}{}
+			}
 
-			// The slice-based variant (what live ingestion uses, sharing the main
-			// pipeline's already-materialized transactions) must be exactly
-			// equivalent to the ledger-based wrapper.
-			fromTxs, fromTxsErr := ExtractContractDataChangesFromTransactions(transactions, lcm.LedgerSequence())
-			require.NoError(t, fromTxsErr)
-			assert.Equal(t, got, fromTxs)
+			// Equivalence: the production gated+meta-based path returns the
+			// reference output when every changed contract is tracked.
+			gated, gatedErr := ExtractContractDataChangesForLedger(lcm, trackedAll)
+			require.NoError(t, gatedErr)
+			assert.Equal(t, wantProjection, projectContractDataChanges(gated),
+				"meta-based extraction must match the reader-based reference")
+
+			// Gate soundness: each changed contract, tracked alone, must
+			// trigger the gate via some transaction's read-write footprint.
+			for contractID := range trackedAll {
+				alone, aloneErr := ExtractContractDataChangesForLedger(lcm, map[xdr.ContractId]struct{}{contractID: {}})
+				require.NoError(t, aloneErr)
+				assert.Equal(t, wantProjection, projectContractDataChanges(alone),
+					"tracking contract %x alone must trigger the gate (footprint ⊇ writes)", contractID)
+			}
+
+			// Gate negative: an untracked-only set skips the ledger outright.
+			empty, emptyErr := ExtractContractDataChangesForLedger(lcm, map[xdr.ContractId]struct{}{{0xde, 0xad, 0xbe, 0xef}: {}})
+			require.NoError(t, emptyErr)
+			assert.Empty(t, empty, "a ledger touching no tracked contract must be skipped")
+			none, noneErr := ExtractContractDataChangesForLedger(lcm, nil)
+			require.NoError(t, noneErr)
+			assert.Empty(t, none, "an empty tracked set must skip every ledger")
 
 			// Independently derive the expected ContractData change count from
 			// the successful transactions, without calling the function under
