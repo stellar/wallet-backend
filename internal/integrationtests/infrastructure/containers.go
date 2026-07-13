@@ -464,6 +464,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
 func createWalletBackendAPIContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full,
+	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -478,10 +479,16 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
-			"RPC_URL":                  "http://stellar-rpc:8000",
-			"DATABASE_URL":             "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                     walletBackendContainerAPIPort,
-			"GRAPHQL_COMPLEXITY_LIMIT": "5000",
+			"RPC_URL":      "http://stellar-rpc:8000",
+			"DATABASE_URL": "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
+			"PORT":         walletBackendContainerAPIPort,
+			// High enough for the SDK's full-selection Blend catalog query —
+			// blendPools costs 50 × (BlendPool scalars + 30 × BlendReserve
+			// scalars) ≈ 26k under the server's complexity accounting (see
+			// addComplexityCalculation in internal/serve/serve.go). The
+			// integration suite deliberately requests every field, so it needs
+			// more headroom than the production default.
+			"GRAPHQL_COMPLEXITY_LIMIT": "30000",
 			"LOG_LEVEL":                "DEBUG",
 			"NETWORK":                  "standalone",
 			"NETWORK_PASSPHRASE":       networkPassphrase,
@@ -490,6 +497,10 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
+	}
+
+	for k, v := range extraEnv {
+		containerRequest.Env[k] = v
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

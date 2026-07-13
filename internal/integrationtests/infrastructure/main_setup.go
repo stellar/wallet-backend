@@ -324,7 +324,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
