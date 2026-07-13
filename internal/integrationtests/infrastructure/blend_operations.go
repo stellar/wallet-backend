@@ -437,6 +437,12 @@ func getAccountSequenceRPC(client *http.Client, rpcURL, address string) (int64, 
 //     Fixtures.prepareSimulateAndSignContractOp.
 //  5. Apply the final simulation's SorobanData and MinResourceFee, rebuild incrementing source's
 //     sequence, sign with source, submit, and wait for confirmation.
+//
+// Every current Blend wrapper call site (blend_contracts.go) passes nil extraSigners and
+// DefaultConfirmationRetries, since none of the pinned Blend contract calls need a second signer
+// or a non-default retry budget; both params stay general for callers that do.
+//
+//nolint:unparam // see above: uniform today, kept general for future callers
 func (s *SharedContainers) executeSorobanOperationAs(
 	ctx context.Context,
 	t *testing.T,
