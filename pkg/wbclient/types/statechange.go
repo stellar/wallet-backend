@@ -118,6 +118,14 @@ type BalanceAuthorizationChange struct {
 	Flags           []string `json:"flags"`
 }
 
+// LendingChange represents a Blend v2 lending, borrowing, or backstop state change.
+type LendingChange struct {
+	BaseStateChangeFields
+	TokenID *string `json:"lendingTokenId,omitempty"`
+	Amount  *string `json:"lendingAmount,omitempty"`
+	PoolID  *string `json:"poolId,omitempty"`
+}
+
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses
 type stateChangeNodeWrapper struct {
 	TypeName string `json:"__typename"`
@@ -194,6 +202,13 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		var sc BalanceAuthorizationChange
 		if err := json.Unmarshal(data, &sc); err != nil {
 			return nil, fmt.Errorf("unmarshaling BalanceAuthorizationChange: %w", err)
+		}
+		return &sc, nil
+
+	case "LendingChange":
+		var sc LendingChange
+		if err := json.Unmarshal(data, &sc); err != nil {
+			return nil, fmt.Errorf("unmarshaling LendingChange: %w", err)
 		}
 		return &sc, nil
 
