@@ -89,4 +89,23 @@ func TestIntegrationTests(t *testing.T) {
 	if t.Failed() {
 		t.Fatal("AccountBalancesAfterLiveIngestionTestSuite failed, skipping remaining tests")
 	}
+
+	// Phase 4: Blend v2 — deploy the protocol stack and run phase-1 ops under live
+	// ingestion, migrate (current-state + history) via the datastore, then run
+	// phase-2 ops under live ingestion and assert over GraphQL.
+	blendStack := testEnv.Containers.SetupBlendStack(ctx, t, testEnv.RPCService)
+	testEnv.Containers.SubmitBlendPhase1Ops(ctx, t, blendStack)
+
+	log.Ctx(ctx).Info("Waiting for ingest service to process Blend phase-1 transactions...")
+	time.Sleep(5 * time.Second)
+
+	t.Run("BlendMigrationTestSuite", func(t *testing.T) {
+		suite.Run(t, &BlendMigrationTestSuite{testEnv: testEnv, stack: blendStack})
+	})
+	if t.Failed() {
+		t.Fatal("BlendMigrationTestSuite failed, skipping BlendLiveIngestionTestSuite")
+	}
+	t.Run("BlendLiveIngestionTestSuite", func(t *testing.T) {
+		suite.Run(t, &BlendLiveIngestionTestSuite{testEnv: testEnv, stack: blendStack})
+	})
 }
