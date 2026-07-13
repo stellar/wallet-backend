@@ -794,7 +794,12 @@ func (s *BlendLiveIngestionTestSuite) assertWhaleFinalPositions(positions *wbtyp
 	s.Require().Len(positions.Backstop, 1)
 	bp := positions.Backstop[0]
 	s.Assert().Equal(stack.PoolID, bp.PoolAddress)
-	s.Assert().Equal("500000000000", bp.Shares, "dequeue should have restored the full active share balance")
+	// The dequeue restores the original 50,000e7-share deposit, and the phase-2 backstop claim
+	// re-stakes the claimed LP into the position (backstop.claim deposits rather than pays out),
+	// minting a small number of additional shares on top.
+	shares := parseBigIntStr(s.T(), bp.Shares)
+	s.Assert().Greater(shares.Cmp(big.NewInt(500_000_000_000)), 0,
+		"dequeue should have restored the deposit and the backstop claim re-staked LP on top")
 	s.Assert().Greater(parseBigIntStr(s.T(), bp.LpTokens).Sign(), 0)
 	s.Assert().NotNil(bp.UsdValue)
 	s.Assert().Empty(bp.Q4W, "the queued withdrawal was dequeued")
