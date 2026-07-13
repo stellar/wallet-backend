@@ -125,9 +125,10 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 	return wasmHash
 }
 
-// deployContractWithConstructor deploys a Soroban contract with optional constructor arguments.
-// This function uses CreateContractArgsV2 which supports passing arguments to the contract's
-// __constructor function during deployment (if the contract has one).
+// deployContractWithConstructor deploys a Soroban contract with optional constructor arguments,
+// generating a random deployment salt. This function uses CreateContractArgsV2 which supports
+// passing arguments to the contract's __constructor function during deployment (if the contract
+// has one).
 //
 // For contracts WITHOUT a constructor:
 //   - Pass an empty slice: []xdr.ScVal{}
@@ -146,27 +147,46 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 //
 // Returns:
 //   - Contract address (C...) of the deployed contract
+func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t *testing.T, wasmHash xdr.Hash, constructorArgs []xdr.ScVal) string {
+	// Generate random salt for unique contract address
+	// The salt ensures each deployment creates a different contract address
+	var salt [32]byte
+	_, err := rand.Read(salt[:])
+	require.NoError(t, err, "failed to generate salt")
+
+	return s.deployContractWithSalt(ctx, t, wasmHash, constructorArgs, salt)
+}
+
+// deployContractWithSalt deploys a Soroban contract with optional constructor arguments using a
+// caller-supplied deployment salt, instead of a randomly generated one. This lets callers resolve
+// circular deployment dependencies by precomputing a contract's address (via
+// PrecomputeContractAddress) before it is actually deployed -- e.g. Blend's emitter must be
+// initialized with the backstop's contract address before the backstop itself is deployed.
+//
+// Parameters:
+//   - ctx: Context for logging
+//   - t: Testing context for assertions
+//   - wasmHash: Hash of the uploaded WASM bytecode
+//   - constructorArgs: Constructor arguments (empty slice if no constructor)
+//   - salt: Deployment salt used to derive the contract address
+//
+// Returns:
+//   - Contract address (C...) of the deployed contract
 //
 // Process:
-//  1. Generate random salt for unique contract address
-//  2. Build CreateContractArgsV2 with constructor arguments
-//  3. Simulate to get resource footprint
-//  4. Sign and submit deployment transaction
-//  5. Wait for confirmation
-//  6. Calculate and return contract address
-func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t *testing.T, wasmHash xdr.Hash, constructorArgs []xdr.ScVal) string {
-	// Step 1: Generate random salt for unique contract address
-	// The salt ensures each deployment creates a different contract address
-	salt := make([]byte, 32)
-	_, err := rand.Read(salt)
-	require.NoError(t, err, "failed to generate salt")
+//  1. Build CreateContractArgsV2 with constructor arguments and the given salt
+//  2. Simulate to get resource footprint
+//  3. Sign and submit deployment transaction
+//  4. Wait for confirmation
+//  5. Calculate and return contract address
+func (s *SharedContainers) deployContractWithSalt(ctx context.Context, t *testing.T, wasmHash xdr.Hash, constructorArgs []xdr.ScVal, salt [32]byte) string {
 	var saltHash xdr.Uint256
-	copy(saltHash[:], salt)
+	copy(saltHash[:], salt[:])
 
-	// Step 2: Create deployer address from master account
+	// Create deployer address from master account
 	deployerAccountID := xdr.MustAddress(s.masterKeyPair.Address())
 
-	// Step 3: Create ContractIdPreimage for the deployment
+	// Create ContractIdPreimage for the deployment
 	// This will be used both for the deployment operation and to compute the contract address
 	preimage := xdr.ContractIdPreimage{
 		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
@@ -179,7 +199,7 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		},
 	}
 
-	// Step 4: Create the InvokeHostFunction operation to deploy the contract
+	// Create the InvokeHostFunction operation to deploy the contract
 	// We use CreateContractV2 which supports constructor arguments
 	deployOp := &txnbuild.InvokeHostFunction{
 		HostFunction: xdr.HostFunction{
@@ -196,22 +216,43 @@ func (s *SharedContainers) deployContractWithConstructor(ctx context.Context, t 
 		SourceAccount: s.masterKeyPair.Address(),
 	}
 
-	// Step 5: Execute the contract deployment operation
+	// Execute the contract deployment operation
 	// requireAuth=true because CreateContractV2 with constructor requires deployer authorization
-	_, err = executeSorobanOperation(ctx, t, s, deployOp, true, DefaultConfirmationRetries)
+	_, err := executeSorobanOperation(ctx, t, s, deployOp, true, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy contract with constructor")
 
-	// Step 6: Calculate and return the contract address from the preimage
+	// Calculate and return the contract address from the preimage
 	// The contract address is deterministically computed from the deployer address and salt
-	contractAddress, err := s.calculateContractID(networkPassphrase, preimage.MustFromAddress())
+	contractAddress, err := computeContractID(networkPassphrase, preimage.MustFromAddress())
 	require.NoError(t, err, "failed to calculate contract ID")
 	return contractAddress
 }
 
-// calculateContractID calculates the contract ID for a wallet creation transaction based on the network passphrase, deployer account and salt.
+// PrecomputeContractAddress derives the C-address that deployContractWithSalt would produce for
+// the given deployer account and salt, without deploying anything. This lets callers resolve
+// circular deployment dependencies -- e.g. Blend's emitter must be initialized with the
+// backstop's contract address before the backstop is deployed, so the backstop's salt is chosen
+// up front and its address precomputed here.
+func PrecomputeContractAddress(deployer string, salt [32]byte) (string, error) {
+	var saltHash xdr.Uint256
+	copy(saltHash[:], salt[:])
+
+	deployerAccountID := xdr.MustAddress(deployer)
+	deployerAddress := xdr.ContractIdPreimageFromAddress{
+		Address: xdr.ScAddress{
+			Type:      xdr.ScAddressTypeScAddressTypeAccount,
+			AccountId: &deployerAccountID,
+		},
+		Salt: saltHash,
+	}
+
+	return computeContractID(networkPassphrase, deployerAddress)
+}
+
+// computeContractID calculates the contract ID for a wallet creation transaction based on the network passphrase, deployer account and salt.
 //
 // More info: https://developers.stellar.org/docs/build/smart-contracts/example-contracts/deployer#how-it-works
-func (s *SharedContainers) calculateContractID(networkPassphrase string, deployerAddress xdr.ContractIdPreimageFromAddress) (string, error) {
+func computeContractID(networkPassphrase string, deployerAddress xdr.ContractIdPreimageFromAddress) (string, error) {
 	networkHash := xdr.Hash(sha256.Sum256([]byte(networkPassphrase)))
 
 	hashIDPreimage := xdr.HashIdPreimage{
