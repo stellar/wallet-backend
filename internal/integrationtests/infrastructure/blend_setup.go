@@ -173,7 +173,9 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	stack.XLMTokenID = nativeAssetContractAddress(t)
 
 	// Trustlines + mints: whale gets 500,100 BLND + 12,501 USDC; supplier/borrower/filler get
-	// 5,000 USDC each. One batched transaction, mirroring createUSDCTrustlines.
+	// 5,000 USDC each plus an empty BLND trustline — BLND is a classic-asset SAC, so a G-account
+	// cannot receive claimed BLND emissions (pool.claim pays out via transfer_from) without a
+	// classic trustline. One batched transaction, mirroring createUSDCTrustlines.
 	usdcAsset := txnbuild.CreditAsset{Code: "USDC", Issuer: s.masterKeyPair.Address()}
 	fundOps := []txnbuild.Operation{
 		&txnbuild.ChangeTrust{Line: txnbuild.ChangeTrustAssetWrapper{Asset: blndAsset}, Limit: DefaultTrustlineLimit, SourceAccount: stack.Whale.Address()},
@@ -183,6 +185,7 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	}
 	for _, actor := range []*keypair.Full{stack.Supplier, stack.Borrower, stack.Filler} {
 		fundOps = append(fundOps,
+			&txnbuild.ChangeTrust{Line: txnbuild.ChangeTrustAssetWrapper{Asset: blndAsset}, Limit: DefaultTrustlineLimit, SourceAccount: actor.Address()},
 			&txnbuild.ChangeTrust{Line: txnbuild.ChangeTrustAssetWrapper{Asset: usdcAsset}, Limit: DefaultTrustlineLimit, SourceAccount: actor.Address()},
 			&txnbuild.Payment{Destination: actor.Address(), Amount: "5000", Asset: usdcAsset, SourceAccount: s.masterKeyPair.Address()},
 		)
