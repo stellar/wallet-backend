@@ -5,10 +5,10 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
@@ -55,7 +55,7 @@ func TestIntegrationTests(t *testing.T) {
 
 	// Wait for ingest service to process all transactions
 	log.Ctx(ctx).Info("Waiting for ingest service to process transactions...")
-	time.Sleep(5 * time.Second)
+	require.NoError(t, testEnv.Containers.WaitForIngestCatchup(ctx), "ingest did not catch up after use case transactions")
 
 	// Test parallel live + backfill ingestion (after use case txns so transactions table has data)
 	t.Run("BackfillTestSuite", func(t *testing.T) {
@@ -89,4 +89,23 @@ func TestIntegrationTests(t *testing.T) {
 	if t.Failed() {
 		t.Fatal("AccountBalancesAfterLiveIngestionTestSuite failed, skipping remaining tests")
 	}
+
+	// Phase 4: Blend v2 — deploy the protocol stack and run phase-1 ops under live
+	// ingestion, migrate (current-state + history) via the datastore, then run
+	// phase-2 ops under live ingestion and assert over GraphQL.
+	blendStack := testEnv.Containers.SetupBlendStack(ctx, t, testEnv.RPCService)
+	testEnv.Containers.SubmitBlendPhase1Ops(ctx, t, blendStack)
+
+	log.Ctx(ctx).Info("Waiting for ingest service to process Blend phase-1 transactions...")
+	require.NoError(t, testEnv.Containers.WaitForIngestCatchup(ctx), "ingest did not catch up after Blend phase-1 transactions")
+
+	t.Run("BlendMigrationTestSuite", func(t *testing.T) {
+		suite.Run(t, &BlendMigrationTestSuite{testEnv: testEnv, stack: blendStack})
+	})
+	if t.Failed() {
+		t.Fatal("BlendMigrationTestSuite failed, skipping BlendLiveIngestionTestSuite")
+	}
+	t.Run("BlendLiveIngestionTestSuite", func(t *testing.T) {
+		suite.Run(t, &BlendLiveIngestionTestSuite{testEnv: testEnv, stack: blendStack})
+	})
 }
