@@ -41,17 +41,24 @@ const (
 
 // blndTokenAddress returns the C-address of the BLND Stellar Asset Contract
 // for the given network passphrase. Blend v2 (pool, backstop, and the BLND
-// SAC) is deployed byte-identically on pubnet and testnet. Any other
-// passphrase (futurenet, a custom standalone network, etc.) has no known
-// BLND SAC, so callers get the empty string and must degrade gracefully —
-// mirrored on the ContractMetadataService nil-degradation pattern used
-// throughout this package.
+// SAC) is deployed byte-identically on pubnet and testnet. On the standalone
+// network (passphrase "Standalone Network ; February 2017", used by the
+// integration test suite), BLND is the classic asset "BLND:<master
+// G-address>" issued by the network's master account (keypair.Root of the
+// passphrase), so its SAC address is a deterministic function of the
+// passphrase and is pinned here as a constant. Any other passphrase
+// (futurenet, a custom network, etc.) has no known BLND SAC, so callers get
+// the empty string and must degrade gracefully — mirrored on the
+// ContractMetadataService nil-degradation pattern used throughout this
+// package.
 func blndTokenAddress(networkPassphrase string) string {
 	switch networkPassphrase {
 	case network.PublicNetworkPassphrase:
 		return "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY"
 	case network.TestNetworkPassphrase:
 		return "CB22KRA3YZVCNCQI64JQ5WE7UY2VAV7WFLK6A2JN3HEX56T2EDAFO7QF"
+	case "Standalone Network ; February 2017":
+		return "CDYLJJT2VBKY55ZK57MTMKAVRCRPQMYB4YJ7JFFARMSJZ73I5CMCITSU"
 	default:
 		return ""
 	}
