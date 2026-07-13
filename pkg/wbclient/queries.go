@@ -133,6 +133,169 @@ const (
 			liquidityPoolId
 			balanceAuthFlags: flags
 		}
+		... on BlendSupplyChange {
+			blendSupplyTokenId: tokenId
+			amount
+			poolId
+		}
+		... on BlendCollateralChange {
+			blendCollateralTokenId: tokenId
+			amount
+			poolId
+		}
+		... on BlendDebtChange {
+			blendDebtTokenId: tokenId
+			amount
+			poolId
+		}
+		... on BlendAuctionChange {
+			poolId
+			auctionType
+			fillPercent
+			counterparty
+			lot { assetContractId amount }
+			bid { assetContractId amount }
+		}
+		... on BlendEmissionsClaimChange {
+			blendEmissionsTokenId: tokenId
+			amount
+			poolId
+		}
+		... on BlendBackstopEmissionsClaimChange {
+			amount
+		}
+		... on BlendBackstopChange {
+			amount
+			poolId
+		}
+		... on BlendBackstopQueueChange {
+			amount
+			poolId
+		}
+	`
+
+	// blendReserveFields are the pool-wide reserve catalog fields shared by BlendPool.reserves.
+	blendReserveFields = `
+		assetContractId
+		tokenName
+		tokenSymbol
+		tokenDecimals
+		enabled
+		utilization
+		supplyApy
+		borrowApy
+		emissionsSupplyApr
+		emissionsBorrowApr
+		suppliedTokens
+		borrowedTokens
+		suppliedUsd
+		borrowedUsd
+		cFactor
+		lFactor
+		priceUsd
+	`
+
+	// blendPoolFields are the fields of BlendPool, including its nested reserves.
+	blendPoolFields = `
+		address
+		name
+		status
+		oracleContractId
+		backstopRate
+		maxPositions
+		suppliedUsd
+		borrowedUsd
+		backstopUsd
+		interestApy
+		netApy
+		admin
+		inRewardZone
+		reserves {
+			` + blendReserveFields + `
+		}
+	`
+
+	// blendEarnOptionFields are the fields of BlendEarnOption, including its nested pools.
+	blendEarnOptionFields = `
+		assetContractId
+		tokenName
+		tokenSymbol
+		tokenDecimals
+		pools {
+			poolAddress
+			poolName
+			supplyApy
+			emissionsSupplyApr
+			suppliedUsd
+		}
+	`
+
+	// blendReservePositionFields are the fields of BlendReservePosition.
+	blendReservePositionFields = `
+		assetContractId
+		tokenName
+		tokenSymbol
+		tokenDecimals
+		suppliedTokens
+		collateralTokens
+		borrowedTokens
+		suppliedUsd
+		borrowedUsd
+		supplyApy
+		borrowApy
+		emissionsApr
+		interestEarned
+		interestPaid
+		emissionsEarnedBlnd
+		emissionsEarnedUsd
+		priceUsd
+	`
+
+	// blendAccountPositionsFields are the fields of BlendAccountPositions, including nested
+	// pool/reserve positions, backstop positions, queued withdrawals, and active auctions.
+	blendAccountPositionsFields = `
+		pools {
+			poolAddress
+			poolName
+			usdValue
+			suppliedUsd
+			borrowedUsd
+			netApy
+			claimedBlnd
+			reserves {
+				` + blendReservePositionFields + `
+			}
+		}
+		backstop {
+			poolAddress
+			poolName
+			shares
+			lpTokens
+			usdValue
+			q4w {
+				amount
+				expiration
+				lpTokens
+				usdValue
+			}
+			emissionsEarnedBlnd
+			emissionsEarnedUsd
+		}
+		backstopClaimedLp
+		activeAuctions {
+			poolAddress
+			poolName
+			auctionType
+			startBlock
+			bid {
+				assetContractId
+				amount
+			}
+			lot {
+				assetContractId
+				amount
+			}
+		}
 	`
 )
 
@@ -419,6 +582,53 @@ func buildAccountBalancesQuery() string {
 			}
 		}
 	`, balanceFragments)
+}
+
+// buildBlendPoolsQuery builds the GraphQL query for fetching every Blend v2 pool's catalog view.
+func buildBlendPoolsQuery() string {
+	return fmt.Sprintf(`
+		query BlendPools {
+			blendPools {
+				%s
+			}
+		}
+	`, blendPoolFields)
+}
+
+// buildBlendPoolQuery builds the GraphQL query for fetching one Blend v2 pool by address.
+func buildBlendPoolQuery() string {
+	return fmt.Sprintf(`
+		query BlendPool($address: String!) {
+			blendPool(address: $address) {
+				%s
+			}
+		}
+	`, blendPoolFields)
+}
+
+// buildBlendEarnOptionsQuery builds the GraphQL query for fetching the Blend v2 earn catalog.
+func buildBlendEarnOptionsQuery() string {
+	return fmt.Sprintf(`
+		query BlendEarnOptions {
+			blendEarnOptions {
+				%s
+			}
+		}
+	`, blendEarnOptionFields)
+}
+
+// buildAccountBlendPositionsQuery builds the GraphQL query for fetching an account's Blend v2
+// lending, collateral, and backstop positions.
+func buildAccountBlendPositionsQuery() string {
+	return fmt.Sprintf(`
+		query AccountBlendPositions($address: String!) {
+			accountByAddress(address: $address) {
+				blendPositions {
+					%s
+				}
+			}
+		}
+	`, blendAccountPositionsFields)
 }
 
 // buildFieldList constructs a field list string from a slice of field names

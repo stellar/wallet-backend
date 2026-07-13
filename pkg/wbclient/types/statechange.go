@@ -198,6 +198,85 @@ type BalanceAuthorizationChange struct {
 	Flags           []TrustlineFlag `json:"balanceAuthFlags,omitempty"`
 }
 
+// BlendSupplyChange is a change to an account's uncollateralized Blend v2
+// supply position: (BLEND_SUPPLY, CREDIT | DEBIT).
+type BlendSupplyChange struct {
+	BaseStateChangeFields
+	TokenID string `json:"blendSupplyTokenId"`
+	Amount  string `json:"amount"`
+	PoolID  string `json:"poolId"`
+}
+
+// BlendCollateralChange is a change to an account's collateralized Blend v2
+// supply position: (BLEND_COLLATERAL, CREDIT | DEBIT).
+type BlendCollateralChange struct {
+	BaseStateChangeFields
+	TokenID string `json:"blendCollateralTokenId"`
+	Amount  string `json:"amount"`
+	PoolID  string `json:"poolId"`
+}
+
+// BlendDebtChange is a change to an account's Blend v2 debt position:
+// (BLEND_DEBT, BORROW | REPAY | FLASH_LOAN | BAD_DEBT | BURN).
+type BlendDebtChange struct {
+	BaseStateChangeFields
+	TokenID string `json:"blendDebtTokenId"`
+	Amount  string `json:"amount"`
+	PoolID  string `json:"poolId"`
+}
+
+// BlendAuctionAmount is one asset's raw protocol-token amount within a filled
+// auction's bid or lot.
+type BlendAuctionAmount struct {
+	AssetContractID string `json:"assetContractId"`
+	Amount          string `json:"amount"`
+}
+
+// BlendAuctionChange is one side of a filled Blend v2 Dutch auction:
+// (BLEND_AUCTION, FILL).
+type BlendAuctionChange struct {
+	BaseStateChangeFields
+	PoolID       string               `json:"poolId"`
+	AuctionType  string               `json:"auctionType"`
+	FillPercent  int32                `json:"fillPercent"`
+	Counterparty string               `json:"counterparty"`
+	Lot          []BlendAuctionAmount `json:"lot"`
+	Bid          []BlendAuctionAmount `json:"bid"`
+}
+
+// BlendEmissionsClaimChange is BLND emissions claimed from a Blend v2 pool:
+// (BLEND_EMISSIONS, CLAIM). TokenID is nil only on networks with no known
+// BLND SAC.
+type BlendEmissionsClaimChange struct {
+	BaseStateChangeFields
+	TokenID *string `json:"blendEmissionsTokenId,omitempty"`
+	Amount  string  `json:"amount"`
+	PoolID  string  `json:"poolId"`
+}
+
+// BlendBackstopEmissionsClaimChange is backstop emissions claimed and
+// auto-restaked as Comet LP tokens: (BLEND_BACKSTOP_EMISSIONS, CLAIM).
+type BlendBackstopEmissionsClaimChange struct {
+	BaseStateChangeFields
+	Amount string `json:"amount"`
+}
+
+// BlendBackstopChange is a change to an account's Blend v2 backstop deposit
+// for one pool, in Comet LP tokens: (BLEND_BACKSTOP, CREDIT | DEBIT).
+type BlendBackstopChange struct {
+	BaseStateChangeFields
+	Amount string `json:"amount"`
+	PoolID string `json:"poolId"`
+}
+
+// BlendBackstopQueueChange is a queue-for-withdrawal entry added to or removed
+// from an account's Blend v2 backstop position: (BLEND_BACKSTOP_QUEUE, ADD | REMOVE).
+type BlendBackstopQueueChange struct {
+	BaseStateChangeFields
+	Amount string `json:"amount"`
+	PoolID string `json:"poolId"`
+}
+
 // stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses.
 type stateChangeNodeWrapper struct {
 	TypeName string `json:"__typename"`
@@ -250,6 +329,22 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[TrustlineRemovedChange](data)
 	case "BalanceAuthorizationChange":
 		return unmarshalStateChange[BalanceAuthorizationChange](data)
+	case "BlendSupplyChange":
+		return unmarshalStateChange[BlendSupplyChange](data)
+	case "BlendCollateralChange":
+		return unmarshalStateChange[BlendCollateralChange](data)
+	case "BlendDebtChange":
+		return unmarshalStateChange[BlendDebtChange](data)
+	case "BlendAuctionChange":
+		return unmarshalStateChange[BlendAuctionChange](data)
+	case "BlendEmissionsClaimChange":
+		return unmarshalStateChange[BlendEmissionsClaimChange](data)
+	case "BlendBackstopEmissionsClaimChange":
+		return unmarshalStateChange[BlendBackstopEmissionsClaimChange](data)
+	case "BlendBackstopChange":
+		return unmarshalStateChange[BlendBackstopChange](data)
+	case "BlendBackstopQueueChange":
+		return unmarshalStateChange[BlendBackstopQueueChange](data)
 	default:
 		return nil, fmt.Errorf("unknown state change type: %s", wrapper.TypeName)
 	}
