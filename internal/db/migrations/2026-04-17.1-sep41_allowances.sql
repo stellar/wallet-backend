@@ -7,7 +7,7 @@ CREATE TABLE sep41_allowances (
     owner_id BYTEA NOT NULL,
     spender_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    amount TEXT NOT NULL DEFAULT '0',
+    amount NUMERIC NOT NULL DEFAULT 0,
     expiration_ledger INTEGER NOT NULL DEFAULT 0,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_id, spender_id, contract_id),

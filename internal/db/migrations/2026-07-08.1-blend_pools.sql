@@ -8,7 +8,7 @@ CREATE TABLE blend_pools (
     backstop_rate        INTEGER,           -- bstop_rate / take rate
     status               INTEGER,           -- 0..6 (Admin_Active..Setup)
     max_positions        INTEGER,
-    min_collateral       TEXT,
+    min_collateral       NUMERIC,
     admin                BYTEA,              -- pool admin (instance "Admin" key); owned vs standard-pool trust signal
     in_reward_zone       BOOLEAN NOT NULL DEFAULT FALSE,  -- member of the backstop's RZ list (earns BLND emissions)
     last_modified_ledger INTEGER NOT NULL DEFAULT 0

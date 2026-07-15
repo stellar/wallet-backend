@@ -73,7 +73,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 
 	query := `
 		SELECT
-			b.contract_id, b.balance, b.last_modified_ledger,
+			b.contract_id, b.balance::text, b.last_modified_ledger,
 			ct.contract_id AS token_id, ct.name, ct.symbol, ct.decimals
 		FROM sep41_balances b
 		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
@@ -171,13 +171,16 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 		ledgers[i] = int32(d.LedgerNumber)
 	}
 
-	// Sum in SQL: existing + delta. The TEXT columns are cast to numeric for arithmetic
-	// and back to text for storage so the column type stays TEXT (preserves full i128 range).
+	// Sum in SQL: existing + delta. balance is stored as NUMERIC so this is native
+	// arithmetic; the delta arrives as text (i128 decimal string) and is cast once at
+	// the boundary, since Postgres has no implicit text->numeric cast.
 	const upsertQuery = `
 		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::integer[])
+		SELECT u.account_id, u.contract_id, u.balance::numeric, u.last_modified_ledger
+		FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::integer[])
+			AS u(account_id, contract_id, balance, last_modified_ledger)
 		ON CONFLICT (account_id, contract_id) DO UPDATE SET
-			balance              = (sep41_balances.balance::numeric + EXCLUDED.balance::numeric)::text,
+			balance              = sep41_balances.balance + EXCLUDED.balance,
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
 	if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
@@ -186,7 +189,7 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 
 	const deleteZeroesQuery = `
 		DELETE FROM sep41_balances
-		WHERE balance::numeric = 0
+		WHERE balance = 0
 		  AND (account_id, contract_id) IN (
 		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
 		  )`

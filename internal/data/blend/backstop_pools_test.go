@@ -176,13 +176,13 @@ func TestBackstopPoolModel_BatchUpsertEmissions(t *testing.T) {
 		poolAddr := keypair.MustRandom().Address()
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsertEmissions(ctx, tx, []blend.BackstopPoolEmission{{
-				Pool: poolAddr, EmisEps: i64Ptr(1), EmisIndex: strPtr("a"), EmisExpiration: i64Ptr(1), EmisLastTime: i64Ptr(1),
+				Pool: poolAddr, EmisEps: i64Ptr(1), EmisIndex: strPtr("10"), EmisExpiration: i64Ptr(1), EmisLastTime: i64Ptr(1),
 				LedgerNumber: 1,
 			}}))
 		})
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchUpsertEmissions(ctx, tx, []blend.BackstopPoolEmission{{
-				Pool: poolAddr, EmisEps: i64Ptr(2), EmisIndex: strPtr("b"), EmisExpiration: i64Ptr(2), EmisLastTime: i64Ptr(2),
+				Pool: poolAddr, EmisEps: i64Ptr(2), EmisIndex: strPtr("20"), EmisExpiration: i64Ptr(2), EmisLastTime: i64Ptr(2),
 				LedgerNumber: 2,
 			}}))
 		})
@@ -192,7 +192,7 @@ func TestBackstopPoolModel_BatchUpsertEmissions(t *testing.T) {
 		require.NotNil(t, row.EmisEps)
 		assert.Equal(t, int64(2), *row.EmisEps)
 		require.NotNil(t, row.EmisIndex)
-		assert.Equal(t, "b", *row.EmisIndex)
+		assert.Equal(t, "20", *row.EmisIndex)
 	})
 
 	t.Run("is a no-op when no rows are staged", func(t *testing.T) {

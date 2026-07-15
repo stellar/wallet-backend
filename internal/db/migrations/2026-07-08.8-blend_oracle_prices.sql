@@ -4,7 +4,7 @@
 CREATE TABLE blend_oracle_prices (
     oracle_contract_id   BYTEA NOT NULL,
     asset_contract_id    BYTEA NOT NULL,      -- pools query SEP-40 with Asset::Stellar(address)
-    price                TEXT NOT NULL,       -- fixed-point at price_decimals
+    price                NUMERIC NOT NULL,       -- fixed-point at price_decimals
     price_decimals       INTEGER NOT NULL,
     price_timestamp      BIGINT NOT NULL,     -- oracle-reported timestamp
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),

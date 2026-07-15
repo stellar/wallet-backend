@@ -6,7 +6,7 @@ CREATE TABLE blend_reserve_emissions (
     pool_contract_id     BYTEA NOT NULL,
     reserve_token_id     INTEGER NOT NULL,    -- reserve_index*2 (dToken) / +1 (bToken)
     eps                  BIGINT NOT NULL,
-    emission_index       TEXT NOT NULL,
+    emission_index       NUMERIC NOT NULL,
     expiration           BIGINT NOT NULL,
     last_time            BIGINT NOT NULL,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,

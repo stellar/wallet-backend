@@ -120,10 +120,13 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 			pool_contract_id, name, oracle_contract_id, backstop_rate,
 			status, max_positions, min_collateral, admin, last_modified_ledger
 		)
-		SELECT * FROM UNNEST(
+		SELECT u.pool_contract_id, u.name, u.oracle_contract_id, u.backstop_rate,
+			u.status, u.max_positions, u.min_collateral::numeric, u.admin, u.last_modified_ledger
+		FROM UNNEST(
 			$1::bytea[], $2::text[], $3::bytea[], $4::integer[],
 			$5::integer[], $6::integer[], $7::text[], $8::bytea[], $9::integer[]
-		)
+		) AS u(pool_contract_id, name, oracle_contract_id, backstop_rate,
+			status, max_positions, min_collateral, admin, last_modified_ledger)
 		ON CONFLICT (pool_contract_id) DO UPDATE SET
 			name                 = COALESCE(EXCLUDED.name, blend_pools.name),
 			oracle_contract_id   = COALESCE(EXCLUDED.oracle_contract_id, blend_pools.oracle_contract_id),

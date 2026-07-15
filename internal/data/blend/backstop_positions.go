@@ -102,7 +102,9 @@ func (m *BackstopPositionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, ro
 
 	const upsertQuery = `
 		INSERT INTO blend_backstop_positions (pool_contract_id, user_account_id, shares, q4w, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::text[]::jsonb[], $5::integer[])
+		SELECT u.pool, u.usr, u.shares::numeric, u.q4w, u.ledger
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::text[]::jsonb[], $5::integer[])
+			AS u(pool, usr, shares, q4w, ledger)
 		ON CONFLICT (pool_contract_id, user_account_id) DO UPDATE SET
 			shares               = EXCLUDED.shares,
 			q4w                  = EXCLUDED.q4w,

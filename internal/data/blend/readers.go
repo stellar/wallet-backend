@@ -44,8 +44,8 @@ func (m *PositionModel) GetByAccount(ctx context.Context, account string) ([]Pos
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, user_account_id, reserve_index,
-			supply_b_tokens, collateral_b_tokens, liability_d_tokens,
-			net_supplied, net_borrowed, last_modified_ledger
+			supply_b_tokens::text, collateral_b_tokens::text, liability_d_tokens::text,
+			net_supplied::text, net_borrowed::text, last_modified_ledger
 		FROM blend_positions
 		WHERE user_account_id = $1
 		ORDER BY pool_contract_id, reserve_index`
@@ -178,7 +178,7 @@ func (m *BackstopPositionModel) GetByAccount(ctx context.Context, account string
 
 	start := time.Now()
 	const query = `
-		SELECT pool_contract_id, user_account_id, shares, q4w, last_modified_ledger
+		SELECT pool_contract_id, user_account_id, shares::text, q4w, last_modified_ledger
 		FROM blend_backstop_positions
 		WHERE user_account_id = $1
 		ORDER BY pool_contract_id`
@@ -250,7 +250,7 @@ func (m *PoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]Pool, err
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
+			status, max_positions, min_collateral::text, admin, in_reward_zone, last_modified_ledger
 		FROM blend_pools
 		WHERE pool_contract_id = ANY($1::bytea[])
 		ORDER BY pool_contract_id`
@@ -279,7 +279,7 @@ func (m *PoolModel) GetAll(ctx context.Context) ([]Pool, error) {
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
+			status, max_positions, min_collateral::text, admin, in_reward_zone, last_modified_ledger
 		FROM blend_pools
 		ORDER BY pool_contract_id`
 	rows, err := m.DB.Query(ctx, query)
@@ -326,9 +326,9 @@ func scanReserves(rows pgx.Rows) ([]Reserve, error) {
 
 const reservesSelectColumns = `
 	pool_contract_id, reserve_index, asset_contract_id,
-	b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+	b_rate::text, d_rate::text, b_supply::text, d_supply::text, ir_mod::text, backstop_credit::text, last_time,
 	decimals, c_factor, l_factor, util, max_util,
-	r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled,
+	r_base, r_one, r_two, r_three, reactivity, supply_cap::text, enabled,
 	last_modified_ledger`
 
 // GetByPools returns the blend_reserves rows for the given pool contract IDs,
@@ -409,7 +409,7 @@ func (m *ReserveEmissionModel) GetByPools(ctx context.Context, poolIDs []string)
 
 	start := time.Now()
 	const query = `
-		SELECT pool_contract_id, reserve_token_id, eps, emission_index, expiration, last_time, last_modified_ledger
+		SELECT pool_contract_id, reserve_token_id, eps, emission_index::text, expiration, last_time, last_modified_ledger
 		FROM blend_reserve_emissions
 		WHERE pool_contract_id = ANY($1::bytea[])
 		ORDER BY pool_contract_id, reserve_token_id`
@@ -457,7 +457,7 @@ func (m *BackstopPoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]B
 
 	start := time.Now()
 	const query = `
-		SELECT pool_contract_id, shares, tokens, q4w, emis_eps, emis_index, emis_expiration, emis_last_time, last_modified_ledger
+		SELECT pool_contract_id, shares::text, tokens::text, q4w::text, emis_eps, emis_index::text, emis_expiration, emis_last_time, last_modified_ledger
 		FROM blend_backstop_pools
 		WHERE pool_contract_id = ANY($1::bytea[])
 		ORDER BY pool_contract_id`
@@ -576,7 +576,7 @@ func (m *EmissionModel) GetByAccount(ctx context.Context, account string) ([]Emi
 
 	start := time.Now()
 	const query = `
-		SELECT source_contract_id, user_account_id, token_id, emission_index, accrued, last_modified_ledger
+		SELECT source_contract_id, user_account_id, token_id, emission_index::text, accrued::text, last_modified_ledger
 		FROM blend_emissions
 		WHERE user_account_id = $1
 		ORDER BY source_contract_id, token_id`

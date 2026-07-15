@@ -850,6 +850,10 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	if len(p.stagedStateChanges) == 0 {
 		return nil
 	}
+	// Assign deterministic state_change_ids in emission order, namespaced under
+	// the Blend base so they can never collide with the main indexer's or
+	// SEP-41's IDs for the same operation (see types.AssignStateChangeOrdinals).
+	types.AssignStateChangeOrdinals(p.stagedStateChanges, types.StateChangeOrdinalBaseBlend)
 	if _, err := p.stateChanges.BatchCopy(ctx, dbTx, p.stagedStateChanges); err != nil {
 		return fmt.Errorf("persisting %d blend state changes for ledger %d: %w", len(p.stagedStateChanges), p.ledgerNumber, err)
 	}

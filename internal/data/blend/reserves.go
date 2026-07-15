@@ -155,12 +155,24 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled,
 			last_modified_ledger
 		)
-		SELECT * FROM UNNEST(
+		SELECT u.pool_contract_id, u.reserve_index, u.asset_contract_id,
+			u.b_rate::numeric, u.d_rate::numeric, u.b_supply::numeric, u.d_supply::numeric,
+			u.ir_mod::numeric, u.backstop_credit::numeric, u.last_time,
+			u.decimals, u.c_factor, u.l_factor, u.util, u.max_util,
+			u.r_base, u.r_one, u.r_two, u.r_three, u.reactivity, u.supply_cap::numeric, u.enabled,
+			u.last_modified_ledger
+		FROM UNNEST(
 			$1::bytea[], $2::integer[], $3::bytea[],
 			$4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::bigint[],
 			$11::integer[], $12::integer[], $13::integer[], $14::integer[], $15::integer[],
 			$16::integer[], $17::integer[], $18::integer[], $19::integer[], $20::integer[], $21::text[], $22::boolean[],
 			$23::integer[]
+		) AS u(
+			pool_contract_id, reserve_index, asset_contract_id,
+			b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+			decimals, c_factor, l_factor, util, max_util,
+			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled,
+			last_modified_ledger
 		)
 		ON CONFLICT (pool_contract_id, reserve_index) DO UPDATE SET
 			asset_contract_id    = EXCLUDED.asset_contract_id,
@@ -244,12 +256,12 @@ func (m *ReserveModel) BatchUpdateData(ctx context.Context, dbTx pgx.Tx, rows []
 
 	const updateQuery = `
 		UPDATE blend_reserves r SET
-			b_rate               = u.b_rate,
-			d_rate               = u.d_rate,
-			ir_mod               = u.ir_mod,
-			b_supply             = u.b_supply,
-			d_supply             = u.d_supply,
-			backstop_credit      = u.backstop_credit,
+			b_rate               = u.b_rate::numeric,
+			d_rate               = u.d_rate::numeric,
+			ir_mod               = u.ir_mod::numeric,
+			b_supply             = u.b_supply::numeric,
+			d_supply             = u.d_supply::numeric,
+			backstop_credit      = u.backstop_credit::numeric,
 			last_time            = u.last_time,
 			last_modified_ledger = GREATEST(r.last_modified_ledger, u.ledger)
 		FROM UNNEST(

@@ -2,8 +2,6 @@ package data
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"strings"
 	"time"
@@ -190,9 +188,16 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 // BatchCopy inserts state changes using pgx's binary COPY protocol.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 //
+// Each StateChange must already carry its final, deterministic StateChangeID
+// (see types.AssignStateChangeOrdinals) — BatchCopy writes it as-is and never
+// generates one.
+//
 // IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
 // protocol does not support conflict handling. Callers must ensure no duplicates exist
-// before calling this method, or handle the unique constraint violation error appropriately.
+// before calling this method, or handle the unique constraint violation error
+// appropriately. Because state_change_id is now deterministic, this is also the
+// idempotency backstop: re-copying an already-committed ledger's rows collides on the
+// primary key and fails loudly instead of inserting duplicates.
 func (m *StateChangeModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
@@ -220,13 +225,6 @@ func (m *StateChangeModel) BatchCopy(
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
 			sc := stateChanges[i]
-
-			// Generate a fresh random ID at insertion time so retries on PK collision
-			// produce new IDs automatically.
-			stateChangeID, err := generateStateChangeID()
-			if err != nil {
-				return nil, err
-			}
 
 			// Convert account_id to BYTEA (required field)
 			accountBytes, err := sc.AccountID.Value()
@@ -270,7 +268,7 @@ func (m *StateChangeModel) BatchCopy(
 
 			return []any{
 				pgtype.Int8{Int64: sc.ToID, Valid: true},
-				pgtype.Int8{Int64: stateChangeID, Valid: true},
+				pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
 				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
 				pgtypeTextFromReason(sc.StateChangeReason),
 				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
@@ -324,16 +322,6 @@ func (m *StateChangeModel) BatchCopy(
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 
 	return len(stateChanges), nil
-}
-
-// generateStateChangeID produces a random positive int64 from crypto/rand.
-// Full 63 bits of entropy, masked to ensure a positive value.
-func generateStateChangeID() (int64, error) {
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return 0, fmt.Errorf("generating state change ID: %w", err)
-	}
-	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF), nil
 }
 
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to

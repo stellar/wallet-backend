@@ -10,12 +10,12 @@ CREATE TABLE blend_positions (
     user_account_id      BYTEA NOT NULL,
     reserve_index        INTEGER NOT NULL,
     -- current holdings: absolute snapshots from the Positions entry (last-write-wins)
-    supply_b_tokens      TEXT NOT NULL DEFAULT '0',   -- non-collateral supply
-    collateral_b_tokens  TEXT NOT NULL DEFAULT '0',
-    liability_d_tokens   TEXT NOT NULL DEFAULT '0',
+    supply_b_tokens      NUMERIC NOT NULL DEFAULT 0,   -- non-collateral supply
+    collateral_b_tokens  NUMERIC NOT NULL DEFAULT 0,
+    liability_d_tokens   NUMERIC NOT NULL DEFAULT 0,
     -- cost basis for "earned to date": cumulative underlying, event-folded (additive)
-    net_supplied         TEXT NOT NULL DEFAULT '0',   -- Σ(supply+collateral deposits) − Σ(withdrawals)
-    net_borrowed         TEXT NOT NULL DEFAULT '0',   -- Σ(borrows) − Σ(repays)
+    net_supplied         NUMERIC NOT NULL DEFAULT 0,   -- Σ(supply+collateral deposits) − Σ(withdrawals)
+    net_borrowed         NUMERIC NOT NULL DEFAULT 0,   -- Σ(borrows) − Σ(repays)
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (pool_contract_id, user_account_id, reserve_index)
 ) WITH (

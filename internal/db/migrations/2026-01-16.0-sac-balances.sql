@@ -9,7 +9,7 @@
 CREATE TABLE sac_balances (
     account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    balance TEXT NOT NULL DEFAULT '0',
+    balance NUMERIC NOT NULL DEFAULT 0,
     is_authorized BOOLEAN NOT NULL DEFAULT true,
     is_clawback_enabled BOOLEAN NOT NULL DEFAULT false,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,

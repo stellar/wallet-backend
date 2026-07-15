@@ -93,7 +93,9 @@ func (m *BackstopPoolModel) BatchUpsertBalances(ctx context.Context, dbTx pgx.Tx
 
 	const upsertQuery = `
 		INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::text[], $3::text[], $4::text[], $5::integer[])
+		SELECT u.pool, u.shares::numeric, u.tokens::numeric, u.q4w::numeric, u.ledger
+		FROM UNNEST($1::bytea[], $2::text[], $3::text[], $4::text[], $5::integer[])
+			AS u(pool, shares, tokens, q4w, ledger)
 		ON CONFLICT (pool_contract_id) DO UPDATE SET
 			shares               = EXCLUDED.shares,
 			tokens               = EXCLUDED.tokens,
@@ -141,7 +143,9 @@ func (m *BackstopPoolModel) BatchUpsertEmissions(ctx context.Context, dbTx pgx.T
 
 	const upsertQuery = `
 		INSERT INTO blend_backstop_pools (pool_contract_id, emis_eps, emis_index, emis_expiration, emis_last_time, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::bigint[], $3::text[], $4::bigint[], $5::bigint[], $6::integer[])
+		SELECT u.pool, u.emis_eps, u.emis_index::numeric, u.emis_expiration, u.emis_last_time, u.ledger
+		FROM UNNEST($1::bytea[], $2::bigint[], $3::text[], $4::bigint[], $5::bigint[], $6::integer[])
+			AS u(pool, emis_eps, emis_index, emis_expiration, emis_last_time, ledger)
 		ON CONFLICT (pool_contract_id) DO UPDATE SET
 			emis_eps             = EXCLUDED.emis_eps,
 			emis_index           = EXCLUDED.emis_index,

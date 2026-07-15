@@ -9,8 +9,8 @@ CREATE TABLE blend_emissions (
     source_contract_id   BYTEA NOT NULL,      -- pool (reserve emis) or backstop
     user_account_id      BYTEA NOT NULL,
     token_id             INTEGER NOT NULL,    -- reserve_token_id (reserve_index*2 (+1 for bToken)) / backstop id
-    emission_index       TEXT NOT NULL,       -- user's last-accrued index
-    accrued              TEXT NOT NULL,
+    emission_index       NUMERIC NOT NULL,       -- user's last-accrued index
+    accrued              NUMERIC NOT NULL,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (source_contract_id, user_account_id, token_id)
 ) WITH (

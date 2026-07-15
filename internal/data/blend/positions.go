@@ -270,7 +270,9 @@ func (m *PositionModel) BatchUpsertSnapshots(ctx context.Context, dbTx pgx.Tx, r
 	const upsertQuery = `
 		INSERT INTO blend_positions (pool_contract_id, user_account_id, reserve_index,
 			supply_b_tokens, collateral_b_tokens, liability_d_tokens, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::bytea[], $3::integer[], $4::text[], $5::text[], $6::text[], $7::integer[])
+		SELECT u.pool, u.usr, u.reserve_index, u.supply_b::numeric, u.collateral_b::numeric, u.liability_d::numeric, u.ledger
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::integer[], $4::text[], $5::text[], $6::text[], $7::integer[])
+			AS u(pool, usr, reserve_index, supply_b, collateral_b, liability_d, ledger)
 		ON CONFLICT (pool_contract_id, user_account_id, reserve_index) DO UPDATE SET
 			supply_b_tokens = EXCLUDED.supply_b_tokens,
 			collateral_b_tokens = EXCLUDED.collateral_b_tokens,
@@ -350,9 +352,9 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 
 	const applyQuery = `
 		UPDATE blend_positions p SET
-			net_supplied = (p.net_supplied::numeric + u.ns_delta::numeric)::text,
-			net_borrowed = CASE WHEN u.zero_borrowed THEN u.nb_delta
-				ELSE (p.net_borrowed::numeric + u.nb_delta::numeric)::text END,
+			net_supplied = p.net_supplied + u.ns_delta::numeric,
+			net_borrowed = CASE WHEN u.zero_borrowed THEN u.nb_delta::numeric
+				ELSE p.net_borrowed + u.nb_delta::numeric END,
 			last_modified_ledger = GREATEST(p.last_modified_ledger, u.ledger)
 		FROM UNNEST($1::bytea[], $2::bytea[], $3::bytea[], $4::text[], $5::text[], $6::boolean[], $7::integer[])
 			AS u(pool, usr, asset, ns_delta, nb_delta, zero_borrowed, ledger)
@@ -379,8 +381,8 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 // an adjustment. Auction deltas are purely additive, so summing is exact.
 var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 	UPDATE blend_positions p SET
-		net_supplied = (p.net_supplied::numeric + u.lot_b * r.b_rate::numeric / %[1]s)::text,
-		net_borrowed = (p.net_borrowed::numeric + u.bid_d * r.d_rate::numeric / %[1]s)::text,
+		net_supplied = p.net_supplied + u.lot_b * r.b_rate / %[1]s,
+		net_borrowed = p.net_borrowed + u.bid_d * r.d_rate / %[1]s,
 		last_modified_ledger = GREATEST(p.last_modified_ledger, u.ledger)
 	FROM (
 		SELECT raw.pool, raw.usr, raw.asset,

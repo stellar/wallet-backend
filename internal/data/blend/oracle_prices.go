@@ -134,7 +134,8 @@ func (m *OraclePriceModel) BatchUpsert(ctx context.Context, rows []OraclePrice) 
 
 	const upsertQuery = `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp, updated_at)
-		SELECT u.*, NOW() FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[], $5::bigint[])
+		SELECT u.oracle_contract_id, u.asset_contract_id, u.price::numeric, u.price_decimals, u.price_timestamp, NOW()
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[], $5::bigint[])
 			AS u(oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
 		ON CONFLICT (oracle_contract_id, asset_contract_id) DO UPDATE SET
 			price = EXCLUDED.price, price_decimals = EXCLUDED.price_decimals,
@@ -165,7 +166,7 @@ func (m *OraclePriceModel) GetByOracles(ctx context.Context, oracleIDs []string)
 
 	start := time.Now()
 	const query = `
-		SELECT oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp, updated_at
+		SELECT oracle_contract_id, asset_contract_id, price::text, price_decimals, price_timestamp, updated_at
 		FROM blend_oracle_prices
 		WHERE oracle_contract_id = ANY($1::bytea[])
 		ORDER BY oracle_contract_id, asset_contract_id`
@@ -202,7 +203,7 @@ func (m *OraclePriceModel) GetByOracles(ctx context.Context, oracleIDs []string)
 func (m *OraclePriceModel) GetBackstopLPPrices(ctx context.Context) ([]OraclePrice, error) {
 	start := time.Now()
 	const query = `
-		SELECT o2.oracle_contract_id, o2.asset_contract_id, o2.price, o2.price_decimals, o2.price_timestamp, o2.updated_at
+		SELECT o2.oracle_contract_id, o2.asset_contract_id, o2.price::text, o2.price_decimals, o2.price_timestamp, o2.updated_at
 		FROM blend_oracle_prices o1
 		JOIN blend_oracle_prices o2 ON o2.oracle_contract_id = o1.oracle_contract_id
 		WHERE o1.oracle_contract_id = o1.asset_contract_id

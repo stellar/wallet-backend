@@ -4,7 +4,7 @@
 CREATE TABLE blend_backstop_positions (
     pool_contract_id     BYTEA NOT NULL,
     user_account_id      BYTEA NOT NULL,
-    shares               TEXT NOT NULL DEFAULT '0',
+    shares               NUMERIC NOT NULL DEFAULT 0,
     q4w                  JSONB,               -- [{amount, expiration}] queued withdrawals
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (pool_contract_id, user_account_id)

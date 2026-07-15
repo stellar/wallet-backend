@@ -88,9 +88,10 @@ func (m *ReserveEmissionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, row
 		INSERT INTO blend_reserve_emissions (
 			pool_contract_id, reserve_token_id, eps, emission_index, expiration, last_time, last_modified_ledger
 		)
-		SELECT * FROM UNNEST(
+		SELECT u.pool, u.token_id, u.eps, u.emission_index::numeric, u.expiration, u.last_time, u.ledger
+		FROM UNNEST(
 			$1::bytea[], $2::integer[], $3::bigint[], $4::text[], $5::bigint[], $6::bigint[], $7::integer[]
-		)
+		) AS u(pool, token_id, eps, emission_index, expiration, last_time, ledger)
 		ON CONFLICT (pool_contract_id, reserve_token_id) DO UPDATE SET
 			eps                  = EXCLUDED.eps,
 			emission_index       = EXCLUDED.emission_index,
@@ -172,9 +173,10 @@ func (m *EmissionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Emi
 		INSERT INTO blend_emissions (
 			source_contract_id, user_account_id, token_id, emission_index, accrued, last_modified_ledger
 		)
-		SELECT * FROM UNNEST(
+		SELECT u.source, u.usr, u.token_id, u.emission_index::numeric, u.accrued::numeric, u.ledger
+		FROM UNNEST(
 			$1::bytea[], $2::bytea[], $3::integer[], $4::text[], $5::text[], $6::integer[]
-		)
+		) AS u(source, usr, token_id, emission_index, accrued, ledger)
 		ON CONFLICT (source_contract_id, user_account_id, token_id) DO UPDATE SET
 			emission_index       = EXCLUDED.emission_index,
 			accrued              = EXCLUDED.accrued,
