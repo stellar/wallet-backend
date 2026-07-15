@@ -277,7 +277,13 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		return errors.New("advisory lock not acquired")
 	}
 	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
+		// Detach from ctx: a shutdown signal cancels ctx before this defer
+		// runs, and pgx refuses to execute a query on an already-cancelled
+		// context, which would otherwise leak the lock (conn.Release above
+		// only returns the connection to the pool, it doesn't end the
+		// session, so the lock would stay held until the pool itself closes).
+		releaseCtx := context.WithoutCancel(ctx)
+		if err := db.ReleaseAdvisoryLock(releaseCtx, conn, m.advisoryLockID); err != nil {
 			err = fmt.Errorf("releasing advisory lock: %w", err)
 			log.Ctx(ctx).Error(err)
 		}
