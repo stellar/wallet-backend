@@ -60,9 +60,11 @@ func NewValidator() *Validator {
 func newValidator(deps services.ProtocolDeps) *Validator {
 	v := &Validator{}
 	if deps.ContractMetadataService != nil {
-		// Owned worker pool — capped here to keep the public RPC endpoint
-		// happy under bursts.
-		v.pool = pond.NewPool(0)
+		// Owned worker pool, bounded to services.SimulateTransactionBatchSize to match
+		// the batch size the metadata fetcher itself submits per RPC round-trip
+		// (pond.NewPool(0) is unbounded and would let a large ledger burst the public
+		// RPC endpoint with unthrottled concurrent requests).
+		v.pool = pond.NewPool(services.SimulateTransactionBatchSize)
 		v.fetcher = newMetadataFetcher(deps.ContractMetadataService, v.pool)
 	}
 	return v

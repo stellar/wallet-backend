@@ -92,6 +92,63 @@ func TestRetryWithBackoff_CapsBackoff(t *testing.T) {
 	assert.Equal(t, []time.Duration{time.Second, maxBackoff, maxBackoff, maxBackoff}, observedBackoffs)
 }
 
+func TestRetryWithBackoff_StopsOnPermanentError(t *testing.T) {
+	sentinel := errors.New("permanent failure")
+	attempts := 0
+	var onRetryCalls int
+
+	_, err := RetryWithBackoff(context.Background(), 5, 1*time.Second,
+		func(ctx context.Context) (string, error) {
+			attempts++
+			return "", sentinel
+		},
+		func(attempt int, err error, backoff time.Duration) {
+			onRetryCalls++
+		},
+		func(err error) bool {
+			return errors.Is(err, sentinel)
+		},
+	)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, sentinel)
+	assert.Contains(t, err.Error(), "permanent error on attempt 1")
+	assert.Equal(t, 1, attempts, "a permanent error must not be retried")
+	assert.Equal(t, 0, onRetryCalls, "onRetry must not fire for a permanent error")
+}
+
+func TestRetryWithBackoff_TransientErrorStillRetriesWithClassifier(t *testing.T) {
+	attempts := 0
+	_, err := RetryWithBackoff(context.Background(), 3, 1*time.Second,
+		func(ctx context.Context) (int, error) {
+			attempts++
+			if attempts < 2 {
+				return 0, errors.New("transient")
+			}
+			return 7, nil
+		},
+		nil,
+		func(err error) bool { return false },
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts)
+}
+
+func TestRetryWithBackoff_NilClassifierRetriesAsBefore(t *testing.T) {
+	sentinel := errors.New("fail")
+	attempts := 0
+	_, err := RetryWithBackoff(context.Background(), 3, 1*time.Second,
+		func(ctx context.Context) (string, error) {
+			attempts++
+			return "", sentinel
+		},
+		nil,
+		nil,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed after 3 attempts")
+	assert.Equal(t, 3, attempts)
+}
+
 func TestRetryWithBackoff_RejectsZeroMaxRetries(t *testing.T) {
 	_, err := RetryWithBackoff(context.Background(), 0, 5*time.Second,
 		func(ctx context.Context) (string, error) {

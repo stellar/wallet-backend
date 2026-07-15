@@ -56,6 +56,11 @@ type IngestServiceConfig struct {
 	// === Ledger Backend ===
 	LedgerBackend        ledgerbackend.LedgerBackend
 	LedgerBackendFactory LedgerBackendFactory
+	// IsPermanentFetchError classifies a GetLedger error as permanent, i.e. no
+	// amount of retrying will fix it (e.g. the datastore backend's prefetch
+	// buffer has died). Optional: nil (the zero value) retries every
+	// ledger-fetch error as before.
+	IsPermanentFetchError func(error) bool
 
 	// === Cursors ===
 	OldestLedgerCursorName string
@@ -114,6 +119,7 @@ type ingestService struct {
 	rpcService                RPCService
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
+	isPermanentFetchError     func(error) bool
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
 	appMetrics                *metrics.Metrics
@@ -129,11 +135,21 @@ type ingestService struct {
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
+	// protocolCursors tracks, per protocol, whether its history/current-state
+	// ingest_store cursor rows exist. See casProtocolCursor and
+	// snapshotProtocolCursors in ingest_live.go. Always non-nil; empty maps
+	// (the zero value for every protocol) mean "not yet initialized",
+	// matching the pre-startLiveIngestion state.
+	protocolCursors *protocolCursorSnapshot
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
-	ledgerIndexerPool := pond.NewPool(0)
+	// Create worker pool for the ledger indexer (parallel transaction processing within a
+	// ledger). This is CPU-bound XDR decode/processing work, not RPC-bound, so it's sized off
+	// NumCPU rather than an RPC batch size; 2x gives headroom for goroutines blocked on the
+	// occasional DB lookup without letting the pool grow unbounded (pond.NewPool(0) is
+	// unbounded).
+	ledgerIndexerPool := pond.NewPool(2 * runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
@@ -172,6 +188,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
+		isPermanentFetchError:     cfg.IsPermanentFetchError,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
 		appMetrics:                cfg.Metrics,
@@ -187,6 +204,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
+		protocolCursors: &protocolCursorSnapshot{
+			historyExists:      make(map[string]bool, len(ppMap)),
+			currentStateExists: make(map[string]bool, len(ppMap)),
+		},
 	}, nil
 }
 
@@ -231,7 +252,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
 		return 0, 0, err
 	}
-	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
+	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 	return len(txs), len(ops), nil
 }
 
