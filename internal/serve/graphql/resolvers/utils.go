@@ -318,6 +318,24 @@ func parseAccountPaginationParams(first *int32, after *string, last *int32, befo
 	return parsePaginationParams(first, after, last, before, cursorType)
 }
 
+// maxNestedPageLimit bounds page size on nested relation connections (Transaction.operations,
+// Transaction.stateChanges, Operation.stateChanges). Their dataloader keys carry the requested
+// limit as part of their batch shape, so an uncapped first/last would send an unbounded query
+// once a batch's keys share that shape.
+const maxNestedPageLimit int32 = 100
+
+// parseNestedPaginationParams caps page size for nested relation connections before delegating to
+// parsePaginationParams. It mirrors parseAccountPaginationParams' cap policy (reject, not clamp).
+func parseNestedPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
+	if first != nil && *first > maxNestedPageLimit {
+		return PaginationParams{}, badUserInputError(fmt.Sprintf("first must be less than or equal to %d", maxNestedPageLimit))
+	}
+	if last != nil && *last > maxNestedPageLimit {
+		return PaginationParams{}, badUserInputError(fmt.Sprintf("last must be less than or equal to %d", maxNestedPageLimit))
+	}
+	return parsePaginationParams(first, after, last, before, cursorType)
+}
+
 func parsePaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
 	err := validatePaginationParams(first, after, last, before)
 	if err != nil {

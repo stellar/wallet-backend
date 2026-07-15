@@ -270,6 +270,15 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
+	t.Run("first exceeds the nested page limit", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
+		first := int32(101)
+		_, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "first must be less than or equal to 100")
+	})
+
 	t.Run("nil operation panics", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)

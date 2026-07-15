@@ -11,11 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-const (
-	// TODO: this should be configurable via config
-	MaxOperationsPerBatch = 10
-)
-
 type OperationColumnsKey struct {
 	ToID            int64
 	AccountID       string
@@ -44,6 +39,9 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 			columns := keys[0].Columns
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
+			if limit == nil || *limit <= 0 {
+				return nil, fmt.Errorf("operations loader requires a positive limit")
+			}
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
@@ -53,12 +51,11 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 
 			toIDs := make([]int64, len(keys))
 			ledgerCreatedAts := make([]time.Time, len(keys))
-			maxLimit := min(*limit, MaxOperationsPerBatch)
 			for i, key := range keys {
 				toIDs[i] = key.ToID
 				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.Operations.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, &maxLimit, sortOrder)
+			return models.Operations.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, limit, sortOrder)
 		},
 		func(item *types.OperationWithCursor) int64 {
 			// Derive tx_to_id from operation ID using TOID bit masking
@@ -72,7 +69,32 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 		func(item *types.OperationWithCursor) types.OperationWithCursor {
 			return *item
 		},
+		operationColumnsKeyShape,
 	)
+}
+
+// operationColumnsKeyShape is the query shape for one-to-many operation loaders keyed by
+// OperationColumnsKey (see operationsByToIDLoader): Columns, Limit, Cursor and SortOrder all
+// determine the SQL statement the fetcher builds, so any two keys differing in one of these
+// fields must land in different batch groups.
+func operationColumnsKeyShape(key OperationColumnsKey) QueryShape {
+	shape := QueryShape{Columns: key.Columns, SortOrder: key.SortOrder}
+	if key.Limit != nil {
+		shape.Limit = *key.Limit
+		shape.HasLimit = true
+	}
+	if key.Cursor != nil {
+		shape.Cursor = *key.Cursor
+		shape.HasCursor = true
+	}
+	return shape
+}
+
+// operationColumnsKeyShapeByColumns is the query shape for one-to-one operation loaders keyed by
+// OperationColumnsKey (see operationByStateChangeIDLoader): only Columns varies per key there, so
+// grouping on it alone is sufficient.
+func operationColumnsKeyShapeByColumns(key OperationColumnsKey) QueryShape {
+	return QueryShape{Columns: key.Columns}
 }
 
 // accountOperationsByToIDLoader batches account-scoped operation lookups by transaction ToID,
@@ -118,5 +140,6 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Ope
 		func(item *types.OperationWithStateChangeID) types.Operation {
 			return item.Operation
 		},
+		operationColumnsKeyShapeByColumns,
 	)
 }

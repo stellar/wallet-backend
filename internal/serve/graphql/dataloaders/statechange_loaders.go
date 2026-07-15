@@ -11,11 +11,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-const (
-	// TODO: this should be configurable via config
-	MaxStateChangesPerBatch = 10
-)
-
 type StateChangeColumnsKey struct {
 	ToID            int64
 	AccountID       string
@@ -41,6 +36,9 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
+			if limit == nil || *limit <= 0 {
+				return nil, fmt.Errorf("state changes loader requires a positive limit")
+			}
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
@@ -50,12 +48,11 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 
 			toIDs := make([]int64, len(keys))
 			ledgerCreatedAts := make([]time.Time, len(keys))
-			maxLimit := min(*limit, MaxStateChangesPerBatch)
 			for i, key := range keys {
 				toIDs[i] = key.ToID
 				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, &maxLimit, sortOrder)
+			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, limit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
 			return item.StateChange.ToID
@@ -66,7 +63,25 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+		stateChangeColumnsKeyShape,
 	)
+}
+
+// stateChangeColumnsKeyShape is the query shape for one-to-many state-change loaders keyed by
+// StateChangeColumnsKey (see stateChangesByToIDLoader, stateChangesByOperationIDLoader): Columns,
+// Limit, Cursor and SortOrder all determine the SQL statement the fetcher builds, so any two keys
+// differing in one of these fields must land in different batch groups.
+func stateChangeColumnsKeyShape(key StateChangeColumnsKey) QueryShape {
+	shape := QueryShape{Columns: key.Columns, SortOrder: key.SortOrder}
+	if key.Limit != nil {
+		shape.Limit = *key.Limit
+		shape.HasLimit = true
+	}
+	if key.Cursor != nil {
+		shape.Cursor = *key.Cursor
+		shape.HasCursor = true
+	}
+	return shape
 }
 
 // stateChangesByOperationIDLoader creates a dataloader for fetching state changes by operation ID
@@ -83,6 +98,9 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
+			if limit == nil || *limit <= 0 {
+				return nil, fmt.Errorf("state changes loader requires a positive limit")
+			}
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
@@ -107,6 +125,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+		stateChangeColumnsKeyShape,
 	)
 }
 
