@@ -169,19 +169,33 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorNam
 	return nil
 }
 
-func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {
+// GetLedgerGaps returns gaps between consecutive present ledger_number values within
+// [startLedger, endLedger]. Windowing the DISTINCT scan on ledger_number (which has
+// chunk-skipping stats enabled) makes the cost proportional to the window instead of a full
+// hypertable scan.
+//
+// Edge semantics: callers must pass a startLedger that is itself a present ledger_number (e.g.
+// the oldest ingested ledger) — the left edge is NOT synthesized. If startLedger fell strictly
+// inside an already-open gap, this function would not report the portion before the first
+// present row in-window; this mirrors the original unwindowed behavior, which never reported a
+// gap before the very first row in the whole table. The right edge IS handled: COALESCE falls
+// back to endLedger+1 when LEAD finds no next row within the window (the next present ledger
+// lies beyond endLedger, or doesn't exist yet), so a gap still open at the window's boundary is
+// reported clipped to endLedger instead of silently dropped (plain LEAD would return NULL there,
+// failing the gap_start <= gap_end filter and losing the trailing partial gap).
+func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context, startLedger, endLedger uint32) ([]LedgerRange, error) {
 	const query = `
 		SELECT gap_start, gap_end FROM (
 			SELECT
 				ledger_number + 1 AS gap_start,
-				LEAD(ledger_number) OVER (ORDER BY ledger_number) - 1 AS gap_end
-			FROM (SELECT DISTINCT ledger_number FROM transactions) t
+				COALESCE(LEAD(ledger_number) OVER (ORDER BY ledger_number), $2 + 1) - 1 AS gap_end
+			FROM (SELECT DISTINCT ledger_number FROM transactions WHERE ledger_number BETWEEN $1 AND $2) t
 		) gaps
 		WHERE gap_start <= gap_end
 		ORDER BY gap_start
 	`
 	start := time.Now()
-	ledgerGaps, err := db.QueryMany[LedgerRange](ctx, m.DB, query)
+	ledgerGaps, err := db.QueryMany[LedgerRange](ctx, m.DB, query, int32(startLedger), int32(endLedger))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetLedgerGaps", "transactions").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetLedgerGaps", "transactions").Inc()

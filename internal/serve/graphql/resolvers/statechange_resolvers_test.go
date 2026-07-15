@@ -338,6 +338,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 			OperationID:         opID,
 			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
+			LedgerCreatedAt:     sharedTestLedgerCreatedAt,
 		},
 	}
 
@@ -394,6 +395,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 			ToID:                toid.New(1000, 1, 0).ToInt64(),
 			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
+			LedgerCreatedAt:     sharedTestLedgerCreatedAt,
 		},
 	}
 

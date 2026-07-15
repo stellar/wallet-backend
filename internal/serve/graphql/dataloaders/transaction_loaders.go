@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vikstrous/dataloadgen"
 
@@ -11,10 +12,11 @@ import (
 )
 
 type TransactionColumnsKey struct {
-	AccountID     string
-	OperationID   int64
-	StateChangeID string
-	Columns       string
+	AccountID       string
+	OperationID     int64
+	StateChangeID   string
+	Columns         string
+	LedgerCreatedAt time.Time // parent state change's ledger time; pins the partition column for BatchGetByStateChangeIDs
 }
 
 // txByOperationIDLoader creates a dataloader for fetching transactions by operation ID
@@ -50,14 +52,16 @@ func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[T
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithStateChangeID, error) {
 			columns := keys[0].Columns
 			scIDs := make([]string, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
 			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Transactions.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
+			return models.Transactions.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, ledgerCreatedAts, columns)
 		},
 		func(item *types.TransactionWithStateChangeID) string {
 			return item.StateChangeID

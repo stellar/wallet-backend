@@ -429,7 +429,8 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{1, 2, 3}, []int64{1, 2, 3}, []int64{1, 1, 1}, "")
+	ledgerCreatedAts := []time.Time{now, now, now}
+	transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{1, 2, 3}, []int64{1, 2, 3}, []int64{1, 1, 1}, ledgerCreatedAts, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -442,6 +443,19 @@ func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Equal(t, scTestHash1, stateChangeIDsFound["1-1-1"]) // to_id=1 -> scTestHash1 (to_id=1)
 	assert.Equal(t, scTestHash2, stateChangeIDsFound["2-2-1"]) // to_id=2 -> scTestHash2 (to_id=2)
 	assert.Equal(t, scTestHash3, stateChangeIDsFound["3-3-1"]) // to_id=3 -> scTestHash3 (to_id=3)
+
+	t.Run("wrong ledger_created_at for a key excludes it (time pin enforced)", func(t *testing.T) {
+		wrongTime := now.Add(-24 * time.Hour)
+		transactions, err := m.BatchGetByStateChangeIDs(ctx, []int64{1}, []int64{1}, []int64{1}, []time.Time{wrongTime}, "")
+		require.NoError(t, err)
+		assert.Empty(t, transactions)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		_, err := m.BatchGetByStateChangeIDs(ctx, []int64{1, 2}, []int64{1, 2}, []int64{1, 1}, []time.Time{now}, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
 }
 
 // BenchmarkTransactionModel_BatchCopy benchmarks bulk insert using pgx's binary COPY protocol.

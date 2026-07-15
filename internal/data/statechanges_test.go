@@ -494,6 +494,57 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 }
 
+// TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated covers SQL-07: idx_transactions_hash
+// is non-unique (TimescaleDB can't enforce unique(hash) on a hypertable), so a data bug could
+// duplicate a hash across two to_ids. The txHash filter must tolerate this ("IN" rather than "=" /
+// a scalar subquery) instead of erroring with "more than one row returned by a subquery".
+func TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	address := keypair.MustRandom().Address()
+	dupHash := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000009")
+
+	// Two different transactions (different to_id, the hypertable's real uniqueness boundary)
+	// sharing the same hash.
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		VALUES
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $2),
+			($1, 2, 100, 'TransactionResultCodeTxSuccess', 2, $2)
+	`, dupHash, now)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
+			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456)
+	`, now, types.AddressBytea(address))
+	require.NoError(t, err)
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	txHash := dupHash.String()
+	stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC, nil)
+	require.NoError(t, err, "duplicate hash must not error as 'more than one row returned by a subquery'")
+	assert.Len(t, stateChanges, 2, "state changes from both to_ids sharing the hash must be returned")
+
+	toIDsFound := make(map[int64]bool)
+	for _, sc := range stateChanges {
+		toIDsFound[sc.StateChange.ToID] = true
+	}
+	assert.True(t, toIDsFound[1])
+	assert.True(t, toIDsFound[2])
+}
+
 func TestStateChangeModel_GetAll(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -671,7 +722,11 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 				Metrics: dbMetrics,
 			}
 
-			stateChanges, err := m.BatchGetByToIDs(ctx, tc.toIDs, "", tc.limit, tc.sortOrder)
+			ledgerCreatedAts := make([]time.Time, len(tc.toIDs))
+			for i := range ledgerCreatedAts {
+				ledgerCreatedAts[i] = now
+			}
+			stateChanges, err := m.BatchGetByToIDs(ctx, tc.toIDs, ledgerCreatedAts, "", tc.limit, tc.sortOrder)
 			require.NoError(t, err)
 			assert.Len(t, stateChanges, tc.expectedCount)
 
@@ -689,6 +744,43 @@ func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("wrong ledger_created_at for a key returns no state changes for that key (time pin enforced)", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		wrongTime := now.Add(-24 * time.Hour)
+		stateChanges, err := m.BatchGetByToIDs(ctx, []int64{1}, []time.Time{wrongTime}, "", nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		_, err := m.BatchGetByToIDs(ctx, []int64{1, 2}, []time.Time{now}, "", nil, ASC)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
+
+	// Regression: the cursor's ledger_created_at must not be read off the LATERAL's own
+	// projection (which only carries the caller-requested columns) — a narrow column set that
+	// excludes ledgerCreatedAt must not break the query with "column does not exist".
+	t.Run("narrow column selection excluding ledger_created_at still resolves the cursor", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		stateChanges, err := m.BatchGetByToIDs(ctx, []int64{1}, []time.Time{now}, "state_change_category", nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 3)
+		for _, sc := range stateChanges {
+			assert.NotZero(t, sc.StateChangeCursor.LedgerCreatedAt)
+		}
+	})
 }
 
 func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
@@ -736,7 +828,8 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	// Test BatchGetByOperationID
 	limit := int32(10)
-	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, "", &limit, ASC)
+	ledgerCreatedAts := []time.Time{now, now}
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, ledgerCreatedAts, "", &limit, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
@@ -747,6 +840,30 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	}
 	assert.Equal(t, 2, operationIDsFound[123])
 	assert.Equal(t, 1, operationIDsFound[456])
+
+	t.Run("wrong ledger_created_at for a key excludes it (time pin enforced)", func(t *testing.T) {
+		wrongTime := now.Add(-24 * time.Hour)
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{wrongTime}, "", &limit, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		_, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, []time.Time{now}, "", &limit, ASC)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
+
+	// Regression: the cursor's ledger_created_at must not be read off the LATERAL's own
+	// projection (which only carries the caller-requested columns).
+	t.Run("narrow column selection excluding ledger_created_at still resolves the cursor", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{now}, "state_change_category", &limit, ASC)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.NotZero(t, sc.StateChangeCursor.LedgerCreatedAt)
+		}
+	})
 }
 
 func TestStateChangeModel_BatchGetByToID(t *testing.T) {
@@ -792,7 +909,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("get all state changes for single to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, now, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
@@ -809,7 +926,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 
 	t.Run("get state changes with pagination - first", func(t *testing.T) {
 		limit := int32(2)
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, now, "", &limit, nil, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
@@ -820,7 +937,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	t.Run("get state changes with cursor pagination", func(t *testing.T) {
 		limit := int32(2)
 		cursor := &types.StateChangeCursor{LedgerCreatedAt: now, ToID: 1, OperationID: 123, StateChangeID: 1}
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", &limit, cursor, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, now, "", &limit, cursor, ASC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 2)
 
@@ -830,7 +947,7 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	})
 
 	t.Run("get state changes with DESC ordering", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 1, "", nil, nil, DESC)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, now, "", nil, nil, DESC)
 		require.NoError(t, err)
 		assert.Len(t, stateChanges, 3)
 
@@ -841,7 +958,14 @@ func TestStateChangeModel_BatchGetByToID(t *testing.T) {
 	})
 
 	t.Run("no state changes for non-existent to_id", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByToID(ctx, 999, "", nil, nil, ASC)
+		stateChanges, err := m.BatchGetByToID(ctx, 999, now, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, stateChanges)
+	})
+
+	t.Run("wrong ledger_created_at returns no state changes (time pin enforced)", func(t *testing.T) {
+		wrongTime := now.Add(-24 * time.Hour)
+		stateChanges, err := m.BatchGetByToID(ctx, 1, wrongTime, "", nil, nil, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
