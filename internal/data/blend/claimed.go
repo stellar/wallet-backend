@@ -133,9 +133,10 @@ func (m *PoolClaimedModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, de
 
 	const applyQuery = `
 		INSERT INTO blend_pool_claimed (pool_contract_id, user_account_id, claimed_blnd, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[])
+		SELECT u.pool, u.usr, u.claimed::numeric, u.ledger
+		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[]) AS u(pool, usr, claimed, ledger)
 		ON CONFLICT (pool_contract_id, user_account_id) DO UPDATE SET
-			claimed_blnd         = (blend_pool_claimed.claimed_blnd::numeric + EXCLUDED.claimed_blnd::numeric)::text,
+			claimed_blnd         = blend_pool_claimed.claimed_blnd + EXCLUDED.claimed_blnd,
 			last_modified_ledger = GREATEST(blend_pool_claimed.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, applyQuery, pools, users, claimed, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", poolClaimedTable, utils.GetDBErrorType(err)).Inc()
@@ -179,9 +180,10 @@ func (m *BackstopClaimedModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx
 
 	const applyQuery = `
 		INSERT INTO blend_backstop_claimed (user_account_id, claimed_lp, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::text[], $3::integer[])
+		SELECT u.usr, u.claimed::numeric, u.ledger
+		FROM UNNEST($1::bytea[], $2::text[], $3::integer[]) AS u(usr, claimed, ledger)
 		ON CONFLICT (user_account_id) DO UPDATE SET
-			claimed_lp           = (blend_backstop_claimed.claimed_lp::numeric + EXCLUDED.claimed_lp::numeric)::text,
+			claimed_lp           = blend_backstop_claimed.claimed_lp + EXCLUDED.claimed_lp,
 			last_modified_ledger = GREATEST(blend_backstop_claimed.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, applyQuery, users, claimed, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", backstopClaimedTable, utils.GetDBErrorType(err)).Inc()

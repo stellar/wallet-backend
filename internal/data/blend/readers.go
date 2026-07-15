@@ -91,7 +91,7 @@ func (m *PoolClaimedModel) GetByAccount(ctx context.Context, account string) ([]
 
 	start := time.Now()
 	const query = `
-		SELECT pool_contract_id, user_account_id, claimed_blnd, last_modified_ledger
+		SELECT pool_contract_id, user_account_id, claimed_blnd::text, last_modified_ledger
 		FROM blend_pool_claimed
 		WHERE user_account_id = $1
 		ORDER BY pool_contract_id`
@@ -132,7 +132,7 @@ func (m *BackstopClaimedModel) GetByAccount(ctx context.Context, account string)
 
 	start := time.Now()
 	const query = `
-		SELECT user_account_id, claimed_lp, last_modified_ledger
+		SELECT user_account_id, claimed_lp::text, last_modified_ledger
 		FROM blend_backstop_claimed
 		WHERE user_account_id = $1`
 	var c BackstopClaimed
