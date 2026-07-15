@@ -26,11 +26,15 @@ import (
 // Passing an ast.DirectiveList containing {Name: "deprecated"} simulates a field
 // declared as `oldField: String @deprecated(reason: "Use newField")` in the schema.
 // Passing nil simulates a normal, non-deprecated field.
+// operationName is used as both the (now-ignored) OperationContext.OperationName and the root
+// field name, since GetOperationIdentifier derives its label from the root SelectionSet rather
+// than the client-controlled OperationName (see GetOperationIdentifier's cardinality-safety doc).
 func fieldTestContext(operationName string, fieldName string, directives ast.DirectiveList) context.Context {
 	oc := &graphql.OperationContext{
 		OperationName: operationName,
 		Operation: &ast.OperationDefinition{
-			Operation: ast.Query,
+			Operation:    ast.Query,
+			SelectionSet: ast.SelectionSet{&ast.Field{Name: operationName}},
 		},
 	}
 	ctx := graphql.WithOperationContext(context.Background(), oc)

@@ -125,24 +125,24 @@ func TestTransactionResolver_Operations(t *testing.T) {
 
 		_, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 
 		first = int32(1)
 		_, err = resolver.Operations(ctx, parentTx, &first, nil, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+		assert.Contains(t, err.Error(), "first and last cannot be used together")
 
 		_, err = resolver.Operations(ctx, parentTx, nil, &after, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+		assert.Contains(t, err.Error(), "after and before cannot be used together")
 
 		_, err = resolver.Operations(ctx, parentTx, &first, nil, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+		assert.Contains(t, err.Error(), "first and before cannot be used together")
 
 		_, err = resolver.Operations(ctx, parentTx, nil, &after, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+		assert.Contains(t, err.Error(), "last and after cannot be used together")
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {
@@ -402,24 +402,24 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 
 		_, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 
 		first = int32(1)
 		_, err = resolver.StateChanges(ctx, parentTx, &first, nil, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+		assert.Contains(t, err.Error(), "first and last cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentTx, nil, &after, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+		assert.Contains(t, err.Error(), "after and before cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentTx, &first, nil, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+		assert.Contains(t, err.Error(), "first and before cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentTx, nil, &after, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+		assert.Contains(t, err.Error(), "last and after cannot be used together")
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {

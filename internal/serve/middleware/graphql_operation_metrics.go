@@ -90,7 +90,7 @@ func classifyGraphQLError(err error) string {
 					return "auth_error"
 				case "FORBIDDEN":
 					return "forbidden"
-				case "INTERNAL_SERVER_ERROR":
+				case "INTERNAL_SERVER_ERROR", "INTERNAL_ERROR":
 					return "internal_error"
 				default:
 					return "unknown"

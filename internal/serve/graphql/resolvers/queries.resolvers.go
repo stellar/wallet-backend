@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -37,15 +38,20 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 // Transactions is the resolver for the transactions field.
 // This resolver handles the "transactions" query.
 // It demonstrates handling optional arguments (limit can be nil)
-func (r *queryResolver) Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
+func (r *queryResolver) Transactions(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
+	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
+
+	timeRange, err := buildRootTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
+	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db: %w", err)
 	}
@@ -84,15 +90,20 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 
 // Operations is the resolver for the operations field.
 // This resolver handles the "operations" query.
-func (r *queryResolver) Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeComposite)
+func (r *queryResolver) Operations(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
+	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
+
+	timeRange, err := buildRootTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder)
+	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting operations from db: %w", err)
 	}
@@ -122,15 +133,20 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 }
 
 // StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
+func (r *queryResolver) StateChanges(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
+	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
+	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
+
+	timeRange, err := buildRootTimeRange(since, until)
+	if err != nil {
+		return nil, err
+	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder)
+	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder, timeRange)
 	if err != nil {
 		return nil, fmt.Errorf("getting state changes from db: %w", err)
 	}

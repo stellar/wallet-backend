@@ -23,13 +23,16 @@ func newTestGraphQLMetrics(t *testing.T) *metrics.GraphQLMetrics {
 	return metrics.NewGraphQLMetrics(reg)
 }
 
-// withOperationContext returns a context with a gqlgen OperationContext set,
-// simulating what gqlgen provides inside AroundOperations.
+// withOperationContext returns a context with a gqlgen OperationContext set, simulating what
+// gqlgen provides inside AroundOperations. name is used as both the (now-ignored)
+// OperationContext.OperationName and the root field name, since GetOperationIdentifier derives its
+// label from the root SelectionSet rather than the client-controlled OperationName.
 func withOperationContext(ctx context.Context, name string, op ast.Operation) context.Context {
 	oc := &graphql.OperationContext{
 		OperationName: name,
 		Operation: &ast.OperationDefinition{
-			Operation: op,
+			Operation:    op,
+			SelectionSet: ast.SelectionSet{&ast.Field{Name: name}},
 		},
 	}
 	return graphql.WithOperationContext(ctx, oc)
@@ -187,6 +190,11 @@ func TestClassifyGraphQLError(t *testing.T) {
 		{
 			name:     "internal error",
 			err:      &gqlerror.Error{Extensions: map[string]interface{}{"code": "INTERNAL_SERVER_ERROR"}},
+			expected: "internal_error",
+		},
+		{
+			name:     "balance internal error also maps to internal_error",
+			err:      &gqlerror.Error{Extensions: map[string]interface{}{"code": "INTERNAL_ERROR"}},
 			expected: "internal_error",
 		},
 		{

@@ -5,6 +5,7 @@ package graphql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,16 +17,17 @@ import (
 func TestCustomErrorPresenter(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("non-gqlerror passes through to default presenter", func(t *testing.T) {
-		regularErr := errors.New("regular error")
+	t.Run("non-gqlerror (e.g. a raw driver/SQL error) is masked as an internal error", func(t *testing.T) {
+		regularErr := errors.New("pq: relation \"transactions\" does not exist")
 		result := CustomErrorPresenter(ctx, regularErr)
 
-		// The default presenter should convert this to a gqlerror
 		require.NotNil(t, result)
-		assert.Equal(t, "regular error", result.Message)
+		assert.Equal(t, "internal server error", result.Message)
+		assert.NotContains(t, result.Message, "transactions")
+		assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"])
 	})
 
-	t.Run("gqlerror without extensions passes through", func(t *testing.T) {
+	t.Run("gqlerror without extensions (no code) is masked as an internal error", func(t *testing.T) {
 		gqlErr := &gqlerror.Error{
 			Message: "some graphql error",
 			Path:    ast.Path{ast.PathName("field")},
@@ -33,10 +35,11 @@ func TestCustomErrorPresenter(t *testing.T) {
 
 		result := CustomErrorPresenter(ctx, gqlErr)
 		require.NotNil(t, result)
-		assert.Equal(t, "some graphql error", result.Message)
+		assert.Equal(t, "internal server error", result.Message)
+		assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"])
 	})
 
-	t.Run("gqlerror with non-validation code passes through", func(t *testing.T) {
+	t.Run("gqlerror with an unrecognized code is masked as an internal error", func(t *testing.T) {
 		gqlErr := &gqlerror.Error{
 			Message: "some other error",
 			Path:    ast.Path{ast.PathName("field")},
@@ -47,8 +50,56 @@ func TestCustomErrorPresenter(t *testing.T) {
 
 		result := CustomErrorPresenter(ctx, gqlErr)
 		require.NotNil(t, result)
-		assert.Equal(t, "some other error", result.Message)
+		assert.Equal(t, "internal server error", result.Message)
+		assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"])
+		// The masked error still carries the original path, so clients can tell which field failed.
+		assert.Equal(t, gqlErr.Path, result.Path)
 	})
+
+	t.Run("gqlerror with a known client-safe code passes through unchanged", func(t *testing.T) {
+		gqlErr := &gqlerror.Error{
+			Message: "first must be less than or equal to 100",
+			Path:    ast.Path{ast.PathName("field")},
+			Extensions: map[string]interface{}{
+				"code": "BAD_USER_INPUT",
+			},
+		}
+
+		result := CustomErrorPresenter(ctx, gqlErr)
+		require.NotNil(t, result)
+		assert.Equal(t, "first must be less than or equal to 100", result.Message)
+		assert.Equal(t, "BAD_USER_INPUT", result.Extensions["code"])
+	})
+
+	t.Run("gqlerror wrapped by fmt.Errorf still resolves its code through the chain", func(t *testing.T) {
+		inner := &gqlerror.Error{
+			Message:    "invalid cursor format",
+			Extensions: map[string]interface{}{"code": "BAD_USER_INPUT"},
+		}
+		// errors.As only finds *gqlerror.Error through an Unwrap chain built by %w, so build one the
+		// same way resolver call sites do (fmt.Errorf("...: %w", err)).
+		wrapped := fmt.Errorf("parsing pagination params: %w", inner)
+
+		result := CustomErrorPresenter(ctx, wrapped)
+		require.NotNil(t, result)
+		assert.Equal(t, "BAD_USER_INPUT", result.Extensions["code"])
+	})
+
+	for _, code := range []string{
+		"INVALID_TRANSACTION_HASH", "INVALID_ADDRESS", "INTERNAL_ERROR",
+		"COMPLEXITY_LIMIT_EXCEEDED", "QUERY_TOO_DEEP", "UNAUTHENTICATED", "FORBIDDEN",
+	} {
+		t.Run("known code "+code+" passes through unchanged", func(t *testing.T) {
+			gqlErr := &gqlerror.Error{
+				Message:    "a client-facing message",
+				Extensions: map[string]interface{}{"code": code},
+			}
+			result := CustomErrorPresenter(ctx, gqlErr)
+			require.NotNil(t, result)
+			assert.Equal(t, "a client-facing message", result.Message)
+			assert.Equal(t, code, result.Extensions["code"])
+		})
+	}
 
 	t.Run("validation error with unknown field - variable/input path", func(t *testing.T) {
 		gqlErr := &gqlerror.Error{
@@ -122,7 +173,7 @@ func TestCustomErrorPresenter(t *testing.T) {
 		assert.Equal(t, "different validation error", result.Message)
 	})
 
-	t.Run("validation error with non-string code", func(t *testing.T) {
+	t.Run("validation error with non-string code is masked (not a recognized code)", func(t *testing.T) {
 		gqlErr := &gqlerror.Error{
 			Message: "unknown field",
 			Path:    ast.Path{ast.PathName("field")},
@@ -133,8 +184,10 @@ func TestCustomErrorPresenter(t *testing.T) {
 
 		result := CustomErrorPresenter(ctx, gqlErr)
 		require.NotNil(t, result)
-		// Should remain unchanged since code is not a string
-		assert.Equal(t, "unknown field", result.Message)
+		// The unknown-field rewrite only fires for "code" == "GRAPHQL_VALIDATION_FAILED" (a string
+		// comparison), so a non-string code skips it same as before; but since it's also not a
+		// recognized client-safe code, the error is now masked.
+		assert.Equal(t, "internal server error", result.Message)
 	})
 
 	t.Run("validation error with mixed path types", func(t *testing.T) {

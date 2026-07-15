@@ -9,20 +9,16 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-// GetOperationIdentifier extracts a meaningful operation identifier from a GraphQL operation context.
-// It prefers the explicit OperationName if provided, otherwise falls back to the first root field name.
-// This is useful for metrics and logging when clients send anonymous queries.
+// GetOperationIdentifier extracts a metrics-safe operation identifier from a GraphQL operation
+// context. It always derives the identifier from the root field name(s) in the selection set — a
+// fixed, schema-bounded set — and never from the client-controlled OperationName: that value
+// becomes a Prometheus label on several metric families, and using it directly would give clients
+// control over label cardinality.
 func GetOperationIdentifier(oc *graphql.OperationContext) string {
 	if oc == nil {
 		return "<unnamed>"
 	}
 
-	// Prefer explicit operation name if provided
-	if oc.OperationName != "" {
-		return oc.OperationName
-	}
-
-	// Fall back to first root field name from the selection set
 	if oc.Operation != nil && len(oc.Operation.SelectionSet) > 0 {
 		for _, sel := range oc.Operation.SelectionSet {
 			if field, ok := sel.(*ast.Field); ok {
