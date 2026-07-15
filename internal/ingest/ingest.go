@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
@@ -29,6 +30,10 @@ import (
 
 const (
 	ServerShutdownTimeout = 10 * time.Second
+	// wasmExtractorCloseTimeout bounds releasing the wazero runtime on shutdown.
+	// It runs on a fresh context (not the cancelled root ctx) since the close
+	// itself has nothing to do with the signal that triggered shutdown.
+	wasmExtractorCloseTimeout = 5 * time.Second
 )
 
 // LedgerBackendType represents the type of ledger backend to use
@@ -111,27 +116,48 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 }
 
 func Ingest(cfg Configs) error {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	ingestService, err := setupDeps(cfg)
+	ingestService, cleanup, err := setupDeps(ctx, cfg)
 	if err != nil {
-		log.Ctx(ctx).Fatalf("Error setting up dependencies for ingest: %v", err)
+		return fmt.Errorf("setting up dependencies for ingest: %w", err)
 	}
+	defer cleanup()
 
-	if err = ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger)); err != nil {
-		log.Ctx(ctx).Fatalf("running 'ingest' from %d to %d: %v", cfg.StartLedger, cfg.EndLedger, err)
+	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger))
+	if runErr != nil {
+		if isShutdownRequested(ctx, runErr) {
+			log.Ctx(ctx).Infof("shutdown requested; exiting cleanly: %v", runErr)
+			return nil
+		}
+		return fmt.Errorf("running 'ingest' from %d to %d: %w", cfg.StartLedger, cfg.EndLedger, runErr)
 	}
 
 	return nil
 }
 
-func setupDeps(cfg Configs) (services.IngestService, error) {
-	ctx := context.Background()
+// isShutdownRequested classifies a Run error as a clean-exit shutdown (root
+// ctx cancelled by SIGINT/SIGTERM) versus a genuine failure. ctx is checked
+// directly rather than just err, since a cancellation can surface through
+// several different wrapped errors depending on where in the ingest loop it
+// was observed.
+func isShutdownRequested(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
+}
 
+// setupDeps builds the ingest service and its dependencies. The returned
+// cleanup func releases resources owned at this layer (ledger backend, wasm
+// spec extractor, DB pool) and must be called by the caller after Run
+// returns.
+func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func(), error) {
 	poolCfg := cfg.BuildPoolConfig()
 	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
-		return nil, fmt.Errorf("connecting to the database: %w", err)
+		return nil, nil, fmt.Errorf("connecting to the database: %w", err)
 	}
 
 	// Retention and compression policies live in shared database state, so only
@@ -140,7 +166,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	// retention policy would drop the very history a backfill is writing.
 	if cfg.IngestionMode == services.IngestionModeLive {
 		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
-			return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+			return nil, nil, fmt.Errorf("configuring hypertable settings: %w", err)
 		}
 	}
 
@@ -148,18 +174,18 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	metrics.RegisterDBPoolMetrics(m.Registry(), dbConnectionPool)
 	models, err := data.NewModels(dbConnectionPool, m.DB)
 	if err != nil {
-		return nil, fmt.Errorf("creating models: %w", err)
+		return nil, nil, fmt.Errorf("creating models: %w", err)
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, httpClient, m.RPC)
 	if err != nil {
-		return nil, fmt.Errorf("instantiating rpc service: %w", err)
+		return nil, nil, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	ledgerBackend, err := NewLedgerBackend(context.Background(), cfg)
+	ledgerBackend, err := NewLedgerBackend(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("creating ledger backend: %w", err)
+		return nil, nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
 	// Create pond pool for contract metadata fetching
@@ -169,7 +195,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	// Create ContractMetadataService for fetching and storing token metadata
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
 	if err != nil {
-		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
+		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
 	// Build a single ProtocolDeps to pass through both the validator and
@@ -193,7 +219,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("connecting to history archive: %w", err)
+		return nil, nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
@@ -232,24 +258,19 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	allProtocolIDs := services.GetAllProcessorIDs()
 	protocolProcessors, err := services.BuildProcessors(protocolDeps, allProtocolIDs)
 	if err != nil {
-		return nil, fmt.Errorf("building protocol processors: %w", err)
+		return nil, nil, fmt.Errorf("building protocol processors: %w", err)
 	}
 
 	allValidatorIDs := services.GetAllValidatorIDs()
 	protocolValidators, err := services.BuildValidators(protocolDeps, allValidatorIDs)
 	if err != nil {
-		return nil, fmt.Errorf("building protocol validators: %w", err)
+		return nil, nil, fmt.Errorf("building protocol validators: %w", err)
 	}
 
 	// Spec extractor is owned by the ingest service so it lives for the
-	// process lifetime and is closed on shutdown.
+	// process lifetime; it is closed by the returned cleanup func, after
+	// Run has returned and no extraction can be in flight.
 	wasmExtractor := services.NewWasmSpecExtractor()
-	go func() {
-		<-ctx.Done()
-		if err := wasmExtractor.Close(context.Background()); err != nil {
-			log.Ctx(ctx).Warnf("closing wasm spec extractor on shutdown: %v", err)
-		}
-	}()
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:             cfg.IngestionMode,
@@ -275,31 +296,44 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		ContractMetadataService:   contractMetadataService,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("instantiating ingest service: %w", err)
+		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)
 	}
 
 	// Start ingest server which serves metrics and health check endpoints.
 	servers := startServers(cfg, models, rpcService, m)
 
-	// Wait for termination signal to gracefully shut down the servers.
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	// Shut down the servers once the root context is cancelled (SIGINT/SIGTERM,
+	// registered by the caller via signal.NotifyContext).
 	go func() {
-		<-quit
+		<-ctx.Done()
 		log.Info("Shutting down servers...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
 		defer cancel()
 
 		for _, server := range servers {
-			if err := server.Shutdown(ctx); err != nil {
+			if err := server.Shutdown(shutdownCtx); err != nil {
 				log.Errorf("Server forced to shutdown: %v", err)
 			}
 		}
 		log.Info("Servers gracefully stopped")
 	}()
 
-	return ingestService, nil
+	cleanup := func() {
+		if err := ledgerBackend.Close(); err != nil {
+			log.Ctx(ctx).Warnf("closing ledger backend: %v", err)
+		}
+
+		closeCtx, cancel := context.WithTimeout(context.Background(), wasmExtractorCloseTimeout)
+		defer cancel()
+		if err := wasmExtractor.Close(closeCtx); err != nil {
+			log.Ctx(ctx).Warnf("closing wasm spec extractor: %v", err)
+		}
+
+		dbConnectionPool.Close()
+	}
+
+	return ingestService, cleanup, nil
 }
 
 // startServers initializes and starts the ingest server which serves metrics and health check endpoints.
