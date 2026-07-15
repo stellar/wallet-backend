@@ -1972,6 +1972,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor.processedLedger = 100
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
@@ -2004,6 +2005,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor.processedLedger = 100
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 100, 100)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
@@ -2036,6 +2038,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor.processedLedger = 100
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 98, 98)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
@@ -2111,6 +2114,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
 			utils.ProtocolHistoryCursorName("testproto"), "99")
 		require.NoError(t, err)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		meta := dummyLedgerMeta(100)
 		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
@@ -2150,6 +2154,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)`,
 			utils.ProtocolCurrentStateCursorName("testproto"), "99")
 		require.NoError(t, err)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		meta := dummyLedgerMeta(100)
 		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
@@ -2196,6 +2201,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor.ingestStore = models.IngestStore
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		// First ledger succeeds and advances the current-state cursor to 100.
 		processor.processedLedger = 100
@@ -2243,6 +2249,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, _, pool := setupTest(t, []ProtocolProcessor{processor})
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
@@ -2264,6 +2271,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		ctx, svc, _, pool := setupTest(t, []ProtocolProcessor{processor})
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
@@ -2324,11 +2332,76 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `INSERT INTO protocol_contracts (contract_id, wasm_hash) VALUES ($1, $2)`, contractID, wasmHash)
 		require.NoError(t, err)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
 		meta := dummyLedgerMeta(100)
 		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
 		require.NoError(t, err)
+	})
+
+	t.Run("K: cursor existed at snapshot but is now missing — hard error (incident)", func(t *testing.T) {
+		// ING-12: casProtocolCursor only calls CompareAndSwap for a cursor
+		// snapshotProtocolCursors believed existed. If the row has since
+		// vanished (dropped row, bad restore — never a normal live-ingestion
+		// state transition), that must abort the transaction as a genuine
+		// incident rather than the operationally-normal soft skip.
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		processor.processedLedger = 100
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx)) // snapshot sees both cursors existing
+
+		// Simulate the incident: the history cursor row vanishes after the snapshot.
+		_, delErr := pool.Exec(ctx, `DELETE FROM ingest_store WHERE key = $1`, utils.ProtocolHistoryCursorName("testproto"))
+		require.NoError(t, delErr)
+
+		buffer := indexer.NewIndexerBuffer()
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, data.ErrCASCursorMissing)
+
+		// The transaction rolled back entirely: even the unrelated main cursor
+		// (a different cursorName, not gated by any snapshot) did not advance.
+		mainCursor, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		require.NoError(t, getErr)
+		assert.Equal(t, uint32(0), mainCursor)
+
+		// The still-existing current-state cursor is untouched (whole tx rolled back).
+		csCursor, getErr := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
+		require.NoError(t, getErr)
+		assert.Equal(t, uint32(99), csCursor)
+	})
+
+	t.Run("L: reprobeProtocolCursors promotes a cursor initialized after the snapshot", func(t *testing.T) {
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		// No protocol cursors at snapshot time: both start out known-missing.
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+		assert.False(t, svc.protocolCursors.historyExists["testproto"])
+		assert.False(t, svc.protocolCursors.currentStateExists["testproto"])
+
+		// A protocol-setup/migrate run initializes both cursors afterward, without a restart.
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		svc.reprobeProtocolCursors(ctx)
+		assert.True(t, svc.protocolCursors.historyExists["testproto"])
+		assert.True(t, svc.protocolCursors.currentStateExists["testproto"])
+
+		// Production is now enabled: a ledger processed after the re-probe actually CASes.
+		processor.processedLedger = 100
+		buffer := indexer.NewIndexerBuffer()
+		meta := dummyLedgerMeta(100)
+		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		histCursor, getErr := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
+		require.NoError(t, getErr)
+		assert.Equal(t, uint32(100), histCursor)
 	})
 
 	t.Run("G: contract-id lookup failure fails the ledger", func(t *testing.T) {
@@ -2338,6 +2411,7 @@ func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
 		processor.processedLedger = 100
 		setupDBCursors(t, ctx, pool, 99, 99)
 		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		// Inject a failing contract-id lookup over the otherwise-real models.
 		contractsMock := data.NewProtocolContractsModelMock(t)
@@ -2454,7 +2528,12 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	require.NoError(t, err)
 	defer pool.Close()
 
-	setupDBCursors(t, ctx, pool, 0, 0)
+	// The guarded latest cursor (see IngestStoreModel.UpdateGuarded) requires the current DB
+	// value to be startLedger-1 or startLedger, matching the real startLiveIngestion precondition
+	// (initializeCursors/the previous ledger's write always leave the cursor one behind the next
+	// ledger to process).
+	const startLedger = uint32(51) // not a multiple of oldestLedgerSyncInterval (100)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 	models, err := data.NewModels(pool, m.DB)
@@ -2496,9 +2575,9 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	})
 	require.NoError(t, err)
 
-	const startLedger = uint32(51) // not a multiple of oldestLedgerSyncInterval (100)
+	noopCheckLockSession := func(context.Context) error { return nil }
 	done := make(chan error, 1)
-	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger) }()
+	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger, noopCheckLockSession) }()
 
 	// The consumer must keep draining and advancing the cursor despite the blocked lag read.
 	require.Eventually(t, func() bool {
@@ -2518,4 +2597,59 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	case <-time.After(5 * time.Second):
 		t.Fatal("ingestLiveLedgers did not return after context cancellation")
 	}
+}
+
+// Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally is a regression test for
+// ING-05: a CNPG failover can kill the Postgres session holding the advisory lock without this
+// process observing the disconnect, silently releasing the lock while pgxpool never destroys the
+// (now server-dead) pooled connection. checkLockSession must be probed every ledger and, on
+// failure, ingestLiveLedgers must return immediately — not after exhausting the ledger-fetch
+// retry ladder (maxLedgerFetchRetries attempts, up to ~2.5 minutes) — so the process can exit and
+// re-acquire the lock cleanly on restart.
+func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const startLedger = uint32(51)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	// GetLedger must never be reached: the liveness probe is checked at the top of the loop,
+	// before any ledger fetch.
+	mockBackend := &LedgerBackendMock{}
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeLive,
+		Models:                 models,
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		AppTracker:             &apptracker.MockAppTracker{},
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          mockBackend,
+		Metrics:                m,
+		GetLedgersLimit:        defaultGetLedgersLimit,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	sessionDeadErr := fmt.Errorf("driver: bad connection")
+	deadLockSession := func(context.Context) error { return sessionDeadErr }
+
+	start := time.Now()
+	runErr := svc.ingestLiveLedgers(ctx, startLedger, deadLockSession)
+	elapsed := time.Since(start)
+
+	require.Error(t, runErr)
+	assert.ErrorIs(t, runErr, sessionDeadErr)
+	assert.Less(t, elapsed, time.Second, "a dead lock session must fail fast, not after the ledger-fetch retry ladder")
+	mockBackend.AssertNotCalled(t, "GetLedger", mock.Anything, mock.Anything)
 }

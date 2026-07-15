@@ -193,8 +193,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		return nil, nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
-	// Create pond pool for contract metadata fetching
-	contractMetadataPool := pond.NewPool(0)
+	// Create pond pool for contract metadata fetching, bounded to the batch size
+	// ContractMetadataService itself submits per round-trip (pond.NewPool(0) is unbounded).
+	contractMetadataPool := pond.NewPool(services.SimulateTransactionBatchSize)
 	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
 
 	// Create ContractMetadataService for fetching and storing token metadata
@@ -297,13 +298,16 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	wasmExtractor := services.NewWasmSpecExtractor()
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:             cfg.IngestionMode,
-		Models:                    models,
-		OldestLedgerCursorName:    cfg.OldestLedgerCursorName,
-		AppTracker:                cfg.AppTracker,
-		RPCService:                rpcService,
-		LedgerBackend:             ledgerBackend,
-		LedgerBackendFactory:      ledgerBackendFactory,
+		IngestionMode:          cfg.IngestionMode,
+		Models:                 models,
+		OldestLedgerCursorName: cfg.OldestLedgerCursorName,
+		AppTracker:             cfg.AppTracker,
+		RPCService:             rpcService,
+		LedgerBackend:          ledgerBackend,
+		LedgerBackendFactory:   ledgerBackendFactory,
+		// Never matches for the RPC backend (it never wraps ErrBufferDead), so this is safe
+		// to wire unconditionally rather than branching on cfg.LedgerBackendType.
+		IsPermanentFetchError:     func(err error) bool { return errors.Is(err, ErrBufferDead) },
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,

@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stretchr/testify/assert"
@@ -80,4 +83,52 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	acquired, err := db.AcquireAdvisoryLock(verifyCtx, pool2, generateAdvisoryLockID(testNetwork))
 	require.NoError(t, err)
 	assert.True(t, acquired, "advisory lock should have been released during shutdown despite the cancelled context")
+}
+
+// Test_isPermanentPersistError covers ING-06's classifier: SQLSTATE class 22/23/42 (and
+// ErrCursorGuardFailed) must fail an ingestion attempt immediately instead of burning the full
+// 5-attempt retry ladder; every other error (including no PgError at all) must still retry, same
+// as before this classifier existed.
+func Test_isPermanentPersistError(t *testing.T) {
+	pgErrWithCode := func(code string) error {
+		return &pgconn.PgError{Code: code, Message: "boom"}
+	}
+
+	testCases := []struct {
+		name          string
+		err           error
+		wantPermanent bool
+	}{
+		{name: "nil_error", err: nil, wantPermanent: false},
+		{name: "plain_error_no_pgerror", err: errors.New("db connection failed"), wantPermanent: false},
+		{name: "data_exception_22001_string_data_right_truncation", err: pgErrWithCode("22001"), wantPermanent: true},
+		{name: "integrity_constraint_23505_unique_violation", err: pgErrWithCode("23505"), wantPermanent: true},
+		{name: "integrity_constraint_23503_foreign_key_violation", err: pgErrWithCode("23503"), wantPermanent: true},
+		{name: "syntax_or_access_rule_42501_insufficient_privilege", err: pgErrWithCode("42501"), wantPermanent: true},
+		{name: "syntax_or_access_rule_42P01_undefined_table", err: pgErrWithCode("42P01"), wantPermanent: true},
+		{name: "serialization_failure_40001_is_transient", err: pgErrWithCode("40001"), wantPermanent: false},
+		{name: "deadlock_detected_40P01_is_transient", err: pgErrWithCode("40P01"), wantPermanent: false},
+		{name: "connection_exception_08006_is_transient", err: pgErrWithCode("08006"), wantPermanent: false},
+		{name: "admin_shutdown_57P01_is_transient_cnpg_failover", err: pgErrWithCode("57P01"), wantPermanent: false},
+		{name: "crash_shutdown_57P02_is_transient_cnpg_failover", err: pgErrWithCode("57P02"), wantPermanent: false},
+		{name: "cannot_connect_now_57P03_is_transient_cnpg_failover", err: pgErrWithCode("57P03"), wantPermanent: false},
+		{name: "unknown_sqlstate_defaults_to_transient", err: pgErrWithCode("99999"), wantPermanent: false},
+		{
+			name:          "wrapped_pgerror_still_classified_via_errors_As",
+			err:           fmt.Errorf("persisting ledger data for ledger 100: running atomic function in RunInTransaction: %w", pgErrWithCode("23505")),
+			wantPermanent: true,
+		},
+		{name: "cursor_guard_failed_is_permanent", err: data.ErrCursorGuardFailed, wantPermanent: true},
+		{
+			name:          "wrapped_cursor_guard_failed_is_permanent",
+			err:           fmt.Errorf("updating cursor for ledger 100: %w", data.ErrCursorGuardFailed),
+			wantPermanent: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.wantPermanent, isPermanentPersistError(tc.err))
+		})
+	}
 }

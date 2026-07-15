@@ -25,9 +25,12 @@ import (
 // errors / strings imports above already cover everything the retry helpers need.
 
 const (
-	// simulateTransactionBatchSize is the number of contracts to process in parallel
-	// when fetching metadata via RPC simulation.
-	simulateTransactionBatchSize = 20
+	// SimulateTransactionBatchSize is the number of contracts to process in parallel
+	// when fetching metadata via RPC simulation. Exported so callers that size a
+	// worker pool to serve this batch size (cmd/ingest's contract-metadata pool,
+	// the SEP-41 validator's private pool) reference the same value instead of a
+	// hardcoded copy that can drift out of sync.
+	SimulateTransactionBatchSize = 20
 
 	// batchSleepDuration is the delay between batches to avoid overwhelming the RPC.
 	batchSleepDuration = 2 * time.Second
@@ -142,8 +145,8 @@ func (s *contractMetadataService) FetchSACMetadata(ctx context.Context, contract
 	)
 
 	// Process in batches to avoid overwhelming the RPC
-	for i := 0; i < len(contractIDs); i += simulateTransactionBatchSize {
-		end := min(i+simulateTransactionBatchSize, len(contractIDs))
+	for i := 0; i < len(contractIDs); i += SimulateTransactionBatchSize {
+		end := min(i+SimulateTransactionBatchSize, len(contractIDs))
 		batch := contractIDs[i:end]
 
 		group := s.pool.NewGroupContext(ctx)

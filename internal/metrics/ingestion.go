@@ -10,7 +10,10 @@ type IngestionMetrics struct {
 	// OldestLedger tracks the oldest ingested ledger (backfill boundary).
 	// PromQL: wallet_ingestion_oldest_ledger
 	OldestLedger prometheus.Gauge
-	// Duration observes end-to-end ledger ingestion time (fetch + process + persist).
+	// Duration observes ledger processing time: process_ledger + prepare_classification +
+	// insert_into_db. It excludes the ledger-fetch phase (including tip-wait) by design — see
+	// LedgerFetchDuration for that — since fetch time is bounded by backend/tip latency, not by
+	// this process's own work.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_duration_seconds_bucket[5m]))
 	Duration prometheus.Histogram
 	// PhaseDuration observes per-phase ingestion time, labeled by phase.
@@ -31,7 +34,10 @@ type IngestionMetrics struct {
 	// LagLedgers tracks how far behind ingestion is from the backend tip.
 	// PromQL: wallet_ingestion_lag_ledgers > 100
 	LagLedgers prometheus.Gauge
-	// LedgerFetchDuration observes time to fetch a ledger from the backend (including retries).
+	// LedgerFetchDuration observes time to fetch a ledger from the backend, including retry
+	// overhead AND tip-wait: at the live tip, the backend blocks GetLedger until the next ledger
+	// closes, so this metric's steady-state floor tracks ledger close cadence (~5-6s) rather than
+	// pure I/O latency — that is the intended semantics, not a measurement bug.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_ledger_fetch_duration_seconds_bucket[5m]))
 	LedgerFetchDuration prometheus.Histogram
 	// RetriesTotal counts individual retry attempts by operation.
@@ -72,7 +78,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}),
 		Duration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_duration_seconds",
-			Help:    "Duration of ledger ingestion.",
+			Help:    "Duration of ledger processing (process + persist). Excludes the ledger-fetch phase, including tip-wait; see wallet_ingestion_ledger_fetch_duration_seconds for that.",
 			Buckets: []float64{0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7, 10},
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -103,7 +109,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}),
 		LedgerFetchDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_ledger_fetch_duration_seconds",
-			Help:    "Time to fetch a ledger from the backend including retry overhead.",
+			Help:    "Time to fetch a ledger from the backend, including retry overhead and tip-wait. At the live tip, this tracks ledger close cadence rather than pure fetch latency — that is the intended semantics.",
 			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
 		}),
 		RetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
