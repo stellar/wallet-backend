@@ -36,7 +36,7 @@ curl -X POST http://localhost:8080/graphql \
 
 **Schema Introspection:**
 
-You can explore the full schema using GraphQL introspection:
+You can explore the full schema using GraphQL introspection, when enabled:
 
 ```graphql
 query {
@@ -49,9 +49,11 @@ query {
 }
 ```
 
+Introspection (`__schema`, `__type`) is **disabled by default** — it exposes the full schema, including any unreleased or internal-only fields, to anyone who can reach the endpoint. Enable it with the `--graphql-introspection-enabled` flag or `GRAPHQL_INTROSPECTION_ENABLED` environment variable. Production deployments should leave it disabled; dev environments typically enable it.
+
 ## Queries
 
-The GraphQL API provides six root queries for accessing blockchain data. Account balances are fetched through `accountByAddress`:
+The GraphQL API provides nine root queries for accessing blockchain data. Account balances and Blend v2 positions are fetched through `accountByAddress`:
 
 | # | Query | Description |
 |---|-------|-------------|
@@ -61,6 +63,9 @@ The GraphQL API provides six root queries for accessing blockchain data. Account
 | 4 | [`operations`](#4-list-all-operations) | List all operations with pagination |
 | 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
 | 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
+| 8 | [`blendPools`](#8-list-blend-pools) | List all Blend v2 lending pools |
+| 9 | [`blendPool`](#9-get-blend-pool-by-address) | Get a single Blend v2 pool by address |
+| 10 | [`blendEarnOptions`](#10-list-blend-earn-options) | List assets earnable across Blend v2 pools, and which pools offer them |
 
 ### 1. Get Transaction by Hash
 
@@ -98,11 +103,11 @@ query GetTransaction {
 
 ### 2. List All Transactions
 
-Query transactions with cursor-based pagination.
+Query transactions with cursor-based pagination. `transactions`, `operations`, and `stateChanges` are the only root queries with no account to scope the scan to, so — unlike their `Account`-nested counterparts — they default to a 7-day window when `since`/`until` are omitted.
 
 ```graphql
 query ListTransactions {
-  transactions(first: 10, after: "cursor123") {
+  transactions(since: "2026-07-01T00:00:00Z", first: 10, after: "cursor123") {
     edges {
       node {
         hash
@@ -121,13 +126,14 @@ query ListTransactions {
 }
 ```
 
-**Pagination Parameters:**
-- `first: Int` - Return the first N items (forward pagination)
+**Parameters:**
+- `since: Time` / `until: Time` - Optional time bounds on `ledgerCreatedAt`. When both are omitted, the query defaults to the last 7 days; pass either to reach further back (up to the retention window). The cursor encodes position only, not the time window — repeat the same `since`/`until` on every page of a scan to keep the window stable, since omitting them on a later page re-applies the 7-day default relative to "now".
+- `first: Int` - Return the first N items (forward pagination), capped at 100
 - `after: String` - Return items after this cursor
-- `last: Int` - Return the last N items (backward pagination)
+- `last: Int` - Return the last N items (backward pagination), capped at 100
 - `before: String` - Return items before this cursor
 
-Note that you can only use `first/after` and `last/before`. Any other combination will result in an error.
+Note that you can only use `first/after` and `last/before`. Any other combination, or a `first`/`last` above 100, results in a `BAD_USER_INPUT` error.
 
 ### 3. Get Account by Address
 
@@ -207,7 +213,7 @@ The `stateChanges` field on Account supports an optional `filter` parameter with
 
 ### 4. List All Operations
 
-Query operations across all transactions.
+Query operations across all transactions. Accepts the same optional `since`/`until` arguments as `transactions` (see [above](#2-list-all-transactions)), defaulting to the last 7 days when both are omitted.
 
 ```graphql
 query ListOperations {
@@ -296,7 +302,7 @@ query GetOperation {
 
 ### 6. List State Changes
 
-Query all state changes.
+Query all state changes. Accepts the same optional `since`/`until` arguments as `transactions` (see [above](#2-list-all-transactions)), defaulting to the last 7 days when both are omitted.
 
 ```graphql
 query ListStateChanges {
@@ -553,8 +559,8 @@ This query returns structured GraphQL errors with error codes in the `extensions
 | Error Code | Description |
 |------------|-------------|
 | `INVALID_ADDRESS` | The provided address is not a valid Stellar account (G...) or contract (C...) address |
-| `RPC_UNAVAILABLE` | Failed to fetch balance data from Stellar RPC |
-| `INTERNAL_ERROR` | An unexpected error occurred while processing the balance request |
+| `BAD_USER_INPUT` | `first`/`last` exceeds the page size cap, or an invalid pagination argument combination was given |
+| `INTERNAL_ERROR` | An unexpected error occurred while fetching or processing balance data (storage or RPC failure) |
 
 **Error Response Example:**
 
@@ -575,6 +581,137 @@ This query returns structured GraphQL errors with error codes in the `extensions
   }
 }
 ```
+
+### 8. List Blend Pools
+
+Catalog view of every Blend v2 lending pool, independent of any account.
+
+```graphql
+query ListBlendPools {
+  blendPools {
+    address
+    name
+    status
+    suppliedUsd
+    borrowedUsd
+    backstopUsd
+    interestApy
+    netApy
+    reserves {
+      assetContractId
+      tokenSymbol
+      utilization
+      supplyApy
+      borrowApy
+      emissionsSupplyApr
+      priceUsd
+    }
+  }
+}
+```
+
+**Key Fields:**
+- `status: Int` - Raw on-chain pool status: `0` Admin Active, `1` Active, `2` Admin On-Ice, `3` On-Ice, `4` Admin Frozen, `5` Frozen, `6` Setup. Statuses 0-3 accept supply; 0-1 also allow borrowing; 4-6 reject both.
+- `suppliedUsd`/`borrowedUsd` - Sum of each reserve's own USD totals; `null` if any reserve's price is unavailable, since the pool-wide total is then genuinely uncomputable.
+- `backstopUsd` - The pool's backstop LP token balance, priced at the Comet LP rate.
+- `interestApy`/`netApy` - Supplied-USD-weighted means of each reserve's `supplyApy`; `netApy` additionally folds in each reserve's BLND emissions.
+
+### 9. Get Blend Pool by Address
+
+Retrieve a single Blend v2 pool by its contract address.
+
+```graphql
+query GetBlendPool {
+  blendPool(address: "CBLND...") {
+    address
+    name
+    status
+    backstopRate
+    maxPositions
+    reserves {
+      assetContractId
+      tokenName
+      tokenDecimals
+      cFactor
+      lFactor
+    }
+  }
+}
+```
+
+Returns `null` if no pool exists at the address. An address that isn't a valid Stellar contract (C...) address returns a `BAD_USER_INPUT` error.
+
+### 10. List Blend Earn Options
+
+A "where can I earn this asset" catalog view: one entry per asset with at least one enabled reserve in a pool currently accepting supply. Frozen and Setup pools are excluded, since they reject deposits on-chain.
+
+```graphql
+query ListBlendEarnOptions {
+  blendEarnOptions {
+    assetContractId
+    tokenSymbol
+    tokenDecimals
+    pools {
+      poolAddress
+      poolName
+      supplyApy
+      emissionsSupplyApr
+      suppliedUsd
+    }
+  }
+}
+```
+
+`supplyApy + emissionsSupplyApr` is the emissions-inclusive rate a client would show as the earn headline; `emissionsSupplyApr` is `0` when no active BLND emission stream exists, `null` when the BLND price is unavailable.
+
+### 11. Get Account Blend Positions
+
+An account's Blend v2 lending, collateral, borrowing, and backstop positions, fetched through `accountByAddress`.
+
+```graphql
+query GetAccountBlendPositions {
+  accountByAddress(address: "GABC...") {
+    blendPositions {
+      backstopClaimedLp
+      pools {
+        poolAddress
+        poolName
+        usdValue
+        suppliedUsd
+        borrowedUsd
+        netApy
+        claimedBlnd
+        reserves {
+          assetContractId
+          suppliedTokens
+          borrowedTokens
+          interestEarned
+          emissionsEarnedBlnd
+        }
+      }
+      backstop {
+        poolAddress
+        shares
+        lpTokens
+        usdValue
+        emissionsEarnedBlnd
+        q4w {
+          amount
+          expiration
+          lpTokens
+          usdValue
+        }
+      }
+    }
+  }
+}
+```
+
+**Key Fields:**
+- `pools[].claimedBlnd` - Lifetime pool-source BLND claim total for that pool; per-reserve `emissionsEarnedBlnd` is claimable (uncollected) only, since claim history is tracked per pool, not per reserve.
+- `backstop[].shares` - The active (non-queued) backstop share balance; `usdValue`/`lpTokens` value the whole deposit (active plus queued), since queued shares keep earning interest and remain slashable until withdrawn.
+- `backstop[].q4w` - Queued backstop withdrawals, each unlocking at `expiration` (Unix seconds).
+- `backstopClaimedLp` - Lifetime backstop-emission claims in Comet LP tokens, account-wide only — the on-chain backstop claim event carries no pool address.
 
 ## Pagination
 
@@ -649,6 +786,10 @@ query {
 - `hasPreviousPage: Boolean!` - True if more items exist before the current page
 - `startCursor: String` - Cursor of the first item in the page
 - `endCursor: String` - Cursor of the last item in the page
+
+**Page Size Limits:**
+
+Every connection in the schema — root (`transactions`, `operations`, `stateChanges`), account-scoped (`Account.transactions`/`operations`/`stateChanges`/`balances`/`sep41Allowances`), and nested (`Transaction.operations`/`stateChanges`, `Operation.stateChanges`) — caps `first`/`last` at **100**. A page size above the cap is rejected with a `BAD_USER_INPUT` error rather than silently clamped, so callers get an explicit signal instead of a smaller-than-requested page.
 
 ## State Changes
 
@@ -795,7 +936,7 @@ Several state change fields return JSON-formatted strings containing old and new
 
 ## Error Handling
 
-The GraphQL API returns structured errors with detailed information:
+The GraphQL API returns structured errors with an `extensions.code` field so clients can branch on error type without parsing the message.
 
 **Error Response Format:**
 
@@ -803,11 +944,12 @@ The GraphQL API returns structured errors with detailed information:
 {
   "errors": [
     {
-      "message": "Account already exists",
+      "message": "invalid transaction hash format: must be a 64-character hex string",
       "extensions": {
-        "code": "ACCOUNT_ALREADY_EXISTS"
+        "code": "INVALID_TRANSACTION_HASH",
+        "hash": "not-a-hash"
       },
-      "path": ["registerAccount"]
+      "path": ["transactionByHash"]
     }
   ],
   "data": null
@@ -833,6 +975,24 @@ Some errors include additional context in the `extensions` field. For example, w
   "data": null
 }
 ```
+
+**Error Codes:**
+
+| Error Code | Meaning |
+|------------|---------|
+| `BAD_USER_INPUT` | Client-correctable validation failure — an invalid pagination combination, a page size over the cap, or similar |
+| `INVALID_ADDRESS` | The provided address is not a valid Stellar account (G...) or contract (C...) address |
+| `INVALID_TRANSACTION_HASH` | The provided hash is not a 64-character hex string |
+| `INTERNAL_ERROR` | A sanitized, generic failure from a specific resolver (e.g. the balances query) that already masks its own internal detail |
+| `GRAPHQL_VALIDATION_FAILED` | The query failed schema validation (unknown field, bad argument, ...) |
+| `GRAPHQL_PARSE_FAILED` | The query failed to parse |
+| `COMPLEXITY_LIMIT_EXCEEDED` | The query's computed complexity exceeds the configured limit (see [Complexity Limits](#2-complexity-limits)) |
+| `QUERY_TOO_DEEP` | The query's selection set nests deeper than the depth limit (see [Depth Limit](#3-depth-limit)) |
+| `INTERNAL_SERVER_ERROR` | An unmasked internal failure — see below |
+
+**Error Masking:**
+
+Any error surfaced without one of the codes above is treated as an internal failure: the server logs the underlying error server-side and returns a generic `"internal server error"` message under `INTERNAL_SERVER_ERROR` instead of forwarding the raw error text to the client. This prevents a bare SQL driver error, a wrapped Go error, or other internal detail (query text, table/column names, etc.) from leaking to callers.
 
 ## Performance Features
 
@@ -870,24 +1030,49 @@ query ListTransactions {
 
 ### 2. Complexity Limits
 
-Queries are limited by a configurable complexity score (default: **1000**) to prevent resource exhaustion. Complexity is calculated based on:
+Queries are limited by a configurable complexity score to prevent resource exhaustion. Complexity is calculated based on:
 - Number of fields requested
 - Pagination parameters (`first`/`last` multiplied by field complexity)
 
-The complexity limit can be configured via the `--graphql-complexity-limit` flag or the `GRAPHQL_COMPLEXITY_LIMIT` environment variable.
+The complexity limit is set via the `--graphql-complexity-limit` flag (see `cmd/utils/global_options.go` for the built-in default) or the `GRAPHQL_COMPLEXITY_LIMIT` environment variable; deployments commonly override the built-in default to fit their own query patterns.
 
 If a query exceeds the limit, you'll receive an error:
 ```json
 {
   "errors": [
     {
-      "message": "operation has complexity 1100, which exceeds the limit of 1000"
+      "message": "operation has complexity 1100, which exceeds the limit of 1000",
+      "extensions": {
+        "code": "COMPLEXITY_LIMIT_EXCEEDED"
+      }
     }
   ]
 }
 ```
 
-### 3. Automatic Persisted Queries (APQ)
+### 3. Depth Limit
+
+Independent of the complexity limit, queries are also limited by selection-set nesting depth (default: **15**). A chain of `first: 1` connections costs only ~1 in complexity per level regardless of how deep it goes, so depth is capped separately to reject pathologically deep queries that would otherwise slip under the complexity budget. Fragment spreads are resolved against the query's fragments before measuring depth, so nesting can't be hidden behind a fragment indirection.
+
+If a query exceeds the limit, you'll receive an error with code `QUERY_TOO_DEEP`:
+```json
+{
+  "errors": [
+    {
+      "message": "operation has depth 18, which exceeds the limit of 15",
+      "extensions": {
+        "code": "QUERY_TOO_DEEP"
+      }
+    }
+  ]
+}
+```
+
+### 4. Request Timeout
+
+Each request's context is bounded to **30 seconds**. A resolver or database query still running when the timeout elapses is canceled and the request fails; this bounds worst-case resource usage per request independent of the complexity and depth limits.
+
+### 5. Automatic Persisted Queries (APQ)
 
 Reduces bandwidth by allowing clients to send query hashes instead of full query strings:
 
@@ -916,7 +1101,7 @@ POST /graphql
 }
 ```
 
-### 4. Field Selection Optimization
+### 6. Field Selection Optimization
 
 The API only queries database columns that are requested in the GraphQL query, reducing unnecessary data transfer:
 

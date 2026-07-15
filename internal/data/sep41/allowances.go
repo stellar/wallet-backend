@@ -88,7 +88,7 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, li
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
 		WHERE a.owner_id = $1
 		  AND a.expiration_ledger >= COALESCE(
-		      (SELECT value::integer FROM ingest_store WHERE key = $2),
+		      (SELECT value::bigint FROM ingest_store WHERE key = $2),
 		      0
 		  )`
 	args := []interface{}{types.AddressBytea(ownerAddress), latestIngestLedgerCursor}

@@ -198,7 +198,7 @@ func (m *IngestStoreModel) CompareAndSwap(ctx context.Context, dbTx pgx.Tx, curs
 func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		UPDATE ingest_store
-		SET value = LEAST(value::integer, $2)::text
+		SET value = LEAST(value::bigint, $2)::text
 		WHERE key = $1
 	`
 	start := time.Now()
