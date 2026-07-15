@@ -45,8 +45,8 @@ func TestStateChangesByToIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T) {
 	limit := int32Ptr(10)
 	loaders := NewDataloaders(models)
 	results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
-		{ToID: toID, Columns: "state_change_category", Limit: limit, SortOrder: data.ASC},
-		{ToID: toID, Columns: "state_change_category, state_change_reason", Limit: limit, SortOrder: data.ASC},
+		{ToID: toID, Columns: "state_change_category", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
+		{ToID: toID, Columns: "state_change_category, state_change_reason", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
@@ -96,8 +96,8 @@ func TestStateChangesByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 		limit := int32Ptr(51)
 		loaders := NewDataloaders(models)
 		results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
-			{ToID: toIDA, Limit: limit, SortOrder: data.ASC},
-			{ToID: toIDB, Limit: limit, SortOrder: data.ASC},
+			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
+			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 		})
 		require.NoError(t, err)
 		require.Len(t, results, 2)
@@ -109,8 +109,8 @@ func TestStateChangesByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 		limit := int32Ptr(6)
 		loaders := NewDataloaders(models)
 		results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
-			{ToID: toIDA, Limit: limit, SortOrder: data.ASC},
-			{ToID: toIDB, Limit: limit, SortOrder: data.ASC},
+			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
+			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 		})
 		require.NoError(t, err)
 		require.Len(t, results, 2)

@@ -34,11 +34,12 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		ToID:      obj.ToID,
-		Columns:   strings.Join(dbColumns, ", "),
-		Limit:     &queryLimit,
-		Cursor:    params.Cursor,
-		SortOrder: params.SortOrder,
+		ToID:            obj.ToID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.Cursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	operations, err := loaders.OperationsByToIDLoader.Load(ctx, loaderKey)
@@ -98,11 +99,12 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		ToID:      obj.ToID,
-		Columns:   strings.Join(dbColumns, ", "),
-		Limit:     &queryLimit,
-		Cursor:    params.StateChangeCursor,
-		SortOrder: params.SortOrder,
+		ToID:            obj.ToID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.StateChangeCursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	stateChanges, err := loaders.StateChangesByToIDLoader.Load(ctx, loaderKey)

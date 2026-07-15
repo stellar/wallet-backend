@@ -48,9 +48,11 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
-	// Add transaction hash filter if provided (uses subquery to find to_id by hash)
+	// Add transaction hash filter if provided (uses subquery to find to_id(s) by hash).
+	// idx_transactions_hash is non-unique (TimescaleDB can't enforce unique(hash) on a
+	// hypertable), so this must tolerate more than one matching row instead of erroring.
 	if txHash != nil {
-		fmt.Fprintf(&queryBuilder, " AND to_id = (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex)
+		fmt.Fprintf(&queryBuilder, " AND to_id IN (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex)
 		args = append(args, types.HashBytea(*txHash))
 		argIndex++
 	}
@@ -125,6 +127,9 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 }
 
 func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	if err := validatePositiveLimit(limit); err != nil {
+		return nil, err
+	}
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
 	var queryBuilder strings.Builder
 	var args []interface{}
@@ -156,7 +161,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_id ASC")
 	}
 
-	if limit != nil && *limit > 0 {
+	if limit != nil {
 		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
@@ -331,18 +336,19 @@ func generateStateChangeID() (int64, error) {
 	return int64(binary.BigEndian.Uint64(buf[:]) & 0x7FFFFFFFFFFFFFFF), nil
 }
 
-// BatchGetByToID gets state changes for a single transaction with pagination support.
-func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// BatchGetByToID gets state changes for a single transaction with pagination support, pinned to
+// the parent transaction's ledger_created_at for partition-column chunk exclusion.
+func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
-		WHERE to_id = $1
+		WHERE to_id = $1 AND ledger_created_at = $2
 	`, columns)
 
-	args := []interface{}{toID}
-	argIndex := 2
+	args := []interface{}{toID, ledgerCreatedAt}
+	argIndex := 3
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -390,35 +396,55 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, colum
 	return stateChanges, nil
 }
 
-// BatchGetByToIDs gets the state changes that are associated with the given to_ids.
-func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
-	var queryBuilder strings.Builder
-	// This CTE query implements per-transaction pagination to ensure balanced results.
-	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// transactions, we use ROW_NUMBER() with PARTITION BY to_id to limit results per transaction.
-	// This guarantees that each transaction gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple transactions.
-	fmt.Fprintf(&queryBuilder, `
-		WITH
-			inputs (to_id) AS (
-				SELECT * FROM UNNEST($1::bigint[])
-			),
-
-			ranked_state_changes_per_to_id AS (
-				SELECT
-					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.to_id ORDER BY sc.ledger_created_at %s, sc.to_id %s, sc.operation_id %s, sc.state_change_id %s) AS rn
-				FROM
-					state_changes sc
-				JOIN
-					inputs i ON sc.to_id = i.to_id
-			)
-		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id FROM ranked_state_changes_per_to_id
-	`, sortOrder, sortOrder, sortOrder, sortOrder, columns)
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " WHERE rn <= %d", *limit)
+// BatchGetByToIDs gets the state changes that are associated with the given to_ids. Callers
+// supply each to_id's parent ledger_created_at so the LATERAL can pin the partition column,
+// giving per-key runtime chunk exclusion instead of a hash join across the whole hypertable.
+func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, ledgerCreatedAts []time.Time, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	if len(toIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id")
+
+	// The ORDER BY + LIMIT live inside the LATERAL (a per-transaction top-N), replacing the old
+	// ROW_NUMBER()-over-everything CTE with an equivalent per-to_id cap; a subquery containing
+	// LIMIT cannot be flattened into a join, so the planner must run this as one per-key PK-band
+	// probe (see BatchGetByAccountAddress) instead of decompressing the whole hypertable.
+	// cursor_ledger_created_at reads k.ledger_created_at (from UNNEST), not sc.ledger_created_at:
+	// the LATERAL only projects the caller-requested columns, which may not include
+	// ledger_created_at, but k.ledger_created_at is always in scope and identical to
+	// sc.ledger_created_at for any row that survives the WHERE match. sc.to_id/operation_id/
+	// state_change_id are safe to reference directly since prepareColumnsWithID always forces
+	// them into the projection.
+	//
+	// OFFSET 0 is an optimization fence: it keeps the chunk-selecting scan (which gets runtime
+	// chunk exclusion from the ledger_created_at equality) planned separately from the ORDER
+	// BY/LIMIT, which would otherwise force a Merge Append probing every chunk's sparse index —
+	// O(chunk count) instead of O(1) with retention. After the fence, ORDER BY reads the
+	// subquery's bare output column names, not "sc."-qualified ones — there is no "sc" in scope
+	// at that level, only the fenced derived table. ledger_created_at and to_id are dropped from
+	// the ORDER BY (not just unqualified): both are pinned to a single constant by the WHERE
+	// clause within one lateral probe, so they're no-op leading sort keys; operation_id and
+	// state_change_id are the only columns that actually vary among a probe's matched rows.
+	args := []interface{}{toIDs, ledgerCreatedAts}
+	var queryBuilder strings.Builder
+	fmt.Fprintf(&queryBuilder, `
+		SELECT %s, k.ledger_created_at as cursor_ledger_created_at, sc.to_id as cursor_to_id, sc.operation_id as cursor_operation_id, sc.state_change_id as cursor_state_change_id
+		FROM UNNEST($1::bigint[], $2::timestamptz[]) AS k(to_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT * FROM (
+				SELECT %s FROM state_changes sc
+				WHERE sc.to_id = k.to_id AND sc.ledger_created_at = k.ledger_created_at
+				OFFSET 0
+			) sub
+			ORDER BY operation_id %s, state_change_id %s`, columns, columns, sortOrder, sortOrder)
+	if limit != nil {
+		queryBuilder.WriteString(" LIMIT $3")
+		args = append(args, *limit)
+	}
+	queryBuilder.WriteString(`
+		) sc
+	`)
+
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
@@ -429,7 +455,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	}
 
 	start := time.Now()
-	stateChanges, err := db.QueryManyPtrs[types.StateChangeWithCursor](ctx, m.DB, query, toIDs)
+	stateChanges, err := db.QueryManyPtrs[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByToIDs", "state_changes").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByToIDs", "state_changes").Observe(float64(len(toIDs)))
@@ -441,18 +467,19 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, c
 	return stateChanges, nil
 }
 
-// BatchGetByOperationID gets state changes for a single operation with pagination support.
-func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+// BatchGetByOperationID gets state changes for a single operation with pagination support,
+// pinned to the parent operation's ledger_created_at for partition-column chunk exclusion.
+func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
-		WHERE operation_id = $1
+		WHERE operation_id = $1 AND ledger_created_at = $2
 	`, columns)
 
-	args := []interface{}{operationID}
-	argIndex := 2
+	args := []interface{}{operationID, ledgerCreatedAt}
+	argIndex := 3
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -555,34 +582,53 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 }
 
 // BatchGetByOperationIDs gets the state changes that are associated with the given operation IDs.
-func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id")
-	var queryBuilder strings.Builder
-	// This CTE query implements per-operation pagination to ensure balanced results.
-	// Instead of applying a global LIMIT that could return all state changes from just a few
-	// operations, we use ROW_NUMBER() with PARTITION BY operation_id to limit results per operation.
-	// This guarantees that each operation gets at most 'limit' state changes, providing
-	// more balanced and predictable pagination across multiple operations.
-	fmt.Fprintf(&queryBuilder, `
-		WITH
-			inputs (operation_id) AS (
-				SELECT * FROM UNNEST($1::bigint[])
-			),
-
-			ranked_state_changes_per_operation_id AS (
-				SELECT
-					sc.*,
-					ROW_NUMBER() OVER (PARTITION BY sc.operation_id ORDER BY sc.ledger_created_at %s, sc.to_id %s, sc.operation_id %s, sc.state_change_id %s) AS rn
-				FROM
-					state_changes sc
-				JOIN
-					inputs i ON sc.operation_id = i.operation_id
-			)
-		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id FROM ranked_state_changes_per_operation_id
-	`, sortOrder, sortOrder, sortOrder, sortOrder, columns)
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " WHERE rn <= %d", *limit)
+// Callers supply each operation's parent ledger_created_at so the LATERAL can pin the partition
+// column, giving per-key runtime chunk exclusion instead of a hash join across the whole
+// hypertable.
+func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+	if len(operationIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
 	}
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id")
+
+	// The ORDER BY + LIMIT live inside the LATERAL (a per-operation top-N), replacing the old
+	// ROW_NUMBER()-over-everything CTE with an equivalent per-operation cap; a subquery
+	// containing LIMIT cannot be flattened into a join, so the planner must run this as one
+	// per-key probe (see BatchGetByAccountAddress) instead of decompressing the whole hypertable.
+	// cursor_ledger_created_at reads k.ledger_created_at (from UNNEST), not sc.ledger_created_at:
+	// the LATERAL only projects the caller-requested columns, which may not include
+	// ledger_created_at, but k.ledger_created_at is always in scope and identical to
+	// sc.ledger_created_at for any row that survives the WHERE match.
+	//
+	// OFFSET 0 is an optimization fence: it keeps the chunk-selecting scan (which gets runtime
+	// chunk exclusion from the ledger_created_at equality) planned separately from the ORDER
+	// BY/LIMIT, which would otherwise force a Merge Append probing every chunk's sparse index —
+	// O(chunk count) instead of O(1) with retention. After the fence, ORDER BY reads the
+	// subquery's bare output column names, not "sc."-qualified ones — there is no "sc" in scope
+	// at that level, only the fenced derived table. ledger_created_at and operation_id are
+	// dropped from the ORDER BY (not just unqualified): both are pinned to a single constant by
+	// the WHERE clause within one lateral probe, so they're no-op leading sort keys; to_id and
+	// state_change_id are the only columns that actually vary among a probe's matched rows.
+	args := []interface{}{operationIDs, ledgerCreatedAts}
+	var queryBuilder strings.Builder
+	fmt.Fprintf(&queryBuilder, `
+		SELECT %s, k.ledger_created_at as cursor_ledger_created_at, sc.to_id as cursor_to_id, sc.operation_id as cursor_operation_id, sc.state_change_id as cursor_state_change_id
+		FROM UNNEST($1::bigint[], $2::timestamptz[]) AS k(operation_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT * FROM (
+				SELECT %s FROM state_changes sc
+				WHERE sc.operation_id = k.operation_id AND sc.ledger_created_at = k.ledger_created_at
+				OFFSET 0
+			) sub
+			ORDER BY to_id %s, state_change_id %s`, columns, columns, sortOrder, sortOrder)
+	if limit != nil {
+		queryBuilder.WriteString(" LIMIT $3")
+		args = append(args, *limit)
+	}
+	queryBuilder.WriteString(`
+		) sc
+	`)
+
 	query := queryBuilder.String()
 
 	// For backward pagination, wrap query to reverse the final order.
@@ -593,7 +639,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	}
 
 	start := time.Now()
-	stateChanges, err := db.QueryManyPtrs[types.StateChangeWithCursor](ctx, m.DB, query, operationIDs)
+	stateChanges, err := db.QueryManyPtrs[types.StateChangeWithCursor](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "state_changes").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "state_changes").Observe(float64(len(operationIDs)))

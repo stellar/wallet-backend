@@ -30,12 +30,12 @@ func (r *accountChangeResolver) Account(ctx context.Context, obj *types.AccountS
 
 // Operation is the resolver for the operation field.
 func (r *accountChangeResolver) Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // FunderAddress is the resolver for the funderAddress field.
@@ -70,12 +70,12 @@ func (r *balanceAuthorizationChangeResolver) Account(ctx context.Context, obj *t
 
 // Operation is the resolver for the operation field.
 func (r *balanceAuthorizationChangeResolver) Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.
@@ -114,12 +114,12 @@ func (r *flagsChangeResolver) Account(ctx context.Context, obj *types.FlagsState
 
 // Operation is the resolver for the operation field.
 func (r *flagsChangeResolver) Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *flagsChangeResolver) Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Flags is the resolver for the flags field.
@@ -148,12 +148,12 @@ func (r *lendingChangeResolver) Account(ctx context.Context, obj *types.LendingS
 
 // Operation is the resolver for the operation field.
 func (r *lendingChangeResolver) Operation(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *lendingChangeResolver) Transaction(ctx context.Context, obj *types.LendingStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.
@@ -197,12 +197,12 @@ func (r *metadataChangeResolver) Account(ctx context.Context, obj *types.Metadat
 
 // Operation is the resolver for the operation field.
 func (r *metadataChangeResolver) Operation(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *metadataChangeResolver) Transaction(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // KeyValue is the resolver for the keyValue field.
@@ -227,12 +227,12 @@ func (r *reservesChangeResolver) Account(ctx context.Context, obj *types.Reserve
 
 // Operation is the resolver for the operation field.
 func (r *reservesChangeResolver) Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *reservesChangeResolver) Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // SponsoredAddress is the resolver for the sponsoredAddress field.
@@ -282,12 +282,12 @@ func (r *signerChangeResolver) Account(ctx context.Context, obj *types.SignerSta
 
 // Operation is the resolver for the operation field.
 func (r *signerChangeResolver) Operation(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *signerChangeResolver) Transaction(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // SignerAddress is the resolver for the signerAddress field.
@@ -335,12 +335,12 @@ func (r *signerThresholdsChangeResolver) Account(ctx context.Context, obj *types
 
 // Operation is the resolver for the operation field.
 func (r *signerThresholdsChangeResolver) Operation(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *signerThresholdsChangeResolver) Transaction(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Thresholds is the resolver for the thresholds field.
@@ -380,12 +380,12 @@ func (r *standardBalanceChangeResolver) Account(ctx context.Context, obj *types.
 
 // Operation is the resolver for the operation field.
 func (r *standardBalanceChangeResolver) Operation(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *standardBalanceChangeResolver) Transaction(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.
@@ -424,12 +424,12 @@ func (r *trustlineChangeResolver) Account(ctx context.Context, obj *types.Trustl
 
 // Operation is the resolver for the operation field.
 func (r *trustlineChangeResolver) Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
 func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID)
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.

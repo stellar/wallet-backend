@@ -82,11 +82,12 @@ func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operati
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		OperationID: obj.ID,
-		Columns:     strings.Join(dbColumns, ", "),
-		Limit:       &queryLimit,
-		Cursor:      params.StateChangeCursor,
-		SortOrder:   params.SortOrder,
+		OperationID:     obj.ID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.StateChangeCursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)

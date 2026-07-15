@@ -46,14 +46,16 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
-				return models.Operations.BatchGetByToID(ctx, keys[0].ToID, columns, limit, keys[0].Cursor, sortOrder)
+				return models.Operations.BatchGetByToID(ctx, keys[0].ToID, keys[0].LedgerCreatedAt, columns, limit, keys[0].Cursor, sortOrder)
 			}
 
 			toIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			for i, key := range keys {
 				toIDs[i] = key.ToID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.Operations.BatchGetByToIDs(ctx, toIDs, columns, limit, sortOrder)
+			return models.Operations.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, limit, sortOrder)
 		},
 		func(item *types.OperationWithCursor) int64 {
 			// Derive tx_to_id from operation ID using TOID bit masking
@@ -118,14 +120,16 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Ope
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithStateChangeID, error) {
 			columns := keys[0].Columns
 			scIDs := make([]string, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			for i, key := range keys {
 				scIDs[i] = key.StateChangeID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
 			scToIDs, scOpIDs, scOrders, err := parseStateChangeIDs(scIDs)
 			if err != nil {
 				return nil, fmt.Errorf("parsing state change IDs: %w", err)
 			}
-			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, columns)
+			return models.Operations.BatchGetByStateChangeIDs(ctx, scToIDs, scOpIDs, scOrders, ledgerCreatedAts, columns)
 		},
 		func(item *types.OperationWithStateChangeID) string {
 			return item.StateChangeID
