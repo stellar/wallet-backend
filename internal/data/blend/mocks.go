@@ -210,3 +210,49 @@ func (m *EmissionModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows [
 	args := m.Called(ctx, dbTx, rows)
 	return args.Error(0)
 }
+
+// PoolClaimedModelMock mocks PoolClaimedModelInterface.
+type PoolClaimedModelMock struct {
+	mock.Mock
+}
+
+var _ PoolClaimedModelInterface = (*PoolClaimedModelMock)(nil)
+
+func NewPoolClaimedModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *PoolClaimedModelMock {
+	m := &PoolClaimedModelMock{}
+	m.Mock.Test(t)
+	t.Cleanup(func() { m.AssertExpectations(t) })
+	return m
+}
+
+func (m *PoolClaimedModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []PoolClaimedDelta) error {
+	args := m.Called(ctx, dbTx, deltas)
+	return args.Error(0)
+}
+
+// BackstopClaimedModelMock mocks BackstopClaimedModelInterface.
+type BackstopClaimedModelMock struct {
+	mock.Mock
+}
+
+var _ BackstopClaimedModelInterface = (*BackstopClaimedModelMock)(nil)
+
+func NewBackstopClaimedModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *BackstopClaimedModelMock {
+	m := &BackstopClaimedModelMock{}
+	m.Mock.Test(t)
+	t.Cleanup(func() { m.AssertExpectations(t) })
+	return m
+}
+
+func (m *BackstopClaimedModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []BackstopClaimedDelta) error {
+	args := m.Called(ctx, dbTx, deltas)
+	return args.Error(0)
+}

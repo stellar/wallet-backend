@@ -41,6 +41,8 @@ type testMocks struct {
 	backstopPools     *blenddata.BackstopPoolModelMock
 	reserveEmissions  *blenddata.ReserveEmissionModelMock
 	emissions         *blenddata.EmissionModelMock
+	poolClaimed       *blenddata.PoolClaimedModelMock
+	backstopClaimed   *blenddata.BackstopClaimedModelMock
 	stateChanges      *data.StateChangeWriterMock
 	protocolContracts *data.ProtocolContractsModelMock
 }
@@ -63,6 +65,8 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 		backstopPools:     blenddata.NewBackstopPoolModelMock(t),
 		reserveEmissions:  blenddata.NewReserveEmissionModelMock(t),
 		emissions:         blenddata.NewEmissionModelMock(t),
+		poolClaimed:       blenddata.NewPoolClaimedModelMock(t),
+		backstopClaimed:   blenddata.NewBackstopClaimedModelMock(t),
 		stateChanges:      data.NewStateChangeWriterMock(t),
 		protocolContracts: data.NewProtocolContractsModelMock(t),
 	}
@@ -75,6 +79,8 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 		backstopPools:     m.backstopPools,
 		reserveEmissions:  m.reserveEmissions,
 		emissions:         m.emissions,
+		poolClaimed:       m.poolClaimed,
+		backstopClaimed:   m.backstopClaimed,
 		stateChanges:      m.stateChanges,
 		protocolContracts: m.protocolContracts,
 	}
@@ -289,6 +295,65 @@ func TestProcessLedger_StagingModes(t *testing.T) {
 		// Sanity: the current-state side does reach the data layer.
 		m.reserves.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		m.positions.On("BatchApplyNetDeltas", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		require.NoError(t, p.PersistCurrentState(ctx, nil))
+	})
+}
+
+func TestProcessLedger_StagesClaims(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	backstopAddr := randomContractAddr(t)
+	userAddr := randomAccountAddr(t)
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	buildInput := func(mode services.StagingMode) services.ProtocolProcessorInput {
+		// Pool claim: Vec data (reserve_token_ids, amount) → source=pool, BLND.
+		poolClaim := contractEvent(t, poolAddr,
+			[]xdr.ScVal{symScVal("claim"), accountAddrScVal(t, userAddr)},
+			vecScVal(vecScVal(u32ScVal(1), u32ScVal(3)), i128ScVal(500)),
+		)
+		// Backstop claim: bare i128 → source=backstop, Comet LP, no pool address.
+		backstopClaim := contractEvent(t, backstopAddr,
+			[]xdr.ScVal{symScVal("claim"), accountAddrScVal(t, userAddr)},
+			i128ScVal(750),
+		)
+		return services.ProtocolProcessorInput{
+			LedgerSequence:    10,
+			ProtocolContracts: []data.ProtocolContracts{poolPC, backstopPC},
+			ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+				{TxIdx: 0, OpIdx: 0}: {poolClaim},
+				{TxIdx: 0, OpIdx: 1}: {backstopClaim},
+			},
+			StagingMode: mode,
+		}
+	}
+
+	t.Run("current-state mode folds claims into accumulators", func(t *testing.T) {
+		p, m := newFullTestProcessor(t)
+		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeCurrentState)))
+		assert.Empty(t, p.stagedStateChanges, "current-state mode stages no history rows")
+		require.Len(t, p.stagedPoolClaims, 1)
+		require.Len(t, p.stagedBackstopClaims, 1)
+
+		m.poolClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.PoolClaimedDelta) bool {
+			return len(rows) == 1 && rows[0].Pool == poolAddr && rows[0].User == userAddr &&
+				rows[0].ClaimedBlnd == "500" && rows[0].LedgerNumber == 10
+		})).Return(nil).Once()
+		m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
+			return len(rows) == 1 && rows[0].User == userAddr && rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
+		})).Return(nil).Once()
+		require.NoError(t, p.PersistCurrentState(ctx, nil))
+	})
+
+	t.Run("history mode stages CLAIM rows but folds no claim totals", func(t *testing.T) {
+		p, _ := newFullTestProcessor(t)
+		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeHistory)))
+		assert.NotEmpty(t, p.stagedStateChanges, "history mode still records the CLAIM feed rows")
+		assert.Empty(t, p.stagedPoolClaims)
+		assert.Empty(t, p.stagedBackstopClaims)
+
+		// PersistCurrentState must be a silent no-op: no claim-accumulator calls.
 		require.NoError(t, p.PersistCurrentState(ctx, nil))
 	})
 }

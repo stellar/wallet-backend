@@ -127,6 +127,15 @@ type stagedUserEmission struct {
 	ledger uint32
 }
 
+// stagedClaim accumulates additive lifetime-claimed amounts across a window:
+// BLND for a pool-source claim (keyed by blenddata.PoolUserKey), Comet LP for a
+// backstop-source claim (keyed by user account, account-wide since the backstop
+// claim event carries no pool address).
+type stagedClaim struct {
+	amount *big.Int
+	ledger uint32
+}
+
 // processor implements services.ProtocolProcessor for the Blend v2 lending
 // protocol.
 type processor struct {
@@ -139,6 +148,8 @@ type processor struct {
 	backstopPools     blenddata.BackstopPoolModelInterface
 	reserveEmissions  blenddata.ReserveEmissionModelInterface
 	emissions         blenddata.EmissionModelInterface
+	poolClaimed       blenddata.PoolClaimedModelInterface
+	backstopClaimed   blenddata.BackstopClaimedModelInterface
 	stateChanges      data.StateChangeWriter
 	protocolContracts data.ProtocolContractsModelInterface
 
@@ -163,6 +174,8 @@ type processor struct {
 	stagedBackstopPools     map[string]*stagedBackstopPool
 	stagedReserveEmissions  map[poolTokenKey]*stagedResEmission
 	stagedUserEmissions     map[emisKey]*stagedUserEmission
+	stagedPoolClaims        map[blenddata.PoolUserKey]*stagedClaim
+	stagedBackstopClaims    map[string]*stagedClaim
 
 	// needsReset is set by Persist* and cleared by Reset(). ProcessLedger refuses
 	// to fold while it is set: folding after a Persist without an intervening
@@ -186,6 +199,8 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 		p.backstopPools = deps.Models.Blend.BackstopPools
 		p.reserveEmissions = deps.Models.Blend.ReserveEmissions
 		p.emissions = deps.Models.Blend.Emissions
+		p.poolClaimed = deps.Models.Blend.PoolClaimed
+		p.backstopClaimed = deps.Models.Blend.BackstopClaimed
 		p.stateChanges = deps.Models.StateChanges
 		p.protocolContracts = deps.Models.ProtocolContracts
 	}
@@ -287,6 +302,20 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		}
 	}
 
+	// Claim folds accumulate lifetime-claimed totals. A pool claim is keyed by the
+	// emitting pool contract (== contractStr, since a pool emits its own events);
+	// a backstop claim is account-wide (its event carries no pool address).
+	if mode.NeedsCurrentState() {
+		for _, cf := range decoded.ClaimFolds {
+			switch cf.Source {
+			case claimSourcePool:
+				p.foldPoolClaim(contractStr, cf.Account, cf.Amount)
+			case claimSourceBackstop:
+				p.foldBackstopClaim(cf.Account, cf.Amount)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -374,6 +403,39 @@ func (p *processor) foldAuctionAdj(pool string, fold AuctionFold) {
 		log.Debugf("blend: skipping unparseable bid delta %q for pool=%s user=%s asset=%s", fold.BidDTokensDelta, pool, fold.User, fold.Asset)
 	}
 	sa.ledger = p.ledgerNumber
+}
+
+// foldPoolClaim accumulates a pool-source claim's BLND amount into the staged
+// lifetime-claimed total for (pool, user).
+func (p *processor) foldPoolClaim(pool, user, amount string) {
+	key := blenddata.PoolUserKey{Pool: pool, User: user}
+	sc, ok := p.stagedPoolClaims[key]
+	if !ok {
+		sc = &stagedClaim{amount: new(big.Int)}
+		p.stagedPoolClaims[key] = sc
+	}
+	if delta, parsed := new(big.Int).SetString(amount, 10); parsed {
+		sc.amount.Add(sc.amount, delta)
+	} else {
+		log.Debugf("blend: skipping unparseable pool claim amount %q for pool=%s user=%s", amount, pool, user)
+	}
+	sc.ledger = p.ledgerNumber
+}
+
+// foldBackstopClaim accumulates a backstop-source claim's Comet LP amount into
+// the staged account-wide lifetime-claimed total for user.
+func (p *processor) foldBackstopClaim(user, amount string) {
+	sc, ok := p.stagedBackstopClaims[user]
+	if !ok {
+		sc = &stagedClaim{amount: new(big.Int)}
+		p.stagedBackstopClaims[user] = sc
+	}
+	if delta, parsed := new(big.Int).SetString(amount, 10); parsed {
+		sc.amount.Add(sc.amount, delta)
+	} else {
+		log.Debugf("blend: skipping unparseable backstop claim amount %q for user=%s", amount, user)
+	}
+	sc.ledger = p.ledgerNumber
 }
 
 // processContractDataChanges walks changes for every tracked contract and
@@ -652,6 +714,8 @@ func (p *processor) Reset() {
 	p.stagedBackstopPools = map[string]*stagedBackstopPool{}
 	p.stagedReserveEmissions = map[poolTokenKey]*stagedResEmission{}
 	p.stagedUserEmissions = map[emisKey]*stagedUserEmission{}
+	p.stagedPoolClaims = map[blenddata.PoolUserKey]*stagedClaim{}
+	p.stagedBackstopClaims = map[string]*stagedClaim{}
 	p.needsReset = false
 }
 
@@ -675,7 +739,10 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 //  2. positions: delete removed groups, then zero/upsert/apply-deltas, so a
 //     Positions entry removed and re-created within the same window nets to
 //     the recreate rather than a delete-after-upsert race.
-//  3. backstop positions, backstop pools, reserve emissions, user emissions.
+//  3. backstop positions, backstop pools, reserve emissions, user emissions,
+//     and lifetime claimed totals. These last groups are keyed by account/pool
+//     only (no asset→reserve resolution), so their order among themselves and
+//     relative to positions does not matter.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.needsReset = true
 
@@ -698,6 +765,9 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 		return err
 	}
 	if err := p.persistUserEmissions(ctx, dbTx); err != nil {
+		return err
+	}
+	if err := p.persistClaims(ctx, dbTx); err != nil {
 		return err
 	}
 	return nil
@@ -1030,6 +1100,37 @@ func (p *processor) persistUserEmissions(ctx context.Context, dbTx pgx.Tx) error
 	}
 	if err := p.emissions.BatchUpsert(ctx, dbTx, rows); err != nil {
 		return fmt.Errorf("upserting %d blend user emissions for ledger %d: %w", len(rows), p.ledgerNumber, err)
+	}
+	return nil
+}
+
+// persistClaims applies the staged lifetime-claimed accumulators: pool-source
+// BLND per (pool, user) and account-wide backstop-source Comet LP per user. The
+// staged maps already pre-aggregate per key, satisfying the writers' one-key-
+// per-batch contract.
+func (p *processor) persistClaims(ctx context.Context, dbTx pgx.Tx) error {
+	if len(p.stagedPoolClaims) > 0 {
+		poolRows := make([]blenddata.PoolClaimedDelta, 0, len(p.stagedPoolClaims))
+		for key, sc := range p.stagedPoolClaims {
+			poolRows = append(poolRows, blenddata.PoolClaimedDelta{
+				Pool: key.Pool, User: key.User, ClaimedBlnd: sc.amount.String(), LedgerNumber: sc.ledger,
+			})
+		}
+		if err := p.poolClaimed.BatchApplyDeltas(ctx, dbTx, poolRows); err != nil {
+			return fmt.Errorf("applying %d blend pool claimed deltas for ledger %d: %w", len(poolRows), p.ledgerNumber, err)
+		}
+	}
+
+	if len(p.stagedBackstopClaims) > 0 {
+		backstopRows := make([]blenddata.BackstopClaimedDelta, 0, len(p.stagedBackstopClaims))
+		for user, sc := range p.stagedBackstopClaims {
+			backstopRows = append(backstopRows, blenddata.BackstopClaimedDelta{
+				User: user, ClaimedLp: sc.amount.String(), LedgerNumber: sc.ledger,
+			})
+		}
+		if err := p.backstopClaimed.BatchApplyDeltas(ctx, dbTx, backstopRows); err != nil {
+			return fmt.Errorf("applying %d blend backstop claimed deltas for ledger %d: %w", len(backstopRows), p.ledgerNumber, err)
+		}
 	}
 	return nil
 }

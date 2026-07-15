@@ -80,16 +80,33 @@ type AuctionFold struct {
 	BidDTokensDelta string
 }
 
+// Claim source tags: which contract paid a `claim`. Also written to the LENDING
+// history row's key_value["source"], so the strings are part of that contract.
+const (
+	claimSourcePool     = "pool"
+	claimSourceBackstop = "backstop"
+)
+
+// ClaimFold is an additive lifetime-claimed amount for one user, ready to become
+// a blend/data claimed-total delta once the processor supplies the contract key.
+// Source distinguishes a pool-reserve claim (BLND, attributed to the emitting
+// pool) from a backstop claim (Comet LP, account-wide — the event has no pool).
+type ClaimFold struct {
+	Account string
+	Source  string // claimSourcePool | claimSourceBackstop
+	Amount  string
+}
+
 // DecodedEvent is the result of decoding one Blend ContractEvent: the
-// LENDING history rows it produces, plus the cost-basis folds (net-delta
-// and/or auction) it implies. Either slice may be empty — most events
-// produce rows with no fold (deposit, claim, ...), fill_auction produces
-// rows with auction folds and no net-delta folds, and most balance-changing
-// events produce exactly one row with exactly one net-delta fold.
+// LENDING history rows it produces, plus the cost-basis / claimed-total folds
+// it implies. Any slice may be empty — most events produce rows with no fold,
+// claim produces a ClaimFold with no cost-basis fold, fill_auction produces
+// auction folds, and most balance-changing events produce one net-delta fold.
 type DecodedEvent struct {
 	Rows        []EventRow
 	NetDeltas   []NetDeltaFold
 	AuctionAdjs []AuctionFold
+	ClaimFolds  []ClaimFold
 }
 
 // ParseEvent decodes one Blend pool or backstop ContractEvent into LENDING
@@ -571,9 +588,12 @@ func decodeClaimAmbiguous(topics []xdr.ScVal, data xdr.ScVal, poolID string, bln
 		}
 		row := EventRow{
 			Reason: types.StateChangeReasonClaim, Account: from, Token: blndToken, Amount: amount, PoolID: poolID,
-			Extra: map[string]any{"source": "pool", "reserveTokenIds": ids},
+			Extra: map[string]any{"source": claimSourcePool, "reserveTokenIds": ids},
 		}
-		return &DecodedEvent{Rows: []EventRow{row}}, nil
+		return &DecodedEvent{
+			Rows:       []EventRow{row},
+			ClaimFolds: []ClaimFold{{Account: from, Source: claimSourcePool, Amount: amount}},
+		}, nil
 	case xdr.ScValTypeScvI128:
 		amount, amtOk := i128String(data)
 		if !amtOk {
@@ -587,9 +607,12 @@ func decodeClaimAmbiguous(topics []xdr.ScVal, data xdr.ScVal, poolID string, bln
 		// backstop-LP convention every backstop share row uses.
 		row := EventRow{
 			Reason: types.StateChangeReasonClaim, Account: from, Token: "", Amount: amount, PoolID: "",
-			Extra: map[string]any{"source": "backstop", "units": "backstop_lp"},
+			Extra: map[string]any{"source": claimSourceBackstop, "units": "backstop_lp"},
 		}
-		return &DecodedEvent{Rows: []EventRow{row}}, nil
+		return &DecodedEvent{
+			Rows:       []EventRow{row},
+			ClaimFolds: []ClaimFold{{Account: from, Source: claimSourceBackstop, Amount: amount}},
+		}, nil
 	default:
 		return nil, fmt.Errorf("blend: claim: data must be a Vec (pool) or an I128 (backstop), got %v", data.Type)
 	}
