@@ -2815,7 +2815,7 @@ type BlendPoolPosition {
   suppliedUsd: Float
   borrowedUsd: Float
   netApy: Float
-  """Lifetime pool-source CLAIM total (state_changes LENDING/CLAIM, source=pool) for this pool."""
+  """Lifetime BLND this account has claimed from this pool's reserve emissions."""
   claimedBlnd: String!
   reserves: [BlendReservePosition!]!
 }

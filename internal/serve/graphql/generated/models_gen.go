@@ -151,7 +151,7 @@ type BlendPoolPosition struct {
 	SuppliedUsd *float64 `json:"suppliedUsd,omitempty"`
 	BorrowedUsd *float64 `json:"borrowedUsd,omitempty"`
 	NetApy      *float64 `json:"netApy,omitempty"`
-	// Lifetime pool-source CLAIM total (state_changes LENDING/CLAIM, source=pool) for this pool.
+	// Lifetime BLND this account has claimed from this pool's reserve emissions.
 	ClaimedBlnd string                  `json:"claimedBlnd"`
 	Reserves    []*BlendReservePosition `json:"reserves"`
 }
