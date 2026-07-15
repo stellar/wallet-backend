@@ -11,7 +11,18 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// loaderBatchCapacity fires a batch as soon as this many distinct keys are enqueued.
+// It matches the maximum page size, so a full page's fan-out never waits on the timer.
+const loaderBatchCapacity = 100
+
+// loaderWait is the collection window before an under-capacity batch fires. Keys for one
+// GraphQL request arrive in a near-instant burst (sibling resolvers run concurrently), so
+// the window only exists to catch that burst; each nested loader level serializes one
+// window, so this is a per-level latency floor, not a throughput knob.
+const loaderWait = 1 * time.Millisecond
 
 // Dataloaders struct holds all dataloader instances for GraphQL resolvers
 // Each dataloader batches requests for a specific type of data relationship
@@ -62,18 +73,35 @@ type Dataloaders struct {
 // This is called during GraphQL server initialization
 // The dataloaders are then injected into GraphQL context by middleware
 // GraphQL resolvers access these loaders to batch database queries efficiently
-func NewDataloaders(models *data.Models) *Dataloaders {
+//
+// m may be nil (e.g. in tests constructing loaders directly without a metrics handle); every
+// instrumentation call site guards against it.
+func NewDataloaders(models *data.Models, m *metrics.DataloaderMetrics) *Dataloaders {
 	return &Dataloaders{
-		OperationsByToIDLoader:           operationsByToIDLoader(models),
-		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
-		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
-		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByToIDLoader:         stateChangesByToIDLoader(models),
-		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
-		AccountsByToIDLoader:             accountsByToIDLoader(models),
-		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
-		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models),
-		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models),
+		OperationsByToIDLoader:           operationsByToIDLoader(models, m),
+		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models, m),
+		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models, m),
+		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models, m),
+		StateChangesByToIDLoader:         stateChangesByToIDLoader(models, m),
+		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models, m),
+		AccountsByToIDLoader:             accountsByToIDLoader(models, m),
+		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models, m),
+		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models, m),
+		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models, m),
+	}
+}
+
+// observeBatch records batch-size and fetch-duration metrics for one dataloader batch. It
+// returns a func to call when the batch's fetch work is complete (deferred by the caller), so
+// duration spans every shape-group fetch the batch was split into. m may be nil.
+func observeBatch(m *metrics.DataloaderMetrics, name string, keyCount int) func() {
+	if m == nil {
+		return func() {}
+	}
+	m.BatchSize.WithLabelValues(name).Observe(float64(keyCount))
+	start := time.Now()
+	return func() {
+		m.FetchDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
 	}
 }
 
@@ -105,6 +133,8 @@ type QueryShape struct {
 //     parameters from keys[0] and apply them to the whole slice.
 //   - getKey: A function that extracts the grouping key from an item.
 //   - shapeOf: Extracts the query shape from a key, used to group the batch before fetching.
+//   - name: A static loader name used only as the "loader" metrics label (fixed set, bounded cardinality).
+//   - m: Metrics handle for batch-size/fetch-duration instrumentation; may be nil.
 //
 // Returns:
 //   - A configured dataloadgen.Loader for one-to-many relationships.
@@ -114,9 +144,14 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 	getPKFromKey func(key K) PK,
 	transform func(item T) V,
 	shapeOf func(key K) QueryShape,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, []*V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([][]*V, []error) {
+			done := observeBatch(m, name, len(keys))
+			defer done()
+
 			result := make([][]*V, len(keys))
 			errs := make([]error, len(keys))
 
@@ -151,8 +186,8 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 
 			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
 }
 
@@ -209,9 +244,14 @@ func newAccountScopedLoader[K comparable, V any](
 	toID func(key K) int64,
 	ledgerCreatedAt func(key K) time.Time,
 	itemToID func(item *V) int64,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, []*V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([][]*V, []error) {
+			done := observeBatch(m, name, len(keys))
+			defer done()
+
 			result := make([][]*V, len(keys))
 			errs := make([]error, len(keys))
 
@@ -252,8 +292,8 @@ func newAccountScopedLoader[K comparable, V any](
 
 			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
 }
 
@@ -269,6 +309,8 @@ func newAccountScopedLoader[K comparable, V any](
 //   - setKey: A function that associates a fetched item with its corresponding key. This is necessary
 //     because the fetcher may not return items in the same order as the input keys.
 //   - shapeOf: Extracts the query shape from a key, used to group the batch before fetching.
+//   - name: A static loader name used only as the "loader" metrics label (fixed set, bounded cardinality).
+//   - m: Metrics handle for batch-size/fetch-duration instrumentation; may be nil.
 //
 // Returns:
 //   - A configured dataloadgen.Loader for one-to-one relationships.
@@ -278,9 +320,14 @@ func newOneToOneLoader[K comparable, PK comparable, V any, T any](
 	getPKFromKey func(key K) PK,
 	transform func(item T) V,
 	shapeOf func(key K) QueryShape,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, *V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([]*V, []error) {
+			done := observeBatch(m, name, len(keys))
+			defer done()
+
 			result := make([]*V, len(keys))
 			errs := make([]error, len(keys))
 
@@ -307,7 +354,7 @@ func newOneToOneLoader[K comparable, PK comparable, V any, T any](
 
 			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
 }

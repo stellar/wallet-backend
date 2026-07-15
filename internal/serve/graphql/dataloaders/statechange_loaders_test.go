@@ -43,7 +43,7 @@ func TestStateChangesByToIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	limit := int32Ptr(10)
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 		{ToID: toID, Columns: "state_change_category", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 		{ToID: toID, Columns: "state_change_category, state_change_reason", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -94,7 +94,7 @@ func TestStateChangesByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 
 	t.Run("limit above available rows returns everything, not a fixed cap", func(t *testing.T) {
 		limit := int32Ptr(51)
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -107,7 +107,7 @@ func TestStateChangesByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 
 	t.Run("limit below available rows is honored exactly", func(t *testing.T) {
 		limit := int32Ptr(6)
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -129,7 +129,7 @@ func TestStateChangesByToIDLoader_NilLimitErrors(t *testing.T) {
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
 	}
 
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	_, err := loaders.StateChangesByToIDLoader.Load(ctx, StateChangeColumnsKey{ToID: 1 << 58, SortOrder: data.ASC})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires a positive limit")

@@ -343,7 +343,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		op, err := resolver.Operation(ctx, &parentSC)
@@ -352,7 +352,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
@@ -369,7 +369,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		op, err := resolver.Operation(ctx, &nonExistentSC)
@@ -400,7 +400,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	}
 
 	t.Run("success", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		tx, err := resolver.Transaction(ctx, &parentSC)
@@ -409,7 +409,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("nil state change panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
@@ -425,7 +425,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 				StateChangeCategory: types.StateChangeCategoryBalance,
 			},
 		}
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		tx, err := resolver.Transaction(ctx, &nonExistentSC)
