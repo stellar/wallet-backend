@@ -30,11 +30,16 @@ const (
 
 // persistLedgerData persists processed ledger data to the database in a single
 // atomic transaction. It handles: trustline assets, contract tokens, filtered
-// data insertion, token changes, and cursor update.
+// data insertion, token changes, and cursor update. plan is this ledger's
+// classification plan, computed by prepareClassificationPlan before any
+// transaction opens (RPC calls already resolved); pass the same plan across
+// ingestProcessedDataWithRetry's retry attempts so a retry never re-issues
+// RPC calls. plan may be nil when there was nothing to classify this ledger.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
 	ledgerMeta *xdr.LedgerCloseMeta,
+	plan *ClassificationPlan,
 	buffer *indexer.IndexerBuffer,
 	cursorName string,
 ) (int, int, error) {
@@ -61,14 +66,15 @@ func (m *ingestService) persistLedgerData(
 			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
-		// 2.5: Run protocol classification (black-box per protocol). Per-
-		// protocol side effects (e.g. SEP-41 contract_tokens metadata) happen
-		// inside this same dbTx via the validators' Validate calls. Live
-		// protocol processors then stage ledger state from the classification
-		// result before the generic protocol_wasms / protocol_contracts rows
-		// are persisted below.
+		// 2.5: Apply protocol classification (black-box per protocol). plan was
+		// computed by prepareClassificationPlan before this transaction opened,
+		// so any RPC calls (e.g. SEP-41 metadata) already happened;
+		// ApplyClassificationPlan only performs each validator's DB writes
+		// here, atomically with the classification verdict and wasm/contract
+		// rows below. Live protocol processors then stage ledger state from
+		// the classification result before the generic protocol_wasms /
+		// protocol_contracts rows are persisted below.
 		bufferedWasms := buffer.GetProtocolWasms()
-		bufferedBytecodes := buffer.GetProtocolWasmBytecodes()
 		bufferedContracts := buffer.GetProtocolContracts()
 
 		contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
@@ -76,9 +82,12 @@ func (m *ingestService) persistLedgerData(
 			contractSlice = append(contractSlice, c)
 		}
 
-		classification, classifyErr := m.runClassification(ctx, dbTx, bufferedWasms, bufferedBytecodes, contractSlice)
-		if classifyErr != nil {
-			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
+		var classification map[types.HashBytea]string
+		if plan != nil {
+			classification = plan.Matches
+		}
+		if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
+			return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
 		}
 
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
@@ -356,9 +365,21 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
 
+		// Classification runs once here, entirely before any database
+		// transaction opens (RPC prefetch happens now, not while row locks are
+		// held), and the resulting plan is reused verbatim across every retry
+		// attempt below.
+		classifyStart := time.Now()
+		plan, err := m.prepareClassificationPlan(ctx, buffer.GetProtocolWasms(), buffer.GetProtocolWasmBytecodes(), buffer.GetProtocolContracts())
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("preparing classification plan for ledger %d: %w", currentLedger, err)
+		}
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(time.Since(classifyStart).Seconds())
+
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -462,10 +483,14 @@ func getEffectiveProtocolContracts(
 }
 
 // ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
+// plan was computed once by the caller before this loop started and is reused
+// verbatim across every attempt, so a retried attempt never re-issues the
+// classification RPC calls plan already resolved.
 func (m *ingestService) ingestProcessedDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
+	plan *ClassificationPlan,
 	buffer *indexer.IndexerBuffer,
 ) (int, int, error) {
 	var lastErr error
@@ -476,7 +501,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}
@@ -504,23 +529,26 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 
-// runClassification builds a ValidationInput from this ledger's buffered
-// raw WASMs and contracts and dispatches to each registered ProtocolValidator
-// in priority order. It returns a wasm hash → protocol_id map covering both
-// previously-committed classifications and this-ledger matches, so live
-// ProcessLedger can reason about same-ledger deploy/upgrade events before
-// protocol_contracts is committed.
+// prepareClassificationPlan runs Phase A of protocol classification for this
+// ledger's buffered raw WASMs and contracts: pure signature matching plus any
+// RPC-sourced enrichment prefetch (e.g. SEP-41 token metadata),
+// entirely before any database transaction opens. Callers must compute this
+// once per ledger and reuse the same plan across retry attempts (like
+// buffer already is) — recomputing it would re-issue RPC calls
+// on every retry. ApplyClassificationPlan (called from inside
+// persistLedgerData's transaction) finishes the job with DB-only writes.
 //
-// Validator side effects (e.g. SEP-41 contract_tokens metadata writes) happen
-// inside dbTx via the validators themselves and commit atomically with the
-// classification verdict.
-func (m *ingestService) runClassification(
+// The known-classification lookup is a non-transactional pool read:
+// staleness is harmless (this-ledger uploads resolve from the buffer; prior
+// rows are immutable once classified), and reading before any transaction
+// opens means it never contends with the CAS/cursor row locks
+// persistLedgerData holds later.
+func (m *ingestService) prepareClassificationPlan(
 	ctx context.Context,
-	dbTx pgx.Tx,
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
-	bufferedContracts []data.ProtocolContracts,
-) (map[types.HashBytea]string, error) {
+	bufferedContracts map[string]data.ProtocolContracts,
+) (*ClassificationPlan, error) {
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
 		return nil, nil
 	}
@@ -533,44 +561,42 @@ func (m *ingestService) runClassification(
 		thisBatch[h] = struct{}{}
 	}
 
-	// Resolve hashes classified in earlier ledgers, skipping this-ledger
-	// uploads (thisBatch) which the dispatcher classifies below.
-	knownHashes := make([]types.HashBytea, 0, len(bufferedContracts))
+	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
 	for _, c := range bufferedContracts {
+		contractSlice = append(contractSlice, c)
+	}
+
+	// Resolve hashes classified in earlier ledgers, skipping this-ledger
+	// uploads (thisBatch) which PrepareClassification matches below.
+	knownHashes := make([]types.HashBytea, 0, len(contractSlice))
+	for _, c := range contractSlice {
 		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
 			continue
 		}
 		knownHashes = append(knownHashes, c.WasmHash)
 	}
-	known, err := m.models.ProtocolWasms.GetClassifiedByHashes(ctx, dbTx, knownHashes)
+	known, err := m.models.ProtocolWasms.GetClassifiedByHashes(ctx, m.models.DB, knownHashes)
 	if err != nil {
 		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}
 
-	// protocolByWasm answers "what protocol owns this wasm hash?": previously
-	// committed classifications overlaid with this-ledger matches. The two key
-	// sets are disjoint (knownHashes excludes thisBatch), so the overlay never
-	// actually collides.
-	protocolByWasm := make(map[types.HashBytea]string, len(known))
-	for hash, pid := range known {
-		protocolByWasm[hash] = pid
-	}
 	if len(m.protocolValidators) == 0 {
-		return protocolByWasm, nil
+		plan := &ClassificationPlan{Matches: make(map[types.HashBytea]string, len(known))}
+		for hash, pid := range known {
+			plan.Matches[hash] = pid
+		}
+		return plan, nil
 	}
 
-	matches, err := DispatchClassification(
-		ctx, dbTx, m.wasmSpecExtractor, m.protocolValidators,
-		bytecodesByHash, bufferedContracts, m.rpcService, m.models, known,
+	plan, err := PrepareClassification(
+		ctx, m.wasmSpecExtractor, m.protocolValidators,
+		bytecodesByHash, contractSlice, m.rpcService, known,
 		m.appMetrics.Ingestion.WasmClassificationFailuresTotal,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("dispatching classification: %w", err)
+		return nil, fmt.Errorf("preparing classification: %w", err)
 	}
-	for hash, pid := range matches {
-		protocolByWasm[hash] = pid
-	}
-	return protocolByWasm, nil
+	return plan, nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.
