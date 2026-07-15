@@ -20,6 +20,10 @@ CREATE TABLE transactions (
 );
 
 SELECT enable_chunk_skipping('transactions', 'to_id');
+-- ledger_number rises monotonically with the partition column, so per-chunk min/max
+-- ranges let ledger_number-windowed queries (e.g. backfill gap detection) exclude
+-- non-overlapping chunks at plan time.
+SELECT enable_chunk_skipping('transactions', 'ledger_number');
 
 -- Replaces the default single-column (ledger_created_at DESC) index TimescaleDB
 -- auto-creates on the hypertable's partition column. The root GraphQL connection
