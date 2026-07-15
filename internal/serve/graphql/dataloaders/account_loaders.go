@@ -37,6 +37,7 @@ func accountsByToIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumn
 		func(item *types.AccountWithToID) types.Account {
 			return item.Account
 		},
+		accountColumnsKeyShape,
 	)
 }
 
@@ -62,5 +63,13 @@ func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Accoun
 		func(item *types.AccountWithOperationID) types.Account {
 			return item.Account
 		},
+		accountColumnsKeyShape,
 	)
+}
+
+// accountColumnsKeyShape is the query shape for AccountColumnsKey: Columns is the only field that
+// determines the SQL statement the fetcher builds (these loaders take no limit or cursor), so any
+// two keys requesting different columns must land in different batch groups.
+func accountColumnsKeyShape(key AccountColumnsKey) QueryShape {
+	return QueryShape{Columns: key.Columns}
 }

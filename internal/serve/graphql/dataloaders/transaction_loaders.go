@@ -39,6 +39,7 @@ func transactionByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Tra
 		func(item *types.TransactionWithOperationID) types.Transaction {
 			return item.Transaction
 		},
+		transactionColumnsKeyShape,
 	)
 }
 
@@ -68,5 +69,13 @@ func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[T
 		func(item *types.TransactionWithStateChangeID) types.Transaction {
 			return item.Transaction
 		},
+		transactionColumnsKeyShape,
 	)
+}
+
+// transactionColumnsKeyShape is the query shape for TransactionColumnsKey: Columns is the only
+// field that determines the SQL statement the fetcher builds (these loaders take no limit or
+// cursor), so any two keys requesting different columns must land in different batch groups.
+func transactionColumnsKeyShape(key TransactionColumnsKey) QueryShape {
+	return QueryShape{Columns: key.Columns}
 }

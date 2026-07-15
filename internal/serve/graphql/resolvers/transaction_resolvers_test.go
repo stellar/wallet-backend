@@ -155,6 +155,24 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		assert.False(t, ops.PageInfo.HasNextPage)
 		assert.False(t, ops.PageInfo.HasPreviousPage)
 	})
+
+	t.Run("first exceeds the nested page limit", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		first := int32(101)
+		_, err := resolver.Operations(ctx, parentTx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "first must be less than or equal to 100")
+	})
+
+	t.Run("last exceeds the nested page limit", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
+		last := int32(101)
+		_, err := resolver.Operations(ctx, parentTx, nil, nil, &last, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "last must be less than or equal to 100")
+	})
 }
 
 func TestTransactionResolver_Accounts(t *testing.T) {
@@ -413,6 +431,15 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		assert.Len(t, stateChanges.Edges, 5) // tx1 has 5 state changes
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("first exceeds the nested page limit", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{"accountId", "stateChangeCategory"}), middleware.LoadersKey, loaders)
+		first := int32(101)
+		_, err := resolver.StateChanges(ctx, parentTx, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "first must be less than or equal to 100")
 	})
 
 	t.Run("nil transaction panics", func(t *testing.T) {
