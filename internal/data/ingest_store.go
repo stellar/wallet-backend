@@ -214,9 +214,11 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorNam
 }
 
 // GetLedgerGaps returns gaps between consecutive present ledger_number values within
-// [startLedger, endLedger]. Windowing the DISTINCT scan on ledger_number (which has
-// chunk-skipping stats enabled) makes the cost proportional to the window instead of a full
-// hypertable scan.
+// [startLedger, endLedger]. The window bounds the cost two ways: chunks whose recorded
+// ledger_number range (enable_chunk_skipping on transactions.ledger_number; ranges are
+// captured when a chunk is compressed) doesn't overlap the window are excluded at plan
+// time, and any remaining out-of-window batches are dropped by the columnstore's batch
+// min/max metadata without decompression.
 //
 // Edge semantics: callers must pass a startLedger that is itself a present ledger_number (e.g.
 // the oldest ingested ledger) — the left edge is NOT synthesized. If startLedger fell strictly
