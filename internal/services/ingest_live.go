@@ -30,18 +30,6 @@ const (
 	lagMetricUpdateInterval            = 1 * time.Second
 )
 
-// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
-// This is the shared core used by both live ingestion and loadtest.
-// It handles: trustline assets, contract tokens, filtered data insertion,
-// token changes, and cursor update.
-func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
-	plan, err := m.prepareClassificationPlan(ctx, buffer.GetProtocolWasms(), buffer.GetProtocolWasmBytecodes(), buffer.GetProtocolContracts())
-	if err != nil {
-		return 0, 0, fmt.Errorf("preparing classification plan for ledger %d: %w", ledgerSeq, err)
-	}
-	return m.persistLedgerData(ctx, ledgerSeq, nil, nil, plan, buffer, cursorName)
-}
-
 // persistLedgerData takes the ledger's already-materialized transactions
 // (from the processLedger staging pass) so protocol ContractData extraction
 // reuses them instead of rebuilding a LedgerTransactionReader; transactions
