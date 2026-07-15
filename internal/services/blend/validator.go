@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"sort"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -16,6 +15,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -205,14 +205,14 @@ var backstopRequiredFunctions = []wasmspec.FunctionSpec{
 }
 
 // matchPoolSpec is the pure Blend Pool signature check. Suitable for unit
-// testing in isolation; production callers reach this via Validator.Validate.
+// testing in isolation; production callers reach this via Validator.Match.
 func matchPoolSpec(contractSpec []xdr.ScSpecEntry) bool {
 	return wasmspec.Match(contractSpec, poolRequiredFunctions)
 }
 
 // matchBackstopSpec is the pure Blend Backstop signature check. Suitable for
 // unit testing in isolation; production callers reach this via
-// Validator.Validate.
+// Validator.Match.
 func matchBackstopSpec(contractSpec []xdr.ScSpecEntry) bool {
 	return wasmspec.Match(contractSpec, backstopRequiredFunctions)
 }
@@ -220,8 +220,8 @@ func matchBackstopSpec(contractSpec []xdr.ScSpecEntry) bool {
 // Validator is Blend's implementation of services.ProtocolValidator. It
 // signature-checks candidate WASMs against both the Pool and Backstop
 // interfaces and, for any contract now (or already) classified as a Blend
-// pool, fetches PoolConfig via RPC and seeds blend_pools inside the supplied
-// dbTx. Backstop contracts get no such enrichment here — the backstop is a
+// pool, fetches PoolConfig via RPC (Prefetch) and seeds blend_pools (Apply).
+// Backstop contracts get no such enrichment here — the backstop is a
 // per-network singleton with no equivalent "config" getter, and its stateful
 // tables are populated by the ledger-driven processor instead.
 type Validator struct {
@@ -249,34 +249,65 @@ func newValidator(deps services.ProtocolDeps) *Validator {
 // ProtocolID returns the identifier this validator classifies contracts as.
 func (v *Validator) ProtocolID() string { return ProtocolID }
 
-// Validate runs the Blend Pool and Backstop signature checks over each
-// candidate WASM and, for every contract whose wasm is now (or was already)
-// classified as a Blend pool, enriches blend_pools with PoolConfig fetched
-// via RPC. See the services.ProtocolValidator godoc for the framework-level
-// contract.
-func (v *Validator) Validate(ctx context.Context, dbTx pgx.Tx, input services.ValidationInput) (services.ValidationResult, error) {
-	matched := v.matchCandidates(input.Candidates)
-	if len(matched) == 0 && !v.hasKnownClaims(input.Contracts) {
-		return services.ValidationResult{}, nil
+// Match runs the Blend Pool and Backstop signature checks over each
+// candidate's pre-extracted spec entries and returns the union of hashes
+// matched as either interface. Pure — no RPC, no DB access.
+func (v *Validator) Match(candidates []services.WasmCandidate) map[types.HashBytea]struct{} {
+	roles := v.matchCandidates(candidates)
+	out := make(map[types.HashBytea]struct{}, len(roles))
+	for h := range roles {
+		out[h] = struct{}{}
 	}
+	return out
+}
 
-	if input.Models != nil && input.Models.Blend.Pools != nil {
-		poolContracts := v.collectPoolContracts(input.Contracts, matched)
-		if len(poolContracts) > 0 {
-			if err := v.enrichPools(ctx, dbTx, input.Models.Blend.Pools, poolContracts); err != nil {
-				return services.ValidationResult{}, fmt.Errorf("blend enrichment: %w", err)
-			}
-		}
-	}
+// blendPrefetch is the RPC-sourced enrichment Prefetch resolves: fully
+// decoded blend_pools rows, ready for Apply to upsert without any further
+// network access.
+type blendPrefetch struct {
+	rows []blenddata.Pool
+}
 
-	out := services.ValidationResult{MatchedWasms: make([]types.HashBytea, 0, len(matched))}
-	for h := range matched {
-		out.MatchedWasms = append(out.MatchedWasms, h)
+// Prefetch fetches PoolConfig via RPC for every contract whose wasm is now
+// (or was already) classified as a Blend pool. candidates is re-matched here
+// (cheap, pure) to recover the pool-vs-backstop role Match's uniform return
+// type doesn't carry — a backstop contract is never enriched. See the
+// services.ProtocolValidator godoc for the framework-level contract.
+func (v *Validator) Prefetch(ctx context.Context, _ services.RPCService, candidates []services.WasmCandidate, _ map[types.HashBytea]struct{}, contracts []services.ContractCandidate) (any, error) {
+	if v.metadata == nil {
+		return blendPrefetch{}, nil
 	}
-	sort.Slice(out.MatchedWasms, func(i, j int) bool {
-		return out.MatchedWasms[i] < out.MatchedWasms[j]
-	})
-	return out, nil
+	roles := v.matchCandidates(candidates)
+	poolContracts := v.collectPoolContracts(contracts, roles)
+	if len(poolContracts) == 0 {
+		return blendPrefetch{}, nil
+	}
+	return blendPrefetch{rows: v.fetchPoolConfigs(ctx, poolContracts)}, nil
+}
+
+// Apply upserts whatever Prefetch resolved into blend_pools inside dbTx. No
+// RPC handle is available here.
+func (v *Validator) Apply(ctx context.Context, dbTx pgx.Tx, _ map[types.HashBytea]struct{}, _ []services.ContractCandidate, plan any, models *data.Models) error {
+	if models == nil || models.Blend.Pools == nil {
+		return nil
+	}
+	bp, _ := plan.(blendPrefetch)
+	return v.applyPools(ctx, dbTx, models.Blend.Pools, bp.rows)
+}
+
+// applyPools upserts rows into blend_pools inside dbTx via poolModel. Split
+// out from Apply (which reaches poolModel through *data.Models) so tests can
+// substitute a stub blenddata.PoolModelInterface directly — Blend.Pools on
+// data.Models is a concrete *PoolModel, not swappable there.
+func (v *Validator) applyPools(ctx context.Context, dbTx pgx.Tx, poolModel blenddata.PoolModelInterface, rows []blenddata.Pool) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	if err := poolModel.BatchUpsert(ctx, dbTx, rows); err != nil {
+		return fmt.Errorf("upserting blend pools: %w", err)
+	}
+	log.Ctx(ctx).Debugf("blend validator: enriched %d blend_pools rows", len(rows))
+	return nil
 }
 
 // matchCandidates runs the Blend Pool and Backstop signature checks against
@@ -298,17 +329,6 @@ func (v *Validator) matchCandidates(candidates []services.WasmCandidate) map[typ
 	return matched
 }
 
-// hasKnownClaims reports whether any contract in the batch references a wasm
-// already classified as Blend by an earlier ledger or protocol-setup run.
-func (v *Validator) hasKnownClaims(contracts []services.ContractCandidate) bool {
-	for _, ct := range contracts {
-		if ct.KnownProtocolID == ProtocolID {
-			return true
-		}
-	}
-	return false
-}
-
 // collectPoolContracts returns the contracts that should be attempted for
 // pool enrichment: those whose wasm was matched as a pool in this batch, plus
 // those whose wasm was already classified as Blend by a prior run.
@@ -319,7 +339,7 @@ func (v *Validator) hasKnownClaims(contracts []services.ContractCandidate) bool 
 // instance shows up here, so it never appears in this batch's Candidates.
 // The framework's classification table only records protocol_id ("BLEND"),
 // not pool-vs-backstop, so a prior-run contract's role can't be recovered
-// here; it is included optimistically and left to enrichPools/fetchPoolConfig
+// here; it is included optimistically and left to fetchPoolConfigs/fetchPoolConfig
 // to discover that a backstop contract has no get_config and skip it.
 func (v *Validator) collectPoolContracts(contracts []services.ContractCandidate, matched map[types.HashBytea]role) []services.ContractCandidate {
 	out := make([]services.ContractCandidate, 0, len(contracts))
@@ -337,19 +357,13 @@ func (v *Validator) collectPoolContracts(contracts []services.ContractCandidate,
 	return out
 }
 
-// enrichPools fetches PoolConfig via RPC for each candidate pool contract and
-// upserts the resulting rows into blend_pools inside dbTx. Best-effort:
-// per-contract fetch/decode failures are logged and skipped, never
+// fetchPoolConfigs fetches PoolConfig via RPC for each candidate pool
+// contract, returning the decoded rows ready for Apply to upsert. Best
+// effort: per-contract fetch/decode failures are logged and skipped, never
 // propagated — a backstop contract routed here (see collectPoolContracts)
-// simply fails get_config and is silently excluded from the batch.
-func (v *Validator) enrichPools(ctx context.Context, dbTx pgx.Tx, poolModel blenddata.PoolModelInterface, contracts []services.ContractCandidate) error {
-	if v.metadata == nil {
-		// No RPC available — blend_pools stays unenriched at classification
-		// time. The ledger-driven processor fills PoolConfig fields from
-		// subsequent events; there is no other fallback here.
-		return nil
-	}
-
+// simply fails get_config and is silently excluded from the batch. No dbTx
+// is involved; this is a pure RPC-fetch-and-decode pass.
+func (v *Validator) fetchPoolConfigs(ctx context.Context, contracts []services.ContractCandidate) []blenddata.Pool {
 	seen := make(map[string]struct{}, len(contracts))
 	rows := make([]blenddata.Pool, 0, len(contracts))
 	for _, ct := range contracts {
@@ -370,15 +384,7 @@ func (v *Validator) enrichPools(ctx context.Context, dbTx pgx.Tx, poolModel blen
 		}
 		rows = append(rows, row)
 	}
-	if len(rows) == 0 {
-		return nil
-	}
-
-	if err := poolModel.BatchUpsert(ctx, dbTx, rows); err != nil {
-		return fmt.Errorf("upserting blend pools: %w", err)
-	}
-	log.Ctx(ctx).Debugf("blend validator: enriched %d blend_pools rows", len(rows))
-	return nil
+	return rows
 }
 
 // fetchPoolConfig calls get_config on the pool at poolAddr via RPC simulation
@@ -397,8 +403,8 @@ func (v *Validator) fetchPoolConfig(ctx context.Context, poolAddr string) (blend
 		return blenddata.Pool{}, fmt.Errorf("get_config: expected map, got %v", val.Type)
 	}
 
-	// LastModifiedLedger is deliberately left at its zero value: Validate has
-	// no ledger sequence available (ValidationInput carries none). blend_pools
+	// LastModifiedLedger is deliberately left at its zero value: classification
+	// has no ledger sequence available for a pool seeded this way. blend_pools
 	// overwrites this column unconditionally on every upsert, so it must not
 	// regress a real ledger number written later by the ledger-driven
 	// processor — 0 is a safe placeholder that no legitimate ledger number

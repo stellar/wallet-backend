@@ -322,48 +322,48 @@ func TestNewValidatorFromDeps(t *testing.T) {
 	assert.Same(t, metadata, v.metadata)
 }
 
-// Validate tests ---------------------------------------------------------------
+// Match tests --------------------------------------------------------------
 
-func TestValidator_Validate_ReturnsSortedUnionOfPoolAndBackstopHashes(t *testing.T) {
+func TestValidator_Match_ReturnsUnionOfPoolAndBackstopHashes(t *testing.T) {
 	v := NewValidator()
 
 	poolHash := indexerTypes.HashBytea("bb")
 	backstopHash := indexerTypes.HashBytea("aa")
 
-	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
-		Candidates: []services.WasmCandidate{
-			{Hash: poolHash, SpecEntries: fullPoolSpec()},
-			{Hash: backstopHash, SpecEntries: fullBackstopSpec()},
-		},
+	matched := v.Match([]services.WasmCandidate{
+		{Hash: poolHash, SpecEntries: fullPoolSpec()},
+		{Hash: backstopHash, SpecEntries: fullBackstopSpec()},
 	})
-	require.NoError(t, err)
-	assert.Equal(t, []indexerTypes.HashBytea{backstopHash, poolHash}, out.MatchedWasms, "must be sorted ascending")
+	assert.Equal(t, map[indexerTypes.HashBytea]struct{}{poolHash: {}, backstopHash: {}}, matched)
 }
 
-func TestValidator_Validate_NoMatch(t *testing.T) {
+func TestValidator_Match_NoMatch(t *testing.T) {
 	v := NewValidator()
-	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
-		Candidates: []services.WasmCandidate{
-			{Hash: indexerTypes.HashBytea("aabb"), SpecEntries: sep41LikeSpec()},
-		},
+	matched := v.Match([]services.WasmCandidate{
+		{Hash: indexerTypes.HashBytea("aabb"), SpecEntries: sep41LikeSpec()},
 	})
-	require.NoError(t, err)
-	assert.Empty(t, out.MatchedWasms)
+	assert.Empty(t, matched)
 }
 
-func TestValidator_Validate_NilModelsSkipsEnrichmentWithoutPanicking(t *testing.T) {
+// TestValidator_Apply_NilModelsSkipsEnrichmentWithoutPanicking verifies that
+// Prefetch (no metadata service configured) and Apply (nil models) both
+// degrade to no-ops without panicking.
+func TestValidator_Apply_NilModelsSkipsEnrichmentWithoutPanicking(t *testing.T) {
 	v := NewValidator()
 	poolHash := indexerTypes.HashBytea("cc")
+	candidates := []services.WasmCandidate{{Hash: poolHash, SpecEntries: fullPoolSpec()}}
+	matched := v.Match(candidates)
+	assert.Equal(t, map[indexerTypes.HashBytea]struct{}{poolHash: {}}, matched)
+
+	contracts := []services.ContractCandidate{
+		{ContractID: indexerTypes.HashBytea("11"), WasmHash: poolHash},
+	}
+
 	assert.NotPanics(t, func() {
-		out, err := v.Validate(context.Background(), nil, services.ValidationInput{
-			Candidates: []services.WasmCandidate{{Hash: poolHash, SpecEntries: fullPoolSpec()}},
-			Contracts: []services.ContractCandidate{
-				{ContractID: indexerTypes.HashBytea("11"), WasmHash: poolHash},
-			},
-			Models: nil,
-		})
+		ctx := context.Background()
+		plan, err := v.Prefetch(ctx, nil, candidates, matched, contracts)
 		require.NoError(t, err)
-		assert.Equal(t, []indexerTypes.HashBytea{poolHash}, out.MatchedWasms)
+		require.NoError(t, v.Apply(ctx, nil, matched, contracts, plan, nil))
 	})
 }
 
@@ -399,12 +399,12 @@ func TestValidator_CollectPoolContracts(t *testing.T) {
 			"a freshly-matched backstop, an unrelated protocol, and an unclassified contract are excluded")
 }
 
-// enrichPools / fetchPoolConfig tests --------------------------------------------
+// Prefetch / fetchPoolConfigs / applyPools tests -----------------------------
 
 // stubPoolModel is a minimal hand-written stub satisfying
 // blenddata.PoolModelInterface — internal/data/blend.Models.Pools is a
 // concrete *PoolModel (not an interface), so it can't be swapped for a mock
-// via data.Models; this stub lets enrichPools be tested directly instead.
+// via data.Models; this stub lets applyPools be tested directly instead.
 type stubPoolModel struct {
 	rows      []blenddata.Pool
 	batchErr  error
@@ -437,33 +437,33 @@ func poolConfigScVal(t *testing.T, oracle string, bstopRate, status, maxPosition
 	return xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &m}
 }
 
-func TestValidator_EnrichPools(t *testing.T) {
+// TestValidator_Prefetch_NilMetadataServiceIsNoOp covers the case Prefetch
+// guards before ever touching fetchPoolConfigs: no metadata service
+// configured means no RPC call, regardless of the contracts supplied.
+func TestValidator_Prefetch_NilMetadataServiceIsNoOp(t *testing.T) {
+	v := NewValidator()
+	contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
+	plan, err := v.Prefetch(context.Background(), nil, nil, nil, contracts)
+	require.NoError(t, err)
+	bp, _ := plan.(blendPrefetch)
+	assert.Empty(t, bp.rows)
+}
+
+func TestValidator_FetchPoolConfigs(t *testing.T) {
 	const oracleAddr = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 
-	t.Run("nil metadata service is a no-op", func(t *testing.T) {
-		v := NewValidator()
-		stub := &stubPoolModel{}
-		contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
-		require.NoError(t, err)
-		assert.Zero(t, stub.callCount)
-	})
-
-	t.Run("decodes get_config and upserts one row", func(t *testing.T) {
+	t.Run("decodes get_config into one row", func(t *testing.T) {
 		metadata := services.NewContractMetadataServiceMock(t)
 		metadata.On("FetchSingleField", mock.Anything, testPoolAddr, "get_config", mock.Anything).
 			Return(poolConfigScVal(t, oracleAddr, 2500, 1, 4, 1_000_000), nil).Once()
 
 		v := &Validator{metadata: metadata}
-		stub := &stubPoolModel{}
 		contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
 
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
-		require.NoError(t, err)
-		require.Equal(t, 1, stub.callCount)
-		require.Len(t, stub.rows, 1)
+		rows := v.fetchPoolConfigs(context.Background(), contracts)
+		require.Len(t, rows, 1)
 
-		row := stub.rows[0]
+		row := rows[0]
 		assert.Equal(t, testPoolAddr, string(row.PoolContractID))
 		assert.Equal(t, oracleAddr, string(row.OracleContractID))
 		require.NotNil(t, row.BackstopRate)
@@ -483,12 +483,10 @@ func TestValidator_EnrichPools(t *testing.T) {
 			Return(xdr.ScVal{}, assert.AnError).Once()
 
 		v := &Validator{metadata: metadata}
-		stub := &stubPoolModel{}
 		contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
 
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
-		require.NoError(t, err)
-		assert.Zero(t, stub.callCount, "BatchUpsert should not be called when nothing decoded successfully")
+		rows := v.fetchPoolConfigs(context.Background(), contracts)
+		assert.Empty(t, rows, "nothing decoded successfully")
 	})
 
 	t.Run("skips a contract whose get_config returns a non-map value (e.g. a backstop contract)", func(t *testing.T) {
@@ -497,12 +495,10 @@ func TestValidator_EnrichPools(t *testing.T) {
 			Return(u32ScVal(1), nil).Once()
 
 		v := &Validator{metadata: metadata}
-		stub := &stubPoolModel{}
 		contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
 
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
-		require.NoError(t, err)
-		assert.Zero(t, stub.callCount)
+		rows := v.fetchPoolConfigs(context.Background(), contracts)
+		assert.Empty(t, rows)
 	})
 
 	t.Run("dedupes repeated contract IDs, fetching get_config only once", func(t *testing.T) {
@@ -511,25 +507,38 @@ func TestValidator_EnrichPools(t *testing.T) {
 			Return(poolConfigScVal(t, oracleAddr, 100, 0, 1, 1), nil).Once()
 
 		v := &Validator{metadata: metadata}
-		stub := &stubPoolModel{}
 		id := contractIDFromAddr(t)
 		contracts := []services.ContractCandidate{{ContractID: id}, {ContractID: id}}
 
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
-		require.NoError(t, err)
-		require.Len(t, stub.rows, 1)
+		rows := v.fetchPoolConfigs(context.Background(), contracts)
+		require.Len(t, rows, 1)
+	})
+}
+
+func TestValidator_ApplyPools(t *testing.T) {
+	t.Run("no rows is a no-op", func(t *testing.T) {
+		v := NewValidator()
+		stub := &stubPoolModel{}
+		require.NoError(t, v.applyPools(context.Background(), nil, stub, nil))
+		assert.Zero(t, stub.callCount)
+	})
+
+	t.Run("upserts the given rows", func(t *testing.T) {
+		v := NewValidator()
+		stub := &stubPoolModel{}
+		rows := []blenddata.Pool{{PoolContractID: indexerTypes.AddressBytea(testPoolAddr)}}
+
+		require.NoError(t, v.applyPools(context.Background(), nil, stub, rows))
+		require.Equal(t, 1, stub.callCount)
+		assert.Equal(t, rows, stub.rows)
 	})
 
 	t.Run("propagates a BatchUpsert error", func(t *testing.T) {
-		metadata := services.NewContractMetadataServiceMock(t)
-		metadata.On("FetchSingleField", mock.Anything, testPoolAddr, "get_config", mock.Anything).
-			Return(poolConfigScVal(t, oracleAddr, 100, 0, 1, 1), nil).Once()
-
-		v := &Validator{metadata: metadata}
+		v := NewValidator()
 		stub := &stubPoolModel{batchErr: assert.AnError}
-		contracts := []services.ContractCandidate{{ContractID: contractIDFromAddr(t)}}
+		rows := []blenddata.Pool{{PoolContractID: indexerTypes.AddressBytea(testPoolAddr)}}
 
-		err := v.enrichPools(context.Background(), nil, stub, contracts)
+		err := v.applyPools(context.Background(), nil, stub, rows)
 		assert.Error(t, err)
 	})
 }

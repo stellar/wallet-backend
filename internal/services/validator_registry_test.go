@@ -7,6 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 func withCleanValidatorRegistry(t *testing.T) {
@@ -21,9 +24,14 @@ func withCleanValidatorRegistry(t *testing.T) {
 // ProtocolValidatorMock.
 type idValidator struct{ id string }
 
-func (v idValidator) ProtocolID() string { return v.id }
-func (v idValidator) Validate(context.Context, pgx.Tx, ValidationInput) (ValidationResult, error) {
-	return ValidationResult{}, nil
+func (v idValidator) ProtocolID() string                                 { return v.id }
+func (v idValidator) Match([]WasmCandidate) map[types.HashBytea]struct{} { return nil }
+func (v idValidator) Prefetch(context.Context, RPCService, []WasmCandidate, map[types.HashBytea]struct{}, []ContractCandidate) (any, error) {
+	return nil, nil
+}
+
+func (v idValidator) Apply(context.Context, pgx.Tx, map[types.HashBytea]struct{}, []ContractCandidate, any, *data.Models) error {
+	return nil
 }
 
 func TestRegisterValidator(t *testing.T) {

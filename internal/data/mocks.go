@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -260,8 +261,8 @@ func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]Protoco
 	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
-func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
-	args := m.Called(ctx, dbTx, hashes)
+func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, q db.Querier, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	args := m.Called(ctx, q, hashes)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
