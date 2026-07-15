@@ -215,6 +215,71 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 	}
 }
 
+// TestStateChangeModel_BatchCopy_DuplicateFailsOnPK verifies the SQL-06
+// idempotency backstop: since state_change_id is now a deterministic ordinal
+// (assigned by types.AssignStateChangeOrdinals before BatchCopy is called,
+// not randomly generated inside BatchCopy), re-copying an already-committed
+// ledger's rows collides on the state_changes primary key and fails loudly
+// instead of silently inserting duplicate rows.
+func TestStateChangeModel_BatchCopy_DuplicateFailsOnPK(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	kp := keypair.MustRandom()
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", int64(1), 100, "TransactionResultCodeTxSuccess", uint32(1), now, false)
+	require.NoError(t, err)
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	// Same (to_id, operation_id, state_change_id, ledger_created_at) as a
+	// deterministic emitter would recompute for the same ledger on a re-ingest.
+	sc := types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   types.StateChangeReasonAdd,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(kp.Address()),
+		OperationID:         123,
+	}
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	gotCount, err := m.BatchCopy(ctx, pgxTx, []types.StateChange{sc})
+	require.NoError(t, err)
+	require.NoError(t, pgxTx.Commit(ctx))
+	assert.Equal(t, 1, gotCount)
+
+	// Re-copying the identical row (simulating a re-ingest of the same ledger)
+	// must fail on the primary key rather than inserting a duplicate.
+	pgxTx2, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	_, err = m.BatchCopy(ctx, pgxTx2, []types.StateChange{sc})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate key value violates unique constraint")
+	pgxTx2.Rollback(ctx)
+
+	dbInsertedIDs, err := db.QueryMany[string](ctx, dbConnectionPool, "SELECT CONCAT(to_id, '-', operation_id, '-', state_change_id) FROM state_changes")
+	require.NoError(t, err)
+	assert.Len(t, dbInsertedIDs, 1, "the failed re-copy must not have left duplicate rows")
+}
+
 func TestStateChangeModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

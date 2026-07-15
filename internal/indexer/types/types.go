@@ -687,6 +687,43 @@ type StateChangeCursorGetter interface {
 	GetCursor() StateChangeCursor
 }
 
+// State change ID namespace registry.
+//
+// state_changes rows are written by more than one independent emitter: the
+// main indexer (effects, token transfers, etc.) and protocol processors
+// (SEP-41, Blend) that persist their own history inside a separately
+// CAS-guarded transaction. Two emitters can legitimately target the same
+// (to_id, operation_id) — e.g. a SEP-41 or Blend contract invocation is one
+// operation the main indexer also sees. Each emitter numbers its own state
+// changes 1..N in deterministic emission order within an (to_id, operation_id)
+// group (see AssignStateChangeOrdinals) and adds its base below, so the
+// resulting state_change_id values can never collide across emitters even
+// when they share an operation. Bases are spaced far apart (int64 has ample
+// room) and must never change once rows exist with them.
+const (
+	StateChangeOrdinalBaseIndexer int64 = 0
+	StateChangeOrdinalBaseSEP41   int64 = 1 << 40
+	StateChangeOrdinalBaseBlend   int64 = 2 << 40
+)
+
+// AssignStateChangeOrdinals assigns each state change in changes a
+// deterministic state_change_id: an ordinal numbered 1..N in slice order
+// within each distinct OperationID group, plus base. Processing the same
+// input twice (e.g. a re-ingested ledger) yields byte-identical IDs, so a
+// duplicate BatchCopy fails loudly on the state_changes primary key instead of
+// inserting duplicate rows.
+//
+// Callers must pass the final, filtered slice — the one actually handed to
+// BatchCopy — so ordinals come out contiguous (1..N, no gaps) per group.
+func AssignStateChangeOrdinals(changes []StateChange, base int64) {
+	next := make(map[int64]int64, len(changes))
+	for i := range changes {
+		opID := changes[i].OperationID
+		next[opID]++
+		changes[i].StateChangeID = base + next[opID]
+	}
+}
+
 type NullableJSONB map[string]any
 
 var _ sql.Scanner = (*NullableJSONB)(nil)

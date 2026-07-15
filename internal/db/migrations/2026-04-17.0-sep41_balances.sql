@@ -7,7 +7,7 @@
 CREATE TABLE sep41_balances (
     account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    balance TEXT NOT NULL DEFAULT '0',
+    balance NUMERIC NOT NULL DEFAULT 0,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account_id, contract_id),
     CONSTRAINT fk_sep41_contract_token

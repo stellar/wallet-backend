@@ -342,13 +342,21 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Insert state changes
+	// Drop state changes with no account to associate with, then assign each
+	// retained one a deterministic state_change_id: an ordinal numbered 1..N in
+	// emission order within its (to_id, operation_id) group. Filtering first
+	// keeps the ordinals gap-free for what's actually persisted.
+	retainedStateChanges := stateChanges[:0]
 	for _, stateChange := range stateChanges {
-		// Skip empty state changes (no account to associate with)
 		if stateChange.AccountID == "" {
 			continue
 		}
+		retainedStateChanges = append(retainedStateChanges, stateChange)
+	}
+	types.AssignStateChangeOrdinals(retainedStateChanges, types.StateChangeOrdinalBaseIndexer)
 
+	// Insert state changes
+	for _, stateChange := range retainedStateChanges {
 		// Get the correct operation for this state change
 		var operation types.Operation
 		if stateChange.OperationID != 0 {
