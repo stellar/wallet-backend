@@ -274,6 +274,15 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
 			return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
 		}
+		// The connection sits idle-in-transaction between batch flushes while the
+		// next 250k entries are decoded from the history archive stream. An
+		// instance-level idle_in_transaction_session_timeout (set in production to
+		// protect the vacuum horizon from abandoned transactions) would kill this
+		// legitimately long-lived load mid-way and force a full redo, so exempt
+		// this transaction; SET LOCAL scopes the exemption to it alone.
+		if _, txErr := dbTx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout = 0"); txErr != nil {
+			return fmt.Errorf("setting idle_in_transaction_session_timeout=0: %w", txErr)
+		}
 
 		proc = &checkpointProcessor{
 			service:                     s,
