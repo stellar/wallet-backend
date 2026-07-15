@@ -8,6 +8,7 @@ package blend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -77,6 +78,76 @@ func (m *PositionModel) GetByAccount(ctx context.Context, account string) ([]Pos
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", positionsTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", positionsTable).Inc()
 	return positions, nil
+}
+
+// GetByAccount returns every blend_pool_claimed row for account (one per pool it
+// has claimed pool-reserve emissions from), ordered by pool_contract_id. Empty,
+// non-nil slice if the account has never claimed.
+func (m *PoolClaimedModel) GetByAccount(ctx context.Context, account string) ([]PoolClaimed, error) {
+	accountBytes, err := addressToBytes(account)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address for pool-claimed lookup: %w", err)
+	}
+
+	start := time.Now()
+	const query = `
+		SELECT pool_contract_id, user_account_id, claimed_blnd, last_modified_ledger
+		FROM blend_pool_claimed
+		WHERE user_account_id = $1
+		ORDER BY pool_contract_id`
+	rows, err := m.DB.Query(ctx, query, accountBytes)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", poolClaimedTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend pool claimed totals for account: %w", err)
+	}
+	defer rows.Close()
+
+	claimed := []PoolClaimed{}
+	for rows.Next() {
+		var c PoolClaimed
+		if scanErr := rows.Scan(&c.PoolContractID, &c.UserAccountID, &c.ClaimedBlnd, &c.LastModifiedLedger); scanErr != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetByAccount", poolClaimedTable, utils.GetDBErrorType(scanErr)).Inc()
+			return nil, fmt.Errorf("scanning blend pool claimed row: %w", scanErr)
+		}
+		claimed = append(claimed, c)
+	}
+	if err := rows.Err(); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", poolClaimedTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating blend pool claimed rows: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", poolClaimedTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", poolClaimedTable).Inc()
+	return claimed, nil
+}
+
+// GetByAccount returns account's single account-wide blend_backstop_claimed row,
+// or nil if the account has never claimed backstop emissions.
+func (m *BackstopClaimedModel) GetByAccount(ctx context.Context, account string) (*BackstopClaimed, error) {
+	accountBytes, err := addressToBytes(account)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address for backstop-claimed lookup: %w", err)
+	}
+
+	start := time.Now()
+	const query = `
+		SELECT user_account_id, claimed_lp, last_modified_ledger
+		FROM blend_backstop_claimed
+		WHERE user_account_id = $1`
+	var c BackstopClaimed
+	err = m.DB.QueryRow(ctx, query, accountBytes).Scan(&c.UserAccountID, &c.ClaimedLp, &c.LastModifiedLedger)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", backstopClaimedTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", backstopClaimedTable).Inc()
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", backstopClaimedTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend backstop claimed total for account: %w", err)
+	}
+	return &c, nil
 }
 
 // decodeQ4W unmarshals a blend_backstop_positions.q4w JSONB column. A NULL
