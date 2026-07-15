@@ -16,6 +16,8 @@ type Models struct {
 	BackstopPools     *BackstopPoolModel
 	Emissions         *EmissionModel
 	ReserveEmissions  *ReserveEmissionModel
+	PoolClaimed       *PoolClaimedModel
+	BackstopClaimed   *BackstopClaimedModel
 	// OraclePrices *OraclePriceModel is added in PR4 alongside oracle_prices.go.
 }
 
