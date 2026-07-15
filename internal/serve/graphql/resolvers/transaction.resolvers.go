@@ -28,7 +28,7 @@ func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transac
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeInt64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
@@ -93,7 +93,7 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 

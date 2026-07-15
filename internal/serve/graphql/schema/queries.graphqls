@@ -2,9 +2,32 @@
 # In GraphQL, the Query type is the entry point for read operations
 type Query {
     transactionByHash(hash: String!):                                     Transaction
-    transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
+
+    """
+    All transactions across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    transactions(since: Time, until: Time, first: Int, after: String, last: Int, before: String): TransactionConnection
+
     accountByAddress(address: String!):                                   Account
-    operations(first: Int, after: String, last: Int, before: String):     OperationConnection
+
+    """
+    All operations across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection
+
     operationById(id: Int64!):                                            Operation
-    stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+
+    """
+    All state changes across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    stateChanges(since: Time, until: Time, first: Int, after: String, last: Int, before: String): StateChangeConnection
 }

@@ -254,7 +254,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetAll without specifying cursor and limit (gets all transactions)
-	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
+	transactions, err := m.GetAll(ctx, "", nil, nil, ASC, nil)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
@@ -263,7 +263,7 @@ func TestTransactionModel_GetAll(t *testing.T) {
 
 	// Test GetAll with smaller limit
 	limit := int32(2)
-	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
+	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC, nil)
 	require.NoError(t, err)
 	assert.Len(t, transactions, 2)
 	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
@@ -558,7 +558,7 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	assert.True(t, now.Equal(tx.LedgerCreatedAt), "GetByHash with minimal projection must hydrate ledger_created_at")
 
 	limit := int32(10)
-	txs, err := m.GetAll(ctx, "hash", &limit, nil, DESC)
+	txs, err := m.GetAll(ctx, "hash", &limit, nil, DESC, nil)
 	require.NoError(t, err)
 	require.Len(t, txs, 1)
 	assert.True(t, now.Equal(txs[0].Transaction.LedgerCreatedAt), "GetAll with minimal projection must hydrate ledger_created_at")

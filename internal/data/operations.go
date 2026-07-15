@@ -37,7 +37,7 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	return &operation, nil
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
+func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.OperationWithCursor, error) {
 	if err := validatePositiveLimit(limit); err != nil {
 		return nil, err
 	}
@@ -46,7 +46,14 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	var args []interface{}
 	argIndex := 1
 
-	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations`, columns)
+	// WHERE true gives appendTimeRangeConditions and the cursor condition below a uniform " AND
+	// ..." shape to append to, whether or not a time range is present.
+	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations WHERE true`, columns)
+
+	// Time range filter: enables TimescaleDB chunk pruning on the operations hypertable. D3's
+	// root-connection default window (see buildRootTimeRange) means this is populated even when
+	// the client passes neither since nor until.
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -55,7 +62,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
 			{Name: "id", Value: cursor.ID},
 		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" WHERE " + clause)
+		queryBuilder.WriteString(" AND " + clause)
 		args = append(args, cursorArgs...)
 		argIndex = nextIdx
 	}

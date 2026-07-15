@@ -202,12 +202,12 @@ func decodeInt64Cursor(s *string) (*int64, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(*s)
 	if err != nil {
-		return nil, fmt.Errorf("decoding cursor string %s: %w", *s, err)
+		return nil, badUserInputError(fmt.Sprintf("decoding cursor string %s: %s", *s, err))
 	}
 
 	id, err := strconv.ParseInt(string(decoded), 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing cursor %s: %w", string(decoded), err)
+		return nil, badUserInputError(fmt.Sprintf("parsing cursor %s: %s", string(decoded), err))
 	}
 
 	return &id, nil
@@ -220,7 +220,7 @@ func decodeStringCursor(s *string) (*string, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(*s)
 	if err != nil {
-		return nil, fmt.Errorf("decoding cursor string %s: %w", *s, err)
+		return nil, badUserInputError(fmt.Sprintf("decoding cursor string %s: %s", *s, err))
 	}
 	decodedStr := string(decoded)
 
@@ -305,15 +305,25 @@ func badUserInputError(message string) error {
 	}
 }
 
+// capPaginationLimit returns a BAD_USER_INPUT error if first or last exceeds maxLimit. Shared by
+// every capped connection's parseXPaginationParams wrapper below (reject, not clamp, so a client
+// gets a clear error instead of a silently-shrunk page).
+func capPaginationLimit(first *int32, last *int32, maxLimit int32) error {
+	if first != nil && *first > maxLimit {
+		return badUserInputError(fmt.Sprintf("first must be less than or equal to %d", maxLimit))
+	}
+	if last != nil && *last > maxLimit {
+		return badUserInputError(fmt.Sprintf("last must be less than or equal to %d", maxLimit))
+	}
+	return nil
+}
+
 // parseAccountPaginationParams caps page size for the account history connections
 // before delegating to parsePaginationParams. It mirrors parseBalancePaginationParams'
 // cap policy for the multi-source balances connection.
 func parseAccountPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
-	if first != nil && *first > maxAccountPageLimit {
-		return PaginationParams{}, badUserInputError(fmt.Sprintf("first must be less than or equal to %d", maxAccountPageLimit))
-	}
-	if last != nil && *last > maxAccountPageLimit {
-		return PaginationParams{}, badUserInputError(fmt.Sprintf("last must be less than or equal to %d", maxAccountPageLimit))
+	if err := capPaginationLimit(first, last, maxAccountPageLimit); err != nil {
+		return PaginationParams{}, err
 	}
 	return parsePaginationParams(first, after, last, before, cursorType)
 }
@@ -327,19 +337,37 @@ const maxNestedPageLimit int32 = 100
 // parseNestedPaginationParams caps page size for nested relation connections before delegating to
 // parsePaginationParams. It mirrors parseAccountPaginationParams' cap policy (reject, not clamp).
 func parseNestedPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
-	if first != nil && *first > maxNestedPageLimit {
-		return PaginationParams{}, badUserInputError(fmt.Sprintf("first must be less than or equal to %d", maxNestedPageLimit))
+	if err := capPaginationLimit(first, last, maxNestedPageLimit); err != nil {
+		return PaginationParams{}, err
 	}
-	if last != nil && *last > maxNestedPageLimit {
-		return PaginationParams{}, badUserInputError(fmt.Sprintf("last must be less than or equal to %d", maxNestedPageLimit))
+	return parsePaginationParams(first, after, last, before, cursorType)
+}
+
+// maxRootPageLimit bounds page size on the root connections (Query.transactions/operations/
+// stateChanges). Unlike the account-scoped connections, these have no other bound (no single
+// account to scope the scan to), so an uncapped first is the most expensive case: it both sizes
+// the compressed-chunk scan/sort and, combined with D3's time-bounded windowing, determines how
+// much of the window has to be materialized before paging.
+const maxRootPageLimit int32 = 100
+
+// parseRootPaginationParams caps page size for the root transactions/operations/stateChanges
+// connections before delegating to parsePaginationParams (SQL-04). It mirrors
+// parseAccountPaginationParams' cap policy (reject, not clamp).
+func parseRootPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
+	if err := capPaginationLimit(first, last, maxRootPageLimit); err != nil {
+		return PaginationParams{}, err
 	}
 	return parsePaginationParams(first, after, last, before, cursorType)
 }
 
 func parsePaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
+	// validatePaginationParams and the cursor decoders below already return a self-describing,
+	// client-safe *gqlerror.Error (BAD_USER_INPUT); returning it unwrapped avoids stuttering,
+	// noisy prefixes (fmt.Errorf's %w formatting would otherwise sit alongside gqlerror.Error's own
+	// "input: " location prefix) while errors.As still finds it fine through the call chain.
 	err := validatePaginationParams(first, after, last, before)
 	if err != nil {
-		return PaginationParams{}, fmt.Errorf("validating pagination params: %w", err)
+		return PaginationParams{}, err
 	}
 
 	var cursor *string
@@ -366,25 +394,25 @@ func parsePaginationParams(first *int32, after *string, last *int32, before *str
 	case CursorTypeStateChange:
 		stateChangeCursor, err := parseStateChangeCursor(cursor)
 		if err != nil {
-			return PaginationParams{}, fmt.Errorf("parsing state change cursor: %w", err)
+			return PaginationParams{}, err
 		}
 		paginationParams.StateChangeCursor = stateChangeCursor
 	case CursorTypeComposite:
 		compositeCursor, err := parseCompositeCursor(cursor)
 		if err != nil {
-			return PaginationParams{}, fmt.Errorf("parsing composite cursor: %w", err)
+			return PaginationParams{}, err
 		}
 		paginationParams.CompositeCursor = compositeCursor
 	case CursorTypeString:
 		decodedCursor, err := decodeStringCursor(cursor)
 		if err != nil {
-			return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
+			return PaginationParams{}, err
 		}
 		paginationParams.StringCursor = decodedCursor
 	default:
 		decodedCursor, err := decodeInt64Cursor(cursor)
 		if err != nil {
-			return PaginationParams{}, fmt.Errorf("decoding cursor: %w", err)
+			return PaginationParams{}, err
 		}
 		paginationParams.Cursor = decodedCursor
 	}
@@ -399,32 +427,32 @@ func parseStateChangeCursor(s *string) (*types.StateChangeCursor, error) {
 
 	decodedCursor, err := decodeStringCursor(s)
 	if err != nil {
-		return nil, fmt.Errorf("decoding cursor: %w", err)
+		return nil, err
 	}
 
 	parts := strings.Split(*decodedCursor, ":")
 	if len(parts) != 4 {
-		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:to_id:operation_id:state_change_id)", *s)
+		return nil, badUserInputError(fmt.Sprintf("invalid cursor format: %s (expected format: ledger_created_at_nano:to_id:operation_id:state_change_id)", *s))
 	}
 
 	nanos, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing ledger_created_at: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing ledger_created_at: %s", err))
 	}
 
 	toID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing to_id: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing to_id: %s", err))
 	}
 
 	operationID, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing operation_id: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing operation_id: %s", err))
 	}
 
 	stateChangeID, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing state_change_id: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing state_change_id: %s", err))
 	}
 
 	return &types.StateChangeCursor{
@@ -442,22 +470,22 @@ func parseCompositeCursor(s *string) (*types.CompositeCursor, error) {
 
 	decodedCursor, err := decodeStringCursor(s)
 	if err != nil {
-		return nil, fmt.Errorf("decoding cursor: %w", err)
+		return nil, err
 	}
 
 	parts := strings.Split(*decodedCursor, ":")
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid cursor format: %s (expected format: ledger_created_at_nano:id)", *s)
+		return nil, badUserInputError(fmt.Sprintf("invalid cursor format: %s (expected format: ledger_created_at_nano:id)", *s))
 	}
 
 	nanos, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing ledger_created_at: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing ledger_created_at: %s", err))
 	}
 
 	id, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing id: %w", err)
+		return nil, badUserInputError(fmt.Sprintf("parsing id: %s", err))
 	}
 
 	return &types.CompositeCursor{
@@ -474,34 +502,55 @@ func buildTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error)
 		return nil, nil
 	}
 	if since != nil && until != nil && until.Before(*since) {
-		return nil, fmt.Errorf("until must not be before since")
+		return nil, badUserInputError("until must not be before since")
 	}
 	return &data.TimeRange{Since: since, Until: until}, nil
 }
 
+// defaultRootQueryWindow is the time window applied to the root transactions/operations/
+// stateChanges connections when neither since nor until is given (D3). Root connections have no
+// other bound (an account-scoped connection is inherently bounded to one address; a root
+// connection is not), so an unbounded first page would scan/sort the full history. Defaulting to
+// a recent window keeps that bounded while still letting a client reach older history via an
+// explicit since.
+const defaultRootQueryWindow = 7 * 24 * time.Hour
+
+// buildRootTimeRange builds the *data.TimeRange for a root transactions/operations/stateChanges
+// connection. Unlike buildTimeRange, it defaults to [now-defaultRootQueryWindow, now] when both
+// since and until are omitted; when either is given, it defers to buildTimeRange and uses exactly
+// what was given (open-ended on the unset side).
+func buildRootTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error) {
+	if since == nil && until == nil {
+		now := time.Now()
+		windowStart := now.Add(-defaultRootQueryWindow)
+		return &data.TimeRange{Since: &windowStart, Until: &now}, nil
+	}
+	return buildTimeRange(since, until)
+}
+
 func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
 	if first != nil && last != nil {
-		return fmt.Errorf("first and last cannot be used together")
+		return badUserInputError("first and last cannot be used together")
 	}
 
 	if after != nil && before != nil {
-		return fmt.Errorf("after and before cannot be used together")
+		return badUserInputError("after and before cannot be used together")
 	}
 
 	if first != nil && *first <= 0 {
-		return fmt.Errorf("first must be greater than 0")
+		return badUserInputError("first must be greater than 0")
 	}
 
 	if last != nil && *last <= 0 {
-		return fmt.Errorf("last must be greater than 0")
+		return badUserInputError("last must be greater than 0")
 	}
 
 	if first != nil && before != nil {
-		return fmt.Errorf("first and before cannot be used together")
+		return badUserInputError("first and before cannot be used together")
 	}
 
 	if last != nil && after != nil {
-		return fmt.Errorf("last and after cannot be used together")
+		return badUserInputError("last and after cannot be used together")
 	}
 
 	return nil

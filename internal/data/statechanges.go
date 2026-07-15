@@ -124,7 +124,7 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
+func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
 	if err := validatePositiveLimit(limit); err != nil {
 		return nil, err
 	}
@@ -133,10 +133,18 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 	var args []interface{}
 	argIndex := 1
 
+	// WHERE true gives appendTimeRangeConditions and the cursor condition below a uniform " AND
+	// ..." shape to append to, whether or not a time range is present.
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
+		WHERE true
 	`, columns)
+
+	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable. D3's
+	// root-connection default window (see buildRootTimeRange) means this is populated even when
+	// the client passes neither since nor until.
+	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -147,7 +155,7 @@ func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *in
 			{Name: "operation_id", Value: cursor.OperationID},
 			{Name: "state_change_id", Value: cursor.StateChangeID},
 		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" WHERE " + clause)
+		queryBuilder.WriteString(" AND " + clause)
 		args = append(args, cursorArgs...)
 		argIndex = nextIdx
 	}

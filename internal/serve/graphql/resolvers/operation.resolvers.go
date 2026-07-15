@@ -76,7 +76,7 @@ func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operati
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
 	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 

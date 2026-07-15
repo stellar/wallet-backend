@@ -192,10 +192,10 @@ type ComplexityRoot struct {
 	Query struct {
 		AccountByAddress  func(childComplexity int, address string) int
 		OperationByID     func(childComplexity int, id int64) int
-		Operations        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
-		StateChanges      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		Operations        func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		StateChanges      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 		TransactionByHash func(childComplexity int, hash string) int
-		Transactions      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		Transactions      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 	}
 
 	ReservesChange struct {
@@ -418,11 +418,11 @@ type OperationResolver interface {
 }
 type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
-	Transactions(ctx context.Context, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
+	Transactions(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*TransactionConnection, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
-	Operations(ctx context.Context, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
+	Operations(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
-	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
+	StateChanges(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
 type ReservesChangeResolver interface {
 	Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error)
@@ -1126,7 +1126,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.Operations(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.ComplexityRoot.Query.Operations(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 	case "Query.stateChanges":
 		if e.ComplexityRoot.Query.StateChanges == nil {
 			break
@@ -1137,7 +1137,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.StateChanges(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.ComplexityRoot.Query.StateChanges(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 	case "Query.transactionByHash":
 		if e.ComplexityRoot.Query.TransactionByHash == nil {
 			break
@@ -1159,7 +1159,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.Transactions(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.ComplexityRoot.Query.Transactions(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "ReservesChange.account":
 		if e.ComplexityRoot.ReservesChange.Account == nil {
@@ -2270,11 +2270,34 @@ type AccountTransactionEdge {
 # In GraphQL, the Query type is the entry point for read operations
 type Query {
     transactionByHash(hash: String!):                                     Transaction
-    transactions(first: Int, after: String, last: Int, before: String):   TransactionConnection
+
+    """
+    All transactions across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    transactions(since: Time, until: Time, first: Int, after: String, last: Int, before: String): TransactionConnection
+
     accountByAddress(address: String!):                                   Account
-    operations(first: Int, after: String, last: Int, before: String):     OperationConnection
+
+    """
+    All operations across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection
+
     operationById(id: Int64!):                                            Operation
-    stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+
+    """
+    All state changes across every account. Defaults to the last 7 days when unspecified. Pass
+    since/until to query older history (up to the retention window). The cursor encodes position
+    only, not the time window, so repeat the same since/until on every page of a single scan to
+    keep the window stable; omitting them on a later page re-applies the last-7-days default.
+    """
+    stateChanges(since: Time, until: Time, first: Int, after: String, last: Int, before: String): StateChangeConnection
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
@@ -2705,52 +2728,72 @@ func (ec *executionContext) field_Query_operationById_args(ctx context.Context, 
 func (ec *executionContext) field_Query_operations_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "until", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	args["until"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	args["first"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["after"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg5
 	return args, nil
 }
 
 func (ec *executionContext) field_Query_stateChanges_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "until", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	args["until"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	args["first"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["after"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg5
 	return args, nil
 }
 
@@ -2768,26 +2811,36 @@ func (ec *executionContext) field_Query_transactionByHash_args(ctx context.Conte
 func (ec *executionContext) field_Query_transactions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "since", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	args["since"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "until", ec.unmarshalOTime2ᚖtimeᚐTime)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg1
-	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	args["until"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg2
-	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	args["first"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg3
+	args["after"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg5
 	return args, nil
 }
 
@@ -6117,7 +6170,7 @@ func (ec *executionContext) _Query_transactions(ctx context.Context, field graph
 		ec.fieldContext_Query_transactions,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Transactions(ctx, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+			return ec.Resolvers.Query().Transactions(ctx, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
 		ec.marshalOTransactionConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTransactionConnection,
@@ -6219,7 +6272,7 @@ func (ec *executionContext) _Query_operations(ctx context.Context, field graphql
 		ec.fieldContext_Query_operations,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Operations(ctx, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+			return ec.Resolvers.Query().Operations(ctx, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
 		ec.marshalOOperationConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐOperationConnection,
@@ -6331,7 +6384,7 @@ func (ec *executionContext) _Query_stateChanges(ctx context.Context, field graph
 		ec.fieldContext_Query_stateChanges,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().StateChanges(ctx, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+			return ec.Resolvers.Query().StateChanges(ctx, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
 		ec.marshalOStateChangeConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐStateChangeConnection,
