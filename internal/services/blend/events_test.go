@@ -487,6 +487,10 @@ func TestParseEvent_ClaimDisambiguation(t *testing.T) {
 		assert.Equal(t, poolAddr, row.PoolID)
 		assert.Equal(t, map[string]any{"reserveTokenIds": []uint32{1, 3}}, row.Extra,
 			"the claim's source is carried by the category, not an Extra key")
+
+		require.Len(t, got.ClaimFolds, 1)
+		assert.Equal(t, ClaimFold{Account: fromAddr, Source: claimSourcePool, Amount: "500"}, got.ClaimFolds[0])
+		assert.Empty(t, got.NetDeltas, "a claim never folds cost basis")
 	})
 
 	t.Run("backstop claim: bare i128 data, no pool", func(t *testing.T) {
@@ -508,6 +512,9 @@ func TestParseEvent_ClaimDisambiguation(t *testing.T) {
 		assert.Equal(t, "", row.PoolID, "backstop claim carries no pool address")
 		assert.Equal(t, map[string]any{"units": "backstop_lp"}, row.Extra,
 			"the claim's source is carried by the category, not an Extra key")
+
+		require.Len(t, got.ClaimFolds, 1)
+		assert.Equal(t, ClaimFold{Account: fromAddr, Source: claimSourceBackstop, Amount: "750"}, got.ClaimFolds[0])
 	})
 
 	t.Run("blndToken empty leaves Token empty on both shapes", func(t *testing.T) {
