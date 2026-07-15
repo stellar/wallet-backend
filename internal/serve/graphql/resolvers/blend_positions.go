@@ -651,9 +651,13 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	if err != nil {
 		return nil, fmt.Errorf("getting blend emissions for account %s: %w", address, err)
 	}
-	claimTotals, err := r.models.StateChanges.GetLendingClaimTotals(ctx, address)
+	poolClaimed, err := r.models.Blend.PoolClaimed.GetByAccount(ctx, address)
 	if err != nil {
-		return nil, fmt.Errorf("getting blend lending claim totals for account %s: %w", address, err)
+		return nil, fmt.Errorf("getting blend pool claimed totals for account %s: %w", address, err)
+	}
+	backstopClaimedRow, err := r.models.Blend.BackstopClaimed.GetByAccount(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("getting blend backstop claimed total for account %s: %w", address, err)
 	}
 
 	poolIDSet := map[string]struct{}{}
@@ -744,19 +748,15 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		backstopPoolByID[string(bp.PoolContractID)] = bp
 	}
 
+	// Lifetime claimed totals: pool-source BLND per pool, backstop-source Comet
+	// LP account-wide (its on-chain claim event carries no pool address).
 	claimedByPool := map[string]string{}
+	for _, c := range poolClaimed {
+		claimedByPool[string(c.PoolContractID)] = c.ClaimedBlnd
+	}
 	backstopClaimed := "0"
-	for _, t := range claimTotals {
-		if t.PoolID == nil {
-			if t.Source != nil && *t.Source == "backstop" {
-				backstopClaimed = t.Total
-			}
-			continue
-		}
-		if t.Source == nil || *t.Source != "pool" {
-			continue
-		}
-		claimedByPool[*t.PoolID] = t.Total
+	if backstopClaimedRow != nil {
+		backstopClaimed = backstopClaimedRow.ClaimedLp
 	}
 
 	assembly := &blendAssembly{
