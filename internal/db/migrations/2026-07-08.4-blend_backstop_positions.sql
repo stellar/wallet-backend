@@ -9,13 +9,12 @@ CREATE TABLE blend_backstop_positions (
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (pool_contract_id, user_account_id)
 ) WITH (
-    fillfactor = 80,
+    fillfactor = 90,
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 50,
     autovacuum_analyze_scale_factor = 0.01,
     autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    autovacuum_vacuum_cost_delay = 0
 );
 
 -- +migrate Down

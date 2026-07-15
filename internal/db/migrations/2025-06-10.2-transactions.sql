@@ -21,6 +21,15 @@ CREATE TABLE transactions (
 
 SELECT enable_chunk_skipping('transactions', 'to_id');
 
+-- Replaces the default single-column (ledger_created_at DESC) index TimescaleDB
+-- auto-creates on the hypertable's partition column. The root GraphQL connection
+-- sorts by (ledger_created_at DESC, to_id DESC), which the default index can't serve
+-- for a top-N first page (it still needs a heapsort on to_id within each timestamp).
+-- This composite index matches the API sort key directly and makes the auto-created
+-- one redundant.
+DROP INDEX IF EXISTS transactions_ledger_created_at_idx;
+CREATE INDEX idx_transactions_created_at_sort ON transactions (ledger_created_at DESC, to_id DESC);
+
 CREATE INDEX idx_transactions_hash ON transactions(hash);
 
 -- Table: transactions_accounts (TimescaleDB hypertable for automatic cleanup with retention)

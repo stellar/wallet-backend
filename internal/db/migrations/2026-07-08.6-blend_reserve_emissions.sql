@@ -12,13 +12,9 @@ CREATE TABLE blend_reserve_emissions (
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (pool_contract_id, reserve_token_id)
 ) WITH (
-    fillfactor = 80,
-    autovacuum_vacuum_scale_factor = 0.02,
-    autovacuum_vacuum_threshold = 50,
-    autovacuum_analyze_scale_factor = 0.01,
-    autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    -- Row count is protocol-bounded (a small number of reserve emission streams per
+    -- pool, across a small number of pools), so default autovacuum behavior is fine.
+    fillfactor = 90
 );
 
 -- +migrate Down

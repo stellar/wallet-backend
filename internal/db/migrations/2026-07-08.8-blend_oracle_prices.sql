@@ -10,13 +10,9 @@ CREATE TABLE blend_oracle_prices (
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (oracle_contract_id, asset_contract_id)
 ) WITH (
-    fillfactor = 80,
-    autovacuum_vacuum_scale_factor = 0.02,
-    autovacuum_vacuum_threshold = 50,
-    autovacuum_analyze_scale_factor = 0.01,
-    autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    -- Row count is protocol-bounded (one row per oracle/asset pair the deployed Blend
+    -- pools reference, forever a small number), so default autovacuum behavior is fine.
+    fillfactor = 90
 );
 
 -- +migrate Down

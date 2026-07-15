@@ -14,13 +14,9 @@ CREATE TABLE blend_backstop_pools (
     emis_last_time       BIGINT,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0
 ) WITH (
-    fillfactor = 80,
-    autovacuum_vacuum_scale_factor = 0.02,
-    autovacuum_vacuum_threshold = 50,
-    autovacuum_analyze_scale_factor = 0.01,
-    autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    -- Row count is protocol-bounded (one row per deployed Blend pool, forever a small
+    -- number), so default autovacuum behavior is fine.
+    fillfactor = 90
 );
 
 -- +migrate Down
