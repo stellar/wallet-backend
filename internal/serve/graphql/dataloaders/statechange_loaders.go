@@ -9,6 +9,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type StateChangeColumnsKey struct {
@@ -25,7 +26,7 @@ type StateChangeColumnsKey struct {
 // stateChangesByToIDLoader creates a dataloader for fetching state changes by to_id
 // This prevents N+1 queries when multiple transactions request their state changes
 // The loader batches multiple to_ids into a single database query
-func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
+func stateChangesByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the to_id column since that will be used as the primary key to group the state changes
@@ -64,6 +65,8 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 			return *item
 		},
 		stateChangeColumnsKeyShape,
+		"StateChangesByToIDLoader",
+		m,
 	)
 }
 
@@ -87,7 +90,7 @@ func stateChangeColumnsKeyShape(key StateChangeColumnsKey) QueryShape {
 // stateChangesByOperationIDLoader creates a dataloader for fetching state changes by operation ID
 // This prevents N+1 queries when multiple operations request their state changes
 // The loader batches multiple operation IDs into a single database query
-func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
+func stateChangesByOperationIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the operation_id column since that will be used as the primary key to group the state changes
@@ -126,6 +129,8 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 			return *item
 		},
 		stateChangeColumnsKeyShape,
+		"StateChangesByOperationIDLoader",
+		m,
 	)
 }
 
@@ -134,7 +139,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 // newAccountScopedLoader). BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the
 // SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection
 // is needed here.
-func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+func accountStateChangesByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
 	return newAccountScopedLoader(
 		models.StateChanges.BatchGetAccountStateChangesByToIDs,
 		func(key StateChangeColumnsKey) string { return key.AccountID },
@@ -142,5 +147,7 @@ func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(key StateChangeColumnsKey) int64 { return key.ToID },
 		func(key StateChangeColumnsKey) time.Time { return key.LedgerCreatedAt },
 		func(item *types.StateChange) int64 { return item.ToID },
+		"AccountStateChangesByToIDLoader",
+		m,
 	)
 }

@@ -249,7 +249,7 @@ func handler(deps handlerDeps) http.Handler {
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
-			r.Use(middleware.DataloaderMiddleware(deps.Models))
+			r.Use(middleware.DataloaderMiddleware(deps.Models, deps.Metrics.Dataloader))
 
 			resolver := resolvers.NewResolver(
 				deps.Models,

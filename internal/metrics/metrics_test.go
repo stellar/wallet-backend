@@ -22,6 +22,7 @@ func TestNewMetrics(t *testing.T) {
 	require.NotNil(t, m.Auth)
 	require.NotNil(t, m.Migration)
 	require.NotNil(t, m.BlendPrices)
+	require.NotNil(t, m.Dataloader)
 
 	assert.Same(t, reg, m.Registry())
 }

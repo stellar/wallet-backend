@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type AccountColumnsKey struct {
@@ -18,7 +19,7 @@ type AccountColumnsKey struct {
 // accountsByToIDLoader creates a dataloader for fetching accounts by transaction ToID
 // This prevents N+1 queries when multiple transactions request their accounts
 // The loader batches multiple transaction ToIDs into a single database query
-func accountsByToIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
+func accountsByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []AccountColumnsKey) ([]*types.AccountWithToID, error) {
 			toIDs := make([]int64, len(keys))
@@ -38,13 +39,15 @@ func accountsByToIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumn
 			return item.Account
 		},
 		accountColumnsKeyShape,
+		"AccountsByToIDLoader",
+		m,
 	)
 }
 
 // accountsByOperationIDLoader creates a dataloader for fetching accounts by operation ID
 // This prevents N+1 queries when multiple operations request their accounts
 // The loader batches multiple operation IDs into a single database query
-func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
+func accountsByOperationIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[AccountColumnsKey, []*types.Account] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []AccountColumnsKey) ([]*types.AccountWithOperationID, error) {
 			operationIDs := make([]int64, len(keys))
@@ -64,6 +67,8 @@ func accountsByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Accoun
 			return item.Account
 		},
 		accountColumnsKeyShape,
+		"AccountsByOperationIDLoader",
+		m,
 	)
 }
 

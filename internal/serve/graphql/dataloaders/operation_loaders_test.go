@@ -47,7 +47,7 @@ func TestOperationsByToIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	limit := int32Ptr(10)
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.OperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 		{ToID: toID, Columns: "id", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 		{ToID: toID, Columns: "id, operation_type", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -105,7 +105,7 @@ func TestOperationsByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 
 	t.Run("limit above available rows returns everything, not a fixed cap", func(t *testing.T) {
 		limit := int32Ptr(51)
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.OperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -118,7 +118,7 @@ func TestOperationsByToIDLoader_MultiKeyBatchHonorsFullLimit(t *testing.T) {
 
 	t.Run("limit below available rows is honored exactly", func(t *testing.T) {
 		limit := int32Ptr(6)
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.OperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 			{ToID: toIDA, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 			{ToID: toIDB, Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
@@ -165,7 +165,7 @@ func TestOperationsByToIDLoader_DuplicateCursorInSharedBatchIsHonoredPerKey(t *t
 
 	limit := int32Ptr(10)
 	cursor := toIDA + 1
-	results, err := NewDataloaders(models).OperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
+	results, err := NewDataloaders(models, m.Dataloader).OperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 		{ToID: toIDA, Limit: limit, Cursor: &cursor, SortOrder: data.ASC, LedgerCreatedAt: now},
 		{ToID: toIDB, Limit: limit, Cursor: &cursor, SortOrder: data.ASC, LedgerCreatedAt: now},
 	})
@@ -193,7 +193,7 @@ func TestOperationsByToIDLoader_NilLimitErrors(t *testing.T) {
 		Operations: &data.OperationModel{DB: testDBConnectionPool, Metrics: m.DB},
 	}
 
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	_, err := loaders.OperationsByToIDLoader.Load(ctx, OperationColumnsKey{ToID: 1 << 53, SortOrder: data.ASC})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires a positive limit")
@@ -232,7 +232,7 @@ func TestTransactionsByOperationIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T
 	`, now, opID, types.XDRBytea([]byte("xdr")))
 	require.NoError(t, err)
 
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.TransactionsByOperationIDLoader.LoadAll(ctx, []TransactionColumnsKey{
 		{OperationID: opID, Columns: "hash"},
 		{OperationID: opID, Columns: "hash, fee_charged"},

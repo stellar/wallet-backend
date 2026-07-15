@@ -9,6 +9,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type OperationColumnsKey struct {
@@ -33,7 +34,7 @@ type OperationColumnsKey struct {
 //	tx_to_id = operation.ID &^ 0xFFF
 //
 // This is the inverse of the query: given an operation, find its parent transaction.
-func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
+func operationsByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[OperationColumnsKey, []*types.OperationWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithCursor, error) {
 			columns := keys[0].Columns
@@ -70,6 +71,8 @@ func operationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationCo
 			return *item
 		},
 		operationColumnsKeyShape,
+		"OperationsByToIDLoader",
+		m,
 	)
 }
 
@@ -101,7 +104,7 @@ func operationColumnsKeyShapeByColumns(key OperationColumnsKey) QueryShape {
 // grouping the batch by account so a multi-account request never cross-contaminates edges (see
 // newAccountScopedLoader). Operations carry no account column, so the grouping key is derived from
 // the operation ID via TOID bit masking: tx_to_id = operation.ID &^ 0xFFF.
-func accountOperationsByToIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
+func accountOperationsByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[OperationColumnsKey, []*types.Operation] {
 	return newAccountScopedLoader(
 		models.Operations.BatchGetAccountOperationsByToIDs,
 		func(key OperationColumnsKey) string { return key.AccountID },
@@ -109,13 +112,15 @@ func accountOperationsByToIDLoader(models *data.Models) *dataloadgen.Loader[Oper
 		func(key OperationColumnsKey) int64 { return key.ToID },
 		func(key OperationColumnsKey) time.Time { return key.LedgerCreatedAt },
 		func(item *types.Operation) int64 { return item.ID &^ 0xFFF },
+		"AccountOperationsByToIDLoader",
+		m,
 	)
 }
 
 // operationByStateChangeIDLoader creates a dataloader for fetching operations by state change ID
 // This prevents N+1 queries when multiple state changes request their operations
 // The loader batches multiple state change IDs into a single database query
-func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[OperationColumnsKey, *types.Operation] {
+func operationByStateChangeIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[OperationColumnsKey, *types.Operation] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []OperationColumnsKey) ([]*types.OperationWithStateChangeID, error) {
 			columns := keys[0].Columns
@@ -141,5 +146,7 @@ func operationByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[Ope
 			return item.Operation
 		},
 		operationColumnsKeyShapeByColumns,
+		"OperationByStateChangeIDLoader",
+		m,
 	)
 }
