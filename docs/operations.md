@@ -2,26 +2,6 @@
 
 Reference for operating the wallet-backend's TimescaleDB-backed ingestion and API in production.
 
-## TimescaleDB Upgrade Runbook
-
-Upgrading a CNPG cluster across TimescaleDB minor releases:
-
-1. Build a new `cnpg-timescaledb` image pinned to the target version (see `Dockerfile-timescale-cnpg`) and update the cluster's image reference.
-2. Roll the cluster so every instance loads the new `.so`.
-3. On the primary, apply the extension upgrade:
-   ```sql
-   ALTER EXTENSION timescaledb UPDATE TO '<version>';
-   ```
-   Multi-minor jumps (e.g. 2.25 -> 2.28) are supported in a single `ALTER EXTENSION` step; there is no need to step through each intermediate minor.
-4. If the upgrade crosses 2.26 -> 2.27 or later, run the timescaledb-extras `2.27.x-fix-composite-bloom-columns.sql` catalog-rename script. Composite bloom index metadata created on 2.26 chunks is otherwise silently ignored by 2.27+. The script only renames catalog columns — it does not touch chunk data, is idempotent, and requires no recompression.
-5. Verify:
-   ```sql
-   SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';
-   ```
-   and spot-check an `EXPLAIN` on a chunk-skipping query to confirm the sparse index is still used.
-
-Never stop an upgrade at 2.28.0 or 2.28.1 — both shipped migration-script defects that are fixed in 2.28.2. Land on 2.28.2 or later.
-
 ## Production Database Checklist
 
 **CNPG `postgresql.parameters`:**
