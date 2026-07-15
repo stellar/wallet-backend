@@ -315,6 +315,12 @@ func (s *BlendMigrationTestSuite) TestProtocolSetupThenMigration() {
 	s.Require().NoError(err)
 	s.Assert().GreaterOrEqual(currentStateCursor, stack.StartLedger, "current-state cursor should have advanced past its init value")
 
+	// The phase-1 fixture performs no claims, so the claimed-total accumulators
+	// must exist (created by migration) and be empty — a guard that current-state
+	// indexing folds nothing spurious into them.
+	s.Assert().Zero(s.countRows(ctx, pool, "blend_pool_claimed"))
+	s.Assert().Zero(s.countRows(ctx, pool, "blend_backstop_claimed"))
+
 	// blend_pools
 	pools, err := models.Blend.Pools.GetByIDs(ctx, []string{stack.PoolID})
 	s.Require().NoError(err)
@@ -891,6 +897,23 @@ func (s *BlendLiveIngestionTestSuite) assertEmissionsRows(ctx context.Context, m
 	}
 	s.Assert().True(tokenIDs[1], "expected reserve emission config for token_id=1 (USDC bToken)")
 	s.Assert().True(tokenIDs[2], "expected reserve emission config for token_id=2 (XLM dToken)")
+
+	// Lifetime claimed totals: the accumulator rows that back the resolver's
+	// claimedBlnd (per pool) and backstopClaimedLp (account-wide). The supplier
+	// claimed pool-reserve emissions and the whale claimed backstop emissions in
+	// phase 2, so both must have folded a positive total.
+	supplierClaimed, err := models.Blend.PoolClaimed.GetByAccount(ctx, stack.Supplier.Address())
+	s.Require().NoError(err)
+	s.Require().Len(supplierClaimed, 1, "supplier has one pool-source claimed row")
+	s.Assert().Equal(stack.PoolID, string(supplierClaimed[0].PoolContractID))
+	s.Assert().Greater(parseBigIntStr(s.T(), supplierClaimed[0].ClaimedBlnd).Sign(), 0,
+		"supplier's pool claim folded into blend_pool_claimed")
+
+	whaleClaimed, err := models.Blend.BackstopClaimed.GetByAccount(ctx, stack.Whale.Address())
+	s.Require().NoError(err)
+	s.Require().NotNil(whaleClaimed, "whale has an account-wide backstop claimed row")
+	s.Assert().Greater(parseBigIntStr(s.T(), whaleClaimed.ClaimedLp).Sign(), 0,
+		"whale's backstop claim folded into blend_backstop_claimed")
 }
 
 // assertPostLiquidationPositions asserts the borrower's collateral shrank and
