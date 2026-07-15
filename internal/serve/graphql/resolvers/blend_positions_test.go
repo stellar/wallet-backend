@@ -195,10 +195,9 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		types.AddressBytea(oracleAddr), types.AddressBytea(assetA), types.AddressBytea(assetB),
 		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
 
-	// --- lifetime CLAIM totals: two pool-sourced rows (sum to 3000), one backstop-sourced row (4000) ---
-	insertLendingClaim(t, 5_000_000_001, account, map[string]any{"poolId": poolAddr, "source": "pool"}, "1000")
-	insertLendingClaim(t, 5_000_000_002, account, map[string]any{"poolId": poolAddr, "source": "pool"}, "2000")
-	insertLendingClaim(t, 5_000_000_003, account, map[string]any{"source": "backstop"}, "4000")
+	// --- lifetime claimed totals: pool-source 3000 BLND, backstop-source 4000 LP ---
+	insertPoolClaimed(t, account, poolAddr, "3000")
+	insertBackstopClaimed(t, account, "4000")
 
 	t.Cleanup(func() {
 		execTestDB(t, `DELETE FROM blend_positions WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
@@ -210,7 +209,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
 		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2)`, types.AddressBytea(oracleAddr), types.AddressBytea(cometAddr))
 		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2)`, assetA, assetB)
-		execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1`, types.AddressBytea(account))
+		execTestDB(t, `DELETE FROM blend_pool_claimed WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_backstop_claimed WHERE user_account_id = $1`, types.AddressBytea(account))
 	})
 
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(account)}
@@ -466,15 +466,22 @@ func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 	assert.Equal(t, "0", got.BackstopClaimedLp)
 }
 
-// insertLendingClaim inserts a single LENDING/CLAIM state_changes row for
-// GetLendingClaimTotals to aggregate, mirroring statechanges_test.go's
-// TestStateChangeModel_GetLendingClaimTotals fixture pattern.
-func insertLendingClaim(t *testing.T, seq int64, account string, keyValue map[string]any, amount string) {
+// insertPoolClaimed seeds an account's lifetime pool-source claimed BLND total
+// for one pool.
+func insertPoolClaimed(t *testing.T, account, poolAddr, claimedBlnd string) {
 	t.Helper()
 	execTestDB(t, `
-		INSERT INTO state_changes (
-			to_id, operation_id, state_change_id, state_change_category, state_change_reason,
-			ledger_number, account_id, ledger_created_at, key_value, amount
-		) VALUES ($1, $1, $1, 'LENDING', 'CLAIM', 1, $2, NOW(), $3, $4)`,
-		seq, types.AddressBytea(account), keyValue, amount)
+		INSERT INTO blend_pool_claimed (pool_contract_id, user_account_id, claimed_blnd, last_modified_ledger)
+		VALUES ($1, $2, $3, 1)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(account), claimedBlnd)
+}
+
+// insertBackstopClaimed seeds an account's account-wide lifetime backstop-source
+// claimed Comet LP total.
+func insertBackstopClaimed(t *testing.T, account, claimedLp string) {
+	t.Helper()
+	execTestDB(t, `
+		INSERT INTO blend_backstop_claimed (user_account_id, claimed_lp, last_modified_ledger)
+		VALUES ($1, $2, 1)`,
+		types.AddressBytea(account), claimedLp)
 }
