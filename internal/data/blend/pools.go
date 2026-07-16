@@ -27,11 +27,13 @@ type Pool struct {
 	Name           *string
 	// OracleContractID is stored as SQL NULL when empty (no oracle wired for
 	// this pool yet, or not known from the current event).
-	OracleContractID   types.AddressBytea
-	BackstopRate       *int32
-	Status             *int32
-	MaxPositions       *int32
-	MinCollateral      *string
+	OracleContractID types.AddressBytea
+	BackstopRate     *int32
+	Status           *int32
+	MaxPositions     *int32
+	MinCollateral    *string
+	// Admin is stored as SQL NULL when empty, identically to OracleContractID.
+	Admin              types.AddressBytea
 	LastModifiedLedger uint32
 }
 
@@ -42,6 +44,11 @@ type PoolModelInterface interface {
 	// known/changed by the event that produced this row) never clobbers a
 	// previously known value. last_modified_ledger is always taken from EXCLUDED.
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) error
+	// SetRewardZone makes poolIDs the exact reward-zone membership set: listed
+	// pools become members, all other rows non-members. Rows whose membership
+	// already matches are left untouched (their last_modified_ledger keeps its
+	// value). An empty poolIDs is valid and clears membership everywhere.
+	SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []types.AddressBytea, ledger int32) error
 }
 
 // PoolModel implements PoolModelInterface against blend_pools.
@@ -67,6 +74,7 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	statuses := make([]*int32, len(rows))
 	maxPositions := make([]*int32, len(rows))
 	minCollaterals := make([]*string, len(rows))
+	admins := make([][]byte, len(rows))
 	ledgers := make([]int32, len(rows))
 	for i, r := range rows {
 		poolBytes, err := addressToBytes(string(r.PoolContractID))
@@ -84,6 +92,15 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 		}
 		oracleIDs[i] = oracleBytes
 
+		var adminBytes []byte
+		if r.Admin != "" {
+			adminBytes, err = addressToBytes(string(r.Admin))
+			if err != nil {
+				return fmt.Errorf("converting admin address for pool upsert: %w", err)
+			}
+		}
+		admins[i] = adminBytes
+
 		names[i] = r.Name
 		backstopRates[i] = r.BackstopRate
 		statuses[i] = r.Status
@@ -95,11 +112,11 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	const upsertQuery = `
 		INSERT INTO blend_pools (
 			pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, last_modified_ledger
+			status, max_positions, min_collateral, admin, last_modified_ledger
 		)
 		SELECT * FROM UNNEST(
 			$1::bytea[], $2::text[], $3::bytea[], $4::integer[],
-			$5::integer[], $6::integer[], $7::text[], $8::integer[]
+			$5::integer[], $6::integer[], $7::text[], $8::bytea[], $9::integer[]
 		)
 		ON CONFLICT (pool_contract_id) DO UPDATE SET
 			name                 = COALESCE(EXCLUDED.name, blend_pools.name),
@@ -108,9 +125,10 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 			status               = COALESCE(EXCLUDED.status, blend_pools.status),
 			max_positions        = COALESCE(EXCLUDED.max_positions, blend_pools.max_positions),
 			min_collateral       = COALESCE(EXCLUDED.min_collateral, blend_pools.min_collateral),
+			admin                = COALESCE(EXCLUDED.admin, blend_pools.admin),
 			last_modified_ledger = EXCLUDED.last_modified_ledger`
 	if _, err := dbTx.Exec(ctx, upsertQuery,
-		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, ledgers,
+		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, admins, ledgers,
 	); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", poolsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend pools: %w", err)
@@ -120,5 +138,36 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", poolsTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", poolsTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchUpsert", poolsTable).Observe(float64(len(rows)))
+	return nil
+}
+
+// SetRewardZone makes poolIDs the exact reward-zone membership set. See
+// PoolModelInterface.
+func (m *PoolModel) SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []types.AddressBytea, ledger int32) error {
+	start := time.Now()
+
+	pools := make([][]byte, len(poolIDs))
+	for i, p := range poolIDs {
+		poolBytes, err := addressToBytes(string(p))
+		if err != nil {
+			return fmt.Errorf("converting pool address for reward-zone set: %w", err)
+		}
+		pools[i] = poolBytes
+	}
+
+	const setQuery = `
+		UPDATE blend_pools SET
+			in_reward_zone = (pool_contract_id = ANY($1)),
+			last_modified_ledger = GREATEST(last_modified_ledger, $2)
+		WHERE in_reward_zone <> (pool_contract_id = ANY($1))`
+	if _, err := dbTx.Exec(ctx, setQuery, pools, ledger); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("SetRewardZone", poolsTable, utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("setting blend pool reward zone: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("SetRewardZone", poolsTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("SetRewardZone", poolsTable).Inc()
+	m.Metrics.BatchSize.WithLabelValues("SetRewardZone", poolsTable).Observe(float64(len(poolIDs)))
 	return nil
 }
