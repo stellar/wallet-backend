@@ -18,6 +18,7 @@ type Models struct {
 	ReserveEmissions  *ReserveEmissionModel
 	PoolClaimed       *PoolClaimedModel
 	BackstopClaimed   *BackstopClaimedModel
+	Auctions          *AuctionModel
 	// OraclePrices *OraclePriceModel is added in PR4 alongside oracle_prices.go.
 }
 
@@ -33,5 +34,6 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) Models {
 		ReserveEmissions:  &ReserveEmissionModel{DB: pool, Metrics: dbMetrics},
 		PoolClaimed:       &PoolClaimedModel{DB: pool, Metrics: dbMetrics},
 		BackstopClaimed:   &BackstopClaimedModel{DB: pool, Metrics: dbMetrics},
+		Auctions:          &AuctionModel{DB: pool, Metrics: dbMetrics},
 	}
 }
