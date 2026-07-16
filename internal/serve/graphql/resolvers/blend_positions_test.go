@@ -1,7 +1,9 @@
 package resolvers
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -14,6 +16,7 @@ import (
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 // TestClaimableStream covers the contract's three update_user_emissions
@@ -464,6 +467,89 @@ func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 	assert.Empty(t, got.Pools)
 	assert.Empty(t, got.Backstop)
 	assert.Equal(t, "0", got.BackstopClaimedLp)
+	assert.NotNil(t, got.ActiveAuctions, "empty list, not null")
+	assert.Empty(t, got.ActiveAuctions)
+}
+
+// TestAccountResolver_BlendPositions_ActiveAuctions covers
+// BlendAccountPositions.activeAuctions: enum mapping, poolName resolution,
+// deterministic (poolAddress, auctionType) ordering inherited from the
+// reader (mirroring blend_pools_test.go's "deterministic pool ordering"
+// precedent: bytea order, not string order), and a defensive skip of an
+// unrecognized auction_type.
+func TestAccountResolver_BlendPositions_ActiveAuctions(t *testing.T) {
+	account := keypair.MustRandom().Address()
+	poolX := randomContractAddress(t)
+	poolY := randomContractAddress(t)
+	assetA := randomContractAddress(t)
+	assetB := randomContractAddress(t)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	dbMetrics := m.DB
+	blendModels := blenddata.NewModels(testDBConnectionPool, dbMetrics)
+	models := &data.Models{
+		Contract:     &data.ContractModel{DB: testDBConnectionPool, Metrics: dbMetrics},
+		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: dbMetrics},
+		Blend:        blendModels,
+	}
+	resolver := &accountResolver{&Resolver{models: models}}
+
+	first, second := poolX, poolY
+	if bytes.Compare(mustAddressBytes(t, poolX), mustAddressBytes(t, poolY)) > 0 {
+		first, second = poolY, poolX
+	}
+
+	execTestDB(t, `
+		INSERT INTO blend_pools (pool_contract_id, name, last_modified_ledger)
+		VALUES ($1, 'Pool X', 1), ($2, 'Pool Y', 1)`,
+		types.AddressBytea(poolX), types.AddressBytea(poolY))
+
+	// A USER_LIQUIDATION auction on each pool (bid/lot each carry one asset),
+	// so ordering is exercised across two real, mapped rows.
+	execTestDB(t, `
+		INSERT INTO blend_auctions (pool_contract_id, user_account_id, auction_type, bid, lot, start_block, last_modified_ledger)
+		VALUES
+		($1, $3, 0, $4::jsonb, $5::jsonb, 100, 1),
+		($2, $3, 0, $6::jsonb, $7::jsonb, 200, 1)`,
+		types.AddressBytea(poolX), types.AddressBytea(poolY), types.AddressBytea(account),
+		fmt.Sprintf(`{"%s": "500"}`, assetA), fmt.Sprintf(`{"%s": "600"}`, assetB),
+		fmt.Sprintf(`{"%s": "700"}`, assetA), fmt.Sprintf(`{"%s": "800"}`, assetB))
+
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM blend_auctions WHERE pool_contract_id IN ($1, $2)`, types.AddressBytea(poolX), types.AddressBytea(poolY))
+		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id IN ($1, $2)`, types.AddressBytea(poolX), types.AddressBytea(poolY))
+	})
+
+	got, err := resolver.BlendPositions(testCtx, &types.Account{StellarAddress: types.AddressBytea(account)})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	require.Len(t, got.ActiveAuctions, 2)
+	a0, a1 := got.ActiveAuctions[0], got.ActiveAuctions[1]
+	assert.Equal(t, first, a0.PoolAddress, "bytea-order-first pool surfaces first")
+	assert.Equal(t, second, a1.PoolAddress)
+	for _, a := range got.ActiveAuctions {
+		assert.Equal(t, graphql1.BlendAuctionTypeUserLiquidation, a.AuctionType)
+		require.NotNil(t, a.PoolName)
+		require.Len(t, a.Bid, 1)
+		require.Len(t, a.Lot, 1)
+	}
+
+	t.Run("an unrecognized auction_type is skipped, not surfaced as a malformed enum", func(t *testing.T) {
+		otherAccount := keypair.MustRandom().Address()
+		execTestDB(t, `
+			INSERT INTO blend_auctions (pool_contract_id, user_account_id, auction_type, bid, lot, start_block, last_modified_ledger)
+			VALUES ($1, $2, 99, '{}'::jsonb, '{}'::jsonb, 300, 1)`,
+			types.AddressBytea(poolX), types.AddressBytea(otherAccount))
+		t.Cleanup(func() {
+			execTestDB(t, `DELETE FROM blend_auctions WHERE user_account_id = $1`, types.AddressBytea(otherAccount))
+		})
+
+		got, err := resolver.BlendPositions(testCtx, &types.Account{StellarAddress: types.AddressBytea(otherAccount)})
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Empty(t, got.ActiveAuctions)
+	})
 }
 
 // insertPoolClaimed seeds an account's lifetime pool-source claimed BLND total
