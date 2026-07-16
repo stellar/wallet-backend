@@ -118,14 +118,16 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		data.DeterministicContractID(assetA2), assetA2,
 		data.DeterministicContractID(assetB1), assetB1)
 
-	// --- pools ---
+	// --- pools --- (Pool Alpha is admin-owned and in the reward zone; Pool Beta has neither)
+	adminA := randomContractAddress(t)
 	execTestDB(t, `
-		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, last_modified_ledger)
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, admin, in_reward_zone, last_modified_ledger)
 		VALUES
-		($1, 'Pool Alpha', $2, 2000000, 0, 4, 100),
-		($3, 'Pool Beta', $4, 1000000, 1, 6, 100)`,
+		($1, 'Pool Alpha', $2, 2000000, 0, 4, $5, true, 100),
+		($3, 'Pool Beta', $4, 1000000, 1, 6, NULL, false, 100)`,
 		types.AddressBytea(poolA), types.AddressBytea(oracleA),
-		types.AddressBytea(poolB), types.AddressBytea(oracleB))
+		types.AddressBytea(poolB), types.AddressBytea(oracleB),
+		types.AddressBytea(adminA))
 
 	// --- reserves ---
 	execTestDB(t, `
@@ -213,7 +215,15 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.EqualValues(t, 2000000, *alpha.BackstopRate)
 		require.NotNil(t, alpha.MaxPositions)
 		assert.EqualValues(t, 4, *alpha.MaxPositions)
+		require.NotNil(t, alpha.Admin)
+		assert.Equal(t, adminA, *alpha.Admin)
+		assert.True(t, alpha.InRewardZone)
 		require.Len(t, alpha.Reserves, 2)
+	})
+
+	t.Run("Pool Beta: no admin, not in reward zone", func(t *testing.T) {
+		assert.Nil(t, beta.Admin)
+		assert.False(t, beta.InRewardZone)
 	})
 
 	r0, r1 := alpha.Reserves[0], alpha.Reserves[1]

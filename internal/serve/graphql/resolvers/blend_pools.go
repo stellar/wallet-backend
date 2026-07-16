@@ -218,6 +218,8 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 		InterestApy:      interestApy,
 		NetApy:           netApy,
 		Reserves:         reserveOut,
+		Admin:            addressPtrOrNil(pool.Admin),
+		InRewardZone:     pool.InRewardZone,
 	}, nil
 }
 

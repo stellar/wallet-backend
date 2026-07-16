@@ -68,6 +68,33 @@ type BlendAccountPositions struct {
 	Pools             []*BlendPoolPosition     `json:"pools"`
 	Backstop          []*BlendBackstopPosition `json:"backstop"`
 	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
+	// Active Dutch auctions where this account is the auction owner: being
+	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+	// address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+	// Sorted by (poolAddress, auctionType).
+	ActiveAuctions []*BlendAuction `json:"activeAuctions"`
+}
+
+// BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+// and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+// noted per field below.
+type BlendAuction struct {
+	PoolAddress string           `json:"poolAddress"`
+	PoolName    *string          `json:"poolName,omitempty"`
+	AuctionType BlendAuctionType `json:"auctionType"`
+	// Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens.
+	Bid []*BlendAuctionAmount `json:"bid"`
+	// Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying.
+	Lot []*BlendAuctionAmount `json:"lot"`
+	// Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down).
+	StartBlock int32 `json:"startBlock"`
+}
+
+// BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
+type BlendAuctionAmount struct {
+	AssetContractID string `json:"assetContractId"`
+	// Raw on-chain integer amount at the asset's native decimals, NOT a USD value.
+	Amount string `json:"amount"`
 }
 
 // BlendBackstopPosition is an account's backstop deposit in one pool. shares
@@ -141,6 +168,12 @@ type BlendPool struct {
 	InterestApy  *float64        `json:"interestApy,omitempty"`
 	NetApy       *float64        `json:"netApy,omitempty"`
 	Reserves     []*BlendReserve `json:"reserves"`
+	// Pool admin address (G... or C...). Distinguishes owned pools (admin can
+	// retune parameters) from standard pools whose admin is disabled. Null when
+	// not yet observed.
+	Admin *string `json:"admin,omitempty"`
+	// Whether this pool is in the backstop's reward zone and therefore receives BLND emissions.
+	InRewardZone bool `json:"inRewardZone"`
 }
 
 // BlendPoolPosition rolls up an account's reserve positions within one pool.
@@ -369,6 +402,63 @@ func (TrustlineBalance) IsBalance()                   {}
 func (this TrustlineBalance) GetBalance() string      { return this.Balance }
 func (this TrustlineBalance) GetTokenID() string      { return this.TokenID }
 func (this TrustlineBalance) GetTokenType() TokenType { return this.TokenType }
+
+type BlendAuctionType string
+
+const (
+	BlendAuctionTypeUserLiquidation BlendAuctionType = "USER_LIQUIDATION"
+	BlendAuctionTypeBadDebt         BlendAuctionType = "BAD_DEBT"
+	BlendAuctionTypeInterest        BlendAuctionType = "INTEREST"
+)
+
+var AllBlendAuctionType = []BlendAuctionType{
+	BlendAuctionTypeUserLiquidation,
+	BlendAuctionTypeBadDebt,
+	BlendAuctionTypeInterest,
+}
+
+func (e BlendAuctionType) IsValid() bool {
+	switch e {
+	case BlendAuctionTypeUserLiquidation, BlendAuctionTypeBadDebt, BlendAuctionTypeInterest:
+		return true
+	}
+	return false
+}
+
+func (e BlendAuctionType) String() string {
+	return string(e)
+}
+
+func (e *BlendAuctionType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendAuctionType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendAuctionType", str)
+	}
+	return nil
+}
+
+func (e BlendAuctionType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendAuctionType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendAuctionType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
 
 type TokenType string
 

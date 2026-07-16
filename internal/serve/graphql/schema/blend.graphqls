@@ -3,7 +3,9 @@
 # Query.blendPools/blendPool are pool-wide catalog views, independent of any
 # account. Query.blendEarnOptions is a "where can I earn this asset" catalog
 # view. Account.blendPositions is an account's lending, collateral, and
-# backstop positions across every Blend v2 pool it touches.
+# backstop positions across every Blend v2 pool it touches, plus any active
+# Dutch auctions where the account is the auction owner
+# (BlendAccountPositions.activeAuctions).
 #
 # Money-shaped fields use Float for USD/APY values (nullable wherever a missing
 # oracle price makes the value uncomputable — a genuinely zero balance is still
@@ -34,6 +36,13 @@ type BlendAccountPositions {
   pools: [BlendPoolPosition!]!
   backstop: [BlendBackstopPosition!]!
   backstopClaimedLp: String!
+  """
+  Active Dutch auctions where this account is the auction owner: being
+  liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+  address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+  Sorted by (poolAddress, auctionType).
+  """
+  activeAuctions: [BlendAuction!]!
 }
 
 """BlendPoolPosition rolls up an account's reserve positions within one pool."""
@@ -144,6 +153,44 @@ type BlendPool {
   interestApy: Float
   netApy: Float
   reserves: [BlendReserve!]!
+  """
+  Pool admin address (G... or C...). Distinguishes owned pools (admin can
+  retune parameters) from standard pools whose admin is disabled. Null when
+  not yet observed.
+  """
+  admin: String
+  """Whether this pool is in the backstop's reward zone and therefore receives BLND emissions."""
+  inRewardZone: Boolean!
+}
+
+enum BlendAuctionType {
+  USER_LIQUIDATION
+  BAD_DEBT
+  INTEREST
+}
+
+"""BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot."""
+type BlendAuctionAmount {
+  assetContractId: String!
+  """Raw on-chain integer amount at the asset's native decimals, NOT a USD value."""
+  amount: String!
+}
+
+"""
+BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+noted per field below.
+"""
+type BlendAuction {
+  poolAddress: String!
+  poolName: String
+  auctionType: BlendAuctionType!
+  """Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens."""
+  bid: [BlendAuctionAmount!]!
+  """Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying."""
+  lot: [BlendAuctionAmount!]!
+  """Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down)."""
+  startBlock: Int!
 }
 
 """
