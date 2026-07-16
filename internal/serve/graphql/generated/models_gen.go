@@ -93,6 +93,26 @@ type BlendAccountPositions struct {
 	Pools             []*BlendPoolPosition     `json:"pools"`
 	Backstop          []*BlendBackstopPosition `json:"backstop"`
 	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
+	// Active Dutch auctions where this account is the auction owner: being
+	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+	// address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+	// Sorted by (poolAddress, auctionType).
+	ActiveAuctions []*BlendAuction `json:"activeAuctions"`
+}
+
+// BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+// and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+// noted per field below.
+type BlendAuction struct {
+	PoolAddress string           `json:"poolAddress"`
+	PoolName    *string          `json:"poolName,omitempty"`
+	AuctionType BlendAuctionType `json:"auctionType"`
+	// Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens.
+	Bid []*BlendAuctionAmount `json:"bid"`
+	// Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying.
+	Lot []*BlendAuctionAmount `json:"lot"`
+	// Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down).
+	StartBlock int32 `json:"startBlock"`
 }
 
 // BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
@@ -173,6 +193,12 @@ type BlendPool struct {
 	InterestApy  *float64        `json:"interestApy,omitempty"`
 	NetApy       *float64        `json:"netApy,omitempty"`
 	Reserves     []*BlendReserve `json:"reserves"`
+	// Pool admin address (G... or C...). Distinguishes owned pools (admin can
+	// retune parameters) from standard pools whose admin is disabled. Null when
+	// not yet observed.
+	Admin *string `json:"admin,omitempty"`
+	// Whether this pool is in the backstop's reward zone and therefore receives BLND emissions.
+	InRewardZone bool `json:"inRewardZone"`
 }
 
 // BlendPoolPosition rolls up an account's reserve positions within one pool.

@@ -192,3 +192,72 @@ func TestAuctionModel_DeleteByKey(t *testing.T) {
 		require.NoError(t, m.DeleteByKey(ctx, nil, nil))
 	})
 }
+
+func TestAuctionModel_GetByAccount(t *testing.T) {
+	ctx, pool, m, cleanup := newAuctionsFixture(t)
+	defer cleanup()
+
+	poolA := keypair.MustRandom().Address()
+	poolB := keypair.MustRandom().Address()
+	userA := keypair.MustRandom().Address()
+	userB := keypair.MustRandom().Address()
+	assetX := keypair.MustRandom().Address()
+	assetY := keypair.MustRandom().Address()
+
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Auction{
+			{
+				Pool: types.AddressBytea(poolA), User: types.AddressBytea(userA), AuctionType: 0,
+				Bid: map[string]string{assetX: "100"}, Lot: map[string]string{assetY: "200"},
+				StartBlock: 10, LastModifiedLedger: 1,
+			},
+			{
+				Pool: types.AddressBytea(poolB), User: types.AddressBytea(userA), AuctionType: 1,
+				Bid: map[string]string{assetX: "300"}, Lot: map[string]string{assetY: "400"},
+				StartBlock: 20, LastModifiedLedger: 1,
+			},
+			{
+				Pool: types.AddressBytea(poolA), User: types.AddressBytea(userB), AuctionType: 0,
+				Bid: map[string]string{}, Lot: map[string]string{},
+				StartBlock: 30, LastModifiedLedger: 1,
+			},
+		}))
+	})
+
+	got, err := m.GetByAccount(ctx, userA)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "only userA's rows across both pools")
+	for _, a := range got {
+		assert.Equal(t, types.AddressBytea(userA), a.User)
+	}
+	assertOrderedByAddrThen(t, got,
+		func(a blend.Auction) types.AddressBytea { return a.Pool },
+		func(a blend.Auction) int32 { return a.AuctionType },
+	)
+
+	byPool := map[types.AddressBytea]blend.Auction{}
+	for _, a := range got {
+		byPool[a.Pool] = a
+	}
+	aA, ok := byPool[types.AddressBytea(poolA)]
+	require.True(t, ok)
+	assert.EqualValues(t, 0, aA.AuctionType)
+	require.Len(t, aA.Bid, 1)
+	assert.Equal(t, "100", aA.Bid[assetX])
+	require.Len(t, aA.Lot, 1)
+	assert.Equal(t, "200", aA.Lot[assetY])
+	assert.Equal(t, uint32(10), aA.StartBlock)
+
+	aB, ok := byPool[types.AddressBytea(poolB)]
+	require.True(t, ok)
+	assert.EqualValues(t, 1, aB.AuctionType)
+	assert.Equal(t, "300", aB.Bid[assetX])
+	assert.Equal(t, "400", aB.Lot[assetY])
+
+	t.Run("unknown account returns an empty, non-nil slice", func(t *testing.T) {
+		got, err := m.GetByAccount(ctx, keypair.MustRandom().Address())
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Empty(t, got)
+	})
+}

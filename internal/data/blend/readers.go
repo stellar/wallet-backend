@@ -223,7 +223,7 @@ func scanPools(rows pgx.Rows) ([]Pool, error) {
 		var p Pool
 		if err := rows.Scan(
 			&p.PoolContractID, &p.Name, &p.OracleContractID, &p.BackstopRate,
-			&p.Status, &p.MaxPositions, &p.MinCollateral, &p.LastModifiedLedger,
+			&p.Status, &p.MaxPositions, &p.MinCollateral, &p.Admin, &p.InRewardZone, &p.LastModifiedLedger,
 		); err != nil {
 			return nil, fmt.Errorf("scanning blend pool row: %w", err)
 		}
@@ -250,7 +250,7 @@ func (m *PoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]Pool, err
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, last_modified_ledger
+			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
 		FROM blend_pools
 		WHERE pool_contract_id = ANY($1::bytea[])
 		ORDER BY pool_contract_id`
@@ -279,7 +279,7 @@ func (m *PoolModel) GetAll(ctx context.Context) ([]Pool, error) {
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, last_modified_ledger
+			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
 		FROM blend_pools
 		ORDER BY pool_contract_id`
 	rows, err := m.DB.Query(ctx, query)
@@ -490,6 +490,78 @@ func (m *BackstopPoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]B
 	m.Metrics.QueriesTotal.WithLabelValues("GetByIDs", backstopPoolsTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("GetByIDs", backstopPoolsTable).Observe(float64(len(poolIDs)))
 	return backstopPools, nil
+}
+
+// decodeAuctionAmounts unmarshals a blend_auctions.bid/lot JSONB column.
+// marshalAuctionAmounts always writes "{}" rather than SQL NULL (see its
+// doc), so a NOT NULL column is never actually empty, but this treats a
+// zero-length read the same as "{}" defensively.
+func decodeAuctionAmounts(raw []byte) (map[string]string, error) {
+	if len(raw) == 0 {
+		return map[string]string{}, nil
+	}
+	var amounts map[string]string
+	if err := json.Unmarshal(raw, &amounts); err != nil {
+		return nil, fmt.Errorf("unmarshalling auction amounts: %w", err)
+	}
+	if amounts == nil {
+		amounts = map[string]string{}
+	}
+	return amounts, nil
+}
+
+// GetByAccount returns every blend_auctions row where account is the auction
+// owner — the liquidated user for USER_LIQUIDATION, the backstop address for
+// BAD_DEBT/INTEREST — ordered by (pool_contract_id, auction_type). Returns an
+// empty, non-nil slice if the account owns no active auctions.
+func (m *AuctionModel) GetByAccount(ctx context.Context, account string) ([]Auction, error) {
+	accountBytes, err := addressToBytes(account)
+	if err != nil {
+		return nil, fmt.Errorf("converting account address for auction lookup: %w", err)
+	}
+
+	start := time.Now()
+	const query = `
+		SELECT pool_contract_id, user_account_id, auction_type, bid, lot, start_block, last_modified_ledger
+		FROM blend_auctions
+		WHERE user_account_id = $1
+		ORDER BY pool_contract_id, auction_type`
+	rows, err := m.DB.Query(ctx, query, accountBytes)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", auctionsTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend auctions for account: %w", err)
+	}
+	defer rows.Close()
+
+	auctions := []Auction{}
+	for rows.Next() {
+		var a Auction
+		var bidRaw, lotRaw []byte
+		if scanErr := rows.Scan(&a.Pool, &a.User, &a.AuctionType, &bidRaw, &lotRaw, &a.StartBlock, &a.LastModifiedLedger); scanErr != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetByAccount", auctionsTable, utils.GetDBErrorType(scanErr)).Inc()
+			return nil, fmt.Errorf("scanning blend auction row: %w", scanErr)
+		}
+		bid, decodeErr := decodeAuctionAmounts(bidRaw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		lot, decodeErr := decodeAuctionAmounts(lotRaw)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		a.Bid = bid
+		a.Lot = lot
+		auctions = append(auctions, a)
+	}
+	if err := rows.Err(); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByAccount", auctionsTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("iterating blend auction rows: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", auctionsTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", auctionsTable).Inc()
+	return auctions, nil
 }
 
 // GetByAccount returns every blend_emissions row held by account (both
