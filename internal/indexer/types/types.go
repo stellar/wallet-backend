@@ -504,6 +504,7 @@ const (
 	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
+	StateChangeCategoryLending              StateChangeCategory = "LENDING"
 )
 
 type StateChangeReason string
@@ -527,6 +528,22 @@ const (
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
 	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
 	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
+
+	StateChangeReasonSupply                 StateChangeReason = "SUPPLY"
+	StateChangeReasonWithdraw               StateChangeReason = "WITHDRAW"
+	StateChangeReasonSupplyCollateral       StateChangeReason = "SUPPLY_COLLATERAL"
+	StateChangeReasonWithdrawCollateral     StateChangeReason = "WITHDRAW_COLLATERAL"
+	StateChangeReasonBorrow                 StateChangeReason = "BORROW"
+	StateChangeReasonRepay                  StateChangeReason = "REPAY"
+	StateChangeReasonFlashLoan              StateChangeReason = "FLASH_LOAN"
+	StateChangeReasonClaim                  StateChangeReason = "CLAIM"
+	StateChangeReasonLiquidation            StateChangeReason = "LIQUIDATION"
+	StateChangeReasonBadDebt                StateChangeReason = "BAD_DEBT"
+	StateChangeReasonDefaultedDebt          StateChangeReason = "DEFAULTED_DEBT"
+	StateChangeReasonBackstopDeposit        StateChangeReason = "BACKSTOP_DEPOSIT"
+	StateChangeReasonBackstopWithdrawQueue  StateChangeReason = "BACKSTOP_WITHDRAW_QUEUE"
+	StateChangeReasonBackstopWithdrawCancel StateChangeReason = "BACKSTOP_WITHDRAW_CANCEL"
+	StateChangeReasonBackstopWithdraw       StateChangeReason = "BACKSTOP_WITHDRAW"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
