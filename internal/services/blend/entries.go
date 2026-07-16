@@ -54,13 +54,23 @@ const (
 	// Option<UserEmissionData>; see DecodedEntry's godoc for the Void (None)
 	// contract. Payload: UserEmis (same shape as KindUserEmis's).
 	KindBackstopUEmisData
+	// KindAuction is a pool's Auction(AuctionKey) TEMPORARY-storage entry —
+	// an active liquidation, bad-debt, or interest auction. Payload:
+	// AuctionData.
+	KindAuction
+	// KindRewardZone is the backstop's bare-symbol "RZ" entry — the ordered
+	// list of pool addresses currently in the reward zone. Payload: none;
+	// see DecodedEntry.RewardZone.
+	KindRewardZone
 )
 
 // PoolInstanceData is the decoded payload for KindPoolInstance: the pool's
-// instance-storage Config (a PoolConfig UDT) plus its Name. Name is nil if
-// the instance storage has no "Name" key or it isn't a String.
+// instance-storage Config (a PoolConfig UDT) plus its Name and Admin. Name is
+// nil if the instance storage has no "Name" key or it isn't a String; Admin
+// is nil if the instance storage has no "Admin" key or it isn't an Address.
 type PoolInstanceData struct {
 	Name          *string
+	Admin         *string
 	Oracle        string
 	BstopRate     uint32
 	Status        uint32
@@ -149,6 +159,14 @@ type BackstopPoolBalanceData struct {
 	Tokens string
 }
 
+// AuctionData is the decoded payload for KindAuction. Bid and Lot map asset
+// C-addresses to i128 amounts (decimal strings); Block is the auction start.
+type AuctionData struct {
+	Bid   map[string]string
+	Lot   map[string]string
+	Block uint32
+}
+
 // DecodedEntry is the typed result of decoding one ContractData
 // ledger-entry change. It is a tagged union: Kind selects which single
 // payload pointer field (if any) is meaningful.
@@ -161,11 +179,14 @@ type BackstopPoolBalanceData struct {
 // since the owning pool address is the caller's map key into
 // ProtocolProcessorInput.ContractDataChanges, not part of the entry itself.
 // TokenID carries EmisData's reserveTokenID or UserEmis's reserve_id.
+// AuctionType carries KindAuction's auct_type (0=UserLiquidation,
+// 1=BadDebtAuction, 2=InterestAuction) and is meaningful only for that Kind.
 //
 // Removal contract: Removed reports change.Post == nil (the entry was
-// deleted). A removed entry always has a nil payload pointer — callers must
-// act on Kind plus the identity fields alone (e.g. delete all rows for that
-// pool/user) rather than reading stale payload data.
+// deleted). A removed entry always has a nil payload pointer (and, for
+// KindRewardZone, a nil RewardZone slice) — callers must act on Kind plus the
+// identity fields alone (e.g. delete all rows for that pool/user) rather than
+// reading stale payload data.
 //
 // Option/Void contract: BEmisData and UEmisData are Option<T> on-chain and
 // may be ScvVoid (None) even on a live, non-removed entry. That case reports
@@ -181,7 +202,8 @@ type DecodedEntry struct {
 	Asset string
 	Pool  string
 
-	TokenID uint32
+	TokenID     uint32
+	AuctionType int32
 
 	PoolInstance        *PoolInstanceData
 	Positions           *PositionsData
@@ -191,6 +213,12 @@ type DecodedEntry struct {
 	UserEmis            *UserEmissionData
 	BackstopUserBalance *BackstopUserBalanceData
 	BackstopPoolBalance *BackstopPoolBalanceData
+	Auction             *AuctionData
+
+	// RewardZone is KindRewardZone's payload: the ordered list of pool
+	// addresses currently in the backstop's reward zone. nil on Removed;
+	// non-nil (possibly empty — an emptied reward zone is valid) otherwise.
+	RewardZone []string
 }
 
 // DecodeEntry decodes one Blend pool or backstop ContractData ledger-entry
@@ -220,13 +248,55 @@ func DecodeEntry(change ingest.Change) (DecodedEntry, error) {
 		return decodeInstanceEntry(cd, removed)
 	case xdr.ScValTypeScvVec:
 		return decodeVecKeyEntry(cd, removed)
+	case xdr.ScValTypeScvSymbol:
+		return decodeSymbolKeyEntry(cd, removed)
 	default:
-		// Covers bare xdr.ScValTypeScvSymbol keys (ResList, PoolEmis,
-		// PropAdmin on pools; LastDist, RZ, DropList, BackfillEmis, Backfill
-		// on the backstop) — none carry per-entity identity, so none are
-		// modeled — plus any other key shape this package doesn't expect.
+		// Any other key shape this package doesn't expect.
 		return DecodedEntry{Kind: KindIgnored, Removed: removed}, nil
 	}
+}
+
+// decodeSymbolKeyEntry handles a bare xdr.ScValTypeScvSymbol key. Most of
+// these (ResList, PoolEmis, PropAdmin on pools; LastDist, DropList,
+// BackfillEmis, Backfill on the backstop) carry no per-entity identity and
+// aren't modeled — except the backstop's "RZ" reward-zone entry, which is.
+func decodeSymbolKeyEntry(cd xdr.ContractDataEntry, removed bool) (DecodedEntry, error) {
+	sym, ok := cd.Key.GetSym()
+	if !ok {
+		return DecodedEntry{Kind: KindIgnored, Removed: removed}, nil
+	}
+	if string(sym) == "RZ" {
+		return decodeRewardZone(cd, removed)
+	}
+	return DecodedEntry{Kind: KindIgnored, Removed: removed}, nil
+}
+
+// decodeRewardZone decodes the backstop's bare-symbol "RZ" entry: a Vec of
+// pool Address elements. An empty vec is a valid, live value — it means the
+// reward zone has been emptied, not that decoding failed.
+func decodeRewardZone(cd xdr.ContractDataEntry, removed bool) (DecodedEntry, error) {
+	const kind = "RZ"
+	out := DecodedEntry{Kind: KindRewardZone, Removed: removed}
+	if removed {
+		return out, nil
+	}
+
+	elems, ok := vecVal(cd.Val)
+	if !ok {
+		return DecodedEntry{}, fmt.Errorf("blend: %s: expected vec value, got %v", kind, cd.Val.Type)
+	}
+
+	pools := make([]string, 0, len(elems))
+	for i, el := range elems {
+		addr, ok := addrString(el)
+		if !ok {
+			return DecodedEntry{}, fmt.Errorf("blend: %s: element %d is not an address (type %v)", kind, i, el.Type)
+		}
+		pools = append(pools, addr)
+	}
+
+	out.RewardZone = pools
+	return out, nil
 }
 
 // decodeInstanceEntry handles the ScvLedgerKeyContractInstance key: routes to
@@ -275,20 +345,26 @@ func decodePoolInstanceData(storage *xdr.ScMap) (*PoolInstanceData, error) {
 		return nil, cfgR.err
 	}
 
-	// Name is metadata-only and best-effort: a missing or wrong-typed "Name"
-	// leaves it nil rather than failing the whole decode.
+	// Name and Admin are metadata-only and best-effort: a missing or
+	// wrong-typed value leaves the field nil rather than failing the whole
+	// decode.
 	if nameVal, ok := mapGet(storage, "Name"); ok {
 		if s, ok := stringVal(nameVal); ok {
 			payload.Name = &s
+		}
+	}
+	if adminVal, ok := mapGet(storage, "Admin"); ok {
+		if s, ok := addrString(adminVal); ok {
+			payload.Admin = &s
 		}
 	}
 	return payload, nil
 }
 
 // decodeVecKeyEntry handles the 2-elem-ScVec-key shape ([Symbol, arg]) used
-// by every Blend persistent storage key. The symbol selects the kind;
-// unrecognized symbols (ResInit, Auction — temporary storage — RzEmis,
-// PoolUSDC, and any future variant) decode to KindIgnored, never an error.
+// by every Blend persistent (and Auction's TEMPORARY) storage key. The
+// symbol selects the kind; unrecognized symbols (ResInit, RzEmis, PoolUSDC,
+// and any future variant) decode to KindIgnored, never an error.
 func decodeVecKeyEntry(cd xdr.ContractDataEntry, removed bool) (DecodedEntry, error) {
 	vec, ok := cd.Key.GetVec()
 	if !ok || vec == nil || len(*vec) == 0 {
@@ -302,6 +378,8 @@ func decodeVecKeyEntry(cd xdr.ContractDataEntry, removed bool) (DecodedEntry, er
 	}
 
 	switch string(sym) {
+	case "Auction":
+		return decodeAuction(cd, elems, removed)
 	case "ResConfig":
 		return decodeResConfig(cd, elems, removed)
 	case "ResData":
@@ -395,6 +473,24 @@ func decodeUserReserveKey(elems []xdr.ScVal, kind string) (reserveID uint32, use
 		return 0, "", r.err
 	}
 	return reserveID, user, nil
+}
+
+// decodeAuctionKey decodes an AuctionKey argument {auct_type u32, user
+// Address} out of a 2-elem key vec. The sorted ScMap orders fields
+// auct_type, user (symbol-byte order) — the reverse of the Rust struct
+// declaration order (AuctionKey{user, auct_type}).
+func decodeAuctionKey(elems []xdr.ScVal, kind string) (auctType uint32, user string, err error) {
+	m, err := decodeMapArg(elems, kind)
+	if err != nil {
+		return 0, "", err
+	}
+	r := &mapReader{m: m, kind: kind}
+	auctType = readField(r, "auct_type", u32Val)
+	user = readField(r, "user", addrString)
+	if r.err != nil {
+		return 0, "", r.err
+	}
+	return auctType, user, nil
 }
 
 // decodeEmissionData decodes a ReserveEmissionData/BackstopEmissionData
@@ -528,6 +624,37 @@ func decodeEmisData(cd xdr.ContractDataEntry, elems []xdr.ScVal, removed bool) (
 		return DecodedEntry{}, err
 	}
 	out.EmisData = payload
+	return out, nil
+}
+
+func decodeAuction(cd xdr.ContractDataEntry, elems []xdr.ScVal, removed bool) (DecodedEntry, error) {
+	const kind = "Auction"
+	auctType, user, err := decodeAuctionKey(elems, kind)
+	if err != nil {
+		return DecodedEntry{}, err
+	}
+
+	out := DecodedEntry{Kind: KindAuction, Removed: removed, User: user, AuctionType: int32(auctType)}
+	if removed {
+		return out, nil
+	}
+
+	m, ok := cd.Val.GetMap()
+	if !ok {
+		return DecodedEntry{}, fmt.Errorf("blend: %s(%d,%s): expected map value, got %v", kind, auctType, user, cd.Val.Type)
+	}
+
+	r := &mapReader{m: m, kind: kind}
+	data := &AuctionData{
+		Bid:   readField(r, "bid", mapAddrI128),
+		Block: readField(r, "block", u32Val),
+		Lot:   readField(r, "lot", mapAddrI128),
+	}
+	if r.err != nil {
+		return DecodedEntry{}, r.err
+	}
+
+	out.Auction = data
 	return out, nil
 }
 

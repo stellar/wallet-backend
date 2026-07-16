@@ -484,8 +484,8 @@ func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
 		p.stageBackstopBEmisData(decoded)
 	case KindBackstopUEmisData:
 		p.stageBackstopUEmis(decoded)
-	case KindIgnored:
-		// Nothing to stage.
+	case KindAuction, KindRewardZone, KindIgnored:
+		// KindAuction/KindRewardZone are decoded but not yet staged; KindIgnored never has anything to stage.
 	}
 }
 
