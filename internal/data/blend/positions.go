@@ -373,14 +373,21 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 // applyAuctionAdjustmentsSQL divides by rateScalar to convert protocol-token
 // amounts (lot/bid, scaled by b_rate/d_rate) to underlying-asset amounts.
 //
+// The conversion is truncated toward zero (trunc), matching the contract's
+// fixed_mul_floor, which floors the magnitude of a positive token amount. Because
+// lot_b/bid_d are signed (the liquidated user's deltas are negative, the filler's
+// positive), trunc — not floor — reproduces "floor the magnitude, keep the sign":
+// trunc(-x.y) == -floor(x.y). This keeps cost basis in the same floored-integer
+// form as BatchApplyNetDeltas instead of accruing a fractional tail.
+//
 // The UNNEST rows are pre-aggregated per (pool, user, asset): Postgres's
 // UPDATE ... FROM applies only ONE matching source row per target row, so two
 // fills against the same position in one batch would otherwise silently drop
 // an adjustment. Auction deltas are purely additive, so summing is exact.
 var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 	UPDATE blend_positions p SET
-		net_supplied = (p.net_supplied::numeric + u.lot_b * r.b_rate::numeric / %[1]s)::text,
-		net_borrowed = (p.net_borrowed::numeric + u.bid_d * r.d_rate::numeric / %[1]s)::text,
+		net_supplied = (p.net_supplied::numeric + trunc(u.lot_b * r.b_rate::numeric / %[1]s))::text,
+		net_borrowed = (p.net_borrowed::numeric + trunc(u.bid_d * r.d_rate::numeric / %[1]s))::text,
 		last_modified_ledger = GREATEST(p.last_modified_ledger, u.ledger)
 	FROM (
 		SELECT raw.pool, raw.usr, raw.asset,
