@@ -136,6 +136,33 @@ type stagedClaim struct {
 	ledger uint32
 }
 
+// auctionStageKey identifies one (pool, user, auction_type) staged auction.
+type auctionStageKey struct {
+	Pool        string
+	User        string
+	AuctionType int32
+}
+
+// stagedAuction is the LWW-staged state for one auctionStageKey: either the
+// latest active-auction snapshot or a removal. A later entry for the same key
+// fully replaces the prior one, so a created-then-filled auction within one
+// window nets to removed, while a created-then-partially-filled one nets to the
+// latest snapshot.
+type stagedAuction struct {
+	data    *AuctionData
+	removed bool
+	ledger  uint32
+}
+
+// stagedRewardZone is the LWW-staged backstop reward-zone membership list.
+// Entries arrive in tx-application order, so a straight overwrite (the later
+// ledger's list wins within the window) is the correct fold. The list is the
+// absolute membership set — see PoolModelInterface.SetRewardZone.
+type stagedRewardZone struct {
+	pools  []string
+	ledger uint32
+}
+
 // processor implements services.ProtocolProcessor for the Blend v2 lending
 // protocol.
 type processor struct {
@@ -156,6 +183,7 @@ type processor struct {
 	emissions         blenddata.EmissionModelInterface
 	poolClaimed       blenddata.PoolClaimedModelInterface
 	backstopClaimed   blenddata.BackstopClaimedModelInterface
+	auctions          blenddata.AuctionModelInterface
 	stateChanges      data.StateChangeWriter
 	protocolContracts data.ProtocolContractsModelInterface
 
@@ -182,6 +210,8 @@ type processor struct {
 	stagedUserEmissions     map[emisKey]*stagedUserEmission
 	stagedPoolClaims        map[blenddata.PoolUserKey]*stagedClaim
 	stagedBackstopClaims    map[string]*stagedClaim
+	stagedAuctions          map[auctionStageKey]*stagedAuction
+	stagedRewardZone        *stagedRewardZone
 
 	// loggedImpostorBackstops dedups the "skipped non-canonical backstop" debug
 	// log to once per contract per window: it records which non-canonical
@@ -214,6 +244,7 @@ func newProcessor(deps services.ProtocolDeps) *processor {
 		p.emissions = deps.Models.Blend.Emissions
 		p.poolClaimed = deps.Models.Blend.PoolClaimed
 		p.backstopClaimed = deps.Models.Blend.BackstopClaimed
+		p.auctions = deps.Models.Blend.Auctions
 		p.stateChanges = deps.Models.StateChanges
 		p.protocolContracts = deps.Models.ProtocolContracts
 	}
@@ -516,8 +547,12 @@ func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
 		p.stageBackstopBEmisData(decoded)
 	case KindBackstopUEmisData:
 		p.stageBackstopUEmis(decoded)
-	case KindAuction, KindRewardZone, KindIgnored:
-		// KindAuction/KindRewardZone are decoded but not yet staged; KindIgnored never has anything to stage.
+	case KindAuction:
+		p.stageAuction(addr, decoded)
+	case KindRewardZone:
+		p.stageRewardZone(decoded)
+	case KindIgnored:
+		// KindIgnored never has anything to stage.
 	}
 }
 
@@ -545,10 +580,10 @@ func (p *processor) logSkippedImpostorBackstop(addr string) {
 }
 
 // stagePoolInstance merges a pool's instance-storage snapshot into its
-// staged blend_pools row. Name and the PoolConfig fields are LWW
-// independently: a later entry only overwrites Name when it decoded one
-// (best-effort per entries.go), so a transient miss never clobbers an
-// earlier known name. Removal is ignored — a pool's instance entry going
+// staged blend_pools row. Name, Admin, and the PoolConfig fields are LWW
+// independently: a later entry only overwrites Name or Admin when it decoded
+// one (best-effort per entries.go), so a transient miss never clobbers an
+// earlier known value. Removal is ignored — a pool's instance entry going
 // away mid-window doesn't delete history, unlike Positions/BackstopUserBalance.
 func (p *processor) stagePoolInstance(addr string, decoded DecodedEntry) {
 	if decoded.PoolInstance == nil {
@@ -562,6 +597,9 @@ func (p *processor) stagePoolInstance(addr string, decoded DecodedEntry) {
 	inst := decoded.PoolInstance
 	if inst.Name != nil {
 		sp.Name = inst.Name
+	}
+	if inst.Admin != nil {
+		sp.Admin = types.AddressBytea(*inst.Admin)
 	}
 	if inst.Oracle != "" {
 		sp.OracleContractID = types.AddressBytea(inst.Oracle)
@@ -734,6 +772,35 @@ func (p *processor) stageBackstopUEmis(decoded DecodedEntry) {
 	p.stagedUserEmissions[key] = &stagedUserEmission{data: decoded.UserEmis, ledger: p.ledgerNumber}
 }
 
+// stageAuction replaces (LWW) or removes the staged auction for (pool,
+// decoded.User, decoded.AuctionType). A later entry for the same key always
+// wins: a created-then-filled auction within one window nets to removed, and a
+// created-then-partially-filled one nets to the latest snapshot.
+func (p *processor) stageAuction(pool string, decoded DecodedEntry) {
+	key := auctionStageKey{Pool: pool, User: decoded.User, AuctionType: decoded.AuctionType}
+	if decoded.Removed {
+		p.stagedAuctions[key] = &stagedAuction{removed: true, ledger: p.ledgerNumber}
+		return
+	}
+	if decoded.Auction == nil {
+		return
+	}
+	p.stagedAuctions[key] = &stagedAuction{data: decoded.Auction, ledger: p.ledgerNumber}
+}
+
+// stageRewardZone overwrites (LWW) the staged backstop reward-zone membership.
+// A live entry stages its pool list; a removal stages an empty list. RZ
+// deletion is a theoretical case — the entry going away means no reward zone,
+// and absolute-empty (which clears membership everywhere) is the safe fold.
+// Entries arrive in tx-application order, so the later ledger's list wins.
+func (p *processor) stageRewardZone(decoded DecodedEntry) {
+	pools := decoded.RewardZone
+	if decoded.Removed {
+		pools = nil
+	}
+	p.stagedRewardZone = &stagedRewardZone{pools: pools, ledger: p.ledgerNumber}
+}
+
 // indexContracts rebuilds the per-ledger tracked-contract index (pools and
 // the backstop) plus each contract's wasm hash, from input.ProtocolContracts.
 func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
@@ -771,6 +838,8 @@ func (p *processor) Reset() {
 	p.stagedUserEmissions = map[emisKey]*stagedUserEmission{}
 	p.stagedPoolClaims = map[blenddata.PoolUserKey]*stagedClaim{}
 	p.stagedBackstopClaims = map[string]*stagedClaim{}
+	p.stagedAuctions = map[auctionStageKey]*stagedAuction{}
+	p.stagedRewardZone = nil
 	p.loggedImpostorBackstops = map[string]struct{}{}
 	p.needsReset = false
 }
@@ -796,9 +865,12 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 //     Positions entry removed and re-created within the same window nets to
 //     the recreate rather than a delete-after-upsert race.
 //  3. backstop positions, backstop pools, reserve emissions, user emissions,
-//     and lifetime claimed totals. These last groups are keyed by account/pool
-//     only (no asset→reserve resolution), so their order among themselves and
-//     relative to positions does not matter.
+//     lifetime claimed totals, and auctions. These groups are keyed by
+//     account/pool only (no asset→reserve resolution), so their order among
+//     themselves and relative to positions does not matter.
+//  4. reward zone, dead last: SetRewardZone flips in_reward_zone on existing
+//     blend_pools rows, so it must run after the pools upsert (step 1) to see a
+//     pool created in the same window.
 func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.needsReset = true
 
@@ -824,6 +896,12 @@ func (p *processor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error 
 		return err
 	}
 	if err := p.persistClaims(ctx, dbTx); err != nil {
+		return err
+	}
+	if err := p.persistAuctions(ctx, dbTx); err != nil {
+		return err
+	}
+	if err := p.persistRewardZone(ctx, dbTx); err != nil {
 		return err
 	}
 	return nil
@@ -1187,6 +1265,67 @@ func (p *processor) persistClaims(ctx context.Context, dbTx pgx.Tx) error {
 		if err := p.backstopClaimed.BatchApplyDeltas(ctx, dbTx, backstopRows); err != nil {
 			return fmt.Errorf("applying %d blend backstop claimed deltas for ledger %d: %w", len(backstopRows), p.ledgerNumber, err)
 		}
+	}
+	return nil
+}
+
+// persistAuctions deletes staged removed auctions then upserts the live ones,
+// mirroring persistPositions' delete-then-write split so an auction removed and
+// re-created within one window converges on the recreate.
+func (p *processor) persistAuctions(ctx context.Context, dbTx pgx.Tx) error {
+	if len(p.stagedAuctions) == 0 {
+		return nil
+	}
+
+	var deleteKeys []blenddata.AuctionKey
+	var rows []blenddata.Auction
+	for key, sa := range p.stagedAuctions {
+		if sa.removed {
+			deleteKeys = append(deleteKeys, blenddata.AuctionKey{
+				Pool:        types.AddressBytea(key.Pool),
+				User:        types.AddressBytea(key.User),
+				AuctionType: key.AuctionType,
+			})
+			continue
+		}
+		rows = append(rows, blenddata.Auction{
+			Pool:               types.AddressBytea(key.Pool),
+			User:               types.AddressBytea(key.User),
+			AuctionType:        key.AuctionType,
+			Bid:                sa.data.Bid,
+			Lot:                sa.data.Lot,
+			StartBlock:         sa.data.Block,
+			LastModifiedLedger: sa.ledger,
+		})
+	}
+
+	if len(deleteKeys) > 0 {
+		if err := p.auctions.DeleteByKey(ctx, dbTx, deleteKeys); err != nil {
+			return fmt.Errorf("deleting %d blend auctions for ledger %d: %w", len(deleteKeys), p.ledgerNumber, err)
+		}
+	}
+	if len(rows) > 0 {
+		if err := p.auctions.BatchUpsert(ctx, dbTx, rows); err != nil {
+			return fmt.Errorf("upserting %d blend auctions for ledger %d: %w", len(rows), p.ledgerNumber, err)
+		}
+	}
+	return nil
+}
+
+// persistRewardZone sets the exact backstop reward-zone membership from the
+// staged list (nil when no RZ entry was seen this window, in which case this is
+// a no-op). It runs after persistPools so a pool created in the same window
+// exists before its in_reward_zone flag is flipped.
+func (p *processor) persistRewardZone(ctx context.Context, dbTx pgx.Tx) error {
+	if p.stagedRewardZone == nil {
+		return nil
+	}
+	poolIDs := make([]types.AddressBytea, 0, len(p.stagedRewardZone.pools))
+	for _, pool := range p.stagedRewardZone.pools {
+		poolIDs = append(poolIDs, types.AddressBytea(pool))
+	}
+	if err := p.pools.SetRewardZone(ctx, dbTx, poolIDs, int32(p.stagedRewardZone.ledger)); err != nil {
+		return fmt.Errorf("setting blend reward zone for ledger %d: %w", p.ledgerNumber, err)
 	}
 	return nil
 }

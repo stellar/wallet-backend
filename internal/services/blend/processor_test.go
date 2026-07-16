@@ -49,6 +49,7 @@ type testMocks struct {
 	emissions         *blenddata.EmissionModelMock
 	poolClaimed       *blenddata.PoolClaimedModelMock
 	backstopClaimed   *blenddata.BackstopClaimedModelMock
+	auctions          *blenddata.AuctionModelMock
 	stateChanges      *data.StateChangeWriterMock
 	protocolContracts *data.ProtocolContractsModelMock
 }
@@ -76,6 +77,7 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 		emissions:         blenddata.NewEmissionModelMock(t),
 		poolClaimed:       blenddata.NewPoolClaimedModelMock(t),
 		backstopClaimed:   blenddata.NewBackstopClaimedModelMock(t),
+		auctions:          blenddata.NewAuctionModelMock(t),
 		stateChanges:      data.NewStateChangeWriterMock(t),
 		protocolContracts: data.NewProtocolContractsModelMock(t),
 	}
@@ -91,6 +93,7 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 		emissions:         m.emissions,
 		poolClaimed:       m.poolClaimed,
 		backstopClaimed:   m.backstopClaimed,
+		auctions:          m.auctions,
 		stateChanges:      m.stateChanges,
 		protocolContracts: m.protocolContracts,
 	}
@@ -189,6 +192,44 @@ func poolInstanceScVal(t *testing.T, name, oracleAddr string) xdr.ScVal {
 	t.Helper()
 	storage := mapScVal(
 		symEntry("Name", stringScVal(name)),
+		symEntry("Config", mapValScVal(mapScVal(
+			symEntry("oracle", contractAddrScVal(t, oracleAddr)),
+			symEntry("bstop_rate", u32ScVal(2500)),
+			symEntry("status", u32ScVal(0)),
+			symEntry("max_positions", u32ScVal(4)),
+			symEntry("min_collateral", i128ScVal(1_000_000)),
+		))),
+	)
+	return instanceValScVal(storage)
+}
+
+// auctionKeyScVal builds an Auction(auct_type, user) ContractData key.
+func auctionKeyScVal(t *testing.T, auctType uint32, user string) xdr.ScVal {
+	t.Helper()
+	return vecScVal(symScVal("Auction"), mapValScVal(mapScVal(
+		symEntry("auct_type", u32ScVal(auctType)),
+		symEntry("user", accountAddrScVal(t, user)),
+	)))
+}
+
+// auctionValScVal builds an AuctionData ContractData value with a single bid and
+// lot asset amount plus a start block.
+func auctionValScVal(t *testing.T, bidAsset string, bid int64, lotAsset string, lot int64, block uint32) xdr.ScVal {
+	t.Helper()
+	return mapValScVal(mapScVal(
+		symEntry("bid", mapValScVal(mapScVal(addrMapEntry(t, bidAsset, i128ScVal(bid))))),
+		symEntry("block", u32ScVal(block)),
+		symEntry("lot", mapValScVal(mapScVal(addrMapEntry(t, lotAsset, i128ScVal(lot))))),
+	))
+}
+
+// poolInstanceWithAdminScVal builds a pool instance-storage ContractData value
+// carrying an Admin address alongside Name and Config.
+func poolInstanceWithAdminScVal(t *testing.T, name, oracleAddr, adminAddr string) xdr.ScVal {
+	t.Helper()
+	storage := mapScVal(
+		symEntry("Name", stringScVal(name)),
+		symEntry("Admin", accountAddrScVal(t, adminAddr)),
 		symEntry("Config", mapValScVal(mapScVal(
 			symEntry("oracle", contractAddrScVal(t, oracleAddr)),
 			symEntry("bstop_rate", u32ScVal(2500)),
@@ -949,6 +990,389 @@ func TestBatchEquivalence(t *testing.T) {
 		}
 	}
 	assert.True(t, deletedInTwo, "sanity: the two-window run's L1 persist does delete user3 before L2 recreates it")
+}
+
+func TestProcessLedger_StagesAuctions(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	user := randomAccountAddr(t)
+	assetA := randomContractAddr(t)
+	assetB := randomContractAddr(t)
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+
+	baseInput := func(ledger uint32, changes ...ingest.Change) services.ProtocolProcessorInput {
+		return services.ProtocolProcessorInput{
+			LedgerSequence:      ledger,
+			ProtocolContracts:   []data.ProtocolContracts{poolPC},
+			ContractDataChanges: map[string][]ingest.Change{poolAddr: changes},
+			StagingMode:         services.StagingModeCurrentState,
+		}
+	}
+	key := auctionStageKey{Pool: poolAddr, User: user, AuctionType: 0}
+
+	t.Run("created stages a live snapshot", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, baseInput(1,
+			createdChange(auctionKeyScVal(t, 0, user), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345)),
+		)))
+
+		require.Len(t, p.stagedAuctions, 1)
+		require.Contains(t, p.stagedAuctions, key)
+		sa := p.stagedAuctions[key]
+		assert.False(t, sa.removed)
+		require.NotNil(t, sa.data)
+		assert.Equal(t, map[string]string{assetA: "1000"}, sa.data.Bid)
+		assert.Equal(t, map[string]string{assetB: "2000"}, sa.data.Lot)
+		assert.Equal(t, uint32(12345), sa.data.Block)
+		assert.Equal(t, uint32(1), sa.ledger)
+	})
+
+	t.Run("created then removed in a later ledger nets to removed", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, baseInput(1,
+			createdChange(auctionKeyScVal(t, 0, user), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345)),
+		)))
+		p.needsReset = false // same window: no intervening Persist/Reset
+		require.NoError(t, p.ProcessLedger(ctx, baseInput(2,
+			removedChange(auctionKeyScVal(t, 0, user), mapValScVal(mapScVal())),
+		)))
+
+		require.Len(t, p.stagedAuctions, 1)
+		sa := p.stagedAuctions[key]
+		assert.True(t, sa.removed, "the later removal must win over the earlier create")
+		assert.Nil(t, sa.data)
+		assert.Equal(t, uint32(2), sa.ledger)
+	})
+
+	t.Run("partial-fill rewrite keeps the latest snapshot", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, baseInput(1,
+			createdChange(auctionKeyScVal(t, 0, user), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345)),
+		)))
+		require.NoError(t, p.ProcessLedger(ctx, baseInput(2,
+			createdChange(auctionKeyScVal(t, 0, user), auctionValScVal(t, assetA, 400, assetB, 800, 12345)),
+		)))
+
+		require.Len(t, p.stagedAuctions, 1)
+		sa := p.stagedAuctions[key]
+		assert.False(t, sa.removed)
+		require.NotNil(t, sa.data)
+		assert.Equal(t, map[string]string{assetA: "400"}, sa.data.Bid, "the later partial-fill snapshot must win")
+		assert.Equal(t, uint32(2), sa.ledger)
+	})
+}
+
+func TestProcessLedger_StagesRewardZone(t *testing.T) {
+	ctx := context.Background()
+	backstopAddr := testCanonicalBackstopAddr
+	poolA := randomContractAddr(t)
+	poolB := randomContractAddr(t)
+	poolC := randomContractAddr(t)
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	rzInput := func(ledger uint32, pools ...string) services.ProtocolProcessorInput {
+		elems := make([]xdr.ScVal, 0, len(pools))
+		for _, pool := range pools {
+			elems = append(elems, contractAddrScVal(t, pool))
+		}
+		return services.ProtocolProcessorInput{
+			LedgerSequence:      ledger,
+			ProtocolContracts:   []data.ProtocolContracts{backstopPC},
+			ContractDataChanges: map[string][]ingest.Change{backstopAddr: {createdChange(symScVal("RZ"), vecScVal(elems...))}},
+			StagingMode:         services.StagingModeCurrentState,
+		}
+	}
+
+	p := newTestProcessor()
+	p.Reset()
+	require.NoError(t, p.ProcessLedger(ctx, rzInput(1, poolA, poolB)))
+	require.NoError(t, p.ProcessLedger(ctx, rzInput(2, poolC)))
+
+	require.NotNil(t, p.stagedRewardZone)
+	assert.Equal(t, []string{poolC}, p.stagedRewardZone.pools, "a later reward-zone list overwrites the earlier one")
+	assert.Equal(t, uint32(2), p.stagedRewardZone.ledger)
+}
+
+func TestProcessLedger_StagesPoolAdmin(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	oracleAddr := randomContractAddr(t)
+	adminAddr := randomAccountAddr(t)
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+
+	run := func(t *testing.T, instanceVal xdr.ScVal) *blenddata.Pool {
+		t.Helper()
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{
+			LedgerSequence:      3,
+			ProtocolContracts:   []data.ProtocolContracts{poolPC},
+			ContractDataChanges: map[string][]ingest.Change{poolAddr: {createdChange(instanceKeyScVal(), instanceVal)}},
+			StagingMode:         services.StagingModeCurrentState,
+		}))
+		require.Len(t, p.stagedPools, 1)
+		return p.stagedPools[poolAddr]
+	}
+
+	t.Run("admin present populates the pool row", func(t *testing.T) {
+		row := run(t, poolInstanceWithAdminScVal(t, "Fixed Pool v2", oracleAddr, adminAddr))
+		assert.Equal(t, types.AddressBytea(adminAddr), row.Admin)
+	})
+
+	t.Run("admin absent leaves an empty admin", func(t *testing.T) {
+		row := run(t, poolInstanceScVal(t, "Fixed Pool v2", oracleAddr))
+		assert.Equal(t, types.AddressBytea(""), row.Admin)
+	})
+}
+
+func TestProcessLedger_PersistsAuctionsAndRewardZone(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	user1 := randomAccountAddr(t)
+	user2 := randomAccountAddr(t)
+	assetA := randomContractAddr(t)
+	assetB := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	t.Run("delete precedes upsert and reward zone is set last", func(t *testing.T) {
+		p, m := newFullTestProcessor(t)
+		require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{
+			LedgerSequence:    7,
+			ProtocolContracts: []data.ProtocolContracts{poolPC, backstopPC},
+			ContractDataChanges: map[string][]ingest.Change{
+				poolAddr: {
+					createdChange(auctionKeyScVal(t, 0, user1), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345)),
+					removedChange(auctionKeyScVal(t, 1, user2), mapValScVal(mapScVal())),
+				},
+				backstopAddr: {createdChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolAddr)))},
+			},
+			StagingMode: services.StagingModeCurrentState,
+		}))
+
+		var order []string
+		recordOrder := func(name string) func(mock.Arguments) {
+			return func(mock.Arguments) { order = append(order, name) }
+		}
+
+		m.auctions.On("DeleteByKey", mock.Anything, mock.Anything, mock.MatchedBy(func(keys []blenddata.AuctionKey) bool {
+			return len(keys) == 1 && keys[0].Pool == types.AddressBytea(poolAddr) &&
+				keys[0].User == types.AddressBytea(user2) && keys[0].AuctionType == 1
+		})).Run(recordOrder("auctions.DeleteByKey")).Return(nil).Once()
+		m.auctions.On("BatchUpsert", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.Auction) bool {
+			return len(rows) == 1 && rows[0].Pool == types.AddressBytea(poolAddr) &&
+				rows[0].User == types.AddressBytea(user1) && rows[0].AuctionType == 0 &&
+				rows[0].Bid[assetA] == "1000" && rows[0].Lot[assetB] == "2000" &&
+				rows[0].StartBlock == 12345 && rows[0].LastModifiedLedger == 7
+		})).Run(recordOrder("auctions.BatchUpsert")).Return(nil).Once()
+		m.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.MatchedBy(func(poolIDs []types.AddressBytea) bool {
+			return len(poolIDs) == 1 && poolIDs[0] == types.AddressBytea(poolAddr)
+		}), int32(7)).Run(recordOrder("pools.SetRewardZone")).Return(nil).Once()
+
+		require.NoError(t, p.PersistCurrentState(ctx, nil))
+		require.Equal(t, []string{"auctions.DeleteByKey", "auctions.BatchUpsert", "pools.SetRewardZone"}, order)
+	})
+
+	t.Run("no staged reward zone makes no SetRewardZone call", func(t *testing.T) {
+		p, m := newFullTestProcessor(t)
+		require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{
+			LedgerSequence:    7,
+			ProtocolContracts: []data.ProtocolContracts{poolPC},
+			ContractDataChanges: map[string][]ingest.Change{
+				poolAddr: {createdChange(auctionKeyScVal(t, 0, user1), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345))},
+			},
+			StagingMode: services.StagingModeCurrentState,
+		}))
+		require.Nil(t, p.stagedRewardZone)
+
+		// Only the auction upsert is expected; SetRewardZone has no expectation, so a
+		// call would fail AssertExpectations.
+		m.auctions.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		require.NoError(t, p.PersistCurrentState(ctx, nil))
+	})
+}
+
+// auctionOp is one ordered auction-model mutation captured during a test run:
+// either a delete of key, or an upsert of row.
+type auctionOp struct {
+	isDelete bool
+	key      blenddata.AuctionKey
+	row      blenddata.Auction
+}
+
+// wireAuctionCaptures stubs m to append every DeleteByKey/BatchUpsert argument
+// into ops in invocation order, for batch-equivalence comparison.
+func wireAuctionCaptures(m *blenddata.AuctionModelMock, ops *[]auctionOp) {
+	m.On("DeleteByKey", mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) {
+			for _, k := range args.Get(2).([]blenddata.AuctionKey) {
+				*ops = append(*ops, auctionOp{isDelete: true, key: k})
+			}
+		}).Return(nil)
+	m.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) {
+			for _, r := range args.Get(2).([]blenddata.Auction) {
+				*ops = append(*ops, auctionOp{row: r})
+			}
+		}).Return(nil)
+}
+
+// reduceAuctions simulates blend_auctions' delete/upsert semantics applied in
+// ops' order: a delete drops the keyed row; an upsert replaces (LWW) it.
+func reduceAuctions(ops []auctionOp) map[blenddata.AuctionKey]blenddata.Auction {
+	state := map[blenddata.AuctionKey]blenddata.Auction{}
+	for _, op := range ops {
+		if op.isDelete {
+			delete(state, op.key)
+			continue
+		}
+		state[blenddata.AuctionKey{Pool: op.row.Pool, User: op.row.User, AuctionType: op.row.AuctionType}] = op.row
+	}
+	return state
+}
+
+// TestBatchEquivalence_AuctionsRewardZone extends the batch-equivalence
+// contract to the auction and reward-zone folds. Folded across two ledgers
+// (L1, L2):
+//
+//	(a) auction A (user1) is created in L1 and filled (removed) in L2, while
+//	    auction B (user2) is created in L2 — a single-window persist must never
+//	    upsert A (it nets to a delete) yet still converge on the same final
+//	    {B} row set as a two-window run that upserts then deletes A.
+//	(b) the reward zone is set to [poolA] in L1 and [poolA, poolB] in L2 (with
+//	    poolB's pool instance created in L2) — the last-writer-wins overwrite
+//	    means both runs converge on the same final membership regardless of the
+//	    window split or the pool-creation ordering.
+func TestBatchEquivalence_AuctionsRewardZone(t *testing.T) {
+	ctx := context.Background()
+	poolA := randomContractAddr(t)
+	poolB := randomContractAddr(t)
+	oracleAddr := randomContractAddr(t)
+	user1 := randomAccountAddr(t)
+	user2 := randomAccountAddr(t)
+	assetA := randomContractAddr(t)
+	assetB := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
+	poolAPC := protocolContractFor(t, poolA, "aa")
+	poolBPC := protocolContractFor(t, poolB, "cc")
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	l1 := services.ProtocolProcessorInput{
+		LedgerSequence:    1,
+		ProtocolContracts: []data.ProtocolContracts{poolAPC, poolBPC, backstopPC},
+		ContractDataChanges: map[string][]ingest.Change{
+			poolA:        {createdChange(auctionKeyScVal(t, 0, user1), auctionValScVal(t, assetA, 1000, assetB, 2000, 100))},
+			backstopAddr: {createdChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolA)))},
+		},
+		StagingMode: services.StagingModeCurrentState,
+	}
+	l2 := services.ProtocolProcessorInput{
+		LedgerSequence:    2,
+		ProtocolContracts: []data.ProtocolContracts{poolAPC, poolBPC, backstopPC},
+		ContractDataChanges: map[string][]ingest.Change{
+			poolA: {removedChange(auctionKeyScVal(t, 0, user1), mapValScVal(mapScVal()))},
+			poolB: {
+				createdChange(instanceKeyScVal(), poolInstanceScVal(t, "", oracleAddr)),
+				createdChange(auctionKeyScVal(t, 1, user2), auctionValScVal(t, assetA, 300, assetB, 600, 200)),
+			},
+			backstopAddr: {createdChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolA), contractAddrScVal(t, poolB)))},
+		},
+		StagingMode: services.StagingModeCurrentState,
+	}
+
+	// One window: fold L1+L2, persist once.
+	pOne, mOne := newFullTestProcessor(t)
+	var oneOps []auctionOp
+	var oneRZ []types.AddressBytea
+	wireAuctionCaptures(mOne.auctions, &oneOps)
+	mOne.protocolContracts.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
+	mOne.pools.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
+	mOne.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) { oneRZ = args.Get(2).([]types.AddressBytea) }).Return(nil)
+	require.NoError(t, pOne.ProcessLedger(ctx, l1))
+	require.NoError(t, pOne.ProcessLedger(ctx, l2))
+	require.NoError(t, pOne.PersistCurrentState(ctx, nil))
+
+	// Two windows: persist and Reset() between L1 and L2.
+	pTwo, mTwo := newFullTestProcessor(t)
+	var twoOps []auctionOp
+	var twoRZ []types.AddressBytea
+	wireAuctionCaptures(mTwo.auctions, &twoOps)
+	mTwo.protocolContracts.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
+	mTwo.pools.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
+	mTwo.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) { twoRZ = args.Get(2).([]types.AddressBytea) }).Return(nil)
+	require.NoError(t, pTwo.ProcessLedger(ctx, l1))
+	require.NoError(t, pTwo.PersistCurrentState(ctx, nil))
+	pTwo.Reset()
+	require.NoError(t, pTwo.ProcessLedger(ctx, l2))
+	require.NoError(t, pTwo.PersistCurrentState(ctx, nil))
+
+	// (a): final auction row set must match, and neither run may leave A present.
+	onePos := reduceAuctions(oneOps)
+	twoPos := reduceAuctions(twoOps)
+	keyB := blenddata.AuctionKey{Pool: types.AddressBytea(poolB), User: types.AddressBytea(user2), AuctionType: 1}
+	keyA := blenddata.AuctionKey{Pool: types.AddressBytea(poolA), User: types.AddressBytea(user1), AuctionType: 0}
+	require.Contains(t, onePos, keyB)
+	require.Contains(t, twoPos, keyB)
+	assert.Equal(t, onePos[keyB], twoPos[keyB], "the surviving auction row must be identical across window splits")
+	assert.NotContains(t, onePos, keyA, "auction A nets to a delete and must not survive")
+	assert.NotContains(t, twoPos, keyA)
+
+	// One-window run must never upsert A (it was removed later in the same window).
+	for _, op := range oneOps {
+		if !op.isDelete {
+			assert.NotEqual(t, keyA, blenddata.AuctionKey{Pool: op.row.Pool, User: op.row.User, AuctionType: op.row.AuctionType},
+				"single-window persist must not upsert an auction removed later in the same window")
+		}
+	}
+
+	// (b): the final reward-zone membership must match regardless of window split.
+	assert.ElementsMatch(t, oneRZ, twoRZ)
+	assert.ElementsMatch(t, []types.AddressBytea{types.AddressBytea(poolA), types.AddressBytea(poolB)}, oneRZ)
+}
+
+func TestProcessLedger_AuctionsRewardZoneStagingModes(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
+	user := randomAccountAddr(t)
+	assetA := randomContractAddr(t)
+	assetB := randomContractAddr(t)
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	buildInput := func(mode services.StagingMode) services.ProtocolProcessorInput {
+		return services.ProtocolProcessorInput{
+			LedgerSequence:    10,
+			ProtocolContracts: []data.ProtocolContracts{poolPC, backstopPC},
+			ContractDataChanges: map[string][]ingest.Change{
+				poolAddr:     {createdChange(auctionKeyScVal(t, 0, user), auctionValScVal(t, assetA, 1000, assetB, 2000, 12345))},
+				backstopAddr: {createdChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolAddr)))},
+			},
+			StagingMode: mode,
+		}
+	}
+
+	t.Run("history mode stages neither auctions nor reward zone", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeHistory)))
+		assert.Empty(t, p.stagedAuctions)
+		assert.Nil(t, p.stagedRewardZone)
+	})
+
+	t.Run("current-state mode stages both", func(t *testing.T) {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeCurrentState)))
+		assert.Len(t, p.stagedAuctions, 1)
+		assert.NotNil(t, p.stagedRewardZone)
+	})
 }
 
 func TestNewProcessor(t *testing.T) {

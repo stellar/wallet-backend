@@ -234,6 +234,34 @@ func (m *PoolClaimedModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx
 	return args.Error(0)
 }
 
+// AuctionModelMock mocks AuctionModelInterface.
+type AuctionModelMock struct {
+	mock.Mock
+}
+
+var _ AuctionModelInterface = (*AuctionModelMock)(nil)
+
+func NewAuctionModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *AuctionModelMock {
+	m := &AuctionModelMock{}
+	m.Mock.Test(t)
+	t.Cleanup(func() { m.AssertExpectations(t) })
+	return m
+}
+
+func (m *AuctionModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Auction) error {
+	args := m.Called(ctx, dbTx, rows)
+	return args.Error(0)
+}
+
+func (m *AuctionModelMock) DeleteByKey(ctx context.Context, dbTx pgx.Tx, keys []AuctionKey) error {
+	args := m.Called(ctx, dbTx, keys)
+	return args.Error(0)
+}
+
 // BackstopClaimedModelMock mocks BackstopClaimedModelInterface.
 type BackstopClaimedModelMock struct {
 	mock.Mock
