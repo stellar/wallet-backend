@@ -22,6 +22,10 @@ CREATE TABLE blend_emissions (
     autovacuum_vacuum_cost_delay = 0,
     autovacuum_vacuum_cost_limit = 1000
 );
+-- EmissionModel.GetByAccount filters on user_account_id alone (the 2nd PK column,
+-- behind source_contract_id), so the PK cannot serve it — index the per-account
+-- read path.
+CREATE INDEX idx_blend_emissions_user ON blend_emissions (user_account_id);
 
 -- +migrate Down
 
