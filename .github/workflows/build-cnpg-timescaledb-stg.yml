@@ -8,8 +8,8 @@ on:
         default: '17'
         required: true
       tsdb_version:
-        description: TimescaleDB version (semver, e.g. 2.25.0)
-        default: '2.25.0'
+        description: TimescaleDB version (semver, e.g. 2.28.2)
+        default: '2.28.2'
         required: true
 
 permissions:
