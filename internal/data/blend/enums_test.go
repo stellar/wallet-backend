@@ -72,6 +72,7 @@ func TestBlendTablesExist(t *testing.T) {
 		"blend_reserve_emissions",
 		"blend_emissions",
 		"blend_oracle_prices",
+		"blend_auctions",
 	}
 
 	for _, table := range tables {
