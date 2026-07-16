@@ -423,6 +423,167 @@ func TestDecodeEntry_BackstopUEmisData(t *testing.T) {
 	})
 }
 
+func TestDecodeEntry_Auction(t *testing.T) {
+	user := randomAccountAddr(t)
+	assetA := randomContractAddr(t)
+	assetB := randomContractAddr(t)
+
+	auctionKey := func(auctType uint32) xdr.ScVal {
+		return vecScVal(symScVal("Auction"), mapValScVal(mapScVal(
+			symEntry("auct_type", u32ScVal(auctType)),
+			symEntry("user", accountAddrScVal(t, user)),
+		)))
+	}
+	val := mapValScVal(mapScVal(
+		symEntry("bid", mapValScVal(mapScVal(addrMapEntry(t, assetA, i128ScVal(1000))))),
+		symEntry("block", u32ScVal(12345)),
+		symEntry("lot", mapValScVal(mapScVal(addrMapEntry(t, assetB, i128ScVal(2000))))),
+	))
+
+	names := map[uint32]string{0: "UserLiquidation", 1: "BadDebtAuction", 2: "InterestAuction"}
+	for auctType, name := range names {
+		t.Run(name, func(t *testing.T) {
+			got, err := DecodeEntry(createdChange(auctionKey(auctType), val))
+			require.NoError(t, err)
+
+			assert.Equal(t, KindAuction, got.Kind)
+			assert.False(t, got.Removed)
+			assert.Equal(t, user, got.User)
+			assert.Equal(t, int32(auctType), got.AuctionType)
+			require.NotNil(t, got.Auction)
+			assert.Equal(t, map[string]string{assetA: "1000"}, got.Auction.Bid)
+			assert.Equal(t, map[string]string{assetB: "2000"}, got.Auction.Lot)
+			assert.Equal(t, uint32(12345), got.Auction.Block)
+		})
+	}
+
+	t.Run("removal reports identity with no payload", func(t *testing.T) {
+		got, err := DecodeEntry(removedChange(auctionKey(1), mapValScVal(mapScVal())))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindAuction, got.Kind)
+		assert.True(t, got.Removed)
+		assert.Equal(t, user, got.User)
+		assert.Equal(t, int32(1), got.AuctionType)
+		assert.Nil(t, got.Auction)
+	})
+
+	t.Run("malformed inner key missing auct_type", func(t *testing.T) {
+		key := vecScVal(symScVal("Auction"), mapValScVal(mapScVal(
+			symEntry("user", accountAddrScVal(t, user)),
+		)))
+		_, err := DecodeEntry(createdChange(key, val))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "auct_type")
+	})
+
+	t.Run("malformed payload: bid is not a map", func(t *testing.T) {
+		badVal := mapValScVal(mapScVal(
+			symEntry("bid", u32ScVal(1)),
+			symEntry("block", u32ScVal(1)),
+			symEntry("lot", mapValScVal(mapScVal())),
+		))
+		_, err := DecodeEntry(createdChange(auctionKey(0), badVal))
+		require.Error(t, err)
+	})
+}
+
+func TestDecodeEntry_RewardZone(t *testing.T) {
+	poolA := randomContractAddr(t)
+	poolB := randomContractAddr(t)
+
+	t.Run("decodes the ordered pool list", func(t *testing.T) {
+		val := vecScVal(contractAddrScVal(t, poolA), contractAddrScVal(t, poolB))
+		got, err := DecodeEntry(createdChange(symScVal("RZ"), val))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindRewardZone, got.Kind)
+		assert.False(t, got.Removed)
+		assert.Equal(t, []string{poolA, poolB}, got.RewardZone)
+	})
+
+	t.Run("empty vec decodes to an empty (non-nil) reward zone", func(t *testing.T) {
+		got, err := DecodeEntry(createdChange(symScVal("RZ"), vecScVal()))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindRewardZone, got.Kind)
+		assert.NotNil(t, got.RewardZone)
+		assert.Empty(t, got.RewardZone)
+	})
+
+	t.Run("removal reports no payload", func(t *testing.T) {
+		got, err := DecodeEntry(removedChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolA))))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindRewardZone, got.Kind)
+		assert.True(t, got.Removed)
+		assert.Nil(t, got.RewardZone)
+	})
+
+	t.Run("malformed: value is not a vec", func(t *testing.T) {
+		_, err := DecodeEntry(createdChange(symScVal("RZ"), u32ScVal(1)))
+		require.Error(t, err)
+	})
+
+	t.Run("malformed: element is not an address", func(t *testing.T) {
+		val := vecScVal(contractAddrScVal(t, poolA), u32ScVal(1))
+		_, err := DecodeEntry(createdChange(symScVal("RZ"), val))
+		require.Error(t, err)
+	})
+}
+
+func TestDecodeEntry_PoolInstanceAdmin(t *testing.T) {
+	baseConfig := func() *xdr.ScMap {
+		return mapScVal(
+			symEntry("oracle", contractAddrScVal(t, randomContractAddr(t))),
+			symEntry("bstop_rate", u32ScVal(1)),
+			symEntry("status", u32ScVal(0)),
+			symEntry("max_positions", u32ScVal(1)),
+			symEntry("min_collateral", i128ScVal(1)),
+		)
+	}
+
+	t.Run("Admin present", func(t *testing.T) {
+		adminAddr := randomAccountAddr(t)
+		storage := mapScVal(
+			symEntry("Admin", accountAddrScVal(t, adminAddr)),
+			symEntry("Config", mapValScVal(baseConfig())),
+		)
+
+		got, err := DecodeEntry(createdChange(instanceKeyScVal(), instanceValScVal(storage)))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindPoolInstance, got.Kind)
+		require.NotNil(t, got.PoolInstance)
+		require.NotNil(t, got.PoolInstance.Admin)
+		assert.Equal(t, adminAddr, *got.PoolInstance.Admin)
+	})
+
+	t.Run("Admin absent leaves the field nil, decode still succeeds", func(t *testing.T) {
+		storage := mapScVal(
+			symEntry("Config", mapValScVal(baseConfig())),
+		)
+
+		got, err := DecodeEntry(createdChange(instanceKeyScVal(), instanceValScVal(storage)))
+		require.NoError(t, err)
+
+		assert.Equal(t, KindPoolInstance, got.Kind)
+		require.NotNil(t, got.PoolInstance)
+		assert.Nil(t, got.PoolInstance.Admin)
+	})
+
+	t.Run("backstop instance (no Config) stays ignored even with an Admin-like key", func(t *testing.T) {
+		storage := mapScVal(
+			symEntry("Admin", accountAddrScVal(t, randomAccountAddr(t))),
+			symEntry("Emitter", contractAddrScVal(t, randomContractAddr(t))),
+		)
+
+		got, err := DecodeEntry(createdChange(instanceKeyScVal(), instanceValScVal(storage)))
+		require.NoError(t, err)
+		assert.Equal(t, KindIgnored, got.Kind)
+	})
+}
+
 func TestDecodeEntry_Removal(t *testing.T) {
 	t.Run("ResConfig removal reports identity with no payload", func(t *testing.T) {
 		assetAddr := randomContractAddr(t)
@@ -500,7 +661,7 @@ func TestDecodeEntry_UnknownKeys(t *testing.T) {
 	})
 
 	t.Run("known-but-unmodeled vec keys are ignored", func(t *testing.T) {
-		for _, sym := range []string{"ResInit", "Auction", "RzEmis", "PoolUSDC"} {
+		for _, sym := range []string{"ResInit", "RzEmis", "PoolUSDC"} {
 			key := vecScVal(symScVal(sym), contractAddrScVal(t, randomContractAddr(t)))
 			got, err := DecodeEntry(createdChange(key, u32ScVal(1)))
 			require.NoError(t, err)
@@ -509,11 +670,17 @@ func TestDecodeEntry_UnknownKeys(t *testing.T) {
 	})
 
 	t.Run("bare symbol keys are ignored", func(t *testing.T) {
-		for _, sym := range []string{"ResList", "LastDist", "PoolEmis", "PropAdmin", "RZ", "DropList", "BackfillEmis", "Backfill"} {
+		for _, sym := range []string{"ResList", "LastDist", "PoolEmis", "PropAdmin", "DropList", "BackfillEmis", "Backfill"} {
 			got, err := DecodeEntry(createdChange(symScVal(sym), u32ScVal(1)))
 			require.NoError(t, err)
 			assert.Equal(t, KindIgnored, got.Kind, "bare symbol %s should be ignored", sym)
 		}
+	})
+
+	t.Run("unrecognized bare symbol key is ignored", func(t *testing.T) {
+		got, err := DecodeEntry(createdChange(symScVal("DropListSomeFutureKey"), u32ScVal(1)))
+		require.NoError(t, err)
+		assert.Equal(t, KindIgnored, got.Kind)
 	})
 }
 
