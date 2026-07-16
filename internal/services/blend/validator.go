@@ -57,6 +57,32 @@ func blndTokenAddress(networkPassphrase string) string {
 	}
 }
 
+// canonicalBackstopAddress returns the C-address of the one canonical Blend v2
+// backstop contract for the given network passphrase. Blend v2 deploys a single
+// backstop per network (the emitter drips BLND to exactly one backstop), so the
+// address is a fixed per-network constant, mirroring blndTokenAddress.
+//
+// The backstop-derived tables (blend_backstop_positions, blend_backstop_pools,
+// the backstop-source rows of blend_emissions, blend_backstop_claimed, and
+// blend_pools.in_reward_zone) key their rows on pool and/or user with no
+// backstop contract id anywhere in the key. Because Blend contracts are
+// classified by WASM-interface match, any contract deployed from the backstop
+// WASM would otherwise be tracked and could write pool/user-keyed rows that
+// silently overwrite the real backstop's. Folding backstop-shaped state only
+// from this address closes that impostor-collision hole. Any other passphrase
+// (futurenet, a custom standalone network) has no known backstop and returns
+// the empty string — the same nil-degradation contract as blndTokenAddress.
+func canonicalBackstopAddress(networkPassphrase string) string {
+	switch networkPassphrase {
+	case network.PublicNetworkPassphrase:
+		return "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7"
+	case network.TestNetworkPassphrase:
+		return "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA"
+	default:
+		return ""
+	}
+}
+
 // poolRequiredFunctions defines the Blend v2 Pool contract's required
 // functions. A contract must implement all of these with the exact
 // signatures specified to be classified as a Blend pool.
