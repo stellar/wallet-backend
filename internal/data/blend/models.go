@@ -31,5 +31,7 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) Models {
 		BackstopPools:     &BackstopPoolModel{DB: pool, Metrics: dbMetrics},
 		Emissions:         &EmissionModel{DB: pool, Metrics: dbMetrics},
 		ReserveEmissions:  &ReserveEmissionModel{DB: pool, Metrics: dbMetrics},
+		PoolClaimed:       &PoolClaimedModel{DB: pool, Metrics: dbMetrics},
+		BackstopClaimed:   &BackstopClaimedModel{DB: pool, Metrics: dbMetrics},
 	}
 }
