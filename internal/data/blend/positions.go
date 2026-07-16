@@ -293,6 +293,12 @@ func (m *PositionModel) BatchUpsertSnapshots(ctx context.Context, dbTx pgx.Tx, r
 // to a reserve_index via blend_reserves. Deltas whose asset has no matching
 // blend_reserves row for the pool are silently skipped (0 rows affected).
 //
+// This is UPDATE-only: it mutates existing rows and never inserts. A delta for a
+// (pool, user, reserve) with no row yet is a no-op, so callers must persist the
+// absolute Positions snapshot (BatchUpsertSnapshots) — and the reserves it joins
+// against — before applying deltas in the same transaction. PersistCurrentState
+// enforces this ordering (reserves -> snapshots -> net deltas).
+//
 // ZeroBorrowed, when true, replaces net_borrowed with NetBorrowedDelta instead
 // of adding to it — used to fold a bad_debt event, which resets the borrower's
 // liability cost basis rather than accumulating against it.
@@ -408,6 +414,10 @@ var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 // row for the pool are silently skipped (0 rows affected). Multiple
 // adjustments for the same (pool, user, asset) in one batch are summed
 // server-side before applying.
+//
+// Like BatchApplyNetDeltas this is UPDATE-only: the position snapshot (and its
+// reserve) must already exist for the adjustment to land. PersistCurrentState
+// runs it after BatchUpsertSnapshots for that reason.
 func (m *PositionModel) ApplyAuctionAdjustments(ctx context.Context, dbTx pgx.Tx, adjs []PositionAuctionAdjustment) error {
 	if len(adjs) == 0 {
 		return nil
