@@ -48,18 +48,22 @@ type poolRow struct {
 	Status             *int32
 	MaxPositions       *int32
 	MinCollateral      *string
+	Admin              *string
+	InRewardZone       bool
 	LastModifiedLedger int32
 }
 
 func getPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool, poolAddr string) (poolRow, bool) {
 	t.Helper()
 	var row poolRow
-	var oracle *types.AddressBytea
+	var oracle, admin *types.AddressBytea
 	err := pool.QueryRow(ctx, `
-		SELECT name, oracle_contract_id, backstop_rate, status, max_positions, min_collateral, last_modified_ledger
+		SELECT name, oracle_contract_id, backstop_rate, status, max_positions, min_collateral,
+			admin, in_reward_zone, last_modified_ledger
 		FROM blend_pools WHERE pool_contract_id = $1
 	`, types.AddressBytea(poolAddr)).Scan(
-		&row.Name, &oracle, &row.BackstopRate, &row.Status, &row.MaxPositions, &row.MinCollateral, &row.LastModifiedLedger,
+		&row.Name, &oracle, &row.BackstopRate, &row.Status, &row.MaxPositions, &row.MinCollateral,
+		&admin, &row.InRewardZone, &row.LastModifiedLedger,
 	)
 	if err != nil {
 		return poolRow{}, false
@@ -67,6 +71,10 @@ func getPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool, poolAddr str
 	if oracle != nil {
 		s := string(*oracle)
 		row.OracleContractID = &s
+	}
+	if admin != nil {
+		s := string(*admin)
+		row.Admin = &s
 	}
 	return row, true
 }
@@ -80,6 +88,7 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 
 	poolAddr := keypair.MustRandom().Address()
 	oracleAddr := keypair.MustRandom().Address()
+	adminAddr := keypair.MustRandom().Address()
 
 	t.Run("inserts a fresh row with all fields", func(t *testing.T) {
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
@@ -91,6 +100,7 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 				Status:             i32Ptr(0),
 				MaxPositions:       i32Ptr(4),
 				MinCollateral:      strPtr("100"),
+				Admin:              types.AddressBytea(adminAddr),
 				LastModifiedLedger: 10,
 			}}))
 		})
@@ -105,6 +115,8 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 		assert.Equal(t, int32(2000), *row.BackstopRate)
 		require.NotNil(t, row.Status)
 		assert.Equal(t, int32(0), *row.Status)
+		require.NotNil(t, row.Admin)
+		assert.Equal(t, adminAddr, *row.Admin)
 		assert.Equal(t, int32(10), row.LastModifiedLedger)
 	})
 
@@ -124,6 +136,8 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 		assert.Equal(t, "Fixed Pool v2", *row.Name)
 		require.NotNil(t, row.Status)
 		assert.Equal(t, int32(3), *row.Status, "status must be updated")
+		require.NotNil(t, row.Admin, "admin must be preserved when the update carries empty")
+		assert.Equal(t, adminAddr, *row.Admin)
 		assert.Equal(t, int32(11), row.LastModifiedLedger, "last_modified_ledger is always taken")
 	})
 
@@ -146,5 +160,83 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 
 	t.Run("is a no-op when no rows are staged", func(t *testing.T) {
 		require.NoError(t, m.BatchUpsert(ctx, nil, nil))
+	})
+}
+
+func TestPoolModel_SetRewardZone(t *testing.T) {
+	ctx, pool, m, cleanup := newPoolsFixture(t)
+	defer cleanup()
+
+	poolA := keypair.MustRandom().Address()
+	poolB := keypair.MustRandom().Address()
+	poolC := keypair.MustRandom().Address()
+
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
+			{PoolContractID: types.AddressBytea(poolA), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolB), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolC), LastModifiedLedger: 1},
+		}))
+	})
+
+	t.Run("marks the given pools as reward-zone members, others as non-members", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{
+				types.AddressBytea(poolA), types.AddressBytea(poolB),
+			}, 100))
+		})
+
+		rowA, ok := getPool(t, ctx, pool, poolA)
+		require.True(t, ok)
+		assert.True(t, rowA.InRewardZone)
+		assert.Equal(t, int32(100), rowA.LastModifiedLedger, "membership changed, ledger bumped")
+
+		rowB, ok := getPool(t, ctx, pool, poolB)
+		require.True(t, ok)
+		assert.True(t, rowB.InRewardZone)
+		assert.Equal(t, int32(100), rowB.LastModifiedLedger)
+
+		rowC, ok := getPool(t, ctx, pool, poolC)
+		require.True(t, ok)
+		assert.False(t, rowC.InRewardZone)
+		assert.Equal(t, int32(1), rowC.LastModifiedLedger, "not a member before or after, unchanged")
+	})
+
+	t.Run("dropping a pool from the set flips it false; unchanged members keep their ledger", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{
+				types.AddressBytea(poolB),
+			}, 200))
+		})
+
+		rowA, ok := getPool(t, ctx, pool, poolA)
+		require.True(t, ok)
+		assert.False(t, rowA.InRewardZone, "A dropped from the set")
+		assert.Equal(t, int32(200), rowA.LastModifiedLedger, "membership changed, ledger bumped")
+
+		rowB, ok := getPool(t, ctx, pool, poolB)
+		require.True(t, ok)
+		assert.True(t, rowB.InRewardZone, "B stays a member")
+		assert.Equal(t, int32(100), rowB.LastModifiedLedger, "membership unchanged, ledger not bumped")
+	})
+
+	t.Run("an empty set clears membership everywhere (not a no-op)", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{}, 300))
+		})
+
+		rowA, ok := getPool(t, ctx, pool, poolA)
+		require.True(t, ok)
+		assert.False(t, rowA.InRewardZone)
+
+		rowB, ok := getPool(t, ctx, pool, poolB)
+		require.True(t, ok)
+		assert.False(t, rowB.InRewardZone)
+		assert.Equal(t, int32(300), rowB.LastModifiedLedger, "B's membership changed (true->false), ledger bumped")
+
+		rowC, ok := getPool(t, ctx, pool, poolC)
+		require.True(t, ok)
+		assert.False(t, rowC.InRewardZone)
+		assert.Equal(t, int32(1), rowC.LastModifiedLedger, "C was never a member, unchanged")
 	})
 }
