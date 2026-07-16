@@ -183,7 +183,7 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 			reactivity           = EXCLUDED.reactivity,
 			supply_cap           = EXCLUDED.supply_cap,
 			enabled              = EXCLUDED.enabled,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_reserves.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery,
 		pools, indexes, assets,
 		bRates, dRates, bSupplies, dSupplies, irMods, backstopCredits, lastTimes,

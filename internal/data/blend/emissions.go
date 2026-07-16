@@ -96,7 +96,7 @@ func (m *ReserveEmissionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, row
 			emission_index       = EXCLUDED.emission_index,
 			expiration           = EXCLUDED.expiration,
 			last_time            = EXCLUDED.last_time,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_reserve_emissions.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, tokenIDs, epsValues, emissionIndexes, expirations, lastTimes, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", reserveEmissionsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend reserve emissions: %w", err)
@@ -178,7 +178,7 @@ func (m *EmissionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Emi
 		ON CONFLICT (source_contract_id, user_account_id, token_id) DO UPDATE SET
 			emission_index       = EXCLUDED.emission_index,
 			accrued              = EXCLUDED.accrued,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_emissions.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, sources, users, tokenIDs, emissionIndexes, accrueds, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", emissionsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend emissions: %w", err)

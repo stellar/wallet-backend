@@ -126,7 +126,7 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 			max_positions        = COALESCE(EXCLUDED.max_positions, blend_pools.max_positions),
 			min_collateral       = COALESCE(EXCLUDED.min_collateral, blend_pools.min_collateral),
 			admin                = COALESCE(EXCLUDED.admin, blend_pools.admin),
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_pools.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery,
 		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, admins, ledgers,
 	); err != nil {

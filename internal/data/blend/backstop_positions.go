@@ -106,7 +106,7 @@ func (m *BackstopPositionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, ro
 		ON CONFLICT (pool_contract_id, user_account_id) DO UPDATE SET
 			shares               = EXCLUDED.shares,
 			q4w                  = EXCLUDED.q4w,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_backstop_positions.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, users, shares, q4ws, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", backstopPositionsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend backstop positions: %w", err)
