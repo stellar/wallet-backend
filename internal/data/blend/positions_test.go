@@ -375,10 +375,38 @@ func TestPositionModel_ApplyAuctionAdjustments(t *testing.T) {
 		row, ok := getPosition(t, ctx, pool, poolAddr, userAddr, 4)
 		require.True(t, ok)
 		// 1000 lot b-tokens * 1.1 b_rate = 1100 underlying added to net_supplied.
-		assert.Equal(t, "1100.0000000000000000", row.NetSupplied)
+		assert.Equal(t, "1100", row.NetSupplied)
 		// 1000 bid d-tokens * 1.05 d_rate = 1050 underlying added to net_borrowed.
-		assert.Equal(t, "1050.0000000000000000", row.NetBorrowed)
+		assert.Equal(t, "1050", row.NetBorrowed)
 		assert.Equal(t, int32(77), row.LastModifiedLedger)
+	})
+
+	t.Run("floors the converted underlying toward zero (matching fixed_mul_floor)", func(t *testing.T) {
+		// A filler gains lot / owes bid (positive deltas); the liquidated user's
+		// deltas are negative. 333 * 1.1 = 366.3 and 333 * 1.05 = 349.65 — both
+		// have a fractional tail that must be dropped toward zero, so the negative
+		// (user) side lands on -366 / -349, NOT the -367 / -350 that floor would give.
+		fillerAddr := keypair.MustRandom().Address()
+		userAddr := keypair.MustRandom().Address()
+		insertPosition(t, ctx, pool, poolAddr, fillerAddr, 4, "0", "0", "0", "0", "0")
+		insertPosition(t, ctx, pool, poolAddr, userAddr, 4, "0", "0", "0", "0", "0")
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.ApplyAuctionAdjustments(ctx, tx, []blend.PositionAuctionAdjustment{
+				{Pool: poolAddr, User: fillerAddr, Asset: assetAddr, LotBTokensDelta: "333", BidDTokensDelta: "333", LedgerNumber: 90},
+				{Pool: poolAddr, User: userAddr, Asset: assetAddr, LotBTokensDelta: "-333", BidDTokensDelta: "-333", LedgerNumber: 90},
+			}))
+		})
+
+		filler, ok := getPosition(t, ctx, pool, poolAddr, fillerAddr, 4)
+		require.True(t, ok)
+		assert.Equal(t, "366", filler.NetSupplied, "trunc(366.3) = 366")
+		assert.Equal(t, "349", filler.NetBorrowed, "trunc(349.65) = 349")
+
+		user, ok := getPosition(t, ctx, pool, poolAddr, userAddr, 4)
+		require.True(t, ok)
+		assert.Equal(t, "-366", user.NetSupplied, "trunc(-366.3) = -366, not floor's -367")
+		assert.Equal(t, "-349", user.NetBorrowed, "trunc(-349.65) = -349, not floor's -350")
 	})
 
 	t.Run("sums duplicate (pool, user, asset) adjustments before applying", func(t *testing.T) {
@@ -397,9 +425,9 @@ func TestPositionModel_ApplyAuctionAdjustments(t *testing.T) {
 		row, ok := getPosition(t, ctx, pool, poolAddr, userAddr, 4)
 		require.True(t, ok)
 		// (1000 + 500) lot b-tokens * 1.1 b_rate = 1650 underlying.
-		assert.Equal(t, "1650.0000000000000000", row.NetSupplied)
+		assert.Equal(t, "1650", row.NetSupplied)
 		// (1000 + 500) bid d-tokens * 1.05 d_rate = 1575 underlying.
-		assert.Equal(t, "1575.0000000000000000", row.NetBorrowed)
+		assert.Equal(t, "1575", row.NetBorrowed)
 		assert.Equal(t, int32(78), row.LastModifiedLedger, "ledger takes the MAX across the batch")
 	})
 
