@@ -7,6 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestProtocolProcessor_RequiresContractData(t *testing.T) {
+	m := NewProtocolProcessorMock(t)
+	m.On("RequiresContractData").Return(false).Once()
+	var p ProtocolProcessor = m
+	assert.False(t, p.RequiresContractData())
+}
+
 func withCleanProcessorRegistry(t *testing.T) {
 	t.Helper()
 	original := processorRegistry

@@ -269,6 +269,11 @@ func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input Protoco
 	return args.Error(0)
 }
 
+func (m *ProtocolProcessorMock) RequiresContractData() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
 func (m *ProtocolProcessorMock) Reset() {
 	m.Called()
 }

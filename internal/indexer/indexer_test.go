@@ -16,6 +16,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1354,4 +1355,180 @@ func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T
 	}
 	require.True(t, wrapperWithEvents[1], "corpus must include a wrapper-V1 (Protocol 20-22) ledger with extracted contract events")
 	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
+}
+
+// contractDataChangeProjection is the payload-relevant subset of an
+// ingest.Change used to compare the reader-based and meta-based extraction
+// paths: the two build different LedgerTransaction carriers (the meta-based
+// one has no envelope), so whole-Change equality would compare carrier
+// internals no consumer reads.
+type contractDataChangeProjection struct {
+	Type           xdr.LedgerEntryType
+	Reason         ingest.LedgerEntryChangeReason
+	OperationIndex uint32
+	Pre            *xdr.LedgerEntry
+	Post           *xdr.LedgerEntry
+}
+
+func projectContractDataChanges(m map[string][]ingest.Change) map[string][]contractDataChangeProjection {
+	out := make(map[string][]contractDataChangeProjection, len(m))
+	for k, changes := range m {
+		ps := make([]contractDataChangeProjection, 0, len(changes))
+		for _, c := range changes {
+			ps = append(ps, contractDataChangeProjection{
+				Type:           c.Type,
+				Reason:         c.Reason,
+				OperationIndex: c.OperationIndex,
+				Pre:            c.Pre,
+				Post:           c.Post,
+			})
+		}
+		out[k] = ps
+	}
+	return out
+}
+
+// extractContractDataChangesViaReader is the reader-based reference
+// implementation: materialize transactions through the
+// LedgerTransactionReader (envelope↔meta pairing via hashing) and extract
+// from those. Kept test-only as the merge gate for the production meta-based
+// path, mirroring extractContractEventsViaReader.
+func extractContractDataChangesViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, map[string][]ingest.Change, error) {
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, nil, err
+	}
+	changes, err := ExtractContractDataChangesFromTransactions(transactions, ledgerMeta.LedgerSequence())
+	return transactions, changes, err
+}
+
+// TestExtractContractDataChangesForLedger_Fixtures checks the ContractData
+// extraction paths against the same real-ledger fixture corpus used for
+// contract events: every returned group key must be a valid C-address, every
+// change must be a ContractData change grouped under its own owning contract,
+// every change must originate from a successful transaction, and the whole
+// corpus must yield at least one change (otherwise the corpus wouldn't
+// exercise the extractor at all).
+//
+// It also pins the two load-bearing properties of the production
+// (footprint-gated, meta-based) ExtractContractDataChangesForLedger:
+//   - Equivalence: gated extraction with every changed contract tracked
+//     returns exactly the reader-based reference output.
+//   - Gate soundness: for EVERY contract that has changes, tracking just that
+//     contract must trigger the gate — i.e. on real ledgers, a ContractData
+//     change always has its key in some transaction's read-write footprint
+//     (the Soroban writes ⊆ footprint guarantee the gate relies on).
+func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	totalChanges := 0
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			transactions, got, extractErr := extractContractDataChangesViaReader(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, extractErr)
+			wantProjection := projectContractDataChanges(got)
+
+			// Tracked set = every contract with changes this ledger.
+			trackedAll := map[xdr.ContractId]struct{}{}
+			for groupKey := range got {
+				raw, decodeErr := strkey.Decode(strkey.VersionByteContract, groupKey)
+				require.NoError(t, decodeErr)
+				trackedAll[xdr.ContractId(raw)] = struct{}{}
+			}
+
+			// Equivalence: the production gated+meta-based path returns the
+			// reference output when every changed contract is tracked.
+			gated, gatedErr := ExtractContractDataChangesForLedger(lcm, trackedAll)
+			require.NoError(t, gatedErr)
+			assert.Equal(t, wantProjection, projectContractDataChanges(gated),
+				"meta-based extraction must match the reader-based reference")
+
+			// Gate soundness: each changed contract, tracked alone, must
+			// trigger the gate via some transaction's read-write footprint.
+			for contractID := range trackedAll {
+				alone, aloneErr := ExtractContractDataChangesForLedger(lcm, map[xdr.ContractId]struct{}{contractID: {}})
+				require.NoError(t, aloneErr)
+				assert.Equal(t, wantProjection, projectContractDataChanges(alone),
+					"tracking contract %x alone must trigger the gate (footprint ⊇ writes)", contractID)
+			}
+
+			// Gate negative: an untracked-only set skips the ledger outright.
+			empty, emptyErr := ExtractContractDataChangesForLedger(lcm, map[xdr.ContractId]struct{}{{0xde, 0xad, 0xbe, 0xef}: {}})
+			require.NoError(t, emptyErr)
+			assert.Empty(t, empty, "a ledger touching no tracked contract must be skipped")
+			none, noneErr := ExtractContractDataChangesForLedger(lcm, nil)
+			require.NoError(t, noneErr)
+			assert.Empty(t, none, "an empty tracked set must skip every ledger")
+
+			// Independently derive the expected ContractData change count from
+			// the successful transactions, without calling the function under
+			// test, so the "only successful txs" assertion is meaningful rather
+			// than tautological. A handful of historical (pre-CAP-0046-11)
+			// ContractData entries are keyed by a classic account address rather
+			// than a contract address; those have no owning contract to group
+			// under, so, like the extractor, they're excluded here too.
+			wantCount := 0
+			for i := range transactions {
+				tx := transactions[i]
+				if !tx.Result.Successful() {
+					continue
+				}
+				changes, chErr := tx.GetChanges()
+				require.NoError(t, chErr)
+				for _, change := range changes {
+					if change.Type != xdr.LedgerEntryTypeContractData {
+						continue
+					}
+					entry := change.Post
+					if entry == nil {
+						entry = change.Pre
+					}
+					require.NotNil(t, entry)
+					contractData, ok := entry.Data.GetContractData()
+					require.True(t, ok)
+					if _, ok := contractData.Contract.GetContractId(); ok {
+						wantCount++
+					}
+				}
+			}
+
+			gotCount := 0
+			for groupKey, changes := range got {
+				_, decodeErr := strkey.Decode(strkey.VersionByteContract, groupKey)
+				assert.NoError(t, decodeErr, "group key %q must be a valid C-address strkey", groupKey)
+
+				for _, change := range changes {
+					assert.Equal(t, xdr.LedgerEntryTypeContractData, change.Type, "change must be a ContractData change")
+
+					entry := change.Post
+					if entry == nil {
+						entry = change.Pre
+					}
+					require.NotNil(t, entry, "change must have a Pre or Post entry")
+
+					contractData, ok := entry.Data.GetContractData()
+					require.True(t, ok, "entry must decode as ContractData")
+
+					contractIDBytes, ok := contractData.Contract.GetContractId()
+					require.True(t, ok, "ContractData.Contract must be a contract address")
+
+					wantAddr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+					require.NoError(t, encErr)
+					assert.Equal(t, wantAddr, groupKey, "change must be grouped under its owning contract")
+				}
+				gotCount += len(changes)
+			}
+
+			assert.Equal(t, wantCount, gotCount, "extractor must return exactly the ContractData changes from successful transactions")
+			totalChanges += gotCount
+		})
+	}
+
+	require.Greater(t, totalChanges, 0, "fixture corpus must produce at least one ContractData change")
 }
