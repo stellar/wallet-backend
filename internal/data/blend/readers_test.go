@@ -131,13 +131,17 @@ func TestPoolModel_GetByIDs(t *testing.T) {
 	poolA := keypair.MustRandom().Address()
 	poolB := keypair.MustRandom().Address()
 	poolC := keypair.MustRandom().Address()
+	adminA := keypair.MustRandom().Address()
 
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
 		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
-			{PoolContractID: types.AddressBytea(poolA), Name: strPtr("A"), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolA), Name: strPtr("A"), Admin: types.AddressBytea(adminA), LastModifiedLedger: 1},
 			{PoolContractID: types.AddressBytea(poolB), Name: strPtr("B"), LastModifiedLedger: 1},
 			{PoolContractID: types.AddressBytea(poolC), Name: strPtr("C"), LastModifiedLedger: 1},
 		}))
+	})
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{types.AddressBytea(poolA)}, 5))
 	})
 
 	got, err := m.GetByIDs(ctx, []string{poolA, poolC, keypair.MustRandom().Address()})
@@ -145,13 +149,22 @@ func TestPoolModel_GetByIDs(t *testing.T) {
 	require.Len(t, got, 2, "subset match; an unknown pool ID is silently excluded")
 	assertOrderedByAddr(t, got, func(p blend.Pool) types.AddressBytea { return p.PoolContractID })
 
-	gotIDs := map[types.AddressBytea]bool{}
+	byID := map[types.AddressBytea]blend.Pool{}
 	for _, p := range got {
-		gotIDs[p.PoolContractID] = true
+		byID[p.PoolContractID] = p
 	}
-	assert.True(t, gotIDs[types.AddressBytea(poolA)])
-	assert.True(t, gotIDs[types.AddressBytea(poolC)])
-	assert.False(t, gotIDs[types.AddressBytea(poolB)])
+	pA, ok := byID[types.AddressBytea(poolA)]
+	require.True(t, ok)
+	assert.Equal(t, types.AddressBytea(adminA), pA.Admin, "admin round-trips through the reader")
+	assert.True(t, pA.InRewardZone, "in_reward_zone round-trips through the reader")
+
+	pC, ok := byID[types.AddressBytea(poolC)]
+	require.True(t, ok)
+	assert.Equal(t, types.AddressBytea(""), pC.Admin, "no admin observed: empty, not garbage")
+	assert.False(t, pC.InRewardZone)
+
+	_, ok = byID[types.AddressBytea(poolB)]
+	assert.False(t, ok)
 
 	t.Run("empty poolIDs returns an empty slice without querying", func(t *testing.T) {
 		m := &blend.PoolModel{}
@@ -168,17 +181,32 @@ func TestPoolModel_GetAll(t *testing.T) {
 
 	poolA := keypair.MustRandom().Address()
 	poolB := keypair.MustRandom().Address()
+	adminA := keypair.MustRandom().Address()
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
 		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
-			{PoolContractID: types.AddressBytea(poolA), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolA), Admin: types.AddressBytea(adminA), LastModifiedLedger: 1},
 			{PoolContractID: types.AddressBytea(poolB), LastModifiedLedger: 1},
 		}))
+	})
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{types.AddressBytea(poolB)}, 5))
 	})
 
 	got, err := m.GetAll(ctx)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assertOrderedByAddr(t, got, func(p blend.Pool) types.AddressBytea { return p.PoolContractID })
+
+	for _, p := range got {
+		switch p.PoolContractID {
+		case types.AddressBytea(poolA):
+			assert.Equal(t, types.AddressBytea(adminA), p.Admin)
+			assert.False(t, p.InRewardZone)
+		case types.AddressBytea(poolB):
+			assert.Equal(t, types.AddressBytea(""), p.Admin)
+			assert.True(t, p.InRewardZone)
+		}
+	}
 }
 
 func TestReserveModel_GetByPools(t *testing.T) {

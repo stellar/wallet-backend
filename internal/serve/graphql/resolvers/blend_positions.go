@@ -565,6 +565,58 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 	}, nil
 }
 
+// blendAuctionTypeEnum maps a blend_auctions.auction_type value to its
+// schema enum (0/1/2, per services/blend/entries.go's AuctionType doc). ok is
+// false for any unrecognized value, which the caller skips rather than
+// surfaces as a malformed enum.
+func blendAuctionTypeEnum(auctionType int32) (graphql1.BlendAuctionType, bool) {
+	switch auctionType {
+	case 0:
+		return graphql1.BlendAuctionTypeUserLiquidation, true
+	case 1:
+		return graphql1.BlendAuctionTypeBadDebt, true
+	case 2:
+		return graphql1.BlendAuctionTypeInterest, true
+	default:
+		return "", false
+	}
+}
+
+// buildAuctionAmounts converts a bid/lot asset-amount map into a
+// deterministically (asset address) sorted BlendAuctionAmount list.
+func buildAuctionAmounts(amounts map[string]string) []*graphql1.BlendAuctionAmount {
+	assets := make([]string, 0, len(amounts))
+	for asset := range amounts {
+		assets = append(assets, asset)
+	}
+	sort.Strings(assets)
+	out := make([]*graphql1.BlendAuctionAmount, 0, len(assets))
+	for _, asset := range assets {
+		out = append(out, &graphql1.BlendAuctionAmount{AssetContractID: asset, Amount: amounts[asset]})
+	}
+	return out
+}
+
+// buildActiveAuction assembles one blend_auctions row into a BlendAuction.
+// Returns (nil, false) for an unrecognized auction_type, logged by the
+// caller and dropped from the list rather than surfaced as a malformed enum
+// value.
+func (d *blendAssembly) buildActiveAuction(ctx context.Context, a blenddata.Auction) (*graphql1.BlendAuction, bool) {
+	enumType, ok := blendAuctionTypeEnum(a.AuctionType)
+	if !ok {
+		log.Ctx(ctx).Errorf("blend: skipping auction with unrecognized auction_type %d (pool %s, user %s)", a.AuctionType, a.Pool, a.User)
+		return nil, false
+	}
+	return &graphql1.BlendAuction{
+		PoolAddress: string(a.Pool),
+		PoolName:    d.poolByID[string(a.Pool)].Name,
+		AuctionType: enumType,
+		Bid:         buildAuctionAmounts(a.Bid),
+		Lot:         buildAuctionAmounts(a.Lot),
+		StartBlock:  a.StartBlock,
+	}, true
+}
+
 // buildBackstopPosition assembles one blend_backstop_positions row into a
 // BlendBackstopPosition. bp.Shares holds only the ACTIVE share balance —
 // queued-for-withdrawal shares live in bp.Q4W — but queued shares keep
@@ -659,6 +711,10 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	if err != nil {
 		return nil, fmt.Errorf("getting blend backstop claimed total for account %s: %w", address, err)
 	}
+	auctions, err := r.models.Blend.Auctions.GetByAccount(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("getting blend auctions for account %s: %w", address, err)
+	}
 
 	poolIDSet := map[string]struct{}{}
 	for _, p := range positions {
@@ -666,6 +722,9 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	}
 	for _, bp := range backstopPositions {
 		poolIDSet[string(bp.PoolContractID)] = struct{}{}
+	}
+	for _, a := range auctions {
+		poolIDSet[string(a.Pool)] = struct{}{}
 	}
 	poolIDs := make([]string, 0, len(poolIDSet))
 	for id := range poolIDSet {
@@ -806,9 +865,23 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		backstopOut = append(backstopOut, bpOut)
 	}
 
+	// auctions is already ordered by (pool_contract_id, auction_type) per
+	// AuctionModel.GetByAccount's ORDER BY, mirroring how blend_pools.go's
+	// pool-list ordering is inherited from its own reader rather than
+	// re-sorted here.
+	activeAuctions := make([]*graphql1.BlendAuction, 0, len(auctions))
+	for _, a := range auctions {
+		auctionOut, ok := assembly.buildActiveAuction(ctx, a)
+		if !ok {
+			continue
+		}
+		activeAuctions = append(activeAuctions, auctionOut)
+	}
+
 	return &graphql1.BlendAccountPositions{
 		Pools:             poolPositions,
 		Backstop:          backstopOut,
 		BackstopClaimedLp: backstopClaimed,
+		ActiveAuctions:    activeAuctions,
 	}, nil
 }

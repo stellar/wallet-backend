@@ -112,9 +112,24 @@ type ComplexityRoot struct {
 	}
 
 	BlendAccountPositions struct {
+		ActiveAuctions    func(childComplexity int) int
 		Backstop          func(childComplexity int) int
 		BackstopClaimedLp func(childComplexity int) int
 		Pools             func(childComplexity int) int
+	}
+
+	BlendAuction struct {
+		AuctionType func(childComplexity int) int
+		Bid         func(childComplexity int) int
+		Lot         func(childComplexity int) int
+		PoolAddress func(childComplexity int) int
+		PoolName    func(childComplexity int) int
+		StartBlock  func(childComplexity int) int
+	}
+
+	BlendAuctionAmount struct {
+		Amount          func(childComplexity int) int
+		AssetContractID func(childComplexity int) int
 	}
 
 	BlendBackstopPosition struct {
@@ -146,9 +161,11 @@ type ComplexityRoot struct {
 
 	BlendPool struct {
 		Address          func(childComplexity int) int
+		Admin            func(childComplexity int) int
 		BackstopRate     func(childComplexity int) int
 		BackstopUsd      func(childComplexity int) int
 		BorrowedUsd      func(childComplexity int) int
+		InRewardZone     func(childComplexity int) int
 		InterestApy      func(childComplexity int) int
 		MaxPositions     func(childComplexity int) int
 		Name             func(childComplexity int) int
@@ -907,6 +924,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
 
+	case "BlendAccountPositions.activeAuctions":
+		if e.ComplexityRoot.BlendAccountPositions.ActiveAuctions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.ActiveAuctions(childComplexity), true
 	case "BlendAccountPositions.backstop":
 		if e.ComplexityRoot.BlendAccountPositions.Backstop == nil {
 			break
@@ -925,6 +948,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendAccountPositions.Pools(childComplexity), true
+
+	case "BlendAuction.auctionType":
+		if e.ComplexityRoot.BlendAuction.AuctionType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.AuctionType(childComplexity), true
+	case "BlendAuction.bid":
+		if e.ComplexityRoot.BlendAuction.Bid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.Bid(childComplexity), true
+	case "BlendAuction.lot":
+		if e.ComplexityRoot.BlendAuction.Lot == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.Lot(childComplexity), true
+	case "BlendAuction.poolAddress":
+		if e.ComplexityRoot.BlendAuction.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.PoolAddress(childComplexity), true
+	case "BlendAuction.poolName":
+		if e.ComplexityRoot.BlendAuction.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.PoolName(childComplexity), true
+	case "BlendAuction.startBlock":
+		if e.ComplexityRoot.BlendAuction.StartBlock == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.StartBlock(childComplexity), true
+
+	case "BlendAuctionAmount.amount":
+		if e.ComplexityRoot.BlendAuctionAmount.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionAmount.Amount(childComplexity), true
+	case "BlendAuctionAmount.assetContractId":
+		if e.ComplexityRoot.BlendAuctionAmount.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionAmount.AssetContractID(childComplexity), true
 
 	case "BlendBackstopPosition.emissionsEarnedBlnd":
 		if e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedBlnd == nil {
@@ -1043,6 +1116,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendPool.Address(childComplexity), true
+	case "BlendPool.admin":
+		if e.ComplexityRoot.BlendPool.Admin == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Admin(childComplexity), true
 	case "BlendPool.backstopRate":
 		if e.ComplexityRoot.BlendPool.BackstopRate == nil {
 			break
@@ -1061,6 +1140,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendPool.BorrowedUsd(childComplexity), true
+	case "BlendPool.inRewardZone":
+		if e.ComplexityRoot.BlendPool.InRewardZone == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.InRewardZone(childComplexity), true
 	case "BlendPool.interestApy":
 		if e.ComplexityRoot.BlendPool.InterestApy == nil {
 			break
@@ -2774,7 +2859,9 @@ type SEP41Allowance {
 # Query.blendPools/blendPool are pool-wide catalog views, independent of any
 # account. Query.blendEarnOptions is a "where can I earn this asset" catalog
 # view. Account.blendPositions is an account's lending, collateral, and
-# backstop positions across every Blend v2 pool it touches.
+# backstop positions across every Blend v2 pool it touches, plus any active
+# Dutch auctions where the account is the auction owner
+# (BlendAccountPositions.activeAuctions).
 #
 # Money-shaped fields use Float for USD/APY values (nullable wherever a missing
 # oracle price makes the value uncomputable — a genuinely zero balance is still
@@ -2805,6 +2892,13 @@ type BlendAccountPositions {
   pools: [BlendPoolPosition!]!
   backstop: [BlendBackstopPosition!]!
   backstopClaimedLp: String!
+  """
+  Active Dutch auctions where this account is the auction owner: being
+  liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+  address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+  Sorted by (poolAddress, auctionType).
+  """
+  activeAuctions: [BlendAuction!]!
 }
 
 """BlendPoolPosition rolls up an account's reserve positions within one pool."""
@@ -2915,6 +3009,44 @@ type BlendPool {
   interestApy: Float
   netApy: Float
   reserves: [BlendReserve!]!
+  """
+  Pool admin address (G... or C...). Distinguishes owned pools (admin can
+  retune parameters) from standard pools whose admin is disabled. Null when
+  not yet observed.
+  """
+  admin: String
+  """Whether this pool is in the backstop's reward zone and therefore receives BLND emissions."""
+  inRewardZone: Boolean!
+}
+
+enum BlendAuctionType {
+  USER_LIQUIDATION
+  BAD_DEBT
+  INTEREST
+}
+
+"""BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot."""
+type BlendAuctionAmount {
+  assetContractId: String!
+  """Raw on-chain integer amount at the asset's native decimals, NOT a USD value."""
+  amount: String!
+}
+
+"""
+BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+noted per field below.
+"""
+type BlendAuction {
+  poolAddress: String!
+  poolName: String
+  auctionType: BlendAuctionType!
+  """Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens."""
+  bid: [BlendAuctionAmount!]!
+  """Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying."""
+  lot: [BlendAuctionAmount!]!
+  """Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down)."""
+  startBlock: Int!
 }
 
 """
@@ -4156,6 +4288,8 @@ func (ec *executionContext) fieldContext_Account_blendPositions(_ context.Contex
 				return ec.fieldContext_BlendAccountPositions_backstop(ctx, field)
 			case "backstopClaimedLp":
 				return ec.fieldContext_BlendAccountPositions_backstopClaimedLp(ctx, field)
+			case "activeAuctions":
+				return ec.fieldContext_BlendAccountPositions_activeAuctions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendAccountPositions", field.Name)
 		},
@@ -5420,6 +5554,293 @@ func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimedLp
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendAccountPositions_activeAuctions(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_activeAuctions,
+		func(ctx context.Context) (any, error) {
+			return obj.ActiveAuctions, nil
+		},
+		nil,
+		ec.marshalNBlendAuction2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_activeAuctions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendAuction_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendAuction_poolName(ctx, field)
+			case "auctionType":
+				return ec.fieldContext_BlendAuction_auctionType(ctx, field)
+			case "bid":
+				return ec.fieldContext_BlendAuction_bid(ctx, field)
+			case "lot":
+				return ec.fieldContext_BlendAuction_lot(ctx, field)
+			case "startBlock":
+				return ec.fieldContext_BlendAuction_startBlock(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_auctionType(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_auctionType,
+		func(ctx context.Context) (any, error) {
+			return obj.AuctionType, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_auctionType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendAuctionType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_bid(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_bid,
+		func(ctx context.Context) (any, error) {
+			return obj.Bid, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_bid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_lot(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_lot,
+		func(ctx context.Context) (any, error) {
+			return obj.Lot, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_lot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_startBlock(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_startBlock,
+		func(ctx context.Context) (any, error) {
+			return obj.StartBlock, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_startBlock(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionAmount_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendAuctionAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionAmount_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionAmount_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionAmount_amount(ctx context.Context, field graphql.CollectedField, obj *BlendAuctionAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionAmount_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionAmount_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendBackstopPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6343,6 +6764,64 @@ func (ec *executionContext) fieldContext_BlendPool_reserves(_ context.Context, f
 				return ec.fieldContext_BlendReserve_priceUsd(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendReserve", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_admin(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_admin,
+		func(ctx context.Context) (any, error) {
+			return obj.Admin, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_admin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_inRewardZone(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_inRewardZone,
+		func(ctx context.Context) (any, error) {
+			return obj.InRewardZone, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_inRewardZone(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10236,6 +10715,10 @@ func (ec *executionContext) fieldContext_Query_blendPools(_ context.Context, fie
 				return ec.fieldContext_BlendPool_netApy(ctx, field)
 			case "reserves":
 				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			case "admin":
+				return ec.fieldContext_BlendPool_admin(ctx, field)
+			case "inRewardZone":
+				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
 		},
@@ -10292,6 +10775,10 @@ func (ec *executionContext) fieldContext_Query_blendPool(ctx context.Context, fi
 				return ec.fieldContext_BlendPool_netApy(ctx, field)
 			case "reserves":
 				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			case "admin":
+				return ec.fieldContext_BlendPool_admin(ctx, field)
+			case "inRewardZone":
+				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
 		},
@@ -16935,6 +17422,116 @@ func (ec *executionContext) _BlendAccountPositions(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "activeAuctions":
+			out.Values[i] = ec._BlendAccountPositions_activeAuctions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAuctionImplementors = []string{"BlendAuction"}
+
+func (ec *executionContext) _BlendAuction(ctx context.Context, sel ast.SelectionSet, obj *BlendAuction) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAuctionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAuction")
+		case "poolAddress":
+			out.Values[i] = ec._BlendAuction_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendAuction_poolName(ctx, field, obj)
+		case "auctionType":
+			out.Values[i] = ec._BlendAuction_auctionType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "bid":
+			out.Values[i] = ec._BlendAuction_bid(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lot":
+			out.Values[i] = ec._BlendAuction_lot(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "startBlock":
+			out.Values[i] = ec._BlendAuction_startBlock(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAuctionAmountImplementors = []string{"BlendAuctionAmount"}
+
+func (ec *executionContext) _BlendAuctionAmount(ctx context.Context, sel ast.SelectionSet, obj *BlendAuctionAmount) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAuctionAmountImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAuctionAmount")
+		case "assetContractId":
+			out.Values[i] = ec._BlendAuctionAmount_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._BlendAuctionAmount_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -17158,6 +17755,13 @@ func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = ec._BlendPool_netApy(ctx, field, obj)
 		case "reserves":
 			out.Values[i] = ec._BlendPool_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "admin":
+			out.Values[i] = ec._BlendPool_admin(ctx, field, obj)
+		case "inRewardZone":
+			out.Values[i] = ec._BlendPool_inRewardZone(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -21923,6 +22527,68 @@ func (ec *executionContext) marshalNBlendAccountPositions2ᚖgithubᚗcomᚋstel
 		return graphql.Null
 	}
 	return ec._BlendAccountPositions(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendAuction2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendAuction) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendAuction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuction(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendAuction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuction(ctx context.Context, sel ast.SelectionSet, v *BlendAuction) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAuction(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendAuctionAmount) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendAuctionAmount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmount(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendAuctionAmount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmount(ctx context.Context, sel ast.SelectionSet, v *BlendAuctionAmount) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAuctionAmount(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType(ctx context.Context, v any) (BlendAuctionType, error) {
+	var res BlendAuctionType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType(ctx context.Context, sel ast.SelectionSet, v BlendAuctionType) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopPosition) graphql.Marshaler {
