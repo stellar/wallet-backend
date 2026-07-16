@@ -33,8 +33,8 @@ type Auction struct {
 	AuctionType        int32
 	Bid                map[string]string
 	Lot                map[string]string
-	StartBlock         int32
-	LastModifiedLedger int32
+	StartBlock         uint32
+	LastModifiedLedger uint32
 }
 
 // AuctionModelInterface exposes Blend v2 active-auction storage operations.
@@ -106,8 +106,8 @@ func (m *AuctionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Auct
 		auctionTypes[i] = r.AuctionType
 		bids[i] = bidJSON
 		lots[i] = lotJSON
-		startBlocks[i] = r.StartBlock
-		ledgers[i] = r.LastModifiedLedger
+		startBlocks[i] = int32(r.StartBlock)
+		ledgers[i] = int32(r.LastModifiedLedger)
 	}
 
 	const upsertQuery = `
