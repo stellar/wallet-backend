@@ -72,6 +72,10 @@ type ParticipantsProcessorInterface interface {
 type OperationProcessorInterface interface {
 	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error)
 	Name() string
+	// StateChangeSubBase is this processor's slot in the indexer's state_change_id
+	// sub-namespace registry (see types.StateChangeSubBase*). It is part of the
+	// on-disk ID layout and must never change once rows exist with it.
+	StateChangeSubBase() int64
 }
 
 // LedgerChangeProcessor is a generic interface for processors that extract data from ledger changes.
@@ -342,21 +346,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Drop state changes with no account to associate with, then assign each
-	// retained one a deterministic state_change_id: an ordinal numbered 1..N in
-	// emission order within its (to_id, operation_id) group. Filtering first
-	// keeps the ordinals gap-free for what's actually persisted.
-	retainedStateChanges := stateChanges[:0]
+	// Insert state changes (already filtered and ID-assigned per processor
+	// stream by getTransactionStateChanges)
 	for _, stateChange := range stateChanges {
-		if stateChange.AccountID == "" {
-			continue
-		}
-		retainedStateChanges = append(retainedStateChanges, stateChange)
-	}
-	types.AssignStateChangeOrdinals(retainedStateChanges, types.StateChangeOrdinalBaseIndexer)
-
-	// Insert state changes
-	for _, stateChange := range retainedStateChanges {
 		// Get the correct operation for this state change
 		var operation types.Operation
 		if stateChange.OperationID != 0 {
@@ -374,19 +366,23 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	return allParticipants.Cardinality(), nil
 }
 
-// getTransactionStateChanges processes operations of a transaction and calculates all state changes
+// getTransactionStateChanges processes operations of a transaction and calculates all state
+// changes. Each emitting processor's stream is filtered and given its deterministic
+// state_change_ids independently, inside that processor's own sub-namespace (see the sub-base
+// registry in types), so the returned changes are ready to persist and no processor's IDs
+// depend on another processor's output or on registration order.
 func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
-	stateChanges := []types.StateChange{}
+	streams := make([][]types.StateChange, len(i.processors))
 
 	// Process operations sequentially since there are only 3 processors per operation
 	// Creating a worker pool here adds unnecessary overhead
 	for _, opParticipants := range opsParticipants {
-		for _, processor := range i.processors {
+		for procIdx, processor := range i.processors {
 			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
 			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
 				return nil, fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
 			}
-			stateChanges = append(stateChanges, processorStateChanges...)
+			streams[procIdx] = append(streams[procIdx], processorStateChanges...)
 		}
 	}
 
@@ -395,9 +391,29 @@ func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction in
 	if err != nil {
 		return nil, fmt.Errorf("processing token transfer state changes: %w", err)
 	}
-	stateChanges = append(stateChanges, tokenTransferStateChanges...)
 
+	var stateChanges []types.StateChange
+	for procIdx, processor := range i.processors {
+		stateChanges = assignStateChangeStream(stateChanges, streams[procIdx], processor.StateChangeSubBase())
+	}
+	stateChanges = assignStateChangeStream(stateChanges, tokenTransferStateChanges, types.StateChangeSubBaseTokenTransfer)
 	return stateChanges, nil
+}
+
+// assignStateChangeStream drops stream entries with no account to associate with, assigns
+// the retained ones their deterministic state_change_ids at the emitting processor's slot in
+// the indexer namespace, and appends them to dst. Filtering before assignment keeps ordinals
+// gap-free (1..N per (to_id, operation_id) group) for what's actually persisted.
+func assignStateChangeStream(dst, stream []types.StateChange, subBase int64) []types.StateChange {
+	retained := stream[:0]
+	for _, stateChange := range stream {
+		if stateChange.AccountID == "" {
+			continue
+		}
+		retained = append(retained, stateChange)
+	}
+	types.AssignStateChangeOrdinals(retained, types.StateChangeOrdinalBaseIndexer+subBase)
+	return append(dst, retained...)
 }
 
 // GetLedgerTransactions extracts transactions from ledger close meta.

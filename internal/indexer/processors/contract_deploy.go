@@ -28,6 +28,10 @@ func (p *ContractDeployProcessor) Name() string {
 	return "contract_deploy"
 }
 
+func (p *ContractDeployProcessor) StateChangeSubBase() int64 {
+	return types.StateChangeSubBaseContractDeploy
+}
+
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
 func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()

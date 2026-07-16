@@ -1355,3 +1355,54 @@ func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T
 	require.True(t, wrapperWithEvents[1], "corpus must include a wrapper-V1 (Protocol 20-22) ledger with extracted contract events")
 	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
 }
+
+func TestAssignStateChangeStream_SubNamespaces(t *testing.T) {
+	effects := []types.StateChange{
+		{OperationID: 42, AccountID: "GA"},
+		{OperationID: 42, AccountID: "GB"},
+		{OperationID: 43, AccountID: "GC"},
+	}
+	tokenTransfers := []types.StateChange{
+		{OperationID: 42, AccountID: "GD"},
+		{OperationID: 42, AccountID: ""}, // no account — dropped before assignment
+		{OperationID: 42, AccountID: "GE"},
+	}
+
+	var merged []types.StateChange
+	merged = assignStateChangeStream(merged, effects, types.StateChangeSubBaseEffects)
+	merged = assignStateChangeStream(merged, tokenTransfers, types.StateChangeSubBaseTokenTransfer)
+
+	// Each stream numbers its own emissions 1..N per operation inside its own
+	// sub-namespace; the account-less entry is filtered out first so ordinals
+	// stay gap-free.
+	require.Len(t, merged, 5)
+	assert.Equal(t, types.StateChangeSubBaseEffects+1, merged[0].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseEffects+2, merged[1].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseEffects+1, merged[2].StateChangeID) // op 43: its own group
+	assert.Equal(t, types.StateChangeSubBaseTokenTransfer+1, merged[3].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseTokenTransfer+2, merged[4].StateChangeID)
+
+	// The IDs a stream gets are a function of that stream alone: assigning the
+	// same effects emissions with no other stream present yields identical IDs.
+	// This is the property that makes IDs immune to processors being added,
+	// removed, or reordered around this one.
+	alone := assignStateChangeStream(nil, []types.StateChange{
+		{OperationID: 42, AccountID: "GA"},
+		{OperationID: 42, AccountID: "GB"},
+		{OperationID: 43, AccountID: "GC"},
+	}, types.StateChangeSubBaseEffects)
+	require.Len(t, alone, 3)
+	for i := range alone {
+		assert.Equal(t, merged[i].StateChangeID, alone[i].StateChangeID)
+	}
+
+	// All IDs across streams sharing operation 42 are distinct.
+	seen := map[int64]bool{}
+	for _, sc := range merged {
+		if sc.OperationID != 42 {
+			continue
+		}
+		assert.False(t, seen[sc.StateChangeID], "duplicate state_change_id %d", sc.StateChangeID)
+		seen[sc.StateChangeID] = true
+	}
+}

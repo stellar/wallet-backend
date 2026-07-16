@@ -700,21 +700,53 @@ type StateChangeCursorGetter interface {
 // resulting state_change_id values can never collide across emitters even
 // when they share an operation. Bases are spaced far apart (int64 has ample
 // room) and must never change once rows exist with them.
+//
+// The indexer subdivides its namespace further, one sub-namespace per
+// emitting processor — see the sub-base registry below.
 const (
 	StateChangeOrdinalBaseIndexer int64 = 0
 	StateChangeOrdinalBaseSEP41   int64 = 1 << 40
 	StateChangeOrdinalBaseBlend   int64 = 2 << 40
 )
 
+// Sub-namespace registry within the indexer's emitter namespace.
+//
+// The indexer is itself multi-stream: several processors (token transfers,
+// effects, contract deploys, SAC events) can emit state changes for the same
+// operation. Each processor numbers its own emissions independently (see
+// Indexer.getTransactionStateChanges) and adds StateChangeOrdinalBaseIndexer
+// plus its sub-base below, so IDs never depend on the order processors are
+// registered or invoked in — adding or reordering processors cannot shift
+// another processor's IDs. Within one processor, emission order derives from
+// the transaction meta (canonical on-chain data), which is what makes the
+// scheme reproducible across runs.
+//
+// Sub-bases are spaced 1<<28 apart: 4096 sub-namespaces fit inside the
+// indexer's 1<<40-wide namespace, each with room for ~268M state changes per
+// (to_id, operation_id) — both far beyond what transaction meta size limits
+// allow. Protocol emitters (SEP-41, Blend) are single-stream and use their
+// base directly; a future multi-stream emitter subdivides its own namespace
+// the same way. Like the emitter bases, sub-bases must never change once
+// rows exist with them; new processors take the next unused slot.
+const (
+	StateChangeSubBaseTokenTransfer  int64 = 0 << 28
+	StateChangeSubBaseEffects        int64 = 1 << 28
+	StateChangeSubBaseContractDeploy int64 = 2 << 28
+	StateChangeSubBaseSACEvents      int64 = 3 << 28
+)
+
 // AssignStateChangeOrdinals assigns each state change in changes a
 // deterministic state_change_id: an ordinal numbered 1..N in slice order
-// within each distinct OperationID group, plus base. Processing the same
-// input twice (e.g. a re-ingested ledger) yields byte-identical IDs, so a
-// duplicate BatchCopy fails loudly on the state_changes primary key instead of
-// inserting duplicate rows.
+// within each distinct OperationID group, plus base. base is the calling
+// emitter's namespace base — plus its processor's sub-base for multi-stream
+// emitters like the indexer. Processing the same input twice (e.g. a
+// re-ingested ledger) yields byte-identical IDs, so a duplicate BatchCopy
+// fails loudly on the state_changes primary key instead of inserting
+// duplicate rows.
 //
-// Callers must pass the final, filtered slice — the one actually handed to
-// BatchCopy — so ordinals come out contiguous (1..N, no gaps) per group.
+// Callers must pass one emission stream at a time — the final, filtered slice
+// actually handed to BatchCopy — so ordinals come out contiguous (1..N, no
+// gaps) per group within the stream's namespace.
 func AssignStateChangeOrdinals(changes []StateChange, base int64) {
 	next := make(map[int64]int64, len(changes))
 	for i := range changes {
