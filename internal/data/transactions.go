@@ -23,7 +23,7 @@ type TransactionModel struct {
 }
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	start := time.Now()
 	hashBytea := types.HashBytea(hash)
@@ -42,7 +42,7 @@ func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *in
 	if err := validatePositiveLimit(limit); err != nil {
 		return nil, err
 	}
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
 	queryBuilder := strings.Builder{}
 	var args []interface{}
 	argIndex := 1
@@ -191,7 +191,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 //
 // See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id", "ledger_created_at")
 	// Join operations to transactions using TOID encoding:
 	// An operation ID's lower 12 bits encode the operation index within the transaction.
 	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
@@ -228,7 +228,7 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	if len(scToIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("scToIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(scToIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 
 	query := fmt.Sprintf(`
 		SELECT %s, CONCAT(k.to_id, '-', k.operation_id, '-', k.state_change_id) AS state_change_id

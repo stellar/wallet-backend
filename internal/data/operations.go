@@ -23,7 +23,7 @@ type OperationModel struct {
 }
 
 func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
 	query := fmt.Sprintf(`SELECT %s FROM operations WHERE id = $1`, columns)
 	start := time.Now()
 	operation, err := db.QueryOne[types.Operation](ctx, m.DB, query, id)
@@ -41,7 +41,7 @@ func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int3
 	if err := validatePositiveLimit(limit); err != nil {
 		return nil, err
 	}
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
 	queryBuilder := strings.Builder{}
 	var args []interface{}
 	argIndex := 1
@@ -119,7 +119,7 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, led
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id", "ledger_created_at")
 
 	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding
 	// (see the package doc above). Each key carries its parent transaction's ledger_created_at,
@@ -183,7 +183,7 @@ func (m *OperationModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, led
 // Operations for a transaction are found using TOID range: (tx_to_id, tx_to_id + 4096), pinned
 // to the parent transaction's ledger_created_at for partition-column chunk exclusion.
 func (m *OperationModel) BatchGetByToID(ctx context.Context, toID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *int64, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
 	queryBuilder := strings.Builder{}
 	// Operations for a tx_to_id are in range (tx_to_id, tx_to_id + 4096) based on TOID encoding.
 	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations WHERE id > $1 AND id < $1 + 4096 AND ledger_created_at = $2`, columns)
@@ -247,7 +247,7 @@ func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, a
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id", "ledger_created_at")
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM UNNEST($2::bigint[], $3::timestamptz[]) AS i(to_id, ledger_created_at)
@@ -284,7 +284,7 @@ func (m *OperationModel) BatchGetAccountOperationsByToIDs(ctx context.Context, a
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the operations_accounts hypertable by ordering on ledger_created_at first.
 func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.OperationWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id", "ledger_created_at")
 
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
@@ -374,7 +374,7 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	if len(scOpIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("scOpIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(scOpIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id")
+	columns = prepareColumnsWithID(columns, types.Operation{}, "o", "id", "ledger_created_at")
 
 	// ORDER BY reads k.ledger_created_at (from UNNEST), not o.ledger_created_at: the LATERAL
 	// only projects the caller-requested columns, which may not include ledger_created_at, but

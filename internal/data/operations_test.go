@@ -903,3 +903,40 @@ func TestOperationModel_BatchGetAccountOperationsByToIDs(t *testing.T) {
 		assert.Equal(t, int64(4097), ops[3].ID)
 	})
 }
+
+// A client selecting no time fields must still get operations whose LedgerCreatedAt is
+// hydrated: the state-change and transaction relationship resolvers pin their lookups on the
+// parent operation's partition timestamp, so every projection forces ledger_created_at.
+func TestOperationModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	m := &OperationModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES (4098, 'PAYMENT', 'xdr', 'op_success', true, 1, $1)
+	`, now)
+	require.NoError(t, err)
+
+	op, err := m.GetByID(ctx, 4098, "id")
+	require.NoError(t, err)
+	assert.True(t, now.Equal(op.LedgerCreatedAt), "GetByID with minimal projection must hydrate ledger_created_at")
+
+	limit := int32(10)
+	ops, err := m.GetAll(ctx, "id", &limit, nil, DESC)
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	assert.True(t, now.Equal(ops[0].Operation.LedgerCreatedAt), "GetAll with minimal projection must hydrate ledger_created_at")
+
+	batched, err := m.BatchGetByToID(ctx, 4096, now, "id", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, batched, 1)
+	assert.True(t, now.Equal(batched[0].Operation.LedgerCreatedAt), "BatchGetByToID with minimal projection must hydrate ledger_created_at")
+}

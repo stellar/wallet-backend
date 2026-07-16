@@ -1198,3 +1198,37 @@ func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
 		assert.Equal(t, int64(1), scs[2].StateChangeID)
 	})
 }
+
+// A client selecting no time fields must still get state changes whose LedgerCreatedAt is
+// hydrated: the operation and transaction relationship resolvers pin their lookups on the
+// parent state change's partition timestamp, so every projection forces ledger_created_at.
+func TestStateChangeModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	address := keypair.MustRandom().Address()
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES (4096, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 4098)
+	`, now, types.AddressBytea(address))
+	require.NoError(t, err)
+
+	limit := int32(10)
+	byToID, err := m.BatchGetByToID(ctx, 4096, now, "state_change_category", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, byToID, 1)
+	assert.True(t, now.Equal(byToID[0].StateChange.LedgerCreatedAt), "BatchGetByToID with minimal projection must hydrate ledger_created_at")
+
+	byOpID, err := m.BatchGetByOperationID(ctx, 4098, now, "state_change_category", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, byOpID, 1)
+	assert.True(t, now.Equal(byOpID[0].StateChange.LedgerCreatedAt), "BatchGetByOperationID with minimal projection must hydrate ledger_created_at")
+}
