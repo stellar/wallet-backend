@@ -293,6 +293,12 @@ func (m *PositionModel) BatchUpsertSnapshots(ctx context.Context, dbTx pgx.Tx, r
 // to a reserve_index via blend_reserves. Deltas whose asset has no matching
 // blend_reserves row for the pool are silently skipped (0 rows affected).
 //
+// This is UPDATE-only: it mutates existing rows and never inserts. A delta for a
+// (pool, user, reserve) with no row yet is a no-op, so callers must persist the
+// absolute Positions snapshot (BatchUpsertSnapshots) — and the reserves it joins
+// against — before applying deltas in the same transaction. PersistCurrentState
+// enforces this ordering (reserves -> snapshots -> net deltas).
+//
 // ZeroBorrowed, when true, replaces net_borrowed with NetBorrowedDelta instead
 // of adding to it — used to fold a bad_debt event, which resets the borrower's
 // liability cost basis rather than accumulating against it.
@@ -408,6 +414,21 @@ var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 // row for the pool are silently skipped (0 rows affected). Multiple
 // adjustments for the same (pool, user, asset) in one batch are summed
 // server-side before applying.
+//
+// Like BatchApplyNetDeltas this is UPDATE-only: the position snapshot (and its
+// reserve) must already exist for the adjustment to land. PersistCurrentState
+// runs it after BatchUpsertSnapshots for that reason.
+//
+// The rates are the ones blend_reserves holds when this runs, i.e. the rates as
+// of the end of the batch's window. A window spanning several ledgers therefore
+// values all of its accumulated lot_b/bid_d deltas at end-of-window rates rather
+// than at each fill's own rates. The divergence from per-ledger ingestion is
+// bounded by the interest accruing between a fill and window close — relative
+// error at most borrow APR × (window duration / year), ~1e-5 for the default
+// 100-ledger (~8 min) window at 50% APR. It affects only the
+// interestEarned/interestPaid cost-basis display fields and applies once, to
+// windowed migration: live ingestion runs window=1, where the rates read here
+// are the fill's own.
 func (m *PositionModel) ApplyAuctionAdjustments(ctx context.Context, dbTx pgx.Tx, adjs []PositionAuctionAdjustment) error {
 	if len(adjs) == 0 {
 		return nil
