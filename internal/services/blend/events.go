@@ -114,6 +114,32 @@ type DecodedEvent struct {
 	ClaimFolds  []ClaimFold
 }
 
+// IsBackstop reports whether this decode is a backstop-emitted event (as
+// opposed to a pool-emitted one): a backstop share/queue change, or a
+// backstop-source claim. Pool and backstop decoders never share a category or
+// claim source, so the parse output alone identifies the role. The processor
+// uses this to fold backstop state only from the canonical backstop (see
+// canonicalBackstopAddress).
+func (e *DecodedEvent) IsBackstop() bool {
+	for _, r := range e.Rows {
+		switch r.Category {
+		case types.StateChangeCategoryBlendBackstop,
+			types.StateChangeCategoryBlendBackstopQueue,
+			types.StateChangeCategoryBlendBackstopEmissions:
+			return true
+		default:
+			// Pool-emitted category: not backstop by row; fall through to the
+			// claim-source check below.
+		}
+	}
+	for _, cf := range e.ClaimFolds {
+		if cf.Source == claimSourceBackstop {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseEvent decodes one Blend pool or backstop ContractEvent into Blend
 // history rows and cost-basis folds. It never panics.
 //
