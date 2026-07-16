@@ -117,7 +117,7 @@ func (m *AuctionModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Auct
 			bid                  = EXCLUDED.bid,
 			lot                  = EXCLUDED.lot,
 			start_block          = EXCLUDED.start_block,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_auctions.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, users, auctionTypes, bids, lots, startBlocks, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", auctionsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend auctions: %w", err)

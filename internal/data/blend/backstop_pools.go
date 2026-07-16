@@ -98,7 +98,7 @@ func (m *BackstopPoolModel) BatchUpsertBalances(ctx context.Context, dbTx pgx.Tx
 			shares               = EXCLUDED.shares,
 			tokens               = EXCLUDED.tokens,
 			q4w                  = EXCLUDED.q4w,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_backstop_pools.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, shares, tokens, q4ws, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsertBalances", backstopPoolsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend backstop pool balances: %w", err)
@@ -147,7 +147,7 @@ func (m *BackstopPoolModel) BatchUpsertEmissions(ctx context.Context, dbTx pgx.T
 			emis_index           = EXCLUDED.emis_index,
 			emis_expiration      = EXCLUDED.emis_expiration,
 			emis_last_time       = EXCLUDED.emis_last_time,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_backstop_pools.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, emisEps, emisIndexes, emisExpirations, emisLastTimes, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsertEmissions", backstopPoolsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend backstop pool emissions: %w", err)

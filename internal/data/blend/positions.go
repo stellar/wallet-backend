@@ -216,7 +216,7 @@ func (m *PositionModel) ZeroAbsentReserves(ctx context.Context, dbTx pgx.Tx, pre
 	const zeroQuery = `
 		UPDATE blend_positions p SET
 			supply_b_tokens = '0', collateral_b_tokens = '0', liability_d_tokens = '0',
-			last_modified_ledger = u.ledger
+			last_modified_ledger = GREATEST(p.last_modified_ledger, u.ledger)
 		FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[]) AS u(pool, usr, present_csv, ledger)
 		WHERE p.pool_contract_id = u.pool AND p.user_account_id = u.usr
 		  AND NOT (p.reserve_index = ANY (string_to_array(u.present_csv, ',')::integer[]))`
@@ -275,7 +275,7 @@ func (m *PositionModel) BatchUpsertSnapshots(ctx context.Context, dbTx pgx.Tx, r
 			supply_b_tokens = EXCLUDED.supply_b_tokens,
 			collateral_b_tokens = EXCLUDED.collateral_b_tokens,
 			liability_d_tokens = EXCLUDED.liability_d_tokens,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			last_modified_ledger = GREATEST(blend_positions.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, pools, users, indexes, supplyBTokens, collateralBTokens, liabilityDTokens, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsertSnapshots", positionsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend position snapshots: %w", err)
