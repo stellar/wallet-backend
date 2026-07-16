@@ -140,6 +140,12 @@ type stagedClaim struct {
 // protocol.
 type processor struct {
 	networkPassphrase string
+	// canonicalBackstop is the one Blend v2 backstop C-address for this network,
+	// resolved once at construction. Backstop-shaped entries and events are
+	// folded only when their owning/emitting contract equals it — see
+	// canonicalBackstopAddress for why. Empty on an unrecognized network, in
+	// which case no contract matches and all backstop-shaped state is skipped.
+	canonicalBackstop string
 
 	pools             blenddata.PoolModelInterface
 	positions         blenddata.PositionModelInterface
@@ -177,6 +183,12 @@ type processor struct {
 	stagedPoolClaims        map[blenddata.PoolUserKey]*stagedClaim
 	stagedBackstopClaims    map[string]*stagedClaim
 
+	// loggedImpostorBackstops dedups the "skipped non-canonical backstop" debug
+	// log to once per contract per window: it records which non-canonical
+	// contracts have already had a backstop-shaped entry or event skipped this
+	// Reset cycle, so a contract emitting many such changes logs a single line.
+	loggedImpostorBackstops map[string]struct{}
+
 	// needsReset is set by Persist* and cleared by Reset(). ProcessLedger refuses
 	// to fold while it is set: folding after a Persist without an intervening
 	// Reset would re-add already-committed state and silently double-count. Both
@@ -190,6 +202,7 @@ type processor struct {
 func newProcessor(deps services.ProtocolDeps) *processor {
 	p := &processor{
 		networkPassphrase: deps.NetworkPassphrase,
+		canonicalBackstop: canonicalBackstopAddress(deps.NetworkPassphrase),
 	}
 	if deps.Models != nil {
 		p.pools = deps.Models.Blend.Pools
@@ -279,6 +292,15 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	}
 	if decoded == nil {
 		return nil // event type this package doesn't model
+	}
+
+	// Backstop-shaped events fold into pool/user-keyed tables (backstop history
+	// rows, claimed totals) that carry no backstop contract id, so they are
+	// honored only from the canonical backstop. An impostor sharing the backstop
+	// WASM is tracked but not canonical; drop its backstop-shaped events entirely.
+	if decoded.IsBackstop() && contractStr != p.canonicalBackstop {
+		p.logSkippedImpostorBackstop(contractStr)
+		return nil
 	}
 
 	if mode.NeedsHistory() {
@@ -463,6 +485,16 @@ func (p *processor) processContractDataChanges(changes map[string][]ingest.Chang
 // correct pool identity for every kind except the backstop kinds, which
 // carry their own Pool identity field (see DecodedEntry's godoc).
 func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
+	// Backstop-shaped entries stage into pool/user-keyed tables that carry no
+	// backstop contract id, so they are honored only from the canonical
+	// backstop; an impostor sharing the backstop WASM (tracked but not
+	// canonical) is dropped. Pool-shaped entries key rows under their owning
+	// pool address, so a junk pool only corrupts its own rows and stays open.
+	if isBackstopKind(decoded.Kind) && addr != p.canonicalBackstop {
+		p.logSkippedImpostorBackstop(addr)
+		return
+	}
+
 	switch decoded.Kind {
 	case KindPoolInstance:
 		p.stagePoolInstance(addr, decoded)
@@ -487,6 +519,29 @@ func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
 	case KindAuction, KindRewardZone, KindIgnored:
 		// KindAuction/KindRewardZone are decoded but not yet staged; KindIgnored never has anything to stage.
 	}
+}
+
+// isBackstopKind reports whether kind is one of the backstop-owned entry kinds
+// whose staged rows key on pool and/or user with no backstop contract id — the
+// set gated to the canonical backstop (see canonicalBackstopAddress).
+func isBackstopKind(kind EntryKind) bool {
+	switch kind {
+	case KindBackstopUserBalance, KindBackstopPoolBalance, KindBackstopBEmisData, KindBackstopUEmisData, KindRewardZone:
+		return true
+	default:
+		return false
+	}
+}
+
+// logSkippedImpostorBackstop emits one debug log per non-canonical contract per
+// window when its backstop-shaped entries/events are dropped, deduped via
+// loggedImpostorBackstops so a contract with many such changes logs once.
+func (p *processor) logSkippedImpostorBackstop(addr string) {
+	if _, done := p.loggedImpostorBackstops[addr]; done {
+		return
+	}
+	p.loggedImpostorBackstops[addr] = struct{}{}
+	log.Debugf("blend: skipping backstop-shaped state from non-canonical contract %s (canonical backstop %q)", addr, p.canonicalBackstop)
 }
 
 // stagePoolInstance merges a pool's instance-storage snapshot into its
@@ -716,6 +771,7 @@ func (p *processor) Reset() {
 	p.stagedUserEmissions = map[emisKey]*stagedUserEmission{}
 	p.stagedPoolClaims = map[blenddata.PoolUserKey]*stagedClaim{}
 	p.stagedBackstopClaims = map[string]*stagedClaim{}
+	p.loggedImpostorBackstops = map[string]struct{}{}
 	p.needsReset = false
 }
 

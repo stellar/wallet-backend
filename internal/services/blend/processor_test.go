@@ -32,6 +32,12 @@ import (
 
 const testNetworkPassphrase = "Test SDF Network ; September 2015"
 
+// testCanonicalBackstopAddr is the canonical Blend v2 backstop C-address for
+// testNetworkPassphrase (== network.TestNetworkPassphrase). Backstop-derived
+// state is folded only from this address (see canonicalBackstopAddress), so
+// tests that exercise the backstop fold must register their backstop under it.
+var testCanonicalBackstopAddr = canonicalBackstopAddress(testNetworkPassphrase)
+
 // testMocks bundles every data-layer mock the processor can write to.
 type testMocks struct {
 	pools             *blenddata.PoolModelMock
@@ -50,7 +56,10 @@ type testMocks struct {
 // newTestProcessor builds a bare processor for tests that don't need any
 // data-layer dependencies, mirroring sep41's processor_test.go pattern.
 func newTestProcessor() *processor {
-	return &processor{networkPassphrase: testNetworkPassphrase}
+	return &processor{
+		networkPassphrase: testNetworkPassphrase,
+		canonicalBackstop: canonicalBackstopAddress(testNetworkPassphrase),
+	}
 }
 
 // newFullTestProcessor builds a processor wired to fresh mocks for every
@@ -72,6 +81,7 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 	}
 	p := &processor{
 		networkPassphrase: testNetworkPassphrase,
+		canonicalBackstop: canonicalBackstopAddress(testNetworkPassphrase),
 		pools:             m.pools,
 		positions:         m.positions,
 		reserves:          m.reserves,
@@ -302,7 +312,7 @@ func TestProcessLedger_StagingModes(t *testing.T) {
 func TestProcessLedger_StagesClaims(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
 	userAddr := randomAccountAddr(t)
 	poolPC := protocolContractFor(t, poolAddr, "aa")
 	backstopPC := protocolContractFor(t, backstopAddr, "bb")
@@ -358,10 +368,86 @@ func TestProcessLedger_StagesClaims(t *testing.T) {
 	})
 }
 
+func TestProcessLedger_ImpostorBackstopEntriesSkipped(t *testing.T) {
+	ctx := context.Background()
+	// An impostor deployed from the real backstop WASM: classified as Blend and
+	// tracked, but not the canonical backstop for this network. Its
+	// backstop-shaped entries key their rows under a real pool/user, so folding
+	// them would overwrite the true backstop's rows — the gate must skip them.
+	impostorAddr := randomContractAddr(t)
+	poolAddr := randomContractAddr(t)
+	userAddr := randomAccountAddr(t)
+	impostorPC := protocolContractFor(t, impostorAddr, "bb")
+
+	changes := []ingest.Change{
+		createdChange(vecScVal(symScVal("UserBalance"), mapValScVal(mapScVal(
+			symEntry("pool", contractAddrScVal(t, poolAddr)), symEntry("user", accountAddrScVal(t, userAddr)),
+		))), mapValScVal(mapScVal(symEntry("q4w", vecScVal()), symEntry("shares", i128ScVal(300))))),
+		createdChange(vecScVal(symScVal("PoolBalance"), contractAddrScVal(t, poolAddr)), mapValScVal(mapScVal(
+			symEntry("q4w", i128ScVal(50)), symEntry("shares", i128ScVal(1000)), symEntry("tokens", i128ScVal(2000)),
+		))),
+		createdChange(symScVal("RZ"), vecScVal(contractAddrScVal(t, poolAddr))),
+	}
+
+	// Wired to real mocks: any Persist* call into a backstop model would fail the
+	// test, so absence of staging is asserted both directly and via the mocks.
+	p, _ := newFullTestProcessor(t)
+	require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{
+		LedgerSequence:      5,
+		ProtocolContracts:   []data.ProtocolContracts{impostorPC},
+		ContractDataChanges: map[string][]ingest.Change{impostorAddr: changes},
+		StagingMode:         services.StagingModeCurrentState,
+	}))
+
+	assert.Empty(t, p.stagedBackstopPositions, "impostor UserBalance must not stage a backstop position")
+	assert.Empty(t, p.stagedBackstopPools, "impostor PoolBalance must not stage a backstop pool row")
+
+	// Nothing staged, so PersistCurrentState touches no backstop model.
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
+func TestProcessLedger_ImpostorBackstopEventsSkipped(t *testing.T) {
+	ctx := context.Background()
+	impostorAddr := randomContractAddr(t)
+	poolAddr := randomContractAddr(t)
+	userAddr := randomAccountAddr(t)
+	impostorPC := protocolContractFor(t, impostorAddr, "bb")
+	poolPC := protocolContractFor(t, poolAddr, "aa")
+
+	// deposit is a backstop-only symbol; claim with bare-i128 data is a backstop
+	// claim. Both are backstop-shaped decodes emitted by the impostor, so neither
+	// a history row nor a claimed-total delta may be staged.
+	depositEvent := contractEvent(t, impostorAddr,
+		[]xdr.ScVal{symScVal("deposit"), contractAddrScVal(t, poolAddr), accountAddrScVal(t, userAddr)},
+		vecScVal(i128ScVal(1000), i128ScVal(950)),
+	)
+	backstopClaimEvent := contractEvent(t, impostorAddr,
+		[]xdr.ScVal{symScVal("claim"), accountAddrScVal(t, userAddr)},
+		i128ScVal(750),
+	)
+
+	p, _ := newFullTestProcessor(t)
+	require.NoError(t, p.ProcessLedger(ctx, services.ProtocolProcessorInput{
+		LedgerSequence:    5,
+		ProtocolContracts: []data.ProtocolContracts{impostorPC, poolPC},
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			{TxIdx: 0, OpIdx: 0}: {depositEvent},
+			{TxIdx: 0, OpIdx: 1}: {backstopClaimEvent},
+		},
+		StagingMode: services.StagingModeBoth,
+	}))
+
+	assert.Empty(t, p.stagedStateChanges, "impostor backstop events must stage no history rows")
+	assert.Empty(t, p.stagedBackstopClaims, "impostor backstop claim must fold no claimed total")
+
+	require.NoError(t, p.PersistHistory(ctx, nil))
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
 func TestProcessLedger_StagesEntries(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
 	assetAddr := randomContractAddr(t)
 	oracleAddr := randomContractAddr(t)
 	userAddr := randomAccountAddr(t)
@@ -490,7 +576,7 @@ func TestProcessLedger_StagesEntries(t *testing.T) {
 func TestProcessLedger_StagesHistory(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := randomContractAddr(t)
+	backstopAddr := testCanonicalBackstopAddr
 	assetAddr := randomContractAddr(t)
 	fromAddr := randomAccountAddr(t)
 	fillerAddr := randomAccountAddr(t)
