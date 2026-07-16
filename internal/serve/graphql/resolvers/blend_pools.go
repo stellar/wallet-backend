@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -240,17 +242,59 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		}
 	}
 
-	reserves, err := r.models.Blend.Reserves.GetByPools(ctx, poolIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend reserves: %w", err)
+	oracleIDs := make([]string, 0, len(oracleIDSet))
+	for id := range oracleIDSet {
+		oracleIDs = append(oracleIDs, id)
 	}
-	reserveEmissions, err := r.models.Blend.ReserveEmissions.GetByPools(ctx, poolIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend reserve emissions: %w", err)
-	}
-	backstopPools, err := r.models.Blend.BackstopPools.GetByIDs(ctx, poolIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend backstop pools: %w", err)
+
+	// Pool-keyed reads plus oracle prices (oracleIDs are known from the input
+	// pools) and the backstop LP pair (no input) are all mutually independent, so
+	// fetch them concurrently.
+	var (
+		reserves         []blenddata.Reserve
+		reserveEmissions []blenddata.ReserveEmission
+		backstopPools    []blenddata.BackstopPool
+		oraclePrices     []blenddata.OraclePrice
+		backstopLPPrices []blenddata.OraclePrice
+	)
+	poolGroup, poolCtx := errgroup.WithContext(ctx)
+	poolGroup.Go(func() (err error) {
+		reserves, err = r.models.Blend.Reserves.GetByPools(poolCtx, poolIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend reserves: %w", err)
+		}
+		return nil
+	})
+	poolGroup.Go(func() (err error) {
+		reserveEmissions, err = r.models.Blend.ReserveEmissions.GetByPools(poolCtx, poolIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend reserve emissions: %w", err)
+		}
+		return nil
+	})
+	poolGroup.Go(func() (err error) {
+		backstopPools, err = r.models.Blend.BackstopPools.GetByIDs(poolCtx, poolIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend backstop pools: %w", err)
+		}
+		return nil
+	})
+	poolGroup.Go(func() (err error) {
+		oraclePrices, err = r.models.Blend.OraclePrices.GetByOracles(poolCtx, oracleIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend oracle prices: %w", err)
+		}
+		return nil
+	})
+	poolGroup.Go(func() (err error) {
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(poolCtx)
+		if err != nil {
+			return fmt.Errorf("getting blend backstop LP prices: %w", err)
+		}
+		return nil
+	})
+	if err := poolGroup.Wait(); err != nil {
+		return nil, err //nolint:wrapcheck // already wrapped inside the errgroup closures
 	}
 
 	reservesByPool := map[string][]blenddata.Reserve{}
@@ -273,18 +317,6 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		metaByContractID[c.ContractID] = c
 	}
 
-	oracleIDs := make([]string, 0, len(oracleIDSet))
-	for id := range oracleIDSet {
-		oracleIDs = append(oracleIDs, id)
-	}
-	oraclePrices, err := r.models.Blend.OraclePrices.GetByOracles(ctx, oracleIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend oracle prices: %w", err)
-	}
-	backstopLPPrices, err := r.models.Blend.OraclePrices.GetBackstopLPPrices(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
-	}
 	now := time.Now().Unix()
 	lpPrice, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)

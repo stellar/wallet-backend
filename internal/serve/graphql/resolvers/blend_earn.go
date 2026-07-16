@@ -16,6 +16,8 @@ import (
 	"sort"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/stellar/wallet-backend/internal/data"
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -141,13 +143,36 @@ func (d *blendAssembly) buildEarnOption(assetID string, reserves []blenddata.Res
 // by contract address (a plain C-address string comparison); see
 // sortEarnPoolOptions for how each asset's own pools are ordered.
 func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEarnOption, error) {
-	reserves, err := r.models.Blend.Reserves.GetAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend reserves: %w", err)
-	}
-	pools, err := r.models.Blend.Pools.GetAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend pools: %w", err)
+	// reserves, pools, and the backstop LP price pair (no input) are independent.
+	var (
+		reserves         []blenddata.Reserve
+		pools            []blenddata.Pool
+		backstopLPPrices []blenddata.OraclePrice
+	)
+	baseGroup, baseCtx := errgroup.WithContext(ctx)
+	baseGroup.Go(func() (err error) {
+		reserves, err = r.models.Blend.Reserves.GetAll(baseCtx)
+		if err != nil {
+			return fmt.Errorf("getting blend reserves: %w", err)
+		}
+		return nil
+	})
+	baseGroup.Go(func() (err error) {
+		pools, err = r.models.Blend.Pools.GetAll(baseCtx)
+		if err != nil {
+			return fmt.Errorf("getting blend pools: %w", err)
+		}
+		return nil
+	})
+	baseGroup.Go(func() (err error) {
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(baseCtx)
+		if err != nil {
+			return fmt.Errorf("getting blend backstop LP prices: %w", err)
+		}
+		return nil
+	})
+	if err := baseGroup.Wait(); err != nil {
+		return nil, err //nolint:wrapcheck // already wrapped inside the errgroup closures
 	}
 
 	poolByID := make(map[string]blenddata.Pool, len(pools))
@@ -175,26 +200,51 @@ func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEa
 	}
 	sort.Strings(assetIDs)
 
-	tokenMeta, err := r.models.Contract.GetTokenMetadataByContractIDs(ctx, assetIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend reserve asset token metadata: %w", err)
-	}
-	metaByContractID := make(map[string]data.Contract, len(tokenMeta))
-	for _, c := range tokenMeta {
-		metaByContractID[c.ContractID] = c
-	}
-
 	oracleIDs := make([]string, 0, len(oracleIDSet))
 	for id := range oracleIDSet {
 		oracleIDs = append(oracleIDs, id)
 	}
-	oraclePrices, err := r.models.Blend.OraclePrices.GetByOracles(ctx, oracleIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend oracle prices: %w", err)
+	poolIDs := make([]string, 0, len(poolByID))
+	for id := range poolByID {
+		poolIDs = append(poolIDs, id)
 	}
-	backstopLPPrices, err := r.models.Blend.OraclePrices.GetBackstopLPPrices(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend backstop LP prices: %w", err)
+
+	// Token metadata (assetIDs), oracle prices (oracleIDs), and reserve emissions
+	// (poolIDs) are independent now that those key sets are known.
+	var (
+		tokenMeta        []data.Contract
+		oraclePrices     []blenddata.OraclePrice
+		reserveEmissions []blenddata.ReserveEmission
+	)
+	lookupGroup, lookupCtx := errgroup.WithContext(ctx)
+	lookupGroup.Go(func() (err error) {
+		tokenMeta, err = r.models.Contract.GetTokenMetadataByContractIDs(lookupCtx, assetIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend reserve asset token metadata: %w", err)
+		}
+		return nil
+	})
+	lookupGroup.Go(func() (err error) {
+		oraclePrices, err = r.models.Blend.OraclePrices.GetByOracles(lookupCtx, oracleIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend oracle prices: %w", err)
+		}
+		return nil
+	})
+	lookupGroup.Go(func() (err error) {
+		reserveEmissions, err = r.models.Blend.ReserveEmissions.GetByPools(lookupCtx, poolIDs)
+		if err != nil {
+			return fmt.Errorf("getting blend reserve emissions: %w", err)
+		}
+		return nil
+	})
+	if err := lookupGroup.Wait(); err != nil {
+		return nil, err //nolint:wrapcheck // already wrapped inside the errgroup closures
+	}
+
+	metaByContractID := make(map[string]data.Contract, len(tokenMeta))
+	for _, c := range tokenMeta {
+		metaByContractID[c.ContractID] = c
 	}
 	now := time.Now().Unix()
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
@@ -202,14 +252,6 @@ func (r *Resolver) getBlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEa
 	// price has no earn-view use.
 	_, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
 
-	poolIDs := make([]string, 0, len(poolByID))
-	for id := range poolByID {
-		poolIDs = append(poolIDs, id)
-	}
-	reserveEmissions, err := r.models.Blend.ReserveEmissions.GetByPools(ctx, poolIDs)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend reserve emissions: %w", err)
-	}
 	reserveEmissionByPoolToken := make(map[string]blenddata.ReserveEmission, len(reserveEmissions))
 	for _, re := range reserveEmissions {
 		reserveEmissionByPoolToken[poolTokenKey(string(re.PoolContractID), re.ReserveTokenID)] = re
