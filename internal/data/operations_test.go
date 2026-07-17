@@ -191,67 +191,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	}
 }
 
-func TestOperationModel_GetAll(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &OperationModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	now := time.Now()
-
-	// Create test transactions first (hash is BYTEA, using valid 64-char hex strings)
-	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
-	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES
-			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
-			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
-			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
-	`, now, testHash1, testHash2, testHash3)
-	require.NoError(t, err)
-
-	// Create test operations (IDs must be in TOID range for each transaction: (to_id, to_id + 4096))
-	xdr1 := types.XDRBytea([]byte("xdr1"))
-	xdr2 := types.XDRBytea([]byte("xdr2"))
-	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-		VALUES
-			(2, 'PAYMENT', $2, 'op_success', true, 1, $1),
-			(4098, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
-			(8194, 'PAYMENT', $4, 'op_success', true, 3, $1)
-	`, now, xdr1, xdr2, xdr3)
-	require.NoError(t, err)
-
-	// Test GetAll without limit (gets all operations)
-	operations, err := m.GetAll(ctx, "", nil, nil, ASC, nil)
-	require.NoError(t, err)
-	assert.Len(t, operations, 3)
-	assert.Equal(t, int64(2), operations[0].CompositeCursor.ID)
-	assert.Equal(t, int64(4098), operations[1].CompositeCursor.ID)
-	assert.Equal(t, int64(8194), operations[2].CompositeCursor.ID)
-
-	// Test GetAll with smaller limit
-	limit := int32(2)
-	operations, err = m.GetAll(ctx, "", &limit, nil, ASC, nil)
-	require.NoError(t, err)
-	assert.Len(t, operations, 2)
-	assert.Equal(t, int64(2), operations[0].CompositeCursor.ID)
-	assert.Equal(t, int64(4098), operations[1].CompositeCursor.ID)
-}
-
 func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -930,10 +869,6 @@ func TestOperationModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
 	assert.True(t, now.Equal(op.LedgerCreatedAt), "GetByID with minimal projection must hydrate ledger_created_at")
 
 	limit := int32(10)
-	ops, err := m.GetAll(ctx, "id", &limit, nil, DESC, nil)
-	require.NoError(t, err)
-	require.Len(t, ops, 1)
-	assert.True(t, now.Equal(ops[0].Operation.LedgerCreatedAt), "GetAll with minimal projection must hydrate ledger_created_at")
 
 	batched, err := m.BatchGetByToID(ctx, 4096, now, "id", &limit, nil, ASC)
 	require.NoError(t, err)

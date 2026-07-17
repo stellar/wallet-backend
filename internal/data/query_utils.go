@@ -49,17 +49,6 @@ const (
 	DESC SortOrder = "DESC"
 )
 
-// validatePositiveLimit rejects a non-nil limit that is zero or negative. A caller-supplied
-// page size can go negative (e.g. an int32-overflowed `first` upstream), and silently dropping
-// the LIMIT clause in that case turns a bounded page read into an unbounded full-table read.
-// limit == nil still means "no limit" (used internally) and is left untouched.
-func validatePositiveLimit(limit *int32) error {
-	if limit != nil && *limit <= 0 {
-		return fmt.Errorf("limit must be positive, got %d", *limit)
-	}
-	return nil
-}
-
 // pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
 func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}

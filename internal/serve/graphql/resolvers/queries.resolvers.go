@@ -7,9 +7,7 @@ package resolvers
 
 import (
 	"context"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -35,45 +33,6 @@ func (r *queryResolver) TransactionByHash(ctx context.Context, hash string) (*ty
 	return r.models.Transactions.GetByHash(ctx, hash, strings.Join(dbColumns, ", "))
 }
 
-// Transactions is the resolver for the transactions field.
-// This resolver handles the "transactions" query.
-// It demonstrates handling optional arguments (limit can be nil)
-func (r *queryResolver) Transactions(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.TransactionConnection, error) {
-	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeComposite)
-	if err != nil {
-		return nil, err
-	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
-
-	timeRange, err := buildRootTimeRange(since, until)
-	if err != nil {
-		return nil, err
-	}
-
-	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
-	if err != nil {
-		return nil, fmt.Errorf("getting transactions from db: %w", err)
-	}
-
-	conn := NewConnectionWithRelayPagination(transactions, params, func(t *types.TransactionWithCursor) string {
-		return fmt.Sprintf("%d:%d", t.CompositeCursor.LedgerCreatedAt.UnixNano(), t.CompositeCursor.ID)
-	})
-
-	edges := make([]*graphql1.TransactionEdge, len(conn.Edges))
-	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.TransactionEdge{
-			Node:   &edge.Node.Transaction,
-			Cursor: edge.Cursor,
-		}
-	}
-
-	return &graphql1.TransactionConnection{
-		Edges:    edges,
-		PageInfo: conn.PageInfo,
-	}, nil
-}
-
 // AccountByAddress is the resolver for the accountByAddress field.
 func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*types.Account, error) {
 	if !utils.IsValidStellarAddress(address) {
@@ -88,86 +47,10 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 	return &types.Account{StellarAddress: types.AddressBytea(address)}, nil
 }
 
-// Operations is the resolver for the operations field.
-// This resolver handles the "operations" query.
-func (r *queryResolver) Operations(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
-	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeComposite)
-	if err != nil {
-		return nil, err
-	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
-
-	timeRange, err := buildRootTimeRange(since, until)
-	if err != nil {
-		return nil, err
-	}
-
-	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	operations, err := r.models.Operations.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
-	if err != nil {
-		return nil, fmt.Errorf("getting operations from db: %w", err)
-	}
-
-	conn := NewConnectionWithRelayPagination(operations, params, func(o *types.OperationWithCursor) string {
-		return fmt.Sprintf("%d:%d", o.CompositeCursor.LedgerCreatedAt.UnixNano(), o.CompositeCursor.ID)
-	})
-
-	edges := make([]*graphql1.OperationEdge, len(conn.Edges))
-	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.OperationEdge{
-			Node:   &edge.Node.Operation,
-			Cursor: edge.Cursor,
-		}
-	}
-
-	return &graphql1.OperationConnection{
-		Edges:    edges,
-		PageInfo: conn.PageInfo,
-	}, nil
-}
-
 // OperationByID is the resolver for the operationById field.
 func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
-}
-
-// StateChanges is the resolver for the stateChanges field.
-func (r *queryResolver) StateChanges(ctx context.Context, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
-	params, err := parseRootPaginationParams(first, after, last, before, CursorTypeStateChange)
-	if err != nil {
-		return nil, err
-	}
-	queryLimit := *params.Limit + 1 // +1 to check if there is a next page; safe from overflow since params.Limit is capped by parseRootPaginationParams
-
-	timeRange, err := buildRootTimeRange(since, until)
-	if err != nil {
-		return nil, err
-	}
-
-	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	stateChanges, err := r.models.StateChanges.GetAll(ctx, strings.Join(dbColumns, ", "), &queryLimit, params.StateChangeCursor, params.SortOrder, timeRange)
-	if err != nil {
-		return nil, fmt.Errorf("getting state changes from db: %w", err)
-	}
-
-	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
-	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
-		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeID)
-	})
-
-	edges := make([]*graphql1.StateChangeEdge, len(conn.Edges))
-	for i, edge := range conn.Edges {
-		edges[i] = &graphql1.StateChangeEdge{
-			Node:   edge.Node.stateChange,
-			Cursor: edge.Cursor,
-		}
-	}
-
-	return &graphql1.StateChangeConnection{
-		Edges:    edges,
-		PageInfo: conn.PageInfo,
-	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

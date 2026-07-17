@@ -364,16 +364,13 @@ func addComplexityCalculation(config *generated.Config) {
 	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, _ *string, last *int32, _ *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}
-	// timeBoundedPaginatedComplexityFunc is for connections that take since/until (root
-	// transactions/operations/stateChanges, and the account-scoped equivalents): since/until
-	// narrow the result set but don't change the page-size-based complexity accounting, so they're
-	// accepted and ignored here exactly like the account-scoped connections already do.
+	// timeBoundedPaginatedComplexityFunc is for the account-scoped connections that take
+	// since/until (Account.transactions/operations/stateChanges): since/until narrow the result
+	// set but don't change the page-size-based complexity accounting, so they're accepted and
+	// ignored here.
 	timeBoundedPaginatedComplexityFunc := func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}
-	config.Complexity.Query.Transactions = timeBoundedPaginatedComplexityFunc
-	config.Complexity.Query.Operations = timeBoundedPaginatedComplexityFunc
-	config.Complexity.Query.StateChanges = timeBoundedPaginatedComplexityFunc
 	config.Complexity.Account.Balances = paginatedQueryComplexityFunc
 	config.Complexity.Account.Transactions = timeBoundedPaginatedComplexityFunc
 	config.Complexity.Account.Operations = timeBoundedPaginatedComplexityFunc

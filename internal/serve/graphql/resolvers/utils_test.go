@@ -2,7 +2,6 @@ package resolvers
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,89 +45,6 @@ func TestParseAccountPaginationParams(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, params.Limit)
 		assert.Equal(t, maxAccountPageLimit, *params.Limit)
-	})
-}
-
-func TestParseRootPaginationParams(t *testing.T) {
-	t.Run("rejects first above max with BAD_USER_INPUT", func(t *testing.T) {
-		first := maxRootPageLimit + 1
-		_, err := parseRootPaginationParams(&first, nil, nil, nil, CursorTypeComposite)
-		require.Error(t, err)
-
-		var gqlErr *gqlerror.Error
-		require.ErrorAs(t, err, &gqlErr)
-		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
-		assert.Contains(t, gqlErr.Message, "first must be less than or equal to 100")
-	})
-
-	t.Run("rejects a first at math.MaxInt32 with BAD_USER_INPUT (not an overflow)", func(t *testing.T) {
-		first := int32(2147483647)
-		_, err := parseRootPaginationParams(&first, nil, nil, nil, CursorTypeComposite)
-		require.Error(t, err)
-
-		var gqlErr *gqlerror.Error
-		require.ErrorAs(t, err, &gqlErr)
-		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
-	})
-
-	t.Run("rejects last above max with BAD_USER_INPUT", func(t *testing.T) {
-		last := maxRootPageLimit + 1
-		_, err := parseRootPaginationParams(nil, nil, &last, nil, CursorTypeStateChange)
-		require.Error(t, err)
-
-		var gqlErr *gqlerror.Error
-		require.ErrorAs(t, err, &gqlErr)
-		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
-		assert.Contains(t, gqlErr.Message, "last must be less than or equal to 100")
-	})
-
-	t.Run("accepts first at max", func(t *testing.T) {
-		first := maxRootPageLimit
-		params, err := parseRootPaginationParams(&first, nil, nil, nil, CursorTypeComposite)
-		require.NoError(t, err)
-		require.NotNil(t, params.Limit)
-		assert.Equal(t, maxRootPageLimit, *params.Limit)
-	})
-}
-
-func TestBuildRootTimeRange(t *testing.T) {
-	t.Run("both nil defaults to a 7-day window ending now", func(t *testing.T) {
-		before := time.Now()
-		tr, err := buildRootTimeRange(nil, nil)
-		after := time.Now()
-		require.NoError(t, err)
-		require.NotNil(t, tr)
-		require.NotNil(t, tr.Since)
-		require.NotNil(t, tr.Until)
-
-		assert.True(t, tr.Until.After(before) || tr.Until.Equal(before))
-		assert.True(t, tr.Until.Before(after) || tr.Until.Equal(after))
-		assert.WithinDuration(t, before.Add(-defaultRootQueryWindow), *tr.Since, time.Second)
-	})
-
-	t.Run("explicit since only is open-ended on until", func(t *testing.T) {
-		since := time.Now().Add(-30 * 24 * time.Hour)
-		tr, err := buildRootTimeRange(&since, nil)
-		require.NoError(t, err)
-		require.NotNil(t, tr)
-		assert.Equal(t, since, *tr.Since)
-		assert.Nil(t, tr.Until)
-	})
-
-	t.Run("explicit until only is open-ended on since", func(t *testing.T) {
-		until := time.Now()
-		tr, err := buildRootTimeRange(nil, &until)
-		require.NoError(t, err)
-		require.NotNil(t, tr)
-		assert.Nil(t, tr.Since)
-		assert.Equal(t, until, *tr.Until)
-	})
-
-	t.Run("until before since is rejected as BAD_USER_INPUT", func(t *testing.T) {
-		since := time.Now()
-		until := since.Add(-1 * time.Hour)
-		_, err := buildRootTimeRange(&since, &until)
-		requireBadUserInput(t, err)
 	})
 }
 

@@ -221,32 +221,36 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 		expectedMessage string
 	}{
 		{
-			name:  "root pagination without explicit args uses shared default page limit",
-			limit: 149,
+			name:  "account transactions without explicit args uses shared default page limit",
+			limit: 150,
 			query: `query {
-				transactions {
-					edges {
-						node {
-							hash
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					transactions {
+						edges {
+							node {
+								hash
+							}
 						}
 					}
 				}
 			}`,
-			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
+			expectedMessage: "operation has complexity 151, which exceeds the limit of 150",
 		},
 		{
-			name:  "root first argument is used in complexity calculation",
-			limit: 5,
+			name:  "account transactions first argument is used in complexity calculation",
+			limit: 6,
 			query: `query {
-				transactions(first: 2) {
-					edges {
-						node {
-							hash
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					transactions(first: 2) {
+						edges {
+							node {
+								hash
+							}
 						}
 					}
 				}
 			}`,
-			expectedMessage: "operation has complexity 6, which exceeds the limit of 5",
+			expectedMessage: "operation has complexity 7, which exceeds the limit of 6",
 		},
 		{
 			name:  "nested last argument is used in complexity calculation",

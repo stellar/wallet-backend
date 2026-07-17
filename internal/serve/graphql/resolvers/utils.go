@@ -343,23 +343,6 @@ func parseNestedPaginationParams(first *int32, after *string, last *int32, befor
 	return parsePaginationParams(first, after, last, before, cursorType)
 }
 
-// maxRootPageLimit bounds page size on the root connections (Query.transactions/operations/
-// stateChanges). Unlike the account-scoped connections, these have no other bound (no single
-// account to scope the scan to), so an uncapped first is the most expensive case: it both sizes
-// the compressed-chunk scan/sort and, combined with D3's time-bounded windowing, determines how
-// much of the window has to be materialized before paging.
-const maxRootPageLimit int32 = 100
-
-// parseRootPaginationParams caps page size for the root transactions/operations/stateChanges
-// connections before delegating to parsePaginationParams (SQL-04). It mirrors
-// parseAccountPaginationParams' cap policy (reject, not clamp).
-func parseRootPaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
-	if err := capPaginationLimit(first, last, maxRootPageLimit); err != nil {
-		return PaginationParams{}, err
-	}
-	return parsePaginationParams(first, after, last, before, cursorType)
-}
-
 func parsePaginationParams(first *int32, after *string, last *int32, before *string, cursorType CursorType) (PaginationParams, error) {
 	// validatePaginationParams and the cursor decoders below already return a self-describing,
 	// client-safe *gqlerror.Error (BAD_USER_INPUT); returning it unwrapped avoids stuttering,
@@ -505,27 +488,6 @@ func buildTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error)
 		return nil, badUserInputError("until must not be before since")
 	}
 	return &data.TimeRange{Since: since, Until: until}, nil
-}
-
-// defaultRootQueryWindow is the time window applied to the root transactions/operations/
-// stateChanges connections when neither since nor until is given (D3). Root connections have no
-// other bound (an account-scoped connection is inherently bounded to one address; a root
-// connection is not), so an unbounded first page would scan/sort the full history. Defaulting to
-// a recent window keeps that bounded while still letting a client reach older history via an
-// explicit since.
-const defaultRootQueryWindow = 7 * 24 * time.Hour
-
-// buildRootTimeRange builds the *data.TimeRange for a root transactions/operations/stateChanges
-// connection. Unlike buildTimeRange, it defaults to [now-defaultRootQueryWindow, now] when both
-// since and until are omitted; when either is given, it defers to buildTimeRange and uses exactly
-// what was given (open-ended on the unset side).
-func buildRootTimeRange(since *time.Time, until *time.Time) (*data.TimeRange, error) {
-	if since == nil && until == nil {
-		now := time.Now()
-		windowStart := now.Add(-defaultRootQueryWindow)
-		return &data.TimeRange{Since: &windowStart, Until: &now}, nil
-	}
-	return buildTimeRange(since, until)
 }
 
 func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {

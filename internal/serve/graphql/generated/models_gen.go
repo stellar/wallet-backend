@@ -179,16 +179,6 @@ type StateChangeEdge struct {
 	Cursor string          `json:"cursor"`
 }
 
-type TransactionConnection struct {
-	Edges    []*TransactionEdge `json:"edges,omitempty"`
-	PageInfo *PageInfo          `json:"pageInfo"`
-}
-
-type TransactionEdge struct {
-	Node   *types.Transaction `json:"node,omitempty"`
-	Cursor string             `json:"cursor"`
-}
-
 type TrustlineBalance struct {
 	Balance                           string    `json:"balance"`
 	TokenID                           string    `json:"tokenId"`

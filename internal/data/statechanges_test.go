@@ -610,61 +610,6 @@ func TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated(t *tes
 	assert.True(t, toIDsFound[2])
 }
 
-func TestStateChangeModel_GetAll(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &StateChangeModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	now := time.Now()
-
-	address := keypair.MustRandom().Address()
-
-	// Create test transactions first (hash is BYTEA)
-	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
-	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES
-			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
-			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
-			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
-	`, now, testHash1, testHash2, testHash3)
-	require.NoError(t, err)
-
-	// Create test state changes
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
-		VALUES
-			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $2, 789)
-	`, now, types.AddressBytea(address))
-	require.NoError(t, err)
-
-	// Test GetAll without limit
-	stateChanges, err := m.GetAll(ctx, "", nil, nil, DESC, nil)
-	require.NoError(t, err)
-	assert.Len(t, stateChanges, 3)
-
-	// Test GetAll with limit
-	limit := int32(2)
-	stateChanges, err = m.GetAll(ctx, "", &limit, nil, DESC, nil)
-	require.NoError(t, err)
-	assert.Len(t, stateChanges, 2)
-}
-
 func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

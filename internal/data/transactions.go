@@ -38,65 +38,6 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return &transaction, nil
 }
 
-func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
-	if err := validatePositiveLimit(limit); err != nil {
-		return nil, err
-	}
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
-	queryBuilder := strings.Builder{}
-	var args []interface{}
-	argIndex := 1
-
-	// WHERE true gives appendTimeRangeConditions and the cursor condition below a uniform " AND
-	// ..." shape to append to, whether or not a time range is present (unlike the account-scoped
-	// BatchGetByAccountAddress queries, GetAll has no account_id filter to anchor an initial WHERE).
-	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_id FROM transactions WHERE true`, columns)
-
-	// Time range filter: enables TimescaleDB chunk pruning on the transactions hypertable. D3's
-	// root-connection default window (see buildRootTimeRange) means this is populated even when
-	// the client passes neither since nor until.
-	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
-
-	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
-	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
-	if cursor != nil {
-		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
-			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
-			{Name: "to_id", Value: cursor.ID},
-		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" AND " + clause)
-		args = append(args, cursorArgs...)
-		argIndex = nextIdx
-	}
-
-	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC")
-	} else {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC")
-	}
-
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
-		args = append(args, *limit)
-	}
-
-	query := queryBuilder.String()
-	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions.cursor_ledger_created_at ASC, transactions.cursor_id ASC`, query)
-	}
-
-	start := time.Now()
-	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", "transactions").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "transactions").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", "transactions", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("getting transactions: %w", err)
-	}
-	return transactions, nil
-}
-
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
