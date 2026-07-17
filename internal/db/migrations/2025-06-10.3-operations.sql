@@ -34,14 +34,10 @@ CREATE TABLE operations (
 
 SELECT enable_chunk_skipping('operations', 'id');
 
--- Replaces the default single-column (ledger_created_at DESC) index TimescaleDB
--- auto-creates on the hypertable's partition column. The root GraphQL connection
--- sorts by (ledger_created_at DESC, id DESC), which the default index can't serve
--- for a top-N first page (it still needs a heapsort on id within each timestamp).
--- This composite index matches the API sort key directly and makes the auto-created
--- one redundant.
+-- TimescaleDB's default single-column index on the partition column. Retention drops chunks by
+-- range metadata, and no query path filters this table by bare ledger_created_at (reads go through
+-- the primary key or the operations_accounts table), so it has zero consumers.
 DROP INDEX IF EXISTS operations_ledger_created_at_idx;
-CREATE INDEX idx_operations_created_at_sort ON operations (ledger_created_at DESC, id DESC);
 
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
