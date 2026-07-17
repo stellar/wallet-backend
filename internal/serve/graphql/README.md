@@ -53,16 +53,13 @@ Introspection (`__schema`, `__type`) is **disabled by default** — it exposes t
 
 ## Queries
 
-The GraphQL API provides six root queries for accessing blockchain data. Account balances are fetched through `accountByAddress`:
+The GraphQL API provides three root queries for accessing blockchain data — `transactionByHash`, `accountByAddress`, and `operationById`. Account balances are fetched through `accountByAddress`:
 
 | # | Query | Description |
 |---|-------|-------------|
 | 1 | [`transactionByHash`](#1-get-transaction-by-hash) | Get a specific transaction by its hash |
-| 2 | [`transactions`](#2-list-all-transactions) | List all transactions with pagination |
-| 3 | [`accountByAddress`](#3-get-account-by-address) | Get account info and related data |
-| 4 | [`operations`](#4-list-all-operations) | List all operations with pagination |
-| 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
-| 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
+| 2 | [`accountByAddress`](#2-get-account-by-address) | Get account info and related data |
+| 3 | [`operationById`](#3-get-operation-by-id) | Get a specific operation by ID |
 
 ### 1. Get Transaction by Hash
 
@@ -98,41 +95,7 @@ query GetTransaction {
 }
 ```
 
-### 2. List All Transactions
-
-Query transactions with cursor-based pagination. `transactions`, `operations`, and `stateChanges` are the only root queries with no account to scope the scan to, so — unlike their `Account`-nested counterparts — they default to a 7-day window when `since`/`until` are omitted.
-
-```graphql
-query ListTransactions {
-  transactions(since: "2026-07-01T00:00:00Z", first: 10, after: "cursor123") {
-    edges {
-      node {
-        hash
-        ledgerNumber
-        ledgerCreatedAt
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-  }
-}
-```
-
-**Parameters:**
-- `since: Time` / `until: Time` - Optional time bounds on `ledgerCreatedAt`. When both are omitted, the query defaults to the last 7 days; pass either to reach further back (up to the retention window). The cursor encodes position only, not the time window — repeat the same `since`/`until` on every page of a scan to keep the window stable, since omitting them on a later page re-applies the 7-day default relative to "now".
-- `first: Int` - Return the first N items (forward pagination), capped at 100
-- `after: String` - Return items after this cursor
-- `last: Int` - Return the last N items (backward pagination), capped at 100
-- `before: String` - Return items before this cursor
-
-Note that you can only use `first/after` and `last/before`. Any other combination, or a `first`/`last` above 100, results in a `BAD_USER_INPUT` error.
-
-### 3. Get Account by Address
+### 2. Get Account by Address
 
 Retrieve account information and related data.
 
@@ -208,58 +171,7 @@ The `stateChanges` field on Account supports an optional `filter` parameter with
 | `category` | `String` | Filter by state change category (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `RESERVES`) |
 | `reason` | `String` | Filter by state change reason (e.g., `CREDIT`, `DEBIT`, `CREATE`, `MERGE`, `ADD`, `REMOVE`) |
 
-### 4. List All Operations
-
-Query operations across all transactions. Accepts the same optional `since`/`until` arguments as `transactions` (see [above](#2-list-all-transactions)), defaulting to the last 7 days when both are omitted.
-
-```graphql
-query ListOperations {
-  operations(first: 20) {
-    edges {
-      node {
-        id
-        operationType
-        operationXdr
-        resultCode
-        successful
-        ledgerNumber
-        ledgerCreatedAt
-
-        # Parent transaction
-        transaction {
-          hash
-          envelopeXdr
-        }
-
-        # Related accounts
-        accounts {
-          address
-        }
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-}
-```
-
-**Operation Types:**
-
-The `operationType` field supports all Stellar operation types:
-- `CREATE_ACCOUNT`, `PAYMENT`, `PATH_PAYMENT_STRICT_RECEIVE`, `PATH_PAYMENT_STRICT_SEND`
-- `MANAGE_SELL_OFFER`, `CREATE_PASSIVE_SELL_OFFER`, `MANAGE_BUY_OFFER`
-- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`
-- `MANAGE_DATA`, `BUMP_SEQUENCE`
-- `CREATE_CLAIMABLE_BALANCE`, `CLAIM_CLAIMABLE_BALANCE`
-- `BEGIN_SPONSORING_FUTURE_RESERVES`, `END_SPONSORING_FUTURE_RESERVES`, `REVOKE_SPONSORSHIP`
-- `CLAWBACK`, `CLAWBACK_CLAIMABLE_BALANCE`, `SET_TRUST_LINE_FLAGS`
-- `LIQUIDITY_POOL_DEPOSIT`, `LIQUIDITY_POOL_WITHDRAW`
-- `INVOKE_HOST_FUNCTION`, `EXTEND_FOOTPRINT_TTL`, `RESTORE_FOOTPRINT` (Soroban)
-
-### 5. Get Operation by ID
+### 3. Get Operation by ID
 
 Retrieve a specific operation by its ID.
 
@@ -297,91 +209,20 @@ query GetOperation {
 }
 ```
 
-### 6. List State Changes
+**Operation Types:**
 
-Query all state changes. Accepts the same optional `since`/`until` arguments as `transactions` (see [above](#2-list-all-transactions)), defaulting to the last 7 days when both are omitted.
+The `operationType` field supports all Stellar operation types:
+- `CREATE_ACCOUNT`, `PAYMENT`, `PATH_PAYMENT_STRICT_RECEIVE`, `PATH_PAYMENT_STRICT_SEND`
+- `MANAGE_SELL_OFFER`, `CREATE_PASSIVE_SELL_OFFER`, `MANAGE_BUY_OFFER`
+- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`
+- `MANAGE_DATA`, `BUMP_SEQUENCE`
+- `CREATE_CLAIMABLE_BALANCE`, `CLAIM_CLAIMABLE_BALANCE`
+- `BEGIN_SPONSORING_FUTURE_RESERVES`, `END_SPONSORING_FUTURE_RESERVES`, `REVOKE_SPONSORSHIP`
+- `CLAWBACK`, `CLAWBACK_CLAIMABLE_BALANCE`, `SET_TRUST_LINE_FLAGS`
+- `LIQUIDITY_POOL_DEPOSIT`, `LIQUIDITY_POOL_WITHDRAW`
+- `INVOKE_HOST_FUNCTION`, `EXTEND_FOOTPRINT_TTL`, `RESTORE_FOOTPRINT` (Soroban)
 
-```graphql
-query ListStateChanges {
-  stateChanges(first: 50) {
-    edges {
-      node {
-        # Common fields (available on all state change types)
-        type
-        reason
-        ledgerNumber
-        ledgerCreatedAt
-        ingestedAt
-
-        account {
-          address
-        }
-
-        operation {
-          id
-          operationType
-        }
-
-        transaction {
-          hash
-        }
-
-        # Type-specific fields using fragments
-        ... on StandardBalanceChange {
-          tokenId
-          amount
-        }
-
-        ... on AccountChange {
-          funderAddress    # Address that funded the account (for CREATE reason)
-        }
-
-        ... on SignerChange {
-          signerAddress
-          signerWeights
-        }
-
-        ... on SignerThresholdsChange {
-          thresholds
-        }
-
-        ... on MetadataChange {
-          keyValue
-        }
-
-        ... on FlagsChange {
-          flags
-        }
-
-        ... on TrustlineChange {
-          tokenId
-          limit
-          keyValue         # JSON containing additional trustline data
-        }
-
-        ... on ReservesChange {
-          sponsoredAddress
-          sponsorAddress
-          keyValue         # JSON containing additional reserve data
-        }
-
-        ... on BalanceAuthorizationChange {
-          tokenId
-          flags
-          keyValue
-        }
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-}
-```
-
-### 7. Get Account Balances
+### 4. Get Account Balances
 
 Retrieve account balances through a Relay-style connection, including native XLM, classic trustlines, and contract tokens.
 
@@ -588,28 +429,32 @@ The API uses **Relay-style cursor-based pagination** for all list queries. This 
 ```graphql
 # Get first page
 query {
-  transactions(first: 10) {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10) {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }
 
 # Get next page
 query {
-  transactions(first: 10, after: "endCursorFromPreviousPage") {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10, after: "endCursorFromPreviousPage") {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }
@@ -620,28 +465,32 @@ query {
 ```graphql
 # Get last page
 query {
-  transactions(last: 10) {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasPreviousPage
-      startCursor
+  accountByAddress(address: "GABC...") {
+    transactions(last: 10) {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasPreviousPage
+        startCursor
+      }
     }
   }
 }
 
 # Get previous page
 query {
-  transactions(last: 10, before: "startCursorFromCurrentPage") {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasPreviousPage
-      startCursor
+  accountByAddress(address: "GABC...") {
+    transactions(last: 10, before: "startCursorFromCurrentPage") {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasPreviousPage
+        startCursor
+      }
     }
   }
 }
@@ -655,7 +504,7 @@ query {
 
 **Page Size Limits:**
 
-Every connection in the schema — root (`transactions`, `operations`, `stateChanges`), account-scoped (`Account.transactions`/`operations`/`stateChanges`/`balances`/`sep41Allowances`), and nested (`Transaction.operations`/`stateChanges`, `Operation.stateChanges`) — caps `first`/`last` at **100**. A page size above the cap is rejected with a `BAD_USER_INPUT` error rather than silently clamped, so callers get an explicit signal instead of a smaller-than-requested page.
+Every connection in the schema — account-scoped (`Account.transactions`/`operations`/`stateChanges`/`balances`/`sep41Allowances`) and nested (`Transaction.operations`/`stateChanges`, `Operation.stateChanges`) — caps `first`/`last` at **100**. A page size above the cap is rejected with a `BAD_USER_INPUT` error rather than silently clamped, so callers get an explicit signal instead of a smaller-than-requested page.
 
 ## State Changes
 
@@ -707,20 +556,22 @@ Reasons provide context for why a state change occurred:
 
 ```graphql
 query GetBalanceChanges {
-  stateChanges(first: 100) {
-    edges {
-      node {
-        type
-        reason
+  accountByAddress(address: "GABC...") {
+    stateChanges(first: 100) {
+      edges {
+        node {
+          type
+          reason
 
-        ... on StandardBalanceChange {
-          tokenId
-          amount
-          account {
-            address
-          }
-          transaction {
-            hash
+          ... on StandardBalanceChange {
+            tokenId
+            amount
+            account {
+              address
+            }
+            transaction {
+              hash
+            }
           }
         }
       }
@@ -878,15 +729,17 @@ For example, without dataloader, the following query would:
 However, with dataloader, the individual DB calls to get operations get converted to a single DB call for all batched operations for all transactions.
 ```graphql
 query ListTransactions {
-  transactions(first: 5, after: "cursor123") {
-    edges {
-      node {
-        operations {
-          id
-          operationType
-          operationXdr
-          ledgerNumber
-          ledgerCreatedAt
+  accountByAddress(address: "GABC...") {
+    transactions(first: 5, after: "cursor123") {
+      edges {
+        node {
+          operations {
+            id
+            operationType
+            operationXdr
+            ledgerNumber
+            ledgerCreatedAt
+          }
         }
       }
     }
@@ -946,7 +799,7 @@ Reduces bandwidth by allowing clients to send query hashes instead of full query
 # First request: Send full query with hash
 POST /graphql
 {
-  "query": "{ transactions(first: 10) { ... } }",
+  "query": "{ accountByAddress(address: \"GABC...\") { transactions(first: 10) { ... } } }",
   "extensions": {
     "persistedQuery": {
       "version": 1,
@@ -974,11 +827,13 @@ The API only queries database columns that are requested in the GraphQL query, r
 ```graphql
 # Only queries 'hash' and 'ledgerNumber' columns
 query {
-  transactions(first: 10) {
-    edges {
-      node {
-        hash
-        ledgerNumber
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10) {
+      edges {
+        node {
+          hash
+          ledgerNumber
+        }
       }
     }
   }
