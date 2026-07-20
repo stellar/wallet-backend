@@ -698,15 +698,31 @@ type StateChangeCursorGetter interface {
 // changes 1..N in deterministic emission order within an (to_id, operation_id)
 // group (see AssignStateChangeOrdinals) and adds its base below, so the
 // resulting state_change_id values can never collide across emitters even
-// when they share an operation. Bases are spaced far apart (int64 has ample
-// room) and must never change once rows exist with them.
+// when they share an operation. Bases are consecutive multiples of
+// StateChangeOrdinalNamespaceWidth and must never change once rows exist with
+// them.
+//
+// Why the split at bit 40: an int64 has 63 usable positive bits. Reserving the
+// low 40 bits per namespace carves the space into 2^23 (~8.4M) emitter
+// namespaces, each holding 2^40 (~1.1e12) ordinals per (to_id, operation_id)
+// group. Transaction meta size limits cap a single operation's emissions at a
+// few thousand, and new emitters are added only at code-review speed, so both
+// sides of the split sit orders of magnitude beyond their physical bounds —
+// neither dimension can become the binding constraint, and frozen bases never
+// face renumbering pressure.
 //
 // The indexer subdivides its namespace further, one sub-namespace per
 // emitting processor — see the sub-base registry below.
 const (
+	// StateChangeOrdinalNamespaceWidth is the span of state_change_id values
+	// reserved for each emitter namespace; the bases below are consecutive
+	// multiples of it. Changing it renumbers every base and is forbidden once
+	// rows exist.
+	StateChangeOrdinalNamespaceWidth int64 = 1 << 40
+
 	StateChangeOrdinalBaseIndexer int64 = 0
-	StateChangeOrdinalBaseSEP41   int64 = 1 << 40
-	StateChangeOrdinalBaseBlend   int64 = 2 << 40
+	StateChangeOrdinalBaseSEP41   int64 = 1 * StateChangeOrdinalNamespaceWidth
+	StateChangeOrdinalBaseBlend   int64 = 2 * StateChangeOrdinalNamespaceWidth
 )
 
 // Sub-namespace registry within the indexer's emitter namespace.
@@ -721,10 +737,13 @@ const (
 // the transaction meta (canonical on-chain data), which is what makes the
 // scheme reproducible across runs.
 //
-// Sub-bases are spaced 1<<28 apart: 4096 sub-namespaces fit inside the
-// indexer's 1<<40-wide namespace, each with room for ~268M state changes per
-// (to_id, operation_id) — both far beyond what transaction meta size limits
-// allow. Protocol emitters (SEP-41, Blend) are single-stream and use their
+// Sub-bases split the indexer's 1<<40-wide namespace at bit 28: 2^12 = 4096
+// sub-streams fit inside it, each with 2^28 (~268M) ordinals per
+// (to_id, operation_id) group. As with the bit-40 emitter split, both sides
+// sit orders of magnitude beyond their physical bounds — transaction meta size
+// limits cap per-operation emissions at a few thousand, and new sub-streams
+// are added only at code-review speed — so neither dimension can become the
+// binding constraint. Protocol emitters (SEP-41, Blend) are single-stream and use their
 // base directly; a future multi-stream emitter subdivides its own namespace
 // the same way. Like the emitter bases, sub-bases must never change once
 // rows exist with them; new processors take the next unused slot.

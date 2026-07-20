@@ -70,6 +70,13 @@ type ParticipantsProcessorInterface interface {
 }
 
 type OperationProcessorInterface interface {
+	// ProcessOperation returns this operation's state changes. The slice must be
+	// in canonical, reproducible order — derived from the transaction meta / XDR
+	// walk order, never Go map iteration, goroutine completion, or channel
+	// arrival order — because types.AssignStateChangeOrdinals freezes each
+	// element's state_change_id from its position within the (to_id, operation_id)
+	// group. Cross-operation ordering is free: ordinals are keyed per group, so
+	// only order WITHIN one call's returned slice is load-bearing.
 	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error)
 	Name() string
 	// StateChangeSubBase is this processor's slot in the indexer's state_change_id
