@@ -545,7 +545,7 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 			hi = t
 		}
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM state_changes sc

@@ -1165,6 +1165,24 @@ func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
 		assert.Equal(t, int64(1), scs[1].StateChangeID)
 	})
 
+	t.Run("minimal projection still hydrates the loader-key columns", func(t *testing.T) {
+		// The operation/transaction relationship resolvers build their dataloader
+		// key from (to_id, operation_id, state_change_id). A client selection that
+		// maps to none of those scalars must still come back with them hydrated,
+		// or the key collapses to "<to_id>-0-0": nested operation/transaction
+		// resolve to null and the loader dedups every row into one.
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, acct, []int64{4096}, []time.Time{now}, "state_change_category")
+		require.NoError(t, err)
+		require.Len(t, scs, 2)
+		for _, sc := range scs {
+			assert.Equal(t, int64(4096), sc.ToID, "to_id must be hydrated")
+			assert.Equal(t, int64(4097), sc.OperationID, "operation_id must be hydrated for the loader key")
+			assert.NotZero(t, sc.StateChangeID, "state_change_id must be hydrated for the loader key")
+			assert.Equal(t, acct, sc.AccountID.String(), "account_id must be hydrated")
+			assert.True(t, now.Equal(sc.LedgerCreatedAt), "ledger_created_at must be hydrated")
+		}
+	})
+
 	t.Run("empty when account has no state changes in the transaction", func(t *testing.T) {
 		none := keypair.MustRandom().Address()
 		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, none, []int64{4096}, []time.Time{now}, "")
