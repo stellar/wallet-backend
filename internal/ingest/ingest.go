@@ -134,12 +134,14 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		return nil, fmt.Errorf("connecting to the database: %w", err)
 	}
 
-	// Configured regardless of ingestion mode: a backfill-first bootstrap must not
-	// run under TimescaleDB's auto-created columnstore policy defaults (unlimited
-	// maxchunks, no retention). All settings applied here are idempotent, so
-	// running this on every start (live or backfill) is safe.
-	if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
-		return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+	// Retention and compression policies live in shared database state, so only
+	// the live deployment configures them. A backfill runs with ad-hoc flags and
+	// must not mutate or remove the policies the live pods rely on; and an active
+	// retention policy would drop the very history a backfill is writing.
+	if cfg.IngestionMode == services.IngestionModeLive {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
+			return nil, fmt.Errorf("configuring hypertable settings: %w", err)
+		}
 	}
 
 	m := metrics.NewMetrics(prometheus.NewRegistry())
