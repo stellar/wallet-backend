@@ -451,3 +451,26 @@ func TestAssignStateChangeOrdinals_DifferentEmittersNeverCollide(t *testing.T) {
 	}
 	assert.Len(t, ids, 3, "each emitter's ID for the same operation must be distinct")
 }
+
+func TestAssignStateChangeOrdinals_GroupsByToIDAndOperationID(t *testing.T) {
+	// A window-scoped emitter can stage transaction-level changes with
+	// OperationID=0 for several transactions (distinct ToIDs) in one call.
+	// Ordinals restart per (to_id, operation_id) pair, not per operation_id
+	// alone: otherwise a row's ID would depend on which other transactions
+	// happen to share the window, and re-running the same ledger under
+	// different window bounds would produce different IDs for the same logical
+	// row — silently bypassing the state_changes primary key on re-ingest.
+	changes := []StateChange{
+		{ToID: 100, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 100, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 200, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 200, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+	}
+	AssignStateChangeOrdinals(changes, StateChangeOrdinalBaseIndexer)
+
+	// Keying on operation_id alone would yield 1,2,3,4 (one shared bucket).
+	assert.Equal(t, []int64{1, 2, 1, 2}, []int64{
+		changes[0].StateChangeID, changes[1].StateChangeID,
+		changes[2].StateChangeID, changes[3].StateChangeID,
+	})
+}

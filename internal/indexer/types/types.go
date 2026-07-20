@@ -737,7 +737,7 @@ const (
 
 // AssignStateChangeOrdinals assigns each state change in changes a
 // deterministic state_change_id: an ordinal numbered 1..N in slice order
-// within each distinct OperationID group, plus base. base is the calling
+// within each distinct (to_id, operation_id) group, plus base. base is the calling
 // emitter's namespace base — plus its processor's sub-base for multi-stream
 // emitters like the indexer. Processing the same input twice (e.g. a
 // re-ingested ledger) yields byte-identical IDs, so a duplicate BatchCopy
@@ -748,11 +748,12 @@ const (
 // actually handed to BatchCopy — so ordinals come out contiguous (1..N, no
 // gaps) per group within the stream's namespace.
 func AssignStateChangeOrdinals(changes []StateChange, base int64) {
-	next := make(map[int64]int64, len(changes))
+	type ordinalKey struct{ toID, opID int64 }
+	next := make(map[ordinalKey]int64, len(changes))
 	for i := range changes {
-		opID := changes[i].OperationID
-		next[opID]++
-		changes[i].StateChangeID = base + next[opID]
+		k := ordinalKey{changes[i].ToID, changes[i].OperationID}
+		next[k]++
+		changes[i].StateChangeID = base + next[k]
 	}
 }
 
