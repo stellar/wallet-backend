@@ -45,15 +45,17 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
-				return models.StateChanges.BatchGetByToID(ctx, keys[0].ToID, columns, limit, keys[0].Cursor, sortOrder)
+				return models.StateChanges.BatchGetByToID(ctx, keys[0].ToID, keys[0].LedgerCreatedAt, columns, limit, keys[0].Cursor, sortOrder)
 			}
 
 			toIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			maxLimit := min(*limit, MaxStateChangesPerBatch)
 			for i, key := range keys {
 				toIDs[i] = key.ToID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, columns, &maxLimit, sortOrder)
+			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, &maxLimit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
 			return item.StateChange.ToID
@@ -85,14 +87,16 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
 			if len(keys) == 1 {
-				return models.StateChanges.BatchGetByOperationID(ctx, keys[0].OperationID, columns, limit, keys[0].Cursor, sortOrder)
+				return models.StateChanges.BatchGetByOperationID(ctx, keys[0].OperationID, keys[0].LedgerCreatedAt, columns, limit, keys[0].Cursor, sortOrder)
 			}
 
 			operationIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			for i, key := range keys {
 				operationIDs[i] = key.OperationID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.StateChanges.BatchGetByOperationIDs(ctx, operationIDs, columns, limit, sortOrder)
+			return models.StateChanges.BatchGetByOperationIDs(ctx, operationIDs, ledgerCreatedAts, columns, limit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
 			return item.StateChange.OperationID

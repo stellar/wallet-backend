@@ -49,6 +49,17 @@ const (
 	DESC SortOrder = "DESC"
 )
 
+// validatePositiveLimit rejects a non-nil limit that is zero or negative. A caller-supplied
+// page size can go negative (e.g. an int32-overflowed `first` upstream), and silently dropping
+// the LIMIT clause in that case turns a bounded page read into an unbounded full-table read.
+// limit == nil still means "no limit" (used internally) and is left untouched.
+func validatePositiveLimit(limit *int32) error {
+	if limit != nil && *limit <= 0 {
+		return fmt.Errorf("limit must be positive, got %d", *limit)
+	}
+	return nil
+}
+
 // pgtypeTextFromNullString converts sql.NullString to pgtype.Text for efficient binary COPY.
 func pgtypeTextFromNullString(ns sql.NullString) pgtype.Text {
 	return pgtype.Text{String: ns.String, Valid: ns.Valid}
@@ -160,6 +171,12 @@ func getDBColumns(model any) set.Set[string] {
 
 // prepareColumnsWithID ensures that all specified identifier columns are always included in the column list.
 // It appends whatever idColumns are passed in, which is useful for tables (such as state_changes) that use composite keys.
+//
+// Every transaction/operation/state-change projection also forces ledger_created_at — the
+// hypertable partition column — even when the client didn't request that field: relationship
+// resolvers pin their child lookups on the parent row's ledger_created_at (see the dataloader
+// keys), so a row fetched without it would silently time-pin those lookups to the zero value
+// and return empty relationships.
 func prepareColumnsWithID(columns string, model any, prefix string, idColumns ...string) string {
 	var dbColumns set.Set[string]
 	if columns == "" {

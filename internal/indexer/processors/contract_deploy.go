@@ -28,6 +28,10 @@ func (p *ContractDeployProcessor) Name() string {
 	return "contract_deploy"
 }
 
+func (p *ContractDeployProcessor) StateChangeSubBase() int64 {
+	return types.StateChangeSubBaseContractDeploy
+}
+
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
 func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()
@@ -49,19 +53,24 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		WithCategory(types.StateChangeCategoryAccount).
 		WithReason(types.StateChangeReasonCreate)
 
-	deployedContractsMap := map[string]types.StateChange{}
+	var stateChanges []types.StateChange
+	seen := map[string]struct{}{}
 
 	processCreate := func(fromAddr xdr.ContractIdPreimageFromAddress) error {
 		contractID, err := calculateContractID(p.networkPassphrase, fromAddr)
 		if err != nil {
 			return fmt.Errorf("calculating contract ID: %w", err)
 		}
+		if _, ok := seen[contractID]; ok {
+			return nil
+		}
 		deployerAddr, err := fromAddr.Address.String()
 		if err != nil {
 			return fmt.Errorf("deployer address to string: %w", err)
 		}
 
-		deployedContractsMap[contractID] = builder.Clone().WithAccount(contractID).WithDeployer(deployerAddr).Build()
+		seen[contractID] = struct{}{}
+		stateChanges = append(stateChanges, builder.Clone().WithAccount(contractID).WithDeployer(deployerAddr).Build())
 		return nil
 	}
 
@@ -119,9 +128,5 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		}
 	}
 
-	stateChanges := make([]types.StateChange, 0, len(deployedContractsMap))
-	for _, sc := range deployedContractsMap {
-		stateChanges = append(stateChanges, sc)
-	}
 	return stateChanges, nil
 }

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -128,14 +129,15 @@ func (r *Resolver) resolveStateChangeAccount(accountID types.AddressBytea) (*typ
 
 // resolveStateChangeOperation resolves the operation field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeID int64) (*types.Operation, error) {
+func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, operationID int64, stateChangeID int64, ledgerCreatedAt time.Time) (*types.Operation, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 
 	stateChangeKey := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeID)
 	loaderKey := dataloaders.OperationColumnsKey{
-		StateChangeID: stateChangeKey,
-		Columns:       strings.Join(dbColumns, ", "),
+		StateChangeID:   stateChangeKey,
+		Columns:         strings.Join(dbColumns, ", "),
+		LedgerCreatedAt: ledgerCreatedAt,
 	}
 	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
@@ -146,14 +148,15 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
 // Reuses the existing logic from the original StateChange resolver
-func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeID int64) (*types.Transaction, error) {
+func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64, operationID int64, stateChangeID int64, ledgerCreatedAt time.Time) (*types.Transaction, error) {
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
 	stateChangeKey := fmt.Sprintf("%d-%d-%d", toID, operationID, stateChangeID)
 	loaderKey := dataloaders.TransactionColumnsKey{
-		StateChangeID: stateChangeKey,
-		Columns:       strings.Join(dbColumns, ", "),
+		StateChangeID:   stateChangeKey,
+		Columns:         strings.Join(dbColumns, ", "),
+		LedgerCreatedAt: ledgerCreatedAt,
 	}
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {

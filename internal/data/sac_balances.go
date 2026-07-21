@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -66,7 +67,7 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	}
 
 	query := `
-		SELECT asb.account_id, asb.contract_id, asb.balance, asb.is_authorized,
+		SELECT asb.account_id, asb.contract_id, asb.balance::text, asb.is_authorized,
 		       asb.is_clawback_enabled, asb.last_modified_ledger,
 		       ct.contract_id AS token_id, ct.code, ct.issuer, ct.decimals
 		FROM sac_balances asb
@@ -148,7 +149,9 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 			INSERT INTO sac_balances (
 				account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
 			)
-			SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::boolean[], $5::boolean[], $6::int[])
+			SELECT u.account_id, u.contract_id, u.balance::numeric, u.is_authorized, u.is_clawback_enabled, u.last_modified_ledger
+			FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::boolean[], $5::boolean[], $6::int[])
+				AS u(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
 			ON CONFLICT (account_id, contract_id) DO UPDATE SET
 				balance = EXCLUDED.balance,
 				is_authorized = EXCLUDED.is_authorized,
@@ -224,10 +227,18 @@ func (m *SACBalanceModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances [
 			if err != nil {
 				return nil, fmt.Errorf("converting account address to bytes: %w", err)
 			}
+			// CopyFrom uses the binary protocol, which requires a pgtype value for
+			// NUMERIC rather than a bare string. Scan also validates the balance is
+			// well-formed decimal text, catching malformed decoder output at the
+			// write boundary instead of storing it silently.
+			var balanceNumeric pgtype.Numeric
+			if err := balanceNumeric.Scan(bal.Balance); err != nil {
+				return nil, fmt.Errorf("parsing SAC balance %q for account %s: %w", bal.Balance, bal.AccountID, err)
+			}
 			return []any{
 				accountIDBytes,
 				bal.ContractID,
-				bal.Balance,
+				balanceNumeric,
 				bal.IsAuthorized,
 				bal.IsClawbackEnabled,
 				bal.LedgerNumber,

@@ -28,7 +28,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -74,7 +74,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -124,7 +124,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 	nonExistentOperation := &types.Operation{ID: 9999}
 
 	t.Run("success without pagination", func(t *testing.T) {

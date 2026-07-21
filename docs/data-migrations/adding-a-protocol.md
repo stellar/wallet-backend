@@ -166,13 +166,12 @@ CREATE TABLE <protocol>_<entity> (
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (...)  -- Choose a primary key that fits your state's natural identity
 ) WITH (
-    fillfactor = 80,
+    fillfactor = 90,
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 50,
     autovacuum_analyze_scale_factor = 0.01,
     autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    autovacuum_vacuum_cost_delay = 0
 );
 
 -- Add indexes based on your query patterns
@@ -182,7 +181,19 @@ CREATE TABLE <protocol>_<entity> (
 DROP TABLE IF EXISTS <protocol>_<entity>;
 ```
 
-The storage parameters (`fillfactor = 80`, aggressive autovacuum) are tuned for heavy UPSERT workloads during ingestion. Adjust based on your protocol's write pattern.
+`fillfactor = 90` is the default: it reserves 10% free space per page for HOT (Heap-Only
+Tuple) updates without over-reserving for tables whose UPSERTs only touch non-indexed
+columns. Use `fillfactor = 80` instead only for tables whose rows update on essentially
+every ledger (e.g. AMM-style reserves that shift on every trade). `autovacuum_vacuum_cost_delay
+= 0` disables cost-based vacuum throttling for this table's worker; there is no
+`autovacuum_vacuum_cost_limit` to set alongside it since a delay of 0 makes any cost
+limit a no-op.
+
+The aggressive autovacuum block above is for tables whose row count grows with users or
+usage (positions, balances, allowances). Skip it entirely — keep only `fillfactor = 90`
+— for small, protocol-bounded current-state tables (pool configs, reserve configs) whose
+row count is capped by the number of pools/reserves your protocol will ever have
+deployed; default autovacuum behavior is fine for those.
 
 ### Data Model
 

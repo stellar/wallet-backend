@@ -45,7 +45,12 @@ CREATE TABLE state_changes (
     key_value JSONB,
     to_muxed_id TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (to_id, operation_id, state_change_id, ledger_created_at)
+    -- The root GraphQL connection sorts by (ledger_created_at DESC, to_id DESC, operation_id
+    -- DESC, state_change_id DESC). This PK's column order matches that sort key directly, so
+    -- a top-N first page is served by scanning the PK itself -- forward or backward, no
+    -- heapsort -- which also makes it this table's replacement for the default single-column
+    -- index TimescaleDB would otherwise auto-create on the partition column.
+    PRIMARY KEY (ledger_created_at, to_id, operation_id, state_change_id)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -57,6 +62,10 @@ CREATE TABLE state_changes (
 
 SELECT enable_chunk_skipping('state_changes', 'to_id');
 SELECT enable_chunk_skipping('state_changes', 'operation_id');
+
+-- TimescaleDB's default single-column index on the partition column; the reordered PK above
+-- is now a superset of it (ledger_created_at is its leading column), so it's redundant.
+DROP INDEX IF EXISTS state_changes_ledger_created_at_idx;
 
 CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
 CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC);

@@ -162,6 +162,11 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
+	ledgerIndexer, err := indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger indexer: %w", err)
+	}
+
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
@@ -176,7 +181,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		ledgerIndexer:             ledgerIndexer,
 		contractMetadataService:   cfg.ContractMetadataService,
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,

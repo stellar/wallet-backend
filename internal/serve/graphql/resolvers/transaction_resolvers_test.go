@@ -37,7 +37,7 @@ func TestTransactionResolver_Operations(t *testing.T) {
 		},
 	}}
 	// ToID=toid.New(1000, 1, 0) matches the test data setup in test_utils.go (testLedger=1000, i=0)
-	parentTx := &types.Transaction{Hash: types.HashBytea(testTxHash1), ToID: toid.New(1000, 1, 0).ToInt64()}
+	parentTx := &types.Transaction{Hash: types.HashBytea(testTxHash1), ToID: toid.New(1000, 1, 0).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 
 	t.Run("success", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(resolver.models)
@@ -219,7 +219,7 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentTx := &types.Transaction{Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: toid.New(1000, 1, 0).ToInt64()}
+	parentTx := &types.Transaction{Hash: "1376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: toid.New(1000, 1, 0).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 	nonExistentTx := &types.Transaction{Hash: "2376b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", ToID: 0}
 
 	t.Run("success without pagination", func(t *testing.T) {

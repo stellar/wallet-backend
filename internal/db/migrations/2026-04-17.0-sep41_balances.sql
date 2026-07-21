@@ -7,20 +7,19 @@
 CREATE TABLE sep41_balances (
     account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    balance TEXT NOT NULL DEFAULT '0',
+    balance NUMERIC NOT NULL DEFAULT 0,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account_id, contract_id),
     CONSTRAINT fk_sep41_contract_token
         FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
         DEFERRABLE INITIALLY DEFERRED
 ) WITH (
-    fillfactor = 80,
+    fillfactor = 90,
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 50,
     autovacuum_analyze_scale_factor = 0.01,
     autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    autovacuum_vacuum_cost_delay = 0
 );
 
 -- +migrate Down

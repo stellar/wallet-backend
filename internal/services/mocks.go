@@ -264,6 +264,11 @@ func (m *ProtocolProcessorMock) ProtocolID() string {
 	return args.String(0)
 }
 
+func (m *ProtocolProcessorMock) StateChangeOrdinalBase() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
+}
+
 func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
 	args := m.Called(ctx, input)
 	return args.Error(0)

@@ -38,6 +38,13 @@ func (m *MockTokenTransferProcessor) ProcessTransaction(ctx context.Context, tx 
 
 type MockOperationProcessor struct {
 	mock.Mock
+	// SubBase is returned by StateChangeSubBase as a plain field so tests can
+	// place a mock processor in a sub-namespace without mock.On plumbing.
+	SubBase int64
+}
+
+func (m *MockOperationProcessor) StateChangeSubBase() int64 {
+	return m.SubBase
 }
 
 func (m *MockOperationProcessor) ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {

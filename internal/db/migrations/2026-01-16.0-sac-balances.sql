@@ -9,7 +9,7 @@
 CREATE TABLE sac_balances (
     account_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    balance TEXT NOT NULL DEFAULT '0',
+    balance NUMERIC NOT NULL DEFAULT 0,
     is_authorized BOOLEAN NOT NULL DEFAULT true,
     is_clawback_enabled BOOLEAN NOT NULL DEFAULT false,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
@@ -18,10 +18,12 @@ CREATE TABLE sac_balances (
         FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
         DEFERRABLE INITIALLY DEFERRED
 ) WITH (
-    -- Reserve 20% free space per page so PostgreSQL can do HOT (Heap-Only Tuple) updates.
+    -- Reserve 10% free space per page so PostgreSQL can do HOT (Heap-Only Tuple) updates.
     -- HOT updates rewrite the row in-place on the same page without creating dead tuples
-    -- or new index entries, since no indexed column is modified during UPSERTs.
-    fillfactor = 80,
+    -- or new index entries, since no indexed column is modified during UPSERTs. Measured
+    -- churn on this table is ~0.1%/day; a 20% reserve was double what the workload can
+    -- use, and COPY-loaded heaps carry the reserve permanently regardless.
+    fillfactor = 90,
     -- Trigger vacuum when 2% of rows are dead (default 20%). For a 500K-row table,
     -- this means vacuum starts at ~10K dead rows instead of waiting for 100K.
     autovacuum_vacuum_scale_factor = 0.02,
@@ -32,13 +34,10 @@ CREATE TABLE sac_balances (
     -- so stale stats can cause bad query plans.
     autovacuum_analyze_scale_factor = 0.01,
     autovacuum_analyze_threshold = 50,
-    -- No sleep between vacuum page-processing cycles (default 2ms). Per-table setting,
-    -- so only workers on this table run full-speed; other tables are unaffected.
-    autovacuum_vacuum_cost_delay = 0,
-    -- 5x the default page-processing budget per cycle (default 200). Combined with
-    -- cost_delay=0, vacuum finishes quickly. Per-table cost settings exempt this worker
-    -- from global cost balancing, so other tables' vacuum workers keep their full budget.
-    autovacuum_vacuum_cost_limit = 1000
+    -- Setting cost_delay=0 disables cost-based throttling for this table's autovacuum
+    -- worker and, per PostgreSQL's balancing rules, exempts it from cross-worker cost
+    -- balancing so other tables keep their full budget.
+    autovacuum_vacuum_cost_delay = 0
 );
 
 -- +migrate Down

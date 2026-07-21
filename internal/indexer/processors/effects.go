@@ -40,6 +40,9 @@ var (
 		"med_threshold":  types.StateChangeReasonMedium,
 		"high_threshold": types.StateChangeReasonHigh,
 	}
+	// thresholdOrder fixes the emission order of threshold state changes so
+	// ordinals within a (to_id, operation_id) group are deterministic across runs.
+	thresholdOrder = []string{"low_threshold", "med_threshold", "high_threshold"}
 	// signerEffectToReasonMap maps Stellar signer effect types to our internal state change reasons
 	// for tracking when signers are added, removed, or updated on accounts
 	signerEffectToReasonMap = map[int32]types.StateChangeReason{
@@ -79,6 +82,10 @@ func NewEffectsProcessor(networkPassphrase string, metricsService *metrics.Inges
 
 func (p *EffectsProcessor) Name() string {
 	return "effects"
+}
+
+func (p *EffectsProcessor) StateChangeSubBase() int64 {
+	return types.StateChangeSubBaseEffects
 }
 
 // ProcessOperation extracts effects from a Stellar operation and converts them into state changes.
@@ -719,9 +726,11 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	// Find the account entry change to get old threshold values
 	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
 
-	// Create a separate state change for each threshold that was modified
+	// Create a separate state change for each threshold that was modified, in a fixed
+	// order so ordinal assignment is deterministic when multiple thresholds change together.
 	var thresholdChanges []types.StateChange
-	for threshold, reason := range thresholdToReasonMap {
+	for _, threshold := range thresholdOrder {
+		reason := thresholdToReasonMap[threshold]
 		if value, ok := effect.Details[threshold]; ok {
 			// Convert XDR threshold value to int16 for storage
 			newValue := int16(value.(xdr.Uint32))
