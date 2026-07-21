@@ -224,8 +224,8 @@ func (m *ingestService) persistLedgerData(
 		// 6. Update the specified cursor. The live latest-ledger cursor is guarded: a session
 		// that silently lost its advisory lock (server-side failover, see startLiveIngestion's
 		// checkLockSession) must not blindly overwrite a value a second instance already
-		// advanced, or the cursor could regress. All other cursors (loadtest, generic) keep the
-		// plain blind upsert — only one process ever owns them by construction.
+		// advanced, or the cursor could regress. All other cursors keep the plain blind
+		// upsert — only one process ever owns them by construction.
 		if cursorName == data.LatestLedgerCursorName {
 			if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
 				return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
