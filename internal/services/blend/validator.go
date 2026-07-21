@@ -76,9 +76,14 @@ func blndTokenAddress(networkPassphrase string) string {
 // classified by WASM-interface match, any contract deployed from the backstop
 // WASM would otherwise be tracked and could write pool/user-keyed rows that
 // silently overwrite the real backstop's. Folding backstop-shaped state only
-// from this address closes that impostor-collision hole. Any other passphrase
-// (futurenet, a custom standalone network) has no known backstop and returns
-// the empty string — the same nil-degradation contract as blndTokenAddress.
+// from this address closes that impostor-collision hole. On the standalone
+// network the integration suite deploys the backstop from the master account
+// (keypair.Root of the passphrase) with a fixed salt, so its address is a
+// deterministic function of the passphrase alone and is pinned here — the
+// suite asserts the deployed address matches at deploy time. Any other
+// passphrase (futurenet, a custom network) has no known backstop and returns
+// the empty string — the same nil-degradation contract as blndTokenAddress;
+// on such networks all backstop-shaped state is dropped.
 //
 // Operational caveat: the emitter can swap the active backstop via a 31-day
 // queued swap. If Blend ever executes one, these pinned addresses must be
@@ -90,6 +95,8 @@ func canonicalBackstopAddress(networkPassphrase string) string {
 		return "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7"
 	case network.TestNetworkPassphrase:
 		return "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA"
+	case "Standalone Network ; February 2017":
+		return "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED"
 	default:
 		return ""
 	}

@@ -33,6 +33,16 @@ import (
 // noticed immediately rather than silently degrading blend/validator's price/emissions lookups.
 const blndPinnedSACAddress = "CDYLJJT2VBKY55ZK57MTMKAVRCRPQMYB4YJ7JFFARMSJZ73I5CMCITSU"
 
+// backstopPinnedAddress is the C-address canonicalBackstopAddress
+// (internal/services/blend/validator.go) pins for the standalone network's
+// networkPassphrase. The backstop is deployed by the master keypair (itself
+// keypair.Root(networkPassphrase)) with a fixed salt (0xB5), so its address is
+// a deterministic function of the passphrase alone. SetupBlendStack asserts
+// the backstop it deploys matches this constant so a drift in either pin goes
+// noticed immediately — a mismatch would make the processor drop every
+// backstop-shaped entry and event as a non-canonical impostor.
+const backstopPinnedAddress = "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED"
+
 // BlendStack holds the contract addresses and actor keypairs of a Blend v2 deployment on the
 // standalone network, produced by SetupBlendStack.
 type BlendStack struct {
@@ -265,6 +275,8 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	backstopSalt[0] = 0xB5
 	stack.BackstopID, err = PrecomputeContractAddress(s.masterKeyPair.Address(), backstopSalt)
 	require.NoError(t, err, "precomputing backstop address")
+	require.Equal(t, backstopPinnedAddress, stack.BackstopID,
+		"backstop address must match the canonical-backstop pin in internal/services/blend/validator.go")
 
 	s.EmitterInitialize(ctx, t, stack.EmitterID, s.masterKeyPair, stack.BLNDTokenID, stack.BackstopID, stack.CometID)
 	log.Ctx(ctx).Infof("✅ Initialized emitter (backstop precomputed at %s)", stack.BackstopID)
