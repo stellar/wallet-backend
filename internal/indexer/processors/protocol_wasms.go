@@ -24,7 +24,7 @@ type ProtocolWasmObservation struct {
 
 // ProtocolWasmProcessor extracts WASM hashes and bytecodes from ContractCode
 // ledger entries. It does not classify on the fly — that is the job of the
-// per-batch ProtocolValidator dispatcher run inside PersistLedgerData.
+// per-batch ProtocolValidator dispatcher run inside persistLedgerData.
 type ProtocolWasmProcessor struct {
 	metricsService *metrics.IngestionMetrics
 }

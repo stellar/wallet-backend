@@ -28,14 +28,9 @@ const (
 	lagMetricUpdateInterval            = 1 * time.Second
 )
 
-// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
-// This is the shared core used by both live ingestion and loadtest.
-// It handles: trustline assets, contract tokens, filtered data insertion,
-// token changes, and cursor update.
-func (m *ingestService) PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error) {
-	return m.persistLedgerData(ctx, ledgerSeq, nil, buffer, cursorName)
-}
-
+// persistLedgerData persists processed ledger data to the database in a single
+// atomic transaction. It handles: trustline assets, contract tokens, filtered
+// data insertion, token changes, and cursor update.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
