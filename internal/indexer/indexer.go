@@ -121,8 +121,14 @@ type Indexer struct {
 // during ledger meta processing; classification is performed downstream
 // (per-batch) by services.DispatchClassification — this keeps the indexer
 // agnostic of any specific protocol or its validator shape.
-func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
-	return &Indexer{
+//
+// It validates the state_change_id sub-base registry of the built processor
+// set (see validateStateChangeSubBases), so a stale or duplicated sub-base
+// copied into a new processor fails fast at startup rather than surfacing as
+// a state_changes primary-key violation on the first ledger where two
+// processors emit for the same operation.
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) (*Indexer, error) {
+	indexer := &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
@@ -142,6 +148,34 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 		ingestionMetrics:  ingestionMetrics,
 		networkPassphrase: networkPassphrase,
 	}
+	if err := validateStateChangeSubBases(indexer.processors); err != nil {
+		return nil, fmt.Errorf("validating state_change_id sub-bases: %w", err)
+	}
+	return indexer, nil
+}
+
+// validateStateChangeSubBases validates the state_change_id sub-base registry
+// of the given processor set (see types.StateChangeSubBase*): every sub-base
+// must be a non-negative multiple of types.StateChangeSubNamespaceWidth that
+// fits inside the indexer's emitter namespace, and no two streams may share
+// one. The token-transfer stream's slot is reserved up front since it is
+// emitted outside the processors slice (see getTransactionStateChanges).
+func validateStateChangeSubBases(procs []OperationProcessorInterface) error {
+	streamBySubBase := map[int64]string{types.StateChangeSubBaseTokenTransfer: "token_transfer"}
+	for _, p := range procs {
+		subBase := p.StateChangeSubBase()
+		if subBase <= 0 || subBase%types.StateChangeSubNamespaceWidth != 0 || subBase >= types.StateChangeOrdinalNamespaceWidth {
+			return fmt.Errorf("processor %q has invalid state_change_id sub-base %d: "+
+				"must be a positive multiple of %d below %d",
+				p.Name(), subBase, types.StateChangeSubNamespaceWidth, types.StateChangeOrdinalNamespaceWidth)
+		}
+		if other, dup := streamBySubBase[subBase]; dup {
+			return fmt.Errorf("indexer streams %q and %q share state_change_id sub-base %d",
+				other, p.Name(), subBase)
+		}
+		streamBySubBase[subBase] = p.Name()
+	}
+	return nil
 }
 
 // ProcessLedgerTransactions processes all transactions in a ledger in parallel.

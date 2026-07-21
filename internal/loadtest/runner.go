@@ -88,7 +88,10 @@ func Run(ctx context.Context, cfg RunConfig) error {
 	metrics.RegisterPoolMetrics(m.Registry(), "loadtest_indexer", indexerPool)
 	// Loadtest doesn't exercise classification; the indexer just buffers raw
 	// WASM bytecode and the dispatcher is bypassed (no validators wired).
-	ledgerIndexer := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
+	ledgerIndexer, err := indexer.NewIndexer(cfg.NetworkPassphrase, indexerPool, m.Ingestion)
+	if err != nil {
+		return fmt.Errorf("creating ledger indexer: %w", err)
+	}
 
 	// Create TokenIngestionService for token change processing
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{

@@ -748,10 +748,16 @@ const (
 // the same way. Like the emitter bases, sub-bases must never change once
 // rows exist with them; new processors take the next unused slot.
 const (
-	StateChangeSubBaseTokenTransfer  int64 = 0 << 28
-	StateChangeSubBaseEffects        int64 = 1 << 28
-	StateChangeSubBaseContractDeploy int64 = 2 << 28
-	StateChangeSubBaseSACEvents      int64 = 3 << 28
+	// StateChangeSubNamespaceWidth is the span of state_change_id values
+	// reserved for each indexer sub-stream; the sub-bases below are consecutive
+	// multiples of it. Changing it renumbers every sub-base and is forbidden
+	// once rows exist.
+	StateChangeSubNamespaceWidth int64 = 1 << 28
+
+	StateChangeSubBaseTokenTransfer  int64 = 0 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseEffects        int64 = 1 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseContractDeploy int64 = 2 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseSACEvents      int64 = 3 * StateChangeSubNamespaceWidth
 )
 
 // AssignStateChangeOrdinals assigns each state change in changes a

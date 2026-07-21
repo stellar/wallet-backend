@@ -145,14 +145,76 @@ func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, pool, nil)
+	indexer, err := NewIndexer(networkPassphrase, pool, nil)
 
+	require.NoError(t, err)
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)
 	assert.NotNil(t, indexer.tokenTransferProcessor)
 	assert.NotNil(t, indexer.processors)
 	assert.NotNil(t, indexer.pool)
 	assert.Len(t, indexer.processors, 3) // effects, contract deploy, SAC events
+}
+
+func TestValidateStateChangeSubBases(t *testing.T) {
+	newProc := func(name string, subBase int64) *MockOperationProcessor {
+		p := &MockOperationProcessor{SubBase: subBase}
+		p.On("Name").Return(name).Maybe()
+		return p
+	}
+
+	testCases := []struct {
+		name            string
+		procs           []OperationProcessorInterface
+		wantErrContains string
+	}{
+		{
+			name: "🟢 distinct aligned sub-bases",
+			procs: []OperationProcessorInterface{
+				newProc("effects", types.StateChangeSubBaseEffects),
+				newProc("contract_deploy", types.StateChangeSubBaseContractDeploy),
+			},
+		},
+		{
+			name: "🔴 duplicate sub-base between two processors",
+			procs: []OperationProcessorInterface{
+				newProc("effects", types.StateChangeSubBaseEffects),
+				newProc("copy_pasted", types.StateChangeSubBaseEffects),
+			},
+			wantErrContains: `indexer streams "effects" and "copy_pasted" share state_change_id sub-base`,
+		},
+		{
+			name:            "🔴 sub-base 0 is reserved for the token transfer stream",
+			procs:           []OperationProcessorInterface{newProc("zero", 0)},
+			wantErrContains: `processor "zero" has invalid state_change_id sub-base 0`,
+		},
+		{
+			name:            "🔴 sub-base not a multiple of the sub-namespace width",
+			procs:           []OperationProcessorInterface{newProc("misaligned", types.StateChangeSubNamespaceWidth+1)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+		{
+			name:            "🔴 negative sub-base",
+			procs:           []OperationProcessorInterface{newProc("negative", -types.StateChangeSubNamespaceWidth)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+		{
+			name:            "🔴 sub-base outside the indexer emitter namespace",
+			procs:           []OperationProcessorInterface{newProc("oversized", types.StateChangeOrdinalNamespaceWidth)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateStateChangeSubBases(tc.procs)
+			if tc.wantErrContains == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErrContains)
+			}
+		})
+	}
 }
 
 func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
@@ -764,9 +826,10 @@ func TestIndexer_ProcessLedgerTransactions_FeePhaseBalances(t *testing.T) {
 		},
 	}
 
-	indexer := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	indexer, err := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	require.NoError(t, err)
 	buffer := NewIndexerBuffer()
-	_, err := indexer.ProcessLedgerTransactions(context.Background(), []ingest.LedgerTransaction{feeTx}, buffer)
+	_, err = indexer.ProcessLedgerTransactions(context.Background(), []ingest.LedgerTransaction{feeTx}, buffer)
 	require.NoError(t, err)
 
 	accountChanges := buffer.GetAccountChanges()
