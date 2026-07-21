@@ -68,7 +68,7 @@ type IngestServiceConfig struct {
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
 
 	// === Live Classification ===
-	// ProtocolValidators are run once per ledger inside PersistLedgerData against
+	// ProtocolValidators are run once per ledger inside persistLedgerData against
 	// the buffered raw WASMs and contracts. Order matters: validators earlier in
 	// the slice win first-match-wins ties for the same wasm hash. Pass the result
 	// of services.BuildValidators with services.GetAllValidatorIDs() (already

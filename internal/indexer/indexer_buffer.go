@@ -690,7 +690,7 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 }
 
 // PushProtocolWasmBytecode stores raw WASM bytecode keyed by hash. Used by the
-// classification dispatcher in PersistLedgerData to extract specs and run
+// classification dispatcher in persistLedgerData to extract specs and run
 // per-protocol validators. Bytecode is content-addressed by hash, so
 // first-write wins is safe.
 // Thread-safe: acquires write lock.

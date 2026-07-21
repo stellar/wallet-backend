@@ -27,7 +27,7 @@ const (
 // / protocol-migrate) or a real incident (dropped row, bad restore). The
 // service layer treats this as a soft skip: the `cursor_missing` query-error
 // metric and a per-ledger warn provide the observability signal without
-// killing live ingest. See ingest_live.go PersistLedgerData for the handling.
+// killing live ingest. See ingest_live.go persistLedgerData for the handling.
 var ErrCASCursorMissing = errors.New("ingest_store cursor row missing")
 
 type LedgerRange struct {

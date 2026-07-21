@@ -1917,7 +1917,7 @@ func setupProtocolCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	require.NoError(t, err)
 }
 
-func Test_PersistLedgerData_ProtocolCASGating(t *testing.T) {
+func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 	// Helper to set up common test infrastructure
 	setupTest := func(t *testing.T, processors []ProtocolProcessor) (context.Context, *ingestService, *data.Models, *pgxpool.Pool) {
 		t.Helper()
