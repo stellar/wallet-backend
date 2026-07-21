@@ -582,6 +582,15 @@ func decodeWithdrawAmbiguous(topics []xdr.ScVal, data xdr.ScVal, poolID string, 
 // 2-element vec (Vec<u32> reserve_token_ids, i128 amount_claimed); a
 // backstop claim's data is a bare i128 (an aggregate amount across every
 // pool the caller claimed from, carrying no pool address at all).
+//
+// A backstop claim invocation also emits one ordinary deposit event per
+// claimed pool (blend-contracts-v2 @ ba22b487, backstop/src/emissions/claim.rs):
+// the backstop auto-deposits the minted LP tokens into each pool's backstop,
+// so a single claim operation yields one CLAIM row here plus N
+// BACKSTOP_DEPOSIT rows whose amounts sum to the claim amount. Those deposit
+// events are decoded by the normal deposit path by design — they are genuine
+// share mints, and claimed totals fold only from the claim event, so nothing
+// double-counts.
 func decodeClaimAmbiguous(topics []xdr.ScVal, data xdr.ScVal, poolID string, blndToken string) (*DecodedEvent, error) {
 	if len(topics) != 2 {
 		return nil, fmt.Errorf("blend: claim: expected 2 topics, got %d", len(topics))

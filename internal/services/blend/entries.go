@@ -161,6 +161,13 @@ type BackstopPoolBalanceData struct {
 
 // AuctionData is the decoded payload for KindAuction. Bid and Lot map asset
 // C-addresses to i128 amounts (decimal strings); Block is the auction start.
+//
+// Known limitation: Auction entries are TEMPORARY storage, and ingestion
+// reads ledger changes from transaction meta only — evictedTemporaryLedgerKeys
+// in LedgerCloseMeta is not processed. An auction that expires via TTL
+// without being filled or deleted therefore leaves its blend_auctions row in
+// place. This is mitigated by auction economics (the Dutch auction's bid
+// reaches zero at block 400, making a fill free) and the ~45-day TTL.
 type AuctionData struct {
 	Bid   map[string]string
 	Lot   map[string]string

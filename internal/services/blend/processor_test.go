@@ -409,6 +409,94 @@ func TestProcessLedger_StagesClaims(t *testing.T) {
 	})
 }
 
+func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
+	ctx := context.Background()
+	backstopAddr := testCanonicalBackstopAddr
+	poolA := randomContractAddr(t)
+	poolB := randomContractAddr(t)
+	userAddr := randomAccountAddr(t)
+	backstopPC := protocolContractFor(t, backstopAddr, "bb")
+
+	// The backstop's claim entrypoint swaps the claimed BLND into Comet LP
+	// tokens and auto-deposits them into each claimed pool's backstop,
+	// emitting one genuine deposit event per pool right after the claim
+	// event — all three in the same operation.
+	claimEvent := contractEvent(t, backstopAddr,
+		[]xdr.ScVal{symScVal("claim"), accountAddrScVal(t, userAddr)},
+		i128ScVal(750),
+	)
+	depositAEvent := contractEvent(t, backstopAddr,
+		[]xdr.ScVal{symScVal("deposit"), contractAddrScVal(t, poolA), accountAddrScVal(t, userAddr)},
+		vecScVal(i128ScVal(500), i128ScVal(450)),
+	)
+	depositBEvent := contractEvent(t, backstopAddr,
+		[]xdr.ScVal{symScVal("deposit"), contractAddrScVal(t, poolB), accountAddrScVal(t, userAddr)},
+		vecScVal(i128ScVal(250), i128ScVal(225)),
+	)
+
+	input := services.ProtocolProcessorInput{
+		LedgerSequence:    10,
+		ProtocolContracts: []data.ProtocolContracts{backstopPC},
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			{TxIdx: 0, OpIdx: 0}: {claimEvent, depositAEvent, depositBEvent},
+		},
+		StagingMode: services.StagingModeBoth,
+	}
+
+	p, m := newFullTestProcessor(t)
+	require.NoError(t, p.ProcessLedger(ctx, input))
+
+	require.Len(t, p.stagedStateChanges, 3, "claim + 2 auto-restake deposits")
+	byReason := map[types.StateChangeReason][]types.StateChange{}
+	for _, sc := range p.stagedStateChanges {
+		assert.Equal(t, types.StateChangeCategoryLending, sc.StateChangeCategory)
+		byReason[sc.StateChangeReason] = append(byReason[sc.StateChangeReason], sc)
+	}
+
+	require.Len(t, byReason[types.StateChangeReasonClaim], 1)
+	claimSC := byReason[types.StateChangeReasonClaim][0]
+	assert.False(t, claimSC.TokenID.Valid, "a backstop claim's token column is NULL")
+	assert.Equal(t, "750", claimSC.Amount.String)
+	require.NotNil(t, claimSC.KeyValue)
+	assert.Equal(t, "backstop", claimSC.KeyValue["source"])
+	assert.Equal(t, "backstop_lp", claimSC.KeyValue["units"])
+	_, hasPoolID := claimSC.KeyValue["poolId"]
+	assert.False(t, hasPoolID, "a backstop claim carries no pool address, so poolId must be omitted")
+
+	require.Len(t, byReason[types.StateChangeReasonBackstopDeposit], 2)
+	depositByPool := map[string]types.StateChange{}
+	for _, sc := range byReason[types.StateChangeReasonBackstopDeposit] {
+		assert.False(t, sc.TokenID.Valid, "a backstop deposit's token column is NULL")
+		require.NotNil(t, sc.KeyValue)
+		poolID, ok := sc.KeyValue["poolId"].(string)
+		require.True(t, ok, "a backstop deposit's poolId must be present")
+		depositByPool[poolID] = sc
+	}
+	require.Contains(t, depositByPool, poolA)
+	assert.Equal(t, "500", depositByPool[poolA].Amount.String)
+	require.Contains(t, depositByPool, poolB)
+	assert.Equal(t, "250", depositByPool[poolB].Amount.String)
+
+	// Auto-restake deposits mint backstop shares (not a cost-basis position),
+	// and the claim folds only the account-wide claimed-total accumulator —
+	// neither stages a net-delta or auction fold.
+	assert.Empty(t, p.stagedNetDeltas)
+	assert.Empty(t, p.stagedAuctionAdjs)
+
+	require.Len(t, p.stagedBackstopClaims, 1)
+	assert.Empty(t, p.stagedPoolClaims, "an auto-restake deposit is not a pool-source claim")
+
+	m.stateChanges.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(scs []types.StateChange) bool {
+		return len(scs) == 3
+	})).Return(3, nil).Once()
+	require.NoError(t, p.PersistHistory(ctx, nil))
+
+	m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
+		return len(rows) == 1 && rows[0].User == userAddr && rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
+	})).Return(nil).Once()
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
 func TestProcessLedger_ImpostorBackstopEntriesSkipped(t *testing.T) {
 	ctx := context.Background()
 	// An impostor deployed from the real backstop WASM: classified as Blend and
