@@ -72,6 +72,11 @@ func blndTokenAddress(networkPassphrase string) string {
 // from this address closes that impostor-collision hole. Any other passphrase
 // (futurenet, a custom standalone network) has no known backstop and returns
 // the empty string — the same nil-degradation contract as blndTokenAddress.
+//
+// Operational caveat: the emitter can swap the active backstop via a 31-day
+// queued swap. If Blend ever executes one, these pinned addresses must be
+// updated and the backstop-derived tables migrated to the new backstop's
+// state, since backstop-shaped folds from any other contract are dropped.
 func canonicalBackstopAddress(networkPassphrase string) string {
 	switch networkPassphrase {
 	case network.PublicNetworkPassphrase:
