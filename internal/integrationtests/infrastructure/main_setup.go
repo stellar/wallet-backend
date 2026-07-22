@@ -412,6 +412,13 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 	}
 }
 
+// WaitForIngestCatchup blocks until live ingestion has caught up with the RPC tip. Exported so
+// tests that submit their own fixtures after initial setup (e.g. the Blend integration suite) can
+// wait for those fixtures to be indexed without reaching into the unexported waitForIngestSync.
+func (s *SharedContainers) WaitForIngestCatchup(ctx context.Context) error {
+	return s.waitForIngestSync(ctx)
+}
+
 // NewSharedContainers creates and starts all containers needed for integration tests
 func NewSharedContainers(t *testing.T) *SharedContainers {
 	// Get the directory of the current source file

@@ -301,8 +301,17 @@ func TestValidator_RealWasm(t *testing.T) {
 func TestBlndTokenAddress(t *testing.T) {
 	assert.Equal(t, "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY", blndTokenAddress(network.PublicNetworkPassphrase))
 	assert.Equal(t, "CB22KRA3YZVCNCQI64JQ5WE7UY2VAV7WFLK6A2JN3HEX56T2EDAFO7QF", blndTokenAddress(network.TestNetworkPassphrase))
+	assert.Equal(t, "CDYLJJT2VBKY55ZK57MTMKAVRCRPQMYB4YJ7JFFARMSJZ73I5CMCITSU", blndTokenAddress("Standalone Network ; February 2017"))
 	assert.Empty(t, blndTokenAddress(network.FutureNetworkPassphrase))
 	assert.Empty(t, blndTokenAddress("some custom standalone network"))
+}
+
+func TestCanonicalBackstopAddress(t *testing.T) {
+	assert.Equal(t, "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7", canonicalBackstopAddress(network.PublicNetworkPassphrase))
+	assert.Equal(t, "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA", canonicalBackstopAddress(network.TestNetworkPassphrase))
+	assert.Equal(t, "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED", canonicalBackstopAddress("Standalone Network ; February 2017"))
+	assert.Empty(t, canonicalBackstopAddress(network.FutureNetworkPassphrase))
+	assert.Empty(t, canonicalBackstopAddress("some custom standalone network"))
 }
 
 // Validator construction tests ------------------------------------------------

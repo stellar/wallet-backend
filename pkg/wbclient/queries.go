@@ -84,6 +84,105 @@ const (
 			balanceAuthLiquidityPoolId: liquidityPoolId
 			flags
 		}
+		... on LendingChange {
+			lendingTokenId: tokenId
+			lendingAmount: amount
+			poolId
+		}
+	`
+
+	// blendReserveFields are the pool-wide reserve catalog fields shared by BlendPool.reserves.
+	blendReserveFields = `
+		assetContractId
+		tokenName
+		tokenSymbol
+		tokenDecimals
+		enabled
+		utilization
+		supplyApy
+		borrowApy
+		emissionsSupplyApr
+		emissionsBorrowApr
+		suppliedTokens
+		borrowedTokens
+		suppliedUsd
+		borrowedUsd
+		cFactor
+		lFactor
+		priceUsd
+	`
+
+	// blendPoolFields are the fields of BlendPool, including its nested reserves.
+	blendPoolFields = `
+		address
+		name
+		status
+		oracleContractId
+		backstopRate
+		maxPositions
+		suppliedUsd
+		borrowedUsd
+		backstopUsd
+		interestApy
+		netApy
+		reserves {
+			` + blendReserveFields + `
+		}
+	`
+
+	// blendReservePositionFields are the fields of BlendReservePosition.
+	blendReservePositionFields = `
+		assetContractId
+		tokenName
+		tokenSymbol
+		tokenDecimals
+		suppliedTokens
+		collateralTokens
+		borrowedTokens
+		suppliedUsd
+		borrowedUsd
+		supplyApy
+		borrowApy
+		emissionsSupplyApr
+		emissionsBorrowApr
+		interestEarned
+		interestPaid
+		emissionsEarnedBlnd
+		emissionsEarnedUsd
+		priceUsd
+	`
+
+	// blendAccountPositionsFields are the fields of BlendAccountPositions, including nested
+	// pool/reserve positions, backstop positions, and queued withdrawals.
+	blendAccountPositionsFields = `
+		pools {
+			poolAddress
+			poolName
+			usdValue
+			suppliedUsd
+			borrowedUsd
+			netApy
+			claimedBlnd
+			reserves {
+				` + blendReservePositionFields + `
+			}
+		}
+		backstop {
+			poolAddress
+			poolName
+			shares
+			lpTokens
+			usdValue
+			q4w {
+				amount
+				expiration
+				lpTokens
+				usdValue
+			}
+			emissionsEarnedBlnd
+			emissionsEarnedUsd
+		}
+		backstopClaimedLp
 	`
 )
 
@@ -441,6 +540,42 @@ func buildAccountBalancesQuery() string {
 			}
 		}
 	`, balanceFragments)
+}
+
+// buildBlendPoolsQuery builds the GraphQL query for fetching every Blend v2 pool's catalog view.
+func buildBlendPoolsQuery() string {
+	return fmt.Sprintf(`
+		query BlendPools {
+			blendPools {
+				%s
+			}
+		}
+	`, blendPoolFields)
+}
+
+// buildBlendPoolQuery builds the GraphQL query for fetching one Blend v2 pool by address.
+func buildBlendPoolQuery() string {
+	return fmt.Sprintf(`
+		query BlendPool($address: String!) {
+			blendPool(address: $address) {
+				%s
+			}
+		}
+	`, blendPoolFields)
+}
+
+// buildAccountBlendPositionsQuery builds the GraphQL query for fetching an account's Blend v2
+// lending, collateral, and backstop positions.
+func buildAccountBlendPositionsQuery() string {
+	return fmt.Sprintf(`
+		query AccountBlendPositions($address: String!) {
+			accountByAddress(address: $address) {
+				blendPositions {
+					%s
+				}
+			}
+		}
+	`, blendAccountPositionsFields)
 }
 
 // buildFieldList constructs a field list string from a slice of field names

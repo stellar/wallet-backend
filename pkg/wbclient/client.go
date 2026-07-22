@@ -110,6 +110,20 @@ type AccountTransactionsWithOpsAndStateChangesData struct {
 	} `json:"accountByAddress"`
 }
 
+type BlendPoolsData struct {
+	BlendPools []types.BlendPool `json:"blendPools"`
+}
+
+type BlendPoolData struct {
+	BlendPool *types.BlendPool `json:"blendPool"`
+}
+
+type AccountBlendPositionsData struct {
+	AccountByAddress *struct {
+		BlendPositions *types.BlendAccountPositions `json:"blendPositions"`
+	} `json:"accountByAddress"`
+}
+
 // QueryOptions allows clients to specify which fields to fetch for each entity type
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch
@@ -638,6 +652,48 @@ func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]t
 	}
 
 	return balances, nil
+}
+
+// GetBlendPools returns the pool-wide catalog view of every Blend v2 pool.
+func (c *Client) GetBlendPools(ctx context.Context) ([]types.BlendPool, error) {
+	data, err := executeGraphQL[BlendPoolsData](c, ctx, buildBlendPoolsQuery(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.BlendPools, nil
+}
+
+// GetBlendPool returns one Blend v2 pool's catalog view, or nil if the pool is unknown to the server.
+func (c *Client) GetBlendPool(ctx context.Context, address string) (*types.BlendPool, error) {
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	data, err := executeGraphQL[BlendPoolData](c, ctx, buildBlendPoolQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return data.BlendPool, nil
+}
+
+// GetAccountBlendPositions returns an account's Blend v2 lending, collateral, and backstop positions.
+func (c *Client) GetAccountBlendPositions(ctx context.Context, address string) (*types.BlendAccountPositions, error) {
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	data, err := executeGraphQL[AccountBlendPositionsData](c, ctx, buildAccountBlendPositionsQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+
+	return data.AccountByAddress.BlendPositions, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
