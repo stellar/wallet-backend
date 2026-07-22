@@ -98,6 +98,15 @@ func TestCometValuation(t *testing.T) {
 		assert.Equal(t, "70000000", lpPrice)
 	})
 
+	t.Run("rejects a positive price that rounds to zero", func(t *testing.T) {
+		// usdcBal=1 raw unit vs blndBal=10^20 raw units at equal weights puts
+		// the BLND spot at 10^-20 — far below half of one 7-decimal unit, so
+		// it would round to "0", which the snapshot invariant forbids.
+		huge := new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil)
+		_, _, err := cometValuation(huge, big.NewInt(1), big.NewInt(5_000_000), big.NewInt(5_000_000), huge)
+		assert.ErrorContains(t, err, "rounds to zero")
+	})
+
 	t.Run("rejects nil and non-positive inputs without dividing by zero", func(t *testing.T) {
 		one := bigFromStroop(1)
 		zero := big.NewInt(0)
@@ -162,16 +171,18 @@ func TestFetchCometState(t *testing.T) {
 		usdcArg, err := contractAddressScVal(usdcAddr)
 		require.NoError(t, err)
 
+		// Each numeric getter is fetched twice: fetchCometState's torn-read
+		// guard requires two agreeing consistency reads.
 		m.On("FetchSingleField", mock.Anything, poolID, "get_balance", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(40_000_000_000_000), nil).Once() // 4,000,000.0000000
+			Return(i128ScVal(40_000_000_000_000), nil).Times(2) // 4,000,000.0000000
 		m.On("FetchSingleField", mock.Anything, poolID, "get_balance", []xdr.ScVal{usdcArg}).
-			Return(i128ScVal(2_000_000_000_000), nil).Once() // 200,000.0000000
+			Return(i128ScVal(2_000_000_000_000), nil).Times(2) // 200,000.0000000
 		m.On("FetchSingleField", mock.Anything, poolID, "get_normalized_weight", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(8_000_000), nil).Once() // 0.8
+			Return(i128ScVal(8_000_000), nil).Times(2) // 0.8
 		m.On("FetchSingleField", mock.Anything, poolID, "get_normalized_weight", []xdr.ScVal{usdcArg}).
-			Return(i128ScVal(2_000_000), nil).Once() // 0.2
+			Return(i128ScVal(2_000_000), nil).Times(2) // 0.2
 		m.On("FetchSingleField", mock.Anything, poolID, "get_total_supply", []xdr.ScVal(nil)).
-			Return(i128ScVal(10_000_000_000_000), nil).Once() // 1,000,000.0000000
+			Return(i128ScVal(10_000_000_000_000), nil).Times(2) // 1,000,000.0000000
 
 		return m
 	}
@@ -279,6 +290,34 @@ func TestFetchCometState(t *testing.T) {
 
 		_, err := fetchCometState(ctx, m, cometID)
 		assert.Error(t, err)
+	})
+
+	t.Run("state changed between consistency reads errors", func(t *testing.T) {
+		tokenA := randomContractAddr(t)
+		tokenB := randomContractAddr(t)
+		blndArg, err := contractAddressScVal(tokenA)
+		require.NoError(t, err)
+
+		m := services.NewContractMetadataServiceMock(t)
+		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
+			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
+		// tokenA's balance moves between the two consistency reads — a swap
+		// landing mid-read — while everything else stays put.
+		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
+			Return(i128ScVal(40_000_000_000_000), nil).Once().
+			On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
+			Return(i128ScVal(41_000_000_000_000), nil).Once()
+		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
+			Return(i128ScVal(2_000_000_000_000), nil)
+		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{blndArg}).
+			Return(i128ScVal(8_000_000), nil)
+		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
+			Return(i128ScVal(2_000_000), nil)
+		m.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
+			Return(i128ScVal(10_000_000_000_000), nil)
+
+		_, err = fetchCometState(ctx, m, cometID)
+		assert.ErrorContains(t, err, "state changed between consistency reads")
 	})
 
 	t.Run("equal weights are ambiguous and error", func(t *testing.T) {
