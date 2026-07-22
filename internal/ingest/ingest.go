@@ -24,7 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
-	_ "github.com/stellar/wallet-backend/internal/services/blend" // registers BLEND validator + processor via init()
+	"github.com/stellar/wallet-backend/internal/services/blend"   // also registers BLEND validator + processor via init()
 	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
@@ -92,6 +92,12 @@ type Configs struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+	// BlendPriceInterval is the wait between Blend v2 oracle price snapshot passes.
+	// 0 disables the snapshot task. Only takes effect in live ingestion mode.
+	BlendPriceInterval time.Duration
+	// BlendBackstopLPContractID is the Blend v2 backstop's Comet BLND:USDC weighted pool
+	// C-address, enabling the price snapshot task's BLND/LP-share derived-pricing leg.
+	BlendBackstopLPContractID string
 }
 
 func (c Configs) BuildPoolConfig() db.PoolConfig {
@@ -167,6 +173,26 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating contract metadata service: %w", err)
+	}
+
+	// The Blend v2 oracle price snapshot task. Live-only: backfill replays historical
+	// ledgers and has no use for a periodic wall-clock snapshot of current prices.
+	var postLockTasks []func(context.Context)
+	if cfg.IngestionMode == services.IngestionModeLive && cfg.BlendPriceInterval > 0 {
+		blendPrices, err := blend.NewPriceSnapshotService(blend.PriceSnapshotConfig{
+			OraclePrices:         models.Blend.OraclePrices,
+			Metadata:             contractMetadataService,
+			Interval:             cfg.BlendPriceInterval,
+			BackstopLPContractID: cfg.BlendBackstopLPContractID,
+			RPC:                  rpcService,
+			Metrics:              m.BlendPrices,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("instantiating blend price snapshot service: %w", err)
+		}
+		// Started by the ingest service only after it acquires the live
+		// advisory lock — a lock-losing instance must not snapshot prices.
+		postLockTasks = append(postLockTasks, blendPrices.Run)
 	}
 
 	// Build a single ProtocolDeps to pass through both the validator and
@@ -270,6 +296,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
 		ContractMetadataService:   contractMetadataService,
+		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("instantiating ingest service: %w", err)

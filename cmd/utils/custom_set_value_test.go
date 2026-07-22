@@ -296,3 +296,38 @@ func TestSetConfigOptionDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestBlendPriceIntervalOption(t *testing.T) {
+	opts := struct{ d time.Duration }{}
+	co := BlendPriceIntervalOption(&opts.d)
+
+	testCases := []customSetterTestCase[time.Duration]{
+		{
+			name:            "returns an error if the duration is negative",
+			args:            []string{"--blend-price-interval=-1s"},
+			wantErrContains: "blend-price-interval must not be negative",
+		},
+		{
+			name:            "returns an error if a negative duration comes through the ENV var",
+			envValue:        "-30s",
+			wantErrContains: "blend-price-interval must not be negative",
+		},
+		{
+			name:       "zero disables the task and is accepted",
+			args:       []string{"--blend-price-interval", "0s"},
+			wantResult: 0,
+		},
+		{
+			name:       "a positive interval is accepted",
+			args:       []string{"--blend-price-interval", "90s"},
+			wantResult: 90 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.d = 0
+			customSetterTester(t, tc, *co)
+		})
+	}
+}

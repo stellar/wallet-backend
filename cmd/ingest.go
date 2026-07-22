@@ -35,6 +35,8 @@ func (c *ingestCmd) Command() *cobra.Command {
 		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.AdminPortOption(&cfg.AdminPort),
 		utils.GetLedgersLimitOption(&cfg.GetLedgersLimit),
+		utils.BlendPriceIntervalOption(&cfg.BlendPriceInterval),
+		utils.BlendBackstopLPContractIDOption(&cfg.BlendBackstopLPContractID),
 		{
 			Name:        "ingestion-mode",
 			Usage:       "What mode to run ingestion in - live or backfill",

@@ -283,6 +283,13 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		}
 	}()
 
+	// Background tasks gated on the advisory lock: an instance that failed to
+	// acquire it must never run them, or a crash-looping/standby pod would
+	// duplicate their RPC load and writes.
+	for _, task := range m.postLockTasks {
+		go task(ctx)
+	}
+
 	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
