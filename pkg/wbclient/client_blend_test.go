@@ -15,7 +15,7 @@ func TestGetBlendPools(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("decodes pools with nested reserves", func(t *testing.T) {
-		body := `{"blendPools":[{"address":"CPOOL1","name":"Pool One","status":1,"reserves":[
+		body := `{"blendPools":[{"address":"CPOOL1","name":"Pool One","status":"ACTIVE","reserves":[
 			{"assetContractId":"CASSET1","tokenSymbol":"USDC","enabled":true,"suppliedTokens":"100","borrowedTokens":"10"}
 		]}]}`
 		srv := graphqlServer(t, body)
@@ -87,26 +87,6 @@ func TestGetBlendPool(t *testing.T) {
 		assert.Equal(t, "CPOOL1", pool.Address)
 		assert.Equal(t, "CPOOL1", received.Variables["address"])
 		assert.Contains(t, received.Query, "blendPool(address: $address)")
-	})
-}
-
-func TestGetBlendEarnOptions(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("decodes earn options with nested pools", func(t *testing.T) {
-		body := `{"blendEarnOptions":[{"assetContractId":"CASSET1","tokenSymbol":"USDC","pools":[
-			{"poolAddress":"CPOOL1","supplyApy":0.05}
-		]}]}`
-		srv := graphqlServer(t, body)
-		defer srv.Close()
-
-		c := NewClient(srv.URL, nil)
-		options, err := c.GetBlendEarnOptions(ctx)
-		require.NoError(t, err)
-		require.Len(t, options, 1)
-		assert.Equal(t, "CASSET1", options[0].AssetContractID)
-		require.Len(t, options[0].Pools, 1)
-		assert.Equal(t, "CPOOL1", options[0].Pools[0].PoolAddress)
 	})
 }
 

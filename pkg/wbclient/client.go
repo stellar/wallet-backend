@@ -161,10 +161,6 @@ type BlendPoolData struct {
 	BlendPool *types.BlendPool `json:"blendPool"`
 }
 
-type BlendEarnOptionsData struct {
-	BlendEarnOptions []types.BlendEarnOption `json:"blendEarnOptions"`
-}
-
 type AccountBlendPositionsData struct {
 	AccountByAddress *struct {
 		BlendPositions *types.BlendAccountPositions `json:"blendPositions"`
@@ -670,16 +666,6 @@ func (c *Client) GetBlendPool(ctx context.Context, address string) (*types.Blend
 	}
 
 	return data.BlendPool, nil
-}
-
-// GetBlendEarnOptions returns the "where can I earn this asset" catalog view across all Blend v2 pools.
-func (c *Client) GetBlendEarnOptions(ctx context.Context) ([]types.BlendEarnOption, error) {
-	data, err := executeGraphQL[BlendEarnOptionsData](c, ctx, buildBlendEarnOptionsQuery(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return data.BlendEarnOptions, nil
 }
 
 // GetAccountBlendPositions returns an account's Blend v2 lending, collateral, and backstop positions.

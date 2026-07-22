@@ -86,7 +86,7 @@ func Test_BlendPool_DecodesWithNestedReservesAndNullFloats(t *testing.T) {
 	payload := []byte(`{
 		"address": "CPOOLADDRESS",
 		"name": "Fixed Pool",
-		"status": 1,
+		"status": "ACTIVE",
 		"oracleContractId": "CORACLE",
 		"backstopRate": 4750000,
 		"maxPositions": 4,
@@ -126,7 +126,7 @@ func Test_BlendPool_DecodesWithNestedReservesAndNullFloats(t *testing.T) {
 	require.NotNil(t, pool.Name)
 	assert.Equal(t, "Fixed Pool", *pool.Name)
 	require.NotNil(t, pool.Status)
-	assert.Equal(t, int32(1), *pool.Status)
+	assert.Equal(t, BlendPoolStatusActive, *pool.Status)
 	assert.Nil(t, pool.SuppliedUsd)
 	require.NotNil(t, pool.BorrowedUsd)
 	assert.InDelta(t, 123.45, *pool.BorrowedUsd, 0.0001)
@@ -156,7 +156,8 @@ func Test_BlendReservePosition_DecodesWithNullFloats(t *testing.T) {
 		"borrowedUsd": null,
 		"supplyApy": null,
 		"borrowApy": null,
-		"emissionsApr": null,
+		"emissionsSupplyApr": null,
+		"emissionsBorrowApr": null,
 		"interestEarned": "1",
 		"interestPaid": "0",
 		"emissionsEarnedBlnd": "2",
@@ -175,6 +176,8 @@ func Test_BlendReservePosition_DecodesWithNullFloats(t *testing.T) {
 	assert.Equal(t, "50", rp.CollateralTokens)
 	assert.Nil(t, rp.SuppliedUsd)
 	assert.Nil(t, rp.PriceUsd)
+	assert.Nil(t, rp.EmissionsSupplyApr)
+	assert.Nil(t, rp.EmissionsBorrowApr)
 	assert.Equal(t, "2", rp.EmissionsEarnedBlnd)
 }
 

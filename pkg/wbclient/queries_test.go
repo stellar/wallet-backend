@@ -124,8 +124,6 @@ func TestBlendQueryFieldsRequestAllStructFields(t *testing.T) {
 	}{
 		{"blendPoolFields/BlendPool", blendPoolFields, types.BlendPool{}},
 		{"blendReserveFields/BlendReserve", blendReserveFields, types.BlendReserve{}},
-		{"blendEarnOptionFields/BlendEarnOption", blendEarnOptionFields, types.BlendEarnOption{}},
-		{"blendEarnOptionFields/BlendEarnPoolOption", blendEarnOptionFields, types.BlendEarnPoolOption{}},
 		{"blendAccountPositionsFields/BlendAccountPositions", blendAccountPositionsFields, types.BlendAccountPositions{}},
 		{"blendAccountPositionsFields/BlendPoolPosition", blendAccountPositionsFields, types.BlendPoolPosition{}},
 		{"blendAccountPositionsFields/BlendBackstopPosition", blendAccountPositionsFields, types.BlendBackstopPosition{}},

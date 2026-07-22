@@ -35,6 +35,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 	wbtypes "github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -105,16 +106,6 @@ func findReservePositionByAsset(reserves []wbtypes.BlendReservePosition, assetID
 	for i := range reserves {
 		if reserves[i].AssetContractID == assetID {
 			return &reserves[i]
-		}
-	}
-	return nil
-}
-
-// findEarnOptionByAsset returns the BlendEarnOption entry for assetID, or nil.
-func findEarnOptionByAsset(options []wbtypes.BlendEarnOption, assetID string) *wbtypes.BlendEarnOption {
-	for i := range options {
-		if options[i].AssetContractID == assetID {
-			return &options[i]
 		}
 	}
 	return nil
@@ -474,43 +465,33 @@ func (s *BlendLiveIngestionTestSuite) assertApproxRelative(expected, actual, tol
 	s.Assert().LessOrEqualf(diff, tolerance, "expected ~%v, got %v (relative diff %v)", expected, actual, diff)
 }
 
-// fetchLendingChanges fetches an account's LENDING state changes filtered to
-// one reason, type-asserting every node to *wbtypes.LendingChange.
-func (s *BlendLiveIngestionTestSuite) fetchLendingChanges(ctx context.Context, address, reason string) []*wbtypes.LendingChange {
-	category := "LENDING"
+// fetchBlendChanges fetches an account's Blend state changes filtered to one
+// (category, reason) pair, type-asserting every node to the concrete type SC.
+func fetchBlendChanges[SC wbtypes.StateChangeNode](s *BlendLiveIngestionTestSuite, ctx context.Context, address, category, reason string) []SC {
 	first := int32(50)
-	conn, err := s.testEnv.WBClient.GetAccountStateChanges(ctx, address, nil, nil, &category, &reason, nil, nil, &first, nil, nil, nil)
+	cat := wbtypes.StateChangeCategory(category)
+	rsn := wbtypes.StateChangeReason(reason)
+	conn, err := s.testEnv.WBClient.GetAccountStateChanges(ctx, address,
+		&wbclient.StateChangeFilter{Category: &cat, Reason: &rsn}, nil, &wbclient.Page{First: &first})
 	s.Require().NoError(err)
 	s.Require().NotNil(conn)
 
-	out := make([]*wbtypes.LendingChange, 0, len(conn.Edges))
+	out := make([]SC, 0, len(conn.Edges))
 	for _, e := range conn.Edges {
-		s.Require().NotNil(e.Node, "expected a non-null state change node for reason %s", reason)
-		lc, ok := e.Node.(*wbtypes.LendingChange)
-		s.Require().Truef(ok, "expected *LendingChange node for reason %s, got %T", reason, e.Node)
-		out = append(out, lc)
+		s.Require().NotNil(e.Node, "expected a non-null state change node for %s/%s", category, reason)
+		sc, ok := e.Node.(SC)
+		s.Require().Truef(ok, "expected %T node for %s/%s, got %T", *new(SC), category, reason, e.Node)
+		out = append(out, sc)
 	}
 	return out
 }
 
-// requireOneLendingChange asserts changes has exactly one entry and returns it.
-func (s *BlendLiveIngestionTestSuite) requireOneLendingChange(changes []*wbtypes.LendingChange, reason string) *wbtypes.LendingChange {
-	s.Require().Lenf(changes, 1, "expected exactly one LENDING/%s state change", reason)
+// fetchOneBlendChange asserts an account has exactly one (category, reason)
+// state change and returns it.
+func fetchOneBlendChange[SC wbtypes.StateChangeNode](s *BlendLiveIngestionTestSuite, ctx context.Context, address, category, reason string) SC {
+	changes := fetchBlendChanges[SC](s, ctx, address, category, reason)
+	s.Require().Lenf(changes, 1, "expected exactly one %s/%s state change", category, reason)
 	return changes[0]
-}
-
-// assertTokenPoolAmount asserts lc carries a non-nil TokenID equal to
-// wantToken, a non-nil PoolID equal to wantPool, and a positive Amount — the
-// shape of WITHDRAW, WITHDRAW_COLLATERAL, and a pool-side CLAIM (see
-// internal/services/blend/events.go's decodeWithdrawAmbiguous/
-// decodeClaimAmbiguous).
-func (s *BlendLiveIngestionTestSuite) assertTokenPoolAmount(lc *wbtypes.LendingChange, wantToken, wantPool string) {
-	s.Require().NotNil(lc.TokenID)
-	s.Assert().Equal(wantToken, *lc.TokenID)
-	s.Require().NotNil(lc.PoolID)
-	s.Assert().Equal(wantPool, *lc.PoolID)
-	s.Require().NotNil(lc.Amount)
-	s.Assert().Greater(parseBigIntStr(s.T(), *lc.Amount).Sign(), 0)
 }
 
 func (s *BlendLiveIngestionTestSuite) TestBlendLiveIngestion() {
@@ -601,45 +582,38 @@ func (s *BlendLiveIngestionTestSuite) TestBlendLiveIngestion() {
 	s.Assert().Nil(unknownPool, "an unknown but valid pool address should resolve to nil, not an error")
 
 	// ------------------------------------------------------------------
-	// Step 6: blendEarnOptions.
-	// ------------------------------------------------------------------
-	earnOptions, err := s.testEnv.WBClient.GetBlendEarnOptions(ctx)
-	s.Require().NoError(err)
-	s.assertEarnOptions(earnOptions, stack)
-
-	// ------------------------------------------------------------------
-	// Step 7: supplier positions.
+	// Step 6: supplier positions.
 	// ------------------------------------------------------------------
 	supplierPositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Supplier.Address())
 	s.Require().NoError(err)
 	s.assertSupplierPositions(supplierPositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 8: borrower positions.
+	// Step 7: borrower positions.
 	// ------------------------------------------------------------------
 	borrowerPositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Borrower.Address())
 	s.Require().NoError(err)
 	s.assertBorrowerPositions(borrowerPositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 9: whale backstop (post-dequeue final state).
+	// Step 8: whale backstop (post-dequeue final state).
 	// ------------------------------------------------------------------
 	whalePositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Whale.Address())
 	s.Require().NoError(err)
 	s.assertWhaleFinalPositions(whalePositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 10: state changes.
+	// Step 9: state changes.
 	// ------------------------------------------------------------------
 	s.assertStateChanges(ctx, stack)
 
 	// ------------------------------------------------------------------
-	// Step 11: emissions DB rows.
+	// Step 10: emissions DB rows.
 	// ------------------------------------------------------------------
 	s.assertEmissionsRows(ctx, models, stack)
 
 	// ------------------------------------------------------------------
-	// Step 12: post-liquidation positions (DB-level).
+	// Step 11: post-liquidation positions (DB-level).
 	// ------------------------------------------------------------------
 	s.assertPostLiquidationPositions(ctx, models, stack)
 }
@@ -680,7 +654,7 @@ func (s *BlendLiveIngestionTestSuite) assertPoolCatalog(p wbtypes.BlendPool, sta
 	s.Require().NotNil(p.Name)
 	s.Assert().Equal(stack.PoolName, *p.Name)
 	s.Require().NotNil(p.Status)
-	s.Assert().Equal(int32(0), *p.Status)
+	s.Assert().Equal(wbtypes.BlendPoolStatusAdminActive, *p.Status)
 	s.Require().NotNil(p.BackstopRate)
 	s.Assert().Equal(int32(1_000_000), *p.BackstopRate)
 	s.Require().NotNil(p.MaxPositions)
@@ -732,33 +706,6 @@ func (s *BlendLiveIngestionTestSuite) assertPoolCatalog(p wbtypes.BlendPool, sta
 	s.Assert().Greater(*xlm.Utilization, 0.0)
 
 	s.Assert().NotNil(usdc.EmissionsSupplyApr, "USDC reserve has bToken emissions configured")
-}
-
-// assertEarnOptions asserts blendEarnOptions contains USDC and XLM entries
-// with at least one pool option each.
-func (s *BlendLiveIngestionTestSuite) assertEarnOptions(options []wbtypes.BlendEarnOption, stack *infrastructure.BlendStack) {
-	usdcOpt := findEarnOptionByAsset(options, stack.USDCTokenID)
-	xlmOpt := findEarnOptionByAsset(options, stack.XLMTokenID)
-	s.Require().NotNil(usdcOpt, "expected a blendEarnOptions entry for USDC")
-	s.Require().NotNil(xlmOpt, "expected a blendEarnOptions entry for XLM")
-
-	for _, opt := range []*wbtypes.BlendEarnOption{usdcOpt, xlmOpt} {
-		s.Require().NotEmpty(opt.Pools)
-		var found *wbtypes.BlendEarnPoolOption
-		for i := range opt.Pools {
-			if opt.Pools[i].PoolAddress == stack.PoolID {
-				found = &opt.Pools[i]
-			}
-		}
-		s.Require().NotNilf(found, "expected pool option %s for asset %s", stack.PoolID, opt.AssetContractID)
-		s.Assert().NotNil(found.SupplyApy)
-	}
-
-	for i := range usdcOpt.Pools {
-		if usdcOpt.Pools[i].PoolAddress == stack.PoolID {
-			s.Assert().NotNil(usdcOpt.Pools[i].EmissionsSupplyApr)
-		}
-	}
 }
 
 // assertSupplierPositions asserts the supplier's positions after phase-2
@@ -852,56 +799,58 @@ func (s *BlendLiveIngestionTestSuite) assertWhaleFinalPositions(positions *wbtyp
 	s.Assert().Greater(parseBigIntStr(s.T(), positions.BackstopClaimedLp).Sign(), 0, "whale claimed backstop emissions in phase 2")
 }
 
-// assertStateChanges asserts the phase-2 LENDING state changes over GraphQL.
+// assertStateChanges asserts the phase-2 Blend state changes over GraphQL.
 // Token/Amount/PoolID expectations mirror internal/services/blend/events.go's
 // EventRow construction exactly (see decodeWithdrawAmbiguous,
 // decodeClaimAmbiguous, decodeBackstopDeposit/WithdrawQueue/WithdrawCancel,
-// and the liquidation rows in decodeFillAuction), not a blanket "always BLND"
-// assumption: WITHDRAW/WITHDRAW_COLLATERAL carry the underlying reserve asset
-// (USDC here) as their token, only a pool-side CLAIM carries BLND, backstop
-// queue/cancel/claim rows carry no token at all, and LIQUIDATION rows carry
-// neither a token nor an amount.
+// and the fill rows in decodeFillAuction): supply/collateral debits carry the
+// underlying reserve asset (USDC here), a pool emissions claim carries BLND,
+// backstop queue rows are share-denominated with no token, a backstop
+// emissions claim has neither token nor pool, and auction fills carry their
+// per-asset amounts in first-class lot/bid lists.
 func (s *BlendLiveIngestionTestSuite) assertStateChanges(ctx context.Context, stack *infrastructure.BlendStack) {
-	supplierWithdraw := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Supplier.Address(), "WITHDRAW"), "WITHDRAW")
-	s.assertTokenPoolAmount(supplierWithdraw, stack.USDCTokenID, stack.PoolID)
+	supplierWithdraw := fetchOneBlendChange[*wbtypes.BlendSupplyChange](s, ctx, stack.Supplier.Address(), "BLEND_SUPPLY", "DEBIT")
+	s.Assert().Equal(stack.USDCTokenID, supplierWithdraw.TokenID)
+	s.Assert().Equal(stack.PoolID, supplierWithdraw.PoolID)
+	s.Assert().Greater(parseBigIntStr(s.T(), supplierWithdraw.Amount).Sign(), 0)
 
-	supplierWithdrawCollateral := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Supplier.Address(), "WITHDRAW_COLLATERAL"), "WITHDRAW_COLLATERAL")
-	s.assertTokenPoolAmount(supplierWithdrawCollateral, stack.USDCTokenID, stack.PoolID)
+	supplierWithdrawCollateral := fetchOneBlendChange[*wbtypes.BlendCollateralChange](s, ctx, stack.Supplier.Address(), "BLEND_COLLATERAL", "DEBIT")
+	s.Assert().Equal(stack.USDCTokenID, supplierWithdrawCollateral.TokenID)
+	s.Assert().Equal(stack.PoolID, supplierWithdrawCollateral.PoolID)
+	s.Assert().Greater(parseBigIntStr(s.T(), supplierWithdrawCollateral.Amount).Sign(), 0)
 
-	supplierClaim := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Supplier.Address(), "CLAIM"), "CLAIM")
-	s.assertTokenPoolAmount(supplierClaim, stack.BLNDTokenID, stack.PoolID)
+	supplierClaim := fetchOneBlendChange[*wbtypes.BlendEmissionsClaimChange](s, ctx, stack.Supplier.Address(), "BLEND_EMISSIONS", "CLAIM")
+	s.Require().NotNil(supplierClaim.TokenID)
+	s.Assert().Equal(stack.BLNDTokenID, *supplierClaim.TokenID)
+	s.Assert().Equal(stack.PoolID, supplierClaim.PoolID)
+	s.Assert().Greater(parseBigIntStr(s.T(), supplierClaim.Amount).Sign(), 0)
 
-	whaleQueue := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Whale.Address(), "BACKSTOP_WITHDRAW_QUEUE"), "BACKSTOP_WITHDRAW_QUEUE")
-	s.Assert().Nil(whaleQueue.TokenID, "backstop share rows carry no token_id")
-	s.Require().NotNil(whaleQueue.PoolID)
-	s.Assert().Equal(stack.PoolID, *whaleQueue.PoolID)
-	s.Require().NotNil(whaleQueue.Amount)
-	s.Assert().Greater(parseBigIntStr(s.T(), *whaleQueue.Amount).Sign(), 0)
+	whaleQueue := fetchOneBlendChange[*wbtypes.BlendBackstopQueueChange](s, ctx, stack.Whale.Address(), "BLEND_BACKSTOP_QUEUE", "ADD")
+	s.Assert().Equal(stack.PoolID, whaleQueue.PoolID)
+	s.Assert().Greater(parseBigIntStr(s.T(), whaleQueue.Amount).Sign(), 0)
 
-	whaleCancel := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Whale.Address(), "BACKSTOP_WITHDRAW_CANCEL"), "BACKSTOP_WITHDRAW_CANCEL")
-	s.Assert().Nil(whaleCancel.TokenID)
-	s.Require().NotNil(whaleCancel.PoolID)
-	s.Assert().Equal(stack.PoolID, *whaleCancel.PoolID)
-	s.Require().NotNil(whaleCancel.Amount)
-	s.Assert().Greater(parseBigIntStr(s.T(), *whaleCancel.Amount).Sign(), 0)
+	whaleCancel := fetchOneBlendChange[*wbtypes.BlendBackstopQueueChange](s, ctx, stack.Whale.Address(), "BLEND_BACKSTOP_QUEUE", "REMOVE")
+	s.Assert().Equal(stack.PoolID, whaleCancel.PoolID)
+	s.Assert().Greater(parseBigIntStr(s.T(), whaleCancel.Amount).Sign(), 0)
 
-	whaleClaim := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Whale.Address(), "CLAIM"), "CLAIM")
-	s.Assert().Nil(whaleClaim.TokenID, "a backstop claim pays out Comet LP tokens, tracked with no token_id")
-	s.Assert().Nil(whaleClaim.PoolID, "a backstop claim aggregates across every pool, carrying no pool address")
-	s.Require().NotNil(whaleClaim.Amount)
-	s.Assert().Greater(parseBigIntStr(s.T(), *whaleClaim.Amount).Sign(), 0)
+	whaleClaim := fetchOneBlendChange[*wbtypes.BlendBackstopEmissionsClaimChange](s, ctx, stack.Whale.Address(), "BLEND_BACKSTOP_EMISSIONS", "CLAIM")
+	s.Assert().Greater(parseBigIntStr(s.T(), whaleClaim.Amount).Sign(), 0,
+		"a backstop claim pays out Comet LP tokens; the type carries neither token nor pool")
 
-	borrowerLiquidation := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Borrower.Address(), "LIQUIDATION"), "LIQUIDATION")
-	s.Assert().Nil(borrowerLiquidation.TokenID)
-	s.Assert().Nil(borrowerLiquidation.Amount)
-	s.Require().NotNil(borrowerLiquidation.PoolID)
-	s.Assert().Equal(stack.PoolID, *borrowerLiquidation.PoolID)
+	borrowerFill := fetchOneBlendChange[*wbtypes.BlendAuctionChange](s, ctx, stack.Borrower.Address(), "BLEND_AUCTION", "FILL")
+	s.Assert().Equal(stack.PoolID, borrowerFill.PoolID)
+	s.Assert().Equal("USER_LIQUIDATION", borrowerFill.AuctionType)
+	s.Assert().Equal(stack.Filler.Address(), borrowerFill.Counterparty)
+	s.Assert().Equal(int32(infrastructure.BlendAuctionFillPercent), borrowerFill.FillPercent)
+	s.Assert().NotEmpty(borrowerFill.Lot, "a user-liquidation fill moves collateral bTokens through the lot")
+	s.Assert().NotEmpty(borrowerFill.Bid, "a user-liquidation fill assumes debt dTokens through the bid")
 
-	fillerLiquidation := s.requireOneLendingChange(s.fetchLendingChanges(ctx, stack.Filler.Address(), "LIQUIDATION"), "LIQUIDATION")
-	s.Assert().Nil(fillerLiquidation.TokenID)
-	s.Assert().Nil(fillerLiquidation.Amount)
-	s.Require().NotNil(fillerLiquidation.PoolID)
-	s.Assert().Equal(stack.PoolID, *fillerLiquidation.PoolID)
+	fillerFill := fetchOneBlendChange[*wbtypes.BlendAuctionChange](s, ctx, stack.Filler.Address(), "BLEND_AUCTION", "FILL")
+	s.Assert().Equal(stack.PoolID, fillerFill.PoolID)
+	s.Assert().Equal("USER_LIQUIDATION", fillerFill.AuctionType)
+	s.Assert().Equal(stack.Borrower.Address(), fillerFill.Counterparty)
+	s.Assert().Equal(int32(infrastructure.BlendAuctionFillPercent), fillerFill.FillPercent,
+		"both sides of a fill carry the same fill percentage")
 }
 
 // assertEmissionsRows asserts the raw blend_emissions/blend_reserve_emissions
