@@ -565,10 +565,18 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 	if suppliedKnown && borrowedKnown {
 		v := suppliedUsdSum - borrowedUsdSum
 		usdValue = &v
-		if v != 0 {
-			apy := (supplyApyNumerator - borrowApyNumerator) / v
-			netApy = &apy
+		// netApy divides by total supplied — NOT by the net position value —
+		// matching blend-sdk-js's PositionsEstimate (user_positions_est.ts):
+		// netApy = (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) /
+		// totalSupplied, and exactly 0 for a supply-less position ("the debt
+		// will be forgiven as bad debt so the net APY is still 0"). Dividing
+		// by net value would diverge from the Blend UI and blow up as a
+		// leveraged position's net value approaches 0.
+		apy := 0.0
+		if suppliedUsdSum != 0 {
+			apy = (supplyApyNumerator - borrowApyNumerator) / suppliedUsdSum
 		}
+		netApy = &apy
 	}
 
 	claimed, ok := d.claimedByPool[poolAddr]
