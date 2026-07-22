@@ -335,11 +335,17 @@ func ProjectEmissionIndex(index *big.Int, eps int64, lastTime, expiration, now i
 // caller's job to supply correctly for the context — see package doc: pass
 // `10^ReserveConfig.decimals * 1e7` for a pool reserve emission (b/dToken),
 // or `1e7 * 1e7` (=1e14) for a backstop emission (LP shares are always
-// 7-decimal). Assumes non-negative delta_index and tokenBalance, matching
-// the contract's own require_nonnegative guard on delta_index — a negative
-// scalar or a negative product is a caller bug, not handled here.
+// 7-decimal). A negative index delta is clamped to 0 — on-chain it cannot
+// happen (the distributor advances the stream index before any user write,
+// and traps via require_nonnegative as defense-in-depth), so off-chain it
+// would only reflect an ingestion gap between the stream row and the user
+// row; clamping mirrors the contract's guard instead of surfacing a
+// negative claimable.
 func ClaimableEmissions(accrued, userIndex, emisIndex, tokenBalance, scalar *big.Int) *big.Int {
 	delta := new(big.Int).Sub(emisIndex, userIndex)
+	if delta.Sign() < 0 {
+		return new(big.Int).Set(accrued)
+	}
 	toAccrue := new(big.Int).Mul(tokenBalance, delta)
 	toAccrue.Quo(toAccrue, scalar)
 	return new(big.Int).Add(accrued, toAccrue)
