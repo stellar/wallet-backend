@@ -346,6 +346,65 @@ func TestEmissionsAPR(t *testing.T) {
 	})
 }
 
+func TestProjectEmissionIndex(t *testing.T) {
+	scalar7Big := big.NewInt(10_000_000)
+
+	t.Run("lastTime at expiration: unchanged", func(t *testing.T) {
+		got := ProjectEmissionIndex(big.NewInt(12345), 1_000_000_000_000, 1600000000, 1600000000, 1700000000, big.NewInt(1_000_000_000), scalar7Big)
+		assert.Equal(t, big.NewInt(12345), got)
+	})
+
+	t.Run("lastTime at or past now: unchanged", func(t *testing.T) {
+		got := ProjectEmissionIndex(big.NewInt(12345), 1_000_000_000_000, 1500000000, 1600000000, 1500000000, big.NewInt(1_000_000_000), scalar7Big)
+		assert.Equal(t, big.NewInt(12345), got)
+	})
+
+	t.Run("zero eps: unchanged", func(t *testing.T) {
+		got := ProjectEmissionIndex(big.NewInt(12345), 0, 1500000000, 1600000000, 1500000005, big.NewInt(1_000_000_000), scalar7Big)
+		assert.Equal(t, big.NewInt(12345), got)
+	})
+
+	t.Run("zero supply: unchanged (all backstop shares queued)", func(t *testing.T) {
+		got := ProjectEmissionIndex(big.NewInt(12345), 1_000_000_000_000, 1500000000, 1600000000, 1500000005, big.NewInt(0), scalar7Big)
+		assert.Equal(t, big.NewInt(12345), got)
+	})
+
+	t.Run("result is a copy, input index untouched", func(t *testing.T) {
+		index := big.NewInt(12345)
+		got := ProjectEmissionIndex(index, 1_000_000_000_000, 1500000000, 1600000000, 1500000005, big.NewInt(1_000_000_000), scalar7Big)
+		assert.NotEqual(t, index, got)
+		assert.Equal(t, big.NewInt(12345), index)
+	})
+
+	t.Run("real contract-test vector: projection clamps at expiration (test_update_emission_data_past_exp)", func(t *testing.T) {
+		// blend-contracts-v2 pool/src/emissions/distributor.rs: now=1700000000
+		// is past expiration=1600000001, so Δt=100000001 from
+		// last_time=1500000000; eps=0_01000000000000, supply=100_0000000,
+		// supply_scalar=1e7. Contract asserts index == 10012_34577890000000.
+		got := ProjectEmissionIndex(
+			mustBigInt("1234567890000000"),
+			1_000_000_000_000,
+			1500000000, 1600000001, 1700000000,
+			big.NewInt(100_0000000),
+			scalar7Big,
+		)
+		assert.Equal(t, mustBigInt("1001234577890000000"), got)
+	})
+
+	t.Run("real contract-test vector: floor division (test_update_emission_data_rounds_down)", func(t *testing.T) {
+		// Δt=5, eps=0_01000000000000, supply=100_0001111 (indivisible),
+		// supply_scalar=1e7. Contract asserts index == 1234617889944450.
+		got := ProjectEmissionIndex(
+			mustBigInt("1234567890000000"),
+			1_000_000_000_000,
+			1500000000, 1600000000, 1500000005,
+			big.NewInt(100_0001111),
+			scalar7Big,
+		)
+		assert.Equal(t, mustBigInt("1234617889944450"), got)
+	})
+}
+
 func TestClaimableEmissions(t *testing.T) {
 	t.Run("zero balance: no accrual regardless of index delta", func(t *testing.T) {
 		got := ClaimableEmissions(big.NewInt(500), big.NewInt(0), big.NewInt(999_999_999), big.NewInt(0), mustBigInt("100000000000000"))
