@@ -85,10 +85,10 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	assert.True(t, acquired, "advisory lock should have been released during shutdown despite the cancelled context")
 }
 
-// Test_isPermanentPersistError covers ING-06's classifier: SQLSTATE class 22/23/42 (and
-// ErrCursorGuardFailed) must fail an ingestion attempt immediately instead of burning the full
-// 5-attempt retry ladder; every other error (including no PgError at all) must still retry, same
-// as before this classifier existed.
+// Test_isPermanentPersistError covers ING-06's classifier: SQLSTATE class 22/23/42 (and the
+// ErrCursorGuardFailed / ErrCASCursorMissing cursor sentinels) must fail an ingestion attempt
+// immediately instead of burning the full 5-attempt retry ladder; every other error (including
+// no PgError at all) must still retry, same as before this classifier existed.
 func Test_isPermanentPersistError(t *testing.T) {
 	pgErrWithCode := func(code string) error {
 		return &pgconn.PgError{Code: code, Message: "boom"}
@@ -122,6 +122,12 @@ func Test_isPermanentPersistError(t *testing.T) {
 		{
 			name:          "wrapped_cursor_guard_failed_is_permanent",
 			err:           fmt.Errorf("updating cursor for ledger 100: %w", data.ErrCursorGuardFailed),
+			wantPermanent: true,
+		},
+		{name: "cas_cursor_missing_is_permanent", err: data.ErrCASCursorMissing, wantPermanent: true},
+		{
+			name:          "wrapped_cas_cursor_missing_is_permanent",
+			err:           fmt.Errorf("persisting ledger data for ledger 100: comparing and swapping protocol cursor blend: %w", data.ErrCASCursorMissing),
 			wantPermanent: true,
 		},
 	}

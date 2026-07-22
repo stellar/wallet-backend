@@ -690,8 +690,11 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 // default retry behavior, same as any other SQLSTATE or a non-PgError (e.g. a context deadline).
 // ErrCursorGuardFailed (see IngestStoreModel.UpdateGuarded) is also permanent: it means another
 // writer already owns this ledger's cursor range, so retrying the same write cannot succeed.
+// ErrCASCursorMissing (see IngestStoreModel.CompareAndSwap) is likewise permanent: the cursor row
+// this ledger's protocol CAS targets is gone, and no retry of the same transaction can recreate
+// it — failing fast surfaces the incident instead of burning the whole retry ladder.
 func isPermanentPersistError(err error) bool {
-	if errors.Is(err, data.ErrCursorGuardFailed) {
+	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) {
 		return true
 	}
 	var pgErr *pgconn.PgError
