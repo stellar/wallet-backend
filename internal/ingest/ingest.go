@@ -221,6 +221,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 			Metadata:             contractMetadataService,
 			Interval:             cfg.BlendPriceInterval,
 			BackstopLPContractID: cfg.BlendBackstopLPContractID,
+			RPC:                  rpcService,
 			Metrics:              m.BlendPrices,
 		})
 		if err != nil {
