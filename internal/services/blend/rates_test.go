@@ -462,6 +462,13 @@ func TestClaimableEmissions(t *testing.T) {
 		assert.Equal(t, big.NewInt(62_700_000), got)
 	})
 
+	t.Run("negative index delta clamps to accrued only", func(t *testing.T) {
+		// A user index ahead of the stream index can only mean an ingestion
+		// gap (impossible on-chain); the claimable must not go negative.
+		got := ClaimableEmissions(big.NewInt(500), big.NewInt(2000), big.NewInt(1000), big.NewInt(999_999), mustBigInt("100000000000000"))
+		assert.Equal(t, big.NewInt(500), got)
+	})
+
 	t.Run("varying per-reserve scalar (non-7-decimal reserve)", func(t *testing.T) {
 		// A 5-decimal reserve: supply_scalar=1e5, scalar=1e5*1e7=1e12.
 		// toAccrue = floor(4e12*500/1e12) = 2000.
