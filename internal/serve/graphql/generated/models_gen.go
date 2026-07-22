@@ -97,13 +97,17 @@ type BlendAuctionAmount struct {
 	Amount string `json:"amount"`
 }
 
-// BlendBackstopPosition is an account's backstop deposit in one pool. shares
-// is the ACTIVE (non-queued) backstop share balance; lpTokens/usdValue value
-// the whole deposit — active plus queued-for-withdrawal shares — since queued
-// shares keep earning pool interest and remain slashable first-loss capital
-// until actually withdrawn. emissionsEarnedBlnd is CLAIMABLE (uncollected)
-// BLND accrued on the backstop emission stream for this pool; it accrues on
-// active shares only (queued shares earn no emissions).
+// BlendBackstopPosition is an account's backstop deposit in one pool. The
+// backstop is a single protocol-wide contract holding each pool's first-loss
+// capital separately, so exposure is inherently per-pool (poolAddress) even
+// though the backstop is not the pool contract itself — one
+// BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+// backstop share balance; lpTokens/usdValue value the whole deposit — active
+// plus queued-for-withdrawal shares — since queued shares keep earning pool
+// interest and remain slashable first-loss capital until actually withdrawn.
+// emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+// emission stream for this pool; it accrues on active shares only (queued
+// shares earn no emissions).
 type BlendBackstopPosition struct {
 	PoolAddress         string      `json:"poolAddress"`
 	PoolName            *string     `json:"poolName,omitempty"`
@@ -232,8 +236,27 @@ type BlendReservePosition struct {
 	// value over the side's pool-wide borrowed USD, NOT scaled to this account's
 	// holding. 0 when no active stream (unconfigured or expired), null when the
 	// stream is active but the reserve or BLND price is unavailable.
-	EmissionsBorrowApr  *float64 `json:"emissionsBorrowApr,omitempty"`
-	InterestEarned      string   `json:"interestEarned"`
+	EmissionsBorrowApr *float64 `json:"emissionsBorrowApr,omitempty"`
+	// Lifetime interest earned on the supply side of this reserve: the current
+	// underlying value of the account's supply+collateral bTokens (at projected,
+	// as-of-now rates) minus the net principal it contributed — a cost basis
+	// tracked across the account's whole deposit/withdraw history. Token-denominated:
+	// a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+	// priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+	// collateral's underlying value at the reserve's rate when the fill is
+	// processed, so collateral lost to a fill cancels out instead of being reported
+	// as earned interest. Survives a full exit: a position zeroed to no tokens still
+	// reports the earnings realized up to the exit (current value 0 minus the
+	// negative leftover cost basis). May be slightly negative from cost-basis dust
+	// truncation or bRate movement after an exit.
+	InterestEarned string `json:"interestEarned"`
+	// Lifetime interest paid on the debt side of this reserve, mirroring
+	// interestEarned: the current underlying value of the account's liability
+	// dTokens (at projected, as-of-now rates) minus its net borrowed principal
+	// (cost basis tracked from borrow/repay history). Token-denominated (raw
+	// integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+	// full exit the same way. May be slightly negative for the same dust/rate
+	// reasons.
 	InterestPaid        string   `json:"interestPaid"`
 	EmissionsEarnedBlnd string   `json:"emissionsEarnedBlnd"`
 	EmissionsEarnedUsd  *float64 `json:"emissionsEarnedUsd,omitempty"`

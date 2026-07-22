@@ -2870,7 +2870,30 @@ type BlendReservePosition {
   stream is active but the reserve or BLND price is unavailable.
   """
   emissionsBorrowApr: Float
+  """
+  Lifetime interest earned on the supply side of this reserve: the current
+  underlying value of the account's supply+collateral bTokens (at projected,
+  as-of-now rates) minus the net principal it contributed — a cost basis
+  tracked across the account's whole deposit/withdraw history. Token-denominated:
+  a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+  priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+  collateral's underlying value at the reserve's rate when the fill is
+  processed, so collateral lost to a fill cancels out instead of being reported
+  as earned interest. Survives a full exit: a position zeroed to no tokens still
+  reports the earnings realized up to the exit (current value 0 minus the
+  negative leftover cost basis). May be slightly negative from cost-basis dust
+  truncation or bRate movement after an exit.
+  """
   interestEarned: String!
+  """
+  Lifetime interest paid on the debt side of this reserve, mirroring
+  interestEarned: the current underlying value of the account's liability
+  dTokens (at projected, as-of-now rates) minus its net borrowed principal
+  (cost basis tracked from borrow/repay history). Token-denominated (raw
+  integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+  full exit the same way. May be slightly negative for the same dust/rate
+  reasons.
+  """
   interestPaid: String!
   emissionsEarnedBlnd: String!
   emissionsEarnedUsd: Float
@@ -2879,13 +2902,17 @@ type BlendReservePosition {
 }
 
 """
-BlendBackstopPosition is an account's backstop deposit in one pool. shares
-is the ACTIVE (non-queued) backstop share balance; lpTokens/usdValue value
-the whole deposit — active plus queued-for-withdrawal shares — since queued
-shares keep earning pool interest and remain slashable first-loss capital
-until actually withdrawn. emissionsEarnedBlnd is CLAIMABLE (uncollected)
-BLND accrued on the backstop emission stream for this pool; it accrues on
-active shares only (queued shares earn no emissions).
+BlendBackstopPosition is an account's backstop deposit in one pool. The
+backstop is a single protocol-wide contract holding each pool's first-loss
+capital separately, so exposure is inherently per-pool (poolAddress) even
+though the backstop is not the pool contract itself — one
+BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+backstop share balance; lpTokens/usdValue value the whole deposit — active
+plus queued-for-withdrawal shares — since queued shares keep earning pool
+interest and remain slashable first-loss capital until actually withdrawn.
+emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+emission stream for this pool; it accrues on active shares only (queued
+shares earn no emissions).
 """
 type BlendBackstopPosition {
   poolAddress: String!
@@ -3447,6 +3474,41 @@ type BalanceAuthorizationChange implements BaseStateChange{
   flags:                      [String!]!
 }
 
+# LendingChange is a Blend v2 lending state change. Its reason (a LENDING-category
+# StateChangeReason) determines how tokenId/amount/poolId are populated:
+#
+#   Reason                    tokenId              amount                     poolId
+#   SUPPLY                    reserve asset        underlying supplied        emitting pool
+#   SUPPLY_COLLATERAL         reserve asset        underlying supplied        emitting pool
+#   WITHDRAW                  reserve asset        underlying withdrawn       emitting pool
+#   WITHDRAW_COLLATERAL       reserve asset        underlying withdrawn       emitting pool
+#   BORROW                    reserve asset        underlying borrowed        emitting pool
+#   REPAY                     reserve asset        underlying repaid          emitting pool
+#   FLASH_LOAN                reserve asset        underlying loaned          emitting pool
+#   BAD_DEBT                  reserve asset        dTokens socialized         emitting pool
+#   DEFAULTED_DEBT            reserve asset        dTokens burnt              emitting pool
+#   CLAIM (pool)              BLND SAC (see below) BLND claimed               emitting pool
+#   CLAIM (backstop)          null                 Comet LP minted            null (see below)
+#   LIQUIDATION               null                 null (see below)           pool the auction is on
+#   BACKSTOP_DEPOSIT          null                 LP tokens deposited        target pool
+#   BACKSTOP_WITHDRAW_QUEUE   null                 backstop shares queued     target pool
+#   BACKSTOP_WITHDRAW_CANCEL  null                 backstop shares dequeued   target pool
+#   BACKSTOP_WITHDRAW         null                 LP tokens returned         target pool
+#
+# tokenId: a reserve-asset C-address for every pool-reserve movement; the BLND
+#   SAC C-address for a pool CLAIM (null when the network's BLND address is
+#   unknown, so the claim is never misattributed). Always null for LIQUIDATION
+#   (a fill touches many assets — see amount) and for every backstop-share row
+#   (backstop CLAIM/DEPOSIT/WITHDRAW_QUEUE/WITHDRAW_CANCEL/WITHDRAW), whose value
+#   is denominated in backstop shares or Comet LP tokens, neither of which has a
+#   reserve-asset token id.
+# amount: a raw on-chain i128 integer at the token's own native decimals (NOT a
+#   USD value). Null only for LIQUIDATION, whose per-asset lot/bid amounts are
+#   carried in the row's key-value extras instead of this single field.
+# poolId: the pool contract C-address, from the emitting pool for pool events and
+#   from an event topic for the per-pool backstop events. Null only for a backstop
+#   CLAIM, whose on-chain event aggregates across every pool claimed and carries
+#   no pool address at all.
 type LendingChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)

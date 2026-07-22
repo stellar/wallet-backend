@@ -150,6 +150,41 @@ type BalanceAuthorizationChange implements BaseStateChange{
   flags:                      [String!]!
 }
 
+# LendingChange is a Blend v2 lending state change. Its reason (a LENDING-category
+# StateChangeReason) determines how tokenId/amount/poolId are populated:
+#
+#   Reason                    tokenId              amount                     poolId
+#   SUPPLY                    reserve asset        underlying supplied        emitting pool
+#   SUPPLY_COLLATERAL         reserve asset        underlying supplied        emitting pool
+#   WITHDRAW                  reserve asset        underlying withdrawn       emitting pool
+#   WITHDRAW_COLLATERAL       reserve asset        underlying withdrawn       emitting pool
+#   BORROW                    reserve asset        underlying borrowed        emitting pool
+#   REPAY                     reserve asset        underlying repaid          emitting pool
+#   FLASH_LOAN                reserve asset        underlying loaned          emitting pool
+#   BAD_DEBT                  reserve asset        dTokens socialized         emitting pool
+#   DEFAULTED_DEBT            reserve asset        dTokens burnt              emitting pool
+#   CLAIM (pool)              BLND SAC (see below) BLND claimed               emitting pool
+#   CLAIM (backstop)          null                 Comet LP minted            null (see below)
+#   LIQUIDATION               null                 null (see below)           pool the auction is on
+#   BACKSTOP_DEPOSIT          null                 LP tokens deposited        target pool
+#   BACKSTOP_WITHDRAW_QUEUE   null                 backstop shares queued     target pool
+#   BACKSTOP_WITHDRAW_CANCEL  null                 backstop shares dequeued   target pool
+#   BACKSTOP_WITHDRAW         null                 LP tokens returned         target pool
+#
+# tokenId: a reserve-asset C-address for every pool-reserve movement; the BLND
+#   SAC C-address for a pool CLAIM (null when the network's BLND address is
+#   unknown, so the claim is never misattributed). Always null for LIQUIDATION
+#   (a fill touches many assets — see amount) and for every backstop-share row
+#   (backstop CLAIM/DEPOSIT/WITHDRAW_QUEUE/WITHDRAW_CANCEL/WITHDRAW), whose value
+#   is denominated in backstop shares or Comet LP tokens, neither of which has a
+#   reserve-asset token id.
+# amount: a raw on-chain i128 integer at the token's own native decimals (NOT a
+#   USD value). Null only for LIQUIDATION, whose per-asset lot/bid amounts are
+#   carried in the row's key-value extras instead of this single field.
+# poolId: the pool contract C-address, from the emitting pool for pool events and
+#   from an event topic for the per-pool backstop events. Null only for a backstop
+#   CLAIM, whose on-chain event aggregates across every pool claimed and carries
+#   no pool address at all.
 type LendingChange implements BaseStateChange {
   type:                       StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
