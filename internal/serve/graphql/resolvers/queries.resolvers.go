@@ -53,6 +53,16 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
 }
 
+// BlendPools is the resolver for the blendPools field.
+func (r *queryResolver) BlendPools(ctx context.Context) ([]*graphql1.BlendPool, error) {
+	return r.getBlendPools(ctx)
+}
+
+// BlendPool is the resolver for the blendPool field.
+func (r *queryResolver) BlendPool(ctx context.Context, address string) (*graphql1.BlendPool, error) {
+	return r.getBlendPool(ctx, address)
+}
+
 // Query returns graphql1.QueryResolver implementation.
 func (r *Resolver) Query() graphql1.QueryResolver { return &queryResolver{r} }
 

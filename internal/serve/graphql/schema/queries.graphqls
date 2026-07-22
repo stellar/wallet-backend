@@ -8,4 +8,10 @@ type Query {
 
     """Look up an operation by its ID (TOID)."""
     operationById(id: Int64!): Operation
+
+    """Blend v2 pool-wide catalog: every tracked pool, independent of any account."""
+    blendPools: [BlendPool!]!
+
+    """Look up one Blend v2 pool by its contract address (C...)."""
+    blendPool(address: String!): BlendPool
 }
