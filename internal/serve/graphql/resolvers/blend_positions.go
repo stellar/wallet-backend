@@ -660,6 +660,11 @@ func (d *blendAssembly) buildActiveAuction(ctx context.Context, a blenddata.Auct
 // Q4W entry also valued individually through the same shares→LP→USD chain.
 // Emissions are the one queued-share exception: they accrue on active
 // shares only, so claimableStream gets the active balance.
+//
+// When the pool's blend_backstop_pools row has not been ingested yet,
+// poolShares/poolTokens stay zero, so BackstopLPTokens returns 0 and lpTokens
+// reports "0" with usdValue 0 — a data-completeness gap that under-reports
+// (never over-reports) the deposit until that pool row lands.
 func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*graphql1.BlendBackstopPosition, error) {
 	poolAddr := string(bp.PoolContractID)
 
