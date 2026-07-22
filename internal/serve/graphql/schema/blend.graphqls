@@ -85,7 +85,20 @@ type BlendReservePosition {
   borrowedUsd: Float
   supplyApy: Float
   borrowApy: Float
-  emissionsApr: Float
+  """
+  The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+  value over the side's pool-wide supplied USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsSupplyApr: Float
+  """
+  The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+  value over the side's pool-wide borrowed USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsBorrowApr: Float
   interestEarned: String!
   interestPaid: String!
   emissionsEarnedBlnd: String!

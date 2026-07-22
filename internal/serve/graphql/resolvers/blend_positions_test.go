@@ -328,8 +328,12 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		require.NotNil(t, r0.BorrowApy)
 		assert.InDelta(t, 0.020200781032923, *r0.BorrowApy, 1e-12)
 
-		require.NotNil(t, r0.EmissionsApr)
-		assert.InDelta(t, 63.072, *r0.EmissionsApr, 1e-9)
+		// Supply and borrow emission streams are independent: r0's bToken stream
+		// (token_id=1) is active, its dToken stream (token_id=0) is unconfigured.
+		require.NotNil(t, r0.EmissionsSupplyApr)
+		assert.InDelta(t, 63.072, *r0.EmissionsSupplyApr, 1e-9)
+		require.NotNil(t, r0.EmissionsBorrowApr)
+		assert.InDelta(t, 0.0, *r0.EmissionsBorrowApr, 1e-12)
 
 		require.NotNil(t, r0.PriceUsd)
 		assert.InDelta(t, 2.5, *r0.PriceUsd, 1e-12)
@@ -364,9 +368,13 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		require.NotNil(t, r1.BorrowApy)
 		assert.InDelta(t, 0.022754324920237545, *r1.BorrowApy, 1e-12)
 
-		// dToken emission config is EXPIRED (pastExpiration < now) -> a concrete 0, not nil.
-		require.NotNil(t, r1.EmissionsApr)
-		assert.InDelta(t, 0.0, *r1.EmissionsApr, 1e-12)
+		// r1's dToken emission config (token_id=2) is EXPIRED (pastExpiration <
+		// now) -> a concrete 0, not nil; its bToken stream (token_id=3) is
+		// unconfigured -> also a concrete 0.
+		require.NotNil(t, r1.EmissionsBorrowApr)
+		assert.InDelta(t, 0.0, *r1.EmissionsBorrowApr, 1e-12)
+		require.NotNil(t, r1.EmissionsSupplyApr)
+		assert.InDelta(t, 0.0, *r1.EmissionsSupplyApr, 1e-12)
 
 		require.NotNil(t, r1.PriceUsd)
 		assert.InDelta(t, 1.0, *r1.PriceUsd, 1e-12)

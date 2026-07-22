@@ -237,18 +237,27 @@ type BlendReserve struct {
 // the reserve's b/d emission streams; claimed history is tracked per pool only
 // (see BlendPoolPosition.claimedBlnd), not per reserve.
 type BlendReservePosition struct {
-	AssetContractID     string   `json:"assetContractId"`
-	TokenName           *string  `json:"tokenName,omitempty"`
-	TokenSymbol         *string  `json:"tokenSymbol,omitempty"`
-	TokenDecimals       *int32   `json:"tokenDecimals,omitempty"`
-	SuppliedTokens      string   `json:"suppliedTokens"`
-	CollateralTokens    string   `json:"collateralTokens"`
-	BorrowedTokens      string   `json:"borrowedTokens"`
-	SuppliedUsd         *float64 `json:"suppliedUsd,omitempty"`
-	BorrowedUsd         *float64 `json:"borrowedUsd,omitempty"`
-	SupplyApy           *float64 `json:"supplyApy,omitempty"`
-	BorrowApy           *float64 `json:"borrowApy,omitempty"`
-	EmissionsApr        *float64 `json:"emissionsApr,omitempty"`
+	AssetContractID  string   `json:"assetContractId"`
+	TokenName        *string  `json:"tokenName,omitempty"`
+	TokenSymbol      *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals    *int32   `json:"tokenDecimals,omitempty"`
+	SuppliedTokens   string   `json:"suppliedTokens"`
+	CollateralTokens string   `json:"collateralTokens"`
+	BorrowedTokens   string   `json:"borrowedTokens"`
+	SuppliedUsd      *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd      *float64 `json:"borrowedUsd,omitempty"`
+	SupplyApy        *float64 `json:"supplyApy,omitempty"`
+	BorrowApy        *float64 `json:"borrowApy,omitempty"`
+	// The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+	// value over the side's pool-wide supplied USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
+	// The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+	// value over the side's pool-wide borrowed USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsBorrowApr  *float64 `json:"emissionsBorrowApr,omitempty"`
 	InterestEarned      string   `json:"interestEarned"`
 	InterestPaid        string   `json:"interestPaid"`
 	EmissionsEarnedBlnd string   `json:"emissionsEarnedBlnd"`

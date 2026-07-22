@@ -220,9 +220,10 @@ type ComplexityRoot struct {
 		BorrowedTokens      func(childComplexity int) int
 		BorrowedUsd         func(childComplexity int) int
 		CollateralTokens    func(childComplexity int) int
-		EmissionsApr        func(childComplexity int) int
+		EmissionsBorrowApr  func(childComplexity int) int
 		EmissionsEarnedBlnd func(childComplexity int) int
 		EmissionsEarnedUsd  func(childComplexity int) int
+		EmissionsSupplyApr  func(childComplexity int) int
 		InterestEarned      func(childComplexity int) int
 		InterestPaid        func(childComplexity int) int
 		PriceUsd            func(childComplexity int) int
@@ -1402,12 +1403,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendReservePosition.CollateralTokens(childComplexity), true
-	case "BlendReservePosition.emissionsApr":
-		if e.ComplexityRoot.BlendReservePosition.EmissionsApr == nil {
+	case "BlendReservePosition.emissionsBorrowApr":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsBorrowApr == nil {
 			break
 		}
 
-		return e.ComplexityRoot.BlendReservePosition.EmissionsApr(childComplexity), true
+		return e.ComplexityRoot.BlendReservePosition.EmissionsBorrowApr(childComplexity), true
 	case "BlendReservePosition.emissionsEarnedBlnd":
 		if e.ComplexityRoot.BlendReservePosition.EmissionsEarnedBlnd == nil {
 			break
@@ -1420,6 +1421,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendReservePosition.EmissionsEarnedUsd(childComplexity), true
+	case "BlendReservePosition.emissionsSupplyApr":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsSupplyApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsSupplyApr(childComplexity), true
 	case "BlendReservePosition.interestEarned":
 		if e.ComplexityRoot.BlendReservePosition.InterestEarned == nil {
 			break
@@ -2941,7 +2948,20 @@ type BlendReservePosition {
   borrowedUsd: Float
   supplyApy: Float
   borrowApy: Float
-  emissionsApr: Float
+  """
+  The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+  value over the side's pool-wide supplied USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsSupplyApr: Float
+  """
+  The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+  value over the side's pool-wide borrowed USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsBorrowApr: Float
   interestEarned: String!
   interestPaid: String!
   emissionsEarnedBlnd: String!
@@ -7083,8 +7103,10 @@ func (ec *executionContext) fieldContext_BlendPoolPosition_reserves(_ context.Co
 				return ec.fieldContext_BlendReservePosition_supplyApy(ctx, field)
 			case "borrowApy":
 				return ec.fieldContext_BlendReservePosition_borrowApy(ctx, field)
-			case "emissionsApr":
-				return ec.fieldContext_BlendReservePosition_emissionsApr(ctx, field)
+			case "emissionsSupplyApr":
+				return ec.fieldContext_BlendReservePosition_emissionsSupplyApr(ctx, field)
+			case "emissionsBorrowApr":
+				return ec.fieldContext_BlendReservePosition_emissionsBorrowApr(ctx, field)
 			case "interestEarned":
 				return ec.fieldContext_BlendReservePosition_interestEarned(ctx, field)
 			case "interestPaid":
@@ -8030,14 +8052,14 @@ func (ec *executionContext) fieldContext_BlendReservePosition_borrowApy(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _BlendReservePosition_emissionsApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+func (ec *executionContext) _BlendReservePosition_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_BlendReservePosition_emissionsApr,
+		ec.fieldContext_BlendReservePosition_emissionsSupplyApr,
 		func(ctx context.Context) (any, error) {
-			return obj.EmissionsApr, nil
+			return obj.EmissionsSupplyApr, nil
 		},
 		nil,
 		ec.marshalOFloat2ᚖfloat64,
@@ -8046,7 +8068,36 @@ func (ec *executionContext) _BlendReservePosition_emissionsApr(ctx context.Conte
 	)
 }
 
-func (ec *executionContext) fieldContext_BlendReservePosition_emissionsApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsBorrowApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsBorrowApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsBorrowApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsBorrowApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendReservePosition",
 		Field:      field,
@@ -18030,8 +18081,10 @@ func (ec *executionContext) _BlendReservePosition(ctx context.Context, sel ast.S
 			out.Values[i] = ec._BlendReservePosition_supplyApy(ctx, field, obj)
 		case "borrowApy":
 			out.Values[i] = ec._BlendReservePosition_borrowApy(ctx, field, obj)
-		case "emissionsApr":
-			out.Values[i] = ec._BlendReservePosition_emissionsApr(ctx, field, obj)
+		case "emissionsSupplyApr":
+			out.Values[i] = ec._BlendReservePosition_emissionsSupplyApr(ctx, field, obj)
+		case "emissionsBorrowApr":
+			out.Values[i] = ec._BlendReservePosition_emissionsBorrowApr(ctx, field, obj)
 		case "interestEarned":
 			out.Values[i] = ec._BlendReservePosition_interestEarned(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
