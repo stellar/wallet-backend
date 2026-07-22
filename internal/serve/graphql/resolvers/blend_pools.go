@@ -318,7 +318,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		return nil
 	})
 	poolGroup.Go(func() (err error) {
-		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(poolCtx)
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(poolCtx, r.blendBackstopLPContractID)
 		if err != nil {
 			return fmt.Errorf("getting blend backstop LP prices: %w", err)
 		}

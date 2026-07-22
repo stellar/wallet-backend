@@ -177,52 +177,39 @@ func freshPrices(rows []blenddata.OraclePrice, now int64) []blenddata.OraclePric
 }
 
 // findBackstopPrices picks the (LP, BLND) price pair out of
-// OraclePrices.GetBackstopLPPrices' result set. Rows share an
-// oracle_contract_id in groups of (one self-priced LP row, its sibling BLND
-// row) — see GetBackstopLPPrices' doc. Each group has exactly one sibling: the
-// snapshot writer stores precisely two rows per Comet oracle (the self-priced LP
-// row and the BLND row; see snapshotComet), so the sole sibling is unambiguously
-// BLND. Blend v2 has a single protocol-wide backstop LP token — the emitter can
-// swap it, but only sequentially, never two at once — so more than one complete
-// group means a misconfigured Comet/oracle address: that state is logged loudly
-// and resolved by always picking the lowest oracle key, keeping the choice
-// deterministic instead of flapping with Go's map-iteration order. Returns
-// (nil, nil) if no complete group is found.
+// OraclePrices.GetBackstopLPPrices' result set. Those rows are already scoped
+// to the single configured Comet oracle (BLEND_BACKSTOP_LP_CONTRACT_ID) — see
+// GetBackstopLPPrices' doc — so they all share one oracle_contract_id: the
+// self-priced row (asset == oracle) is the Comet LP share's own USD price, and
+// its sole sibling (asset != oracle) is the BLND price quoted under that same
+// oracle.
+//
+// The snapshot writer stores exactly those two rows per Comet oracle (the
+// self-priced LP row and the BLND row; see snapshotComet), so more than two
+// rows — or more than one sibling — means an extra asset was stored under the
+// LP's oracle key, making the BLND row ambiguous; that state is logged loudly
+// and the lowest sibling asset address is kept (rows arrive ordered by asset)
+// so the choice stays deterministic. Returns (nil, nil) when either half is
+// missing (no self-priced LP row, or no BLND sibling).
 func findBackstopPrices(ctx context.Context, rows []blenddata.OraclePrice) (lp, blnd *blenddata.OraclePrice) {
-	selfPriced := map[string]blenddata.OraclePrice{}
-	siblings := map[string][]blenddata.OraclePrice{}
+	var self blenddata.OraclePrice
+	haveSelf := false
+	siblings := make([]blenddata.OraclePrice, 0, len(rows))
 	for _, row := range rows {
 		if string(row.OracleContractID) == string(row.AssetContractID) {
-			selfPriced[string(row.OracleContractID)] = row
+			self = row
+			haveSelf = true
 		} else {
-			siblings[string(row.OracleContractID)] = append(siblings[string(row.OracleContractID)], row)
+			siblings = append(siblings, row)
 		}
 	}
-
-	complete := make([]string, 0, len(selfPriced))
-	for oracle := range selfPriced {
-		if len(siblings[oracle]) > 0 {
-			complete = append(complete, oracle)
-		}
-	}
-	if len(complete) == 0 {
+	if !haveSelf || len(siblings) == 0 {
 		return nil, nil
 	}
-	sort.Strings(complete)
-	if len(complete) > 1 {
-		log.Ctx(ctx).Errorf("blend: %d self-priced backstop LP price groups found (expected exactly 1 — misconfigured Comet/oracle address?); using oracle %s", len(complete), complete[0])
+	if len(rows) > 2 || len(siblings) > 1 {
+		log.Ctx(ctx).Errorf("blend: pinned backstop LP oracle %s has %d price rows / %d BLND siblings (expected 1 self-priced LP row + 1 BLND sibling — extra asset stored under the LP's oracle key?); using the lowest sibling asset address", self.OracleContractID, len(rows), len(siblings))
 	}
-
-	self := selfPriced[complete[0]]
-	sibs := siblings[complete[0]]
-	if len(sibs) > 1 {
-		// Exactly one sibling (the BLND row) is expected per Comet oracle. More
-		// than one means an extra asset was stored under the LP's oracle key,
-		// making the BLND row ambiguous; log it and keep the lowest asset address
-		// (rows are ordered by asset) so the choice stays deterministic.
-		log.Ctx(ctx).Errorf("blend: backstop LP oracle %s has %d sibling price rows (expected 1 — the BLND row); using the lowest asset address", complete[0], len(sibs))
-	}
-	sib := sibs[0]
+	sib := siblings[0]
 	return &self, &sib
 }
 
@@ -896,7 +883,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		return nil
 	})
 	priceGroup.Go(func() (err error) {
-		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(priceCtx)
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(priceCtx, r.blendBackstopLPContractID)
 		if err != nil {
 			return fmt.Errorf("getting blend backstop LP prices: %w", err)
 		}
