@@ -110,16 +110,6 @@ func findReservePositionByAsset(reserves []wbtypes.BlendReservePosition, assetID
 	return nil
 }
 
-// findEarnOptionByAsset returns the BlendEarnOption entry for assetID, or nil.
-func findEarnOptionByAsset(options []wbtypes.BlendEarnOption, assetID string) *wbtypes.BlendEarnOption {
-	for i := range options {
-		if options[i].AssetContractID == assetID {
-			return &options[i]
-		}
-	}
-	return nil
-}
-
 // ============================================================================
 // BlendMigrationTestSuite
 // ============================================================================
@@ -586,45 +576,38 @@ func (s *BlendLiveIngestionTestSuite) TestBlendLiveIngestion() {
 	s.Assert().Nil(unknownPool, "an unknown but valid pool address should resolve to nil, not an error")
 
 	// ------------------------------------------------------------------
-	// Step 6: blendEarnOptions.
-	// ------------------------------------------------------------------
-	earnOptions, err := s.testEnv.WBClient.GetBlendEarnOptions(ctx)
-	s.Require().NoError(err)
-	s.assertEarnOptions(earnOptions, stack)
-
-	// ------------------------------------------------------------------
-	// Step 7: supplier positions.
+	// Step 6: supplier positions.
 	// ------------------------------------------------------------------
 	supplierPositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Supplier.Address())
 	s.Require().NoError(err)
 	s.assertSupplierPositions(supplierPositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 8: borrower positions.
+	// Step 7: borrower positions.
 	// ------------------------------------------------------------------
 	borrowerPositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Borrower.Address())
 	s.Require().NoError(err)
 	s.assertBorrowerPositions(borrowerPositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 9: whale backstop (post-dequeue final state).
+	// Step 8: whale backstop (post-dequeue final state).
 	// ------------------------------------------------------------------
 	whalePositions, err := s.testEnv.WBClient.GetAccountBlendPositions(ctx, stack.Whale.Address())
 	s.Require().NoError(err)
 	s.assertWhaleFinalPositions(whalePositions, stack)
 
 	// ------------------------------------------------------------------
-	// Step 10: state changes.
+	// Step 9: state changes.
 	// ------------------------------------------------------------------
 	s.assertStateChanges(ctx, stack)
 
 	// ------------------------------------------------------------------
-	// Step 11: emissions DB rows.
+	// Step 10: emissions DB rows.
 	// ------------------------------------------------------------------
 	s.assertEmissionsRows(ctx, models, stack)
 
 	// ------------------------------------------------------------------
-	// Step 12: post-liquidation positions (DB-level).
+	// Step 11: post-liquidation positions (DB-level).
 	// ------------------------------------------------------------------
 	s.assertPostLiquidationPositions(ctx, models, stack)
 }
@@ -665,7 +648,7 @@ func (s *BlendLiveIngestionTestSuite) assertPoolCatalog(p wbtypes.BlendPool, sta
 	s.Require().NotNil(p.Name)
 	s.Assert().Equal(stack.PoolName, *p.Name)
 	s.Require().NotNil(p.Status)
-	s.Assert().Equal(int32(0), *p.Status)
+	s.Assert().Equal(wbtypes.BlendPoolStatusAdminActive, *p.Status)
 	s.Require().NotNil(p.BackstopRate)
 	s.Assert().Equal(int32(1_000_000), *p.BackstopRate)
 	s.Require().NotNil(p.MaxPositions)
@@ -714,33 +697,6 @@ func (s *BlendLiveIngestionTestSuite) assertPoolCatalog(p wbtypes.BlendPool, sta
 	s.Assert().Greater(*xlm.Utilization, 0.0)
 
 	s.Assert().NotNil(usdc.EmissionsSupplyApr, "USDC reserve has bToken emissions configured")
-}
-
-// assertEarnOptions asserts blendEarnOptions contains USDC and XLM entries
-// with at least one pool option each.
-func (s *BlendLiveIngestionTestSuite) assertEarnOptions(options []wbtypes.BlendEarnOption, stack *infrastructure.BlendStack) {
-	usdcOpt := findEarnOptionByAsset(options, stack.USDCTokenID)
-	xlmOpt := findEarnOptionByAsset(options, stack.XLMTokenID)
-	s.Require().NotNil(usdcOpt, "expected a blendEarnOptions entry for USDC")
-	s.Require().NotNil(xlmOpt, "expected a blendEarnOptions entry for XLM")
-
-	for _, opt := range []*wbtypes.BlendEarnOption{usdcOpt, xlmOpt} {
-		s.Require().NotEmpty(opt.Pools)
-		var found *wbtypes.BlendEarnPoolOption
-		for i := range opt.Pools {
-			if opt.Pools[i].PoolAddress == stack.PoolID {
-				found = &opt.Pools[i]
-			}
-		}
-		s.Require().NotNilf(found, "expected pool option %s for asset %s", stack.PoolID, opt.AssetContractID)
-		s.Assert().NotNil(found.SupplyApy)
-	}
-
-	for i := range usdcOpt.Pools {
-		if usdcOpt.Pools[i].PoolAddress == stack.PoolID {
-			s.Assert().NotNil(usdcOpt.Pools[i].EmissionsSupplyApr)
-		}
-	}
 }
 
 // assertSupplierPositions asserts the supplier's positions after phase-2

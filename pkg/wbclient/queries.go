@@ -130,21 +130,6 @@ const (
 		}
 	`
 
-	// blendEarnOptionFields are the fields of BlendEarnOption, including its nested pools.
-	blendEarnOptionFields = `
-		assetContractId
-		tokenName
-		tokenSymbol
-		tokenDecimals
-		pools {
-			poolAddress
-			poolName
-			supplyApy
-			emissionsSupplyApr
-			suppliedUsd
-		}
-	`
-
 	// blendReservePositionFields are the fields of BlendReservePosition.
 	blendReservePositionFields = `
 		assetContractId
@@ -158,7 +143,8 @@ const (
 		borrowedUsd
 		supplyApy
 		borrowApy
-		emissionsApr
+		emissionsSupplyApr
+		emissionsBorrowApr
 		interestEarned
 		interestPaid
 		emissionsEarnedBlnd
@@ -576,17 +562,6 @@ func buildBlendPoolQuery() string {
 			}
 		}
 	`, blendPoolFields)
-}
-
-// buildBlendEarnOptionsQuery builds the GraphQL query for fetching the Blend v2 earn catalog.
-func buildBlendEarnOptionsQuery() string {
-	return fmt.Sprintf(`
-		query BlendEarnOptions {
-			blendEarnOptions {
-				%s
-			}
-		}
-	`, blendEarnOptionFields)
 }
 
 // buildAccountBlendPositionsQuery builds the GraphQL query for fetching an account's Blend v2

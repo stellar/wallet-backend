@@ -1,19 +1,34 @@
 package types
 
+// BlendPoolStatus is a pool's operational status. The on-chain integer status
+// (0-6) is surfaced by the GraphQL API as one of these enum names; see the
+// BlendPoolStatus enum in the schema for the numeric encoding.
+type BlendPoolStatus string
+
+const (
+	BlendPoolStatusAdminActive BlendPoolStatus = "ADMIN_ACTIVE"
+	BlendPoolStatusActive      BlendPoolStatus = "ACTIVE"
+	BlendPoolStatusAdminOnIce  BlendPoolStatus = "ADMIN_ON_ICE"
+	BlendPoolStatusOnIce       BlendPoolStatus = "ON_ICE"
+	BlendPoolStatusAdminFrozen BlendPoolStatus = "ADMIN_FROZEN"
+	BlendPoolStatusFrozen      BlendPoolStatus = "FROZEN"
+	BlendPoolStatusSetup       BlendPoolStatus = "SETUP"
+)
+
 // BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of any account.
 type BlendPool struct {
-	Address          string         `json:"address"`
-	Name             *string        `json:"name,omitempty"`
-	Status           *int32         `json:"status,omitempty"`
-	OracleContractID *string        `json:"oracleContractId,omitempty"`
-	BackstopRate     *int32         `json:"backstopRate,omitempty"`
-	MaxPositions     *int32         `json:"maxPositions,omitempty"`
-	SuppliedUsd      *float64       `json:"suppliedUsd,omitempty"`
-	BorrowedUsd      *float64       `json:"borrowedUsd,omitempty"`
-	BackstopUsd      *float64       `json:"backstopUsd,omitempty"`
-	InterestApy      *float64       `json:"interestApy,omitempty"`
-	NetApy           *float64       `json:"netApy,omitempty"`
-	Reserves         []BlendReserve `json:"reserves"`
+	Address          string           `json:"address"`
+	Name             *string          `json:"name,omitempty"`
+	Status           *BlendPoolStatus `json:"status,omitempty"`
+	OracleContractID *string          `json:"oracleContractId,omitempty"`
+	BackstopRate     *int32           `json:"backstopRate,omitempty"`
+	MaxPositions     *int32           `json:"maxPositions,omitempty"`
+	SuppliedUsd      *float64         `json:"suppliedUsd,omitempty"`
+	BorrowedUsd      *float64         `json:"borrowedUsd,omitempty"`
+	BackstopUsd      *float64         `json:"backstopUsd,omitempty"`
+	InterestApy      *float64         `json:"interestApy,omitempty"`
+	NetApy           *float64         `json:"netApy,omitempty"`
+	Reserves         []BlendReserve   `json:"reserves"`
 }
 
 // BlendReserve is a pool-wide reserve catalog view: utilization, APYs, emissions APRs, and
@@ -36,25 +51,6 @@ type BlendReserve struct {
 	CFactor            *int32   `json:"cFactor,omitempty"`
 	LFactor            *int32   `json:"lFactor,omitempty"`
 	PriceUsd           *float64 `json:"priceUsd,omitempty"`
-}
-
-// BlendEarnOption is a "where can I earn this asset" catalog view: one entry per asset with at
-// least one enabled reserve in a pool that currently accepts supply.
-type BlendEarnOption struct {
-	AssetContractID string                `json:"assetContractId"`
-	TokenName       *string               `json:"tokenName,omitempty"`
-	TokenSymbol     *string               `json:"tokenSymbol,omitempty"`
-	TokenDecimals   *int32                `json:"tokenDecimals,omitempty"`
-	Pools           []BlendEarnPoolOption `json:"pools"`
-}
-
-// BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
-type BlendEarnPoolOption struct {
-	PoolAddress        string   `json:"poolAddress"`
-	PoolName           *string  `json:"poolName,omitempty"`
-	SupplyApy          *float64 `json:"supplyApy,omitempty"`
-	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
-	SuppliedUsd        *float64 `json:"suppliedUsd,omitempty"`
 }
 
 // BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has
@@ -90,7 +86,8 @@ type BlendReservePosition struct {
 	BorrowedUsd         *float64 `json:"borrowedUsd,omitempty"`
 	SupplyApy           *float64 `json:"supplyApy,omitempty"`
 	BorrowApy           *float64 `json:"borrowApy,omitempty"`
-	EmissionsApr        *float64 `json:"emissionsApr,omitempty"`
+	EmissionsSupplyApr  *float64 `json:"emissionsSupplyApr,omitempty"`
+	EmissionsBorrowApr  *float64 `json:"emissionsBorrowApr,omitempty"`
 	InterestEarned      string   `json:"interestEarned"`
 	InterestPaid        string   `json:"interestPaid"`
 	EmissionsEarnedBlnd string   `json:"emissionsEarnedBlnd"`
