@@ -55,8 +55,8 @@ func priceUsdOrNil(price *blenddata.OraclePrice) *float64 {
 // reserve's own pool-wide BSupply/DSupply rather than an account's holdings.
 // emissionsSupplyApr/emissionsBorrowApr size their APR against that same
 // pool-wide side, matching buildReservePosition's emissionsAPRFor calls
-// exactly (both use the reserve's current, unprojected BSupply/BRate and
-// DSupply/DRate as the sideRaw/sideRate denominator).
+// exactly (both value the sideRaw denominator at the PROJECTED PB/PD rates,
+// consistent with every other as-of-now token/USD figure on the type).
 func (d *blendAssembly) buildPoolReserve(poolAddr string, reserve blenddata.Reserve) (*graphql1.BlendReserve, error) {
 	rr, err := d.computeReserveRates(poolAddr, reserve)
 	if err != nil {
@@ -77,8 +77,8 @@ func (d *blendAssembly) buildPoolReserve(poolAddr string, reserve blenddata.Rese
 
 	bTokenID := reserve.ReserveIndex*2 + 1
 	dTokenID := reserve.ReserveIndex * 2
-	emissionsSupplyApr := d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.BRate, reserve.Decimals, price)
-	emissionsBorrowApr := d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.DRate, reserve.Decimals, price)
+	emissionsSupplyApr := d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.PB, reserve.Decimals, price)
+	emissionsBorrowApr := d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.PD, reserve.Decimals, price)
 
 	utilization, _ := rr.CurrentUtil.Float64()
 	priceUsd := priceUsdOrNil(price)
