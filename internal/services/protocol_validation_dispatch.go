@@ -129,11 +129,14 @@ func PrepareClassification(
 }
 
 // ApplyClassificationPlan persists each validator's classification side
-// effects (e.g. contract_tokens) inside dbTx, using only the
-// enrichment data PrepareClassification already resolved via RPC. No RPC
-// handle is reachable from here — this is a compile-level guarantee: Apply
-// has no RPCService parameter, so a validator cannot make a network call
-// while dbTx (and the row locks it holds) is open.
+// effects (e.g. contract_tokens) inside dbTx, using only the enrichment data
+// PrepareClassification already resolved via RPC. The dispatch boundary hands
+// Apply no RPC handle — Prefetch is the sole RPC entry point and Apply's
+// signature carries no RPCService — so the enforced contract is that a
+// validator performs no network round-trip while dbTx (and the row locks it
+// holds) is open. This is a boundary convention rather than a compiler-proven
+// impossibility: a validator that retains its own RPC client on its receiver
+// must still honor it and never call out during Apply.
 func ApplyClassificationPlan(ctx context.Context, dbTx pgx.Tx, models *data.Models, plan *ClassificationPlan, failureCounter *prometheus.CounterVec) error {
 	if plan == nil {
 		return nil

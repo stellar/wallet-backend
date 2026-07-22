@@ -57,10 +57,13 @@ type ProtocolValidator interface {
 	Prefetch(ctx context.Context, rpc RPCService, candidates []WasmCandidate, matched map[types.HashBytea]struct{}, contracts []ContractCandidate) (plan any, err error)
 
 	// Apply persists this batch's classification side effects (e.g.
-	// contract_tokens rows) inside dbTx, using only the plan
-	// Prefetch already resolved. No RPC handle is available here — a
-	// validator whose Prefetch could not reach RPC already reflects that in
-	// its plan (e.g. an empty enrichment map), not as an Apply-time error.
+	// contract_tokens rows) inside dbTx, using only the plan Prefetch already
+	// resolved. The dispatch boundary passes Apply no RPC handle — Prefetch is
+	// the sole RPC entry point — so implementations must not perform any network
+	// round-trip here (including via an RPC client the validator retains on its
+	// own receiver) while dbTx's row locks are held; a validator whose Prefetch
+	// could not reach RPC already reflects that in its plan (e.g. an empty
+	// enrichment map), not as an Apply-time error.
 	Apply(ctx context.Context, dbTx pgx.Tx, matched map[types.HashBytea]struct{}, contracts []ContractCandidate, plan any, models *data.Models) error
 }
 
