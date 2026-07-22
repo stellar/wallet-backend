@@ -116,6 +116,12 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 }
 
 func Ingest(cfg Configs) error {
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
+	// loop and the in-flight ledger's transaction, so that ledger is rolled back
+	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
+	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
+	// state is ever persisted. Cleanup (deferred below) then drains the servers and
+	// tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -306,31 +312,35 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	// Start ingest server which serves metrics and health check endpoints.
 	servers := startServers(cfg, models, rpcService, m)
 
-	// Shut down the servers once the root context is cancelled (SIGINT/SIGTERM,
-	// registered by the caller via signal.NotifyContext).
-	go func() {
-		<-ctx.Done()
+	// cleanup tears down every resource owned at this layer, in dependency order,
+	// once Run has returned. Servers are drained first — their /health handler
+	// reads the DB pool — and the drain is awaited here rather than left to a
+	// fire-and-forget goroutine, so it cannot race the pool close below. The
+	// worker pools are stopped next (a draining task may still issue DB work),
+	// and only then is the shared DB pool closed.
+	cleanup := func() {
 		log.Info("Shutting down servers...")
-
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), ServerShutdownTimeout)
-		defer cancel()
-
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), ServerShutdownTimeout)
+		defer cancelShutdown()
 		for _, server := range servers {
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				log.Errorf("Server forced to shutdown: %v", err)
 			}
 		}
 		log.Info("Servers gracefully stopped")
-	}()
 
-	cleanup := func() {
+		// Stop the ingest service's worker pools and the contract-metadata pool
+		// before the DB pool, so no pooled task outlives the connection pool.
+		ingestService.Close()
+		contractMetadataPool.StopAndWait()
+
 		if err := ledgerBackend.Close(); err != nil {
 			log.Ctx(ctx).Warnf("closing ledger backend: %v", err)
 		}
 
-		closeCtx, cancel := context.WithTimeout(context.Background(), wasmExtractorCloseTimeout)
-		defer cancel()
-		if err := wasmExtractor.Close(closeCtx); err != nil {
+		wasmCloseCtx, cancelWasm := context.WithTimeout(context.Background(), wasmExtractorCloseTimeout)
+		defer cancelWasm()
+		if err := wasmExtractor.Close(wasmCloseCtx); err != nil {
 			log.Ctx(ctx).Warnf("closing wasm spec extractor: %v", err)
 		}
 

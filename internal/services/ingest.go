@@ -111,6 +111,10 @@ func generateAdvisoryLockID(network string) int {
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
+	// Close stops the worker pools this service owns. Call it after Run has
+	// returned (no ledger indexing/backfill in flight) and before the shared
+	// DB pool is closed.
+	Close()
 }
 
 var _ IngestService = (*ingestService)(nil)
@@ -132,6 +136,7 @@ type ingestService struct {
 	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
+	ledgerIndexerPool         pond.Pool
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
@@ -200,6 +205,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
 		ledgerIndexer:             ledgerIndexer,
+		ledgerIndexerPool:         ledgerIndexerPool,
 		contractMetadataService:   cfg.ContractMetadataService,
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,
@@ -227,6 +233,21 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		return m.startBackfilling(ctx, startLedger, endLedger)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
+	}
+}
+
+// Close stops the worker pools this service owns: the ledger-indexer pool, the
+// backfill pool, and any protocol validator that owns resources (e.g. the
+// SEP-41 validator's metadata-fetch pool). It must be called after Run has
+// returned — when nothing is being indexed or backfilled — and before the
+// shared DB pool closes, since a draining task may still issue DB work.
+func (m *ingestService) Close() {
+	m.ledgerIndexerPool.StopAndWait()
+	m.backfillPool.StopAndWait()
+	for _, v := range m.protocolValidators {
+		if closer, ok := v.(interface{ Close() }); ok {
+			closer.Close()
+		}
 	}
 }
 
