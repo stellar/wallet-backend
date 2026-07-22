@@ -181,6 +181,11 @@ func (r *accountResolver) Sep41Allowances(ctx context.Context, obj *types.Accoun
 	return r.getSEP41Allowances(ctx, string(obj.StellarAddress), first, after, last, before)
 }
 
+// BlendPositions is the resolver for the blendPositions field.
+func (r *accountResolver) BlendPositions(ctx context.Context, obj *types.Account) (*graphql1.BlendAccountPositions, error) {
+	return r.getBlendPositions(ctx, string(obj.StellarAddress))
+}
+
 // Account returns graphql1.AccountResolver implementation.
 func (r *Resolver) Account() graphql1.AccountResolver { return &accountResolver{r} }
 

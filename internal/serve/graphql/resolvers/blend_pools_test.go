@@ -208,7 +208,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.NotNil(t, alpha.Name)
 		assert.Equal(t, "Pool Alpha", *alpha.Name)
 		require.NotNil(t, alpha.Status)
-		assert.EqualValues(t, 0, *alpha.Status)
+		assert.Equal(t, graphql1.BlendPoolStatusAdminActive, *alpha.Status)
 		require.NotNil(t, alpha.OracleContractID)
 		assert.Equal(t, oracleA, *alpha.OracleContractID)
 		require.NotNil(t, alpha.BackstopRate)
@@ -309,7 +309,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.NotNil(t, beta.Name)
 		assert.Equal(t, "Pool Beta", *beta.Name)
 		require.NotNil(t, beta.Status)
-		assert.EqualValues(t, 1, *beta.Status)
+		assert.Equal(t, graphql1.BlendPoolStatusActive, *beta.Status)
 		require.Len(t, beta.Reserves, 1)
 
 		rb := beta.Reserves[0]

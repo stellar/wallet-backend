@@ -39,4 +39,7 @@ type Account{
   # expiration_ledger is below the latest ingested ledger are filtered out server-side.
   # Relay-paginated with a max page size of 100.
   sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
+
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
 }

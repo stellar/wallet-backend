@@ -2682,6 +2682,9 @@ type Account{
   # expiration_ledger is below the latest ingested ledger are filtered out server-side.
   # Relay-paginated with a max page size of 100.
   sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
+
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `interface Balance {
@@ -2777,27 +2780,20 @@ type SEP41Allowance {
 `, BuiltIn: false},
 	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
 #
-# Query.blendPools/blendPool are pool-wide catalog views, independent of any
-# account. Account.blendPositions is an account's lending, collateral, and
-# backstop positions across every Blend v2 pool it touches, plus any active
-# Dutch auctions where the account is the auction owner
-# (BlendAccountPositions.activeAuctions).
+# The Query.blendPools/blendPool entry points (a pool-wide catalog view,
+# independent of any account) live on the base type Query in queries.graphqls,
+# and Account.blendPositions (an account's lending, collateral, and backstop
+# positions across every Blend v2 pool it touches, plus any active Dutch
+# auctions where the account is the auction owner —
+# BlendAccountPositions.activeAuctions) lives on type Account in
+# account.graphqls. This file defines every Blend v2 object/enum type those
+# fields resolve to.
 #
 # Money-shaped fields use Float for USD/APY values (nullable wherever a missing
 # oracle price makes the value uncomputable — a genuinely zero balance is still
 # 0, not null) and String! for on-chain integer amounts, kept at full precision
 # rather than lossy float64. A stored price older than 24h counts as missing:
 # the pool contract itself refuses prices past that age.
-
-extend type Query {
-  blendPools: [BlendPool!]!
-  blendPool(address: String!): BlendPool
-}
-
-extend type Account {
-  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
-  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
-}
 
 """
 BlendAccountPositions aggregates one account's Blend v2 exposure across every
@@ -2929,12 +2925,12 @@ type BlendPool {
   address: String!
   name: String
   """
-  Raw on-chain pool status: 0 Admin Active, 1 Active, 2 Admin On-Ice,
-  3 On-Ice, 4 Admin Frozen, 5 Frozen, 6 Setup. Statuses 0-3 accept supply
-  (deposits); 0-1 also allow borrowing; 4-6 reject both. Null until the
-  pool's config entry has been ingested.
+  Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+  (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+  SETUP reject both. Null until the pool's config entry has been ingested, and
+  also null for an unrecognized on-chain status value.
   """
-  status: Int
+  status: BlendPoolStatus
   oracleContractId: String
   """
   Share of borrower interest routed to the pool's backstop, as 7-decimal
@@ -2956,6 +2952,22 @@ type BlendPool {
   admin: String
   """Whether this pool is in the backstop's reward zone and therefore receives BLND emissions."""
   inRewardZone: Boolean!
+}
+
+"""
+BlendPoolStatus is a pool's operational status. On-chain encoding:
+0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+borrowing; 4-6 reject both.
+"""
+enum BlendPoolStatus {
+  ADMIN_ACTIVE
+  ACTIVE
+  ADMIN_ON_ICE
+  ON_ICE
+  ADMIN_FROZEN
+  FROZEN
+  SETUP
 }
 
 enum BlendAuctionType {
@@ -3258,6 +3270,10 @@ type Query {
     operations(first: Int, after: String, last: Int, before: String):     OperationConnection
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+
+    # Blend v2 lending - pool-wide catalog views, independent of any account
+    blendPools:                                                           [BlendPool!]!
+    blendPool(address: String!):                                          BlendPool
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `# GraphQL Custom Scalars - extend GraphQL's built-in scalar types
@@ -6061,7 +6077,7 @@ func (ec *executionContext) _BlendPool_status(ctx context.Context, field graphql
 			return obj.Status, nil
 		},
 		nil,
-		ec.marshalOInt2ᚖint32,
+		ec.marshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus,
 		true,
 		false,
 	)
@@ -6074,7 +6090,7 @@ func (ec *executionContext) fieldContext_BlendPool_status(_ context.Context, fie
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
+			return nil, errors.New("field of type BlendPoolStatus does not have child fields")
 		},
 	}
 	return fc, nil
@@ -22746,6 +22762,22 @@ func (ec *executionContext) marshalOBlendPool2ᚖgithubᚗcomᚋstellarᚋwallet
 		return graphql.Null
 	}
 	return ec._BlendPool(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus(ctx context.Context, v any) (*BlendPoolStatus, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(BlendPoolStatus)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus(ctx context.Context, sel ast.SelectionSet, v *BlendPoolStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOBoolean2bool(ctx context.Context, v any) (bool, error) {

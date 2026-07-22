@@ -127,12 +127,12 @@ type BlendBackstopPosition struct {
 type BlendPool struct {
 	Address string  `json:"address"`
 	Name    *string `json:"name,omitempty"`
-	// Raw on-chain pool status: 0 Admin Active, 1 Active, 2 Admin On-Ice,
-	// 3 On-Ice, 4 Admin Frozen, 5 Frozen, 6 Setup. Statuses 0-3 accept supply
-	// (deposits); 0-1 also allow borrowing; 4-6 reject both. Null until the
-	// pool's config entry has been ingested.
-	Status           *int32  `json:"status,omitempty"`
-	OracleContractID *string `json:"oracleContractId,omitempty"`
+	// Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+	// (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+	// SETUP reject both. Null until the pool's config entry has been ingested, and
+	// also null for an unrecognized on-chain status value.
+	Status           *BlendPoolStatus `json:"status,omitempty"`
+	OracleContractID *string          `json:"oracleContractId,omitempty"`
 	// Share of borrower interest routed to the pool's backstop, as 7-decimal
 	// fixed point (4750000 = 47.5%).
 	BackstopRate *int32          `json:"backstopRate,omitempty"`
@@ -444,6 +444,75 @@ func (e *BlendAuctionType) UnmarshalJSON(b []byte) error {
 }
 
 func (e BlendAuctionType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// BlendPoolStatus is a pool's operational status. On-chain encoding:
+// 0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+// 5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+// borrowing; 4-6 reject both.
+type BlendPoolStatus string
+
+const (
+	BlendPoolStatusAdminActive BlendPoolStatus = "ADMIN_ACTIVE"
+	BlendPoolStatusActive      BlendPoolStatus = "ACTIVE"
+	BlendPoolStatusAdminOnIce  BlendPoolStatus = "ADMIN_ON_ICE"
+	BlendPoolStatusOnIce       BlendPoolStatus = "ON_ICE"
+	BlendPoolStatusAdminFrozen BlendPoolStatus = "ADMIN_FROZEN"
+	BlendPoolStatusFrozen      BlendPoolStatus = "FROZEN"
+	BlendPoolStatusSetup       BlendPoolStatus = "SETUP"
+)
+
+var AllBlendPoolStatus = []BlendPoolStatus{
+	BlendPoolStatusAdminActive,
+	BlendPoolStatusActive,
+	BlendPoolStatusAdminOnIce,
+	BlendPoolStatusOnIce,
+	BlendPoolStatusAdminFrozen,
+	BlendPoolStatusFrozen,
+	BlendPoolStatusSetup,
+}
+
+func (e BlendPoolStatus) IsValid() bool {
+	switch e {
+	case BlendPoolStatusAdminActive, BlendPoolStatusActive, BlendPoolStatusAdminOnIce, BlendPoolStatusOnIce, BlendPoolStatusAdminFrozen, BlendPoolStatusFrozen, BlendPoolStatusSetup:
+		return true
+	}
+	return false
+}
+
+func (e BlendPoolStatus) String() string {
+	return string(e)
+}
+
+func (e *BlendPoolStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendPoolStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendPoolStatus", str)
+	}
+	return nil
+}
+
+func (e BlendPoolStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendPoolStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendPoolStatus) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

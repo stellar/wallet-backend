@@ -7,4 +7,8 @@ type Query {
     operations(first: Int, after: String, last: Int, before: String):     OperationConnection
     operationById(id: Int64!):                                            Operation
     stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+
+    # Blend v2 lending - pool-wide catalog views, independent of any account
+    blendPools:                                                           [BlendPool!]!
+    blendPool(address: String!):                                          BlendPool
 }

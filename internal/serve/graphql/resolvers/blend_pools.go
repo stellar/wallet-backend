@@ -127,6 +127,37 @@ func (d *blendAssembly) backstopUsdForPool(poolAddr string) (*float64, error) {
 	return usdValueOrNil(tokens, backstopLPDecimals, d.lpPrice), nil
 }
 
+// blendPoolStatusEnum maps a blend_pools.status value to its schema enum
+// (on-chain encoding 0-6, per the BlendPoolStatus doc). status is a pointer
+// because the column is null until the pool's config entry has been ingested;
+// nil status, and any unrecognized value, both yield (nil, matching the field
+// doc) — the caller surfaces null rather than a malformed enum.
+func blendPoolStatusEnum(status *int32) *graphql1.BlendPoolStatus {
+	if status == nil {
+		return nil
+	}
+	var out graphql1.BlendPoolStatus
+	switch *status {
+	case 0:
+		out = graphql1.BlendPoolStatusAdminActive
+	case 1:
+		out = graphql1.BlendPoolStatusActive
+	case 2:
+		out = graphql1.BlendPoolStatusAdminOnIce
+	case 3:
+		out = graphql1.BlendPoolStatusOnIce
+	case 4:
+		out = graphql1.BlendPoolStatusAdminFrozen
+	case 5:
+		out = graphql1.BlendPoolStatusFrozen
+	case 6:
+		out = graphql1.BlendPoolStatusSetup
+	default:
+		return nil
+	}
+	return &out
+}
+
 // buildPool assembles one blend_pools row plus its reserves into a
 // pool-wide BlendPool catalog entry.
 //
@@ -210,7 +241,7 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 	return &graphql1.BlendPool{
 		Address:          poolAddr,
 		Name:             pool.Name,
-		Status:           pool.Status,
+		Status:           blendPoolStatusEnum(pool.Status),
 		OracleContractID: addressPtrOrNil(pool.OracleContractID),
 		BackstopRate:     pool.BackstopRate,
 		MaxPositions:     pool.MaxPositions,
