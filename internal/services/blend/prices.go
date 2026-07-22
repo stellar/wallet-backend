@@ -177,13 +177,14 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 		}
 	}
 
-	s.metrics.PricesTracked.Set(float64(len(rows)))
-
+	written := len(rows)
 	if len(rows) > 0 {
 		if upsertErr := s.oraclePrices.BatchUpsert(ctx, rows); upsertErr != nil {
 			errs = append(errs, fmt.Errorf("blend: price snapshot: persisting %d rows: %w", len(rows), upsertErr))
+			written = 0
 		}
 	}
+	s.metrics.PricesTracked.Set(float64(written))
 
 	return errors.Join(errs...)
 }
@@ -196,8 +197,9 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 // it — but is isolated to this oracle by the caller. A single target's
 // lastprice failure is isolated to that target: the rest of this oracle's
 // targets are still attempted. The second return value is the age in
-// seconds of the oldest price decoded (including skipped-as-stale ones —
-// that growth is the dead-oracle signal the gauge exists for).
+// seconds of the oldest positive price decoded (including skipped-as-stale
+// ones — that growth is the dead-oracle signal the gauge exists for;
+// invalid ≤ 0 prices are excluded, their timestamps mean nothing).
 func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string, targets []blenddata.PriceTarget, now int64) ([]blenddata.OraclePrice, int64, error) {
 	decimalsVal, err := s.metadata.FetchSingleField(ctx, oracle, "decimals")
 	if err != nil {
