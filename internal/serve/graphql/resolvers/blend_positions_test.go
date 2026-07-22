@@ -25,7 +25,7 @@ import (
 // balance but NO UserEmissionData entry is owed balance*index/scalar the
 // moment an emission stream exists — not zero.
 func TestClaimableStream(t *testing.T) {
-	scalar := big.NewInt(100_000_000_000_000)     // 1e14: 7-decimal token, 10^7 * SCALAR_7
+	scalar := big.NewInt(100_000_000_000_000)  // 1e14: 7-decimal token, 10^7 * SCALAR_7
 	index := big.NewInt(1_234_000_000_000_000) // 1.234e15
 
 	t.Run("no user row, balance held: historical accrual owed", func(t *testing.T) {
@@ -390,8 +390,12 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.InDelta(t, 6.0, *pool.BorrowedUsd, 1e-9)
 		require.NotNil(t, pool.UsdValue)
 		assert.InDelta(t, -4.0, *pool.UsdValue, 1e-9)
+		// netApy = (suppliedUsd·supplyApy − borrowedUsd·borrowApy) / suppliedUsd
+		//   = (2.0·0.006420127418405475 − 6.0·0.022754324920237545) / 2.0
+		//   = −0.12368569468461432 / 2.0 — divided by TOTAL SUPPLIED, not the
+		// net value, matching blend-sdk-js's PositionsEstimate.
 		require.NotNil(t, pool.NetApy)
-		assert.InDelta(t, 0.03092142367115358, *pool.NetApy, 1e-9)
+		assert.InDelta(t, -0.06184284734230716, *pool.NetApy, 1e-9)
 	})
 
 	t.Run("backstop position", func(t *testing.T) {

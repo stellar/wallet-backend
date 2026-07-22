@@ -183,7 +183,12 @@ type BlendPoolPosition struct {
 	UsdValue    *float64 `json:"usdValue,omitempty"`
 	SuppliedUsd *float64 `json:"suppliedUsd,omitempty"`
 	BorrowedUsd *float64 `json:"borrowedUsd,omitempty"`
-	NetApy      *float64 `json:"netApy,omitempty"`
+	// Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+	// PositionsEstimate convention shown by the Blend UI:
+	// (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+	// 0 for a position with debt but no supply (bad debt is forgiven). Null when
+	// any contributing reserve is missing a fresh oracle price.
+	NetApy *float64 `json:"netApy,omitempty"`
 	// Lifetime BLND this account has claimed from this pool's reserve emissions.
 	ClaimedBlnd string                  `json:"claimedBlnd"`
 	Reserves    []*BlendReservePosition `json:"reserves"`

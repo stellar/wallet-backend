@@ -52,6 +52,13 @@ type BlendPoolPosition {
   usdValue: Float
   suppliedUsd: Float
   borrowedUsd: Float
+  """
+  Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+  PositionsEstimate convention shown by the Blend UI:
+  (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+  0 for a position with debt but no supply (bad debt is forgiven). Null when
+  any contributing reserve is missing a fresh oracle price.
+  """
   netApy: Float
   """Lifetime BLND this account has claimed from this pool's reserve emissions."""
   claimedBlnd: String!
