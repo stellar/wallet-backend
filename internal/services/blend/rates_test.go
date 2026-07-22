@@ -248,10 +248,12 @@ func TestToAPY(t *testing.T) {
 }
 
 func TestProjectRates(t *testing.T) {
+	rateOne := mustBigInt("1000000000000") // rate exactly 1.0 at SCALAR_12
+
 	t.Run("zero elapsed returns unchanged rates", func(t *testing.T) {
 		bRate := mustBigInt("1130417963074")
 		dRate := mustBigInt("1206619920020")
-		pB, pD := ProjectRates(bRate, dRate, big.NewRat(1, 10), big.NewRat(1, 2), 2_000_000, 1000, 1000)
+		pB, pD := ProjectRates(bRate, dRate, big.NewInt(2), big.NewInt(1), big.NewRat(1, 10), 2_000_000, 1000, 1000)
 		assert.Equal(t, bRate, pB)
 		assert.Equal(t, dRate, pD)
 	})
@@ -259,32 +261,60 @@ func TestProjectRates(t *testing.T) {
 	t.Run("negative elapsed (stale request) returns unchanged rates", func(t *testing.T) {
 		bRate := mustBigInt("1130417963074")
 		dRate := mustBigInt("1206619920020")
-		pB, pD := ProjectRates(bRate, dRate, big.NewRat(1, 10), big.NewRat(1, 2), 2_000_000, 1000, 900)
+		pB, pD := ProjectRates(bRate, dRate, big.NewInt(2), big.NewInt(1), big.NewRat(1, 10), 2_000_000, 1000, 900)
 		assert.Equal(t, bRate, pB)
 		assert.Equal(t, dRate, pD)
 	})
 
+	t.Run("zero liabilities: contract's util==0 short-circuit, rates unchanged", func(t *testing.T) {
+		// Reserve::load bumps last_time and skips the rate update entirely
+		// when utilization()==0 (reserve.rs) — without this branch dRate
+		// would wrongly grow by irMod·rBase while nobody borrows.
+		pB, pD := ProjectRates(rateOne, rateOne, big.NewInt(1_000_000), big.NewInt(0), big.NewRat(1, 100), 2_000_000, 0, SecondsPerYear)
+		assert.Equal(t, rateOne, pB)
+		assert.Equal(t, rateOne, pD)
+	})
+
+	t.Run("zero bSupply: contract's on-load guard, rates unchanged", func(t *testing.T) {
+		pB, pD := ProjectRates(rateOne, rateOne, big.NewInt(0), big.NewInt(1_000_000), big.NewRat(1, 100), 2_000_000, 0, SecondsPerYear)
+		assert.Equal(t, rateOne, pB)
+		assert.Equal(t, rateOne, pD)
+	})
+
 	t.Run("1 year at known APR: clean round-number growth", func(t *testing.T) {
-		// bRate=dRate=1e12 (rate 1.0), borrowAPR=0.1, util=0.5, bstop=0.2 ->
-		// supplyAPR = 0.1*0.5*0.8 = 0.04. Over exactly one year:
+		// bRate=dRate=1e12 (rate 1.0), borrowAPR=0.1, bstop=0.2;
+		// supplies give rawUtil = (1·1e12)/(2·1e12) = 0.5 ->
+		// growthB = 0.1*0.5*0.8 = 0.04. Over exactly one year:
 		// newD = 1e12*(1+0.1) = 1.1e12; newB = 1e12*(1+0.04) = 1.04e12.
-		bRate := mustBigInt("1000000000000")
-		dRate := mustBigInt("1000000000000")
-		pB, pD := ProjectRates(bRate, dRate, big.NewRat(1, 10), big.NewRat(1, 2), 2_000_000, 0, SecondsPerYear)
+		pB, pD := ProjectRates(rateOne, rateOne, big.NewInt(2), big.NewInt(1), big.NewRat(1, 10), 2_000_000, 0, SecondsPerYear)
 		assert.Equal(t, mustBigInt("1040000000000"), pB)
 		assert.Equal(t, mustBigInt("1100000000000"), pD)
 	})
 
+	t.Run("bad debt (liabilities > supply): bRate grows by the UNCLAMPED ratio", func(t *testing.T) {
+		// rawUtil = 102/100 = 1.02 — past the clamp. The contract's accrual
+		// split still applies the raw liabilities/supply ratio to bRate
+		// (accrued·(1−bstop)/totalSupply), so with borrowAPR=0.5, bstop=0,
+		// 1 year: newD = 1.5e12; newB = 1e12·(1+0.5·1.02) = 1.51e12.
+		// A clamped ratio would understate newB at 1.5e12.
+		pB, pD := ProjectRates(rateOne, rateOne, big.NewInt(100), big.NewInt(102), big.NewRat(1, 2), 0, 0, SecondsPerYear)
+		assert.Equal(t, mustBigInt("1510000000000"), pB)
+		assert.Equal(t, mustBigInt("1500000000000"), pD)
+	})
+
 	t.Run("real mainnet vector projected 6 seconds forward", func(t *testing.T) {
-		// borrowAPR/util as computed in TestBorrowAPR/TestUtilization's real
-		// vectors; lastTime=1783543369, now=1783543375 (Δt=6s, the gap
-		// observed between the `get_reserve` and `get_config` RPC calls made
-		// back-to-back while gathering this vector). Expected pB/pD computed
-		// independently in Python using exact fractions.Fraction arithmetic
-		// then rounded half-away-from-zero: pD=1206619947101, pB=1130417979435.
+		// borrowAPR as computed in TestBorrowAPR's real vector; rawUtil is
+		// derived internally from the same realB/DSupply·realB/DRate products
+		// TestUtilization checks. lastTime=1783543369, now=1783543375 (Δt=6s,
+		// the gap observed between the `get_reserve` and `get_config` RPC
+		// calls made back-to-back while gathering this vector). Expected
+		// pB/pD computed independently in Python using exact
+		// fractions.Fraction arithmetic on the SAME formula, then rounded
+		// half-away-from-zero: pD=1206619947101, pB=1130417979435. (The
+		// contract's own fixed-point ceil/floor path lands 1 unit higher on
+		// pD — this pins the exact-rational form, not the on-chain rounding.)
 		borrowAPR := bigRatFromDecimalString(t, "59393658265844428560644300155817", "503481312112680364527162250000000")
-		util := bigRatFromDecimalString(t, "24350456626743911085123661", "30208878726760821871629735")
-		pB, pD := ProjectRates(realBRate, realDRate, borrowAPR, util, realBstop, 1783543369, 1783543375)
+		pB, pD := ProjectRates(realBRate, realDRate, realBSupply, realDSupply, borrowAPR, realBstop, 1783543369, 1783543375)
 		assert.Equal(t, mustBigInt("1130417979435"), pB)
 		assert.Equal(t, mustBigInt("1206619947101"), pD)
 	})
