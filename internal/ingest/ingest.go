@@ -184,6 +184,7 @@ func setupDeps(cfg Configs) (services.IngestService, error) {
 			Metadata:             contractMetadataService,
 			Interval:             cfg.BlendPriceInterval,
 			BackstopLPContractID: cfg.BlendBackstopLPContractID,
+			RPC:                  rpcService,
 			Metrics:              m.BlendPrices,
 		})
 		if err != nil {

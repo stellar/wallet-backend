@@ -3,38 +3,46 @@
 // on-chain state. The Blend v2 backstop's deposit token is a Comet BLND:USDC
 // weighted LP (mainnet
 // CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM, testnet
-// CA5UTUUPHYL5K22UBRUVC37EARZUGYOSGK3IKIXG2JLCC5ZZLI4BDWDM, wasm hash
-// 8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36 — pinned
-// 2026-07-08); no on-chain oracle prices it directly, so the price snapshot
-// task derives it from the pool's own balances/weights instead.
+// CA5UTUUPHYL5K22UBRUVC37EARZUGYOSGK3IKIXG2JLCC5ZZLI4BDWDM); no on-chain
+// oracle prices it directly, so the price snapshot task derives it from the
+// pool's own balances/weights instead.
 //
-// Verification (2026-07-08): `stellar contract info interface --contract-id
-// CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM --rpc-url
-// https://mainnet.sorobanrpc.com --network-passphrase "Public Global Stellar
-// Network ; September 2015"` (stellar-cli 27.0.0) against the live mainnet
-// contract, cross-checked against CometDEX/comet-contracts-v1 (GitHub,
-// contracts/src/c_pool/comet.rs and contracts/src/c_consts.rs) confirms:
+// The pool state is read straight from the contract's ledger entries rather
+// than by simulating its getter functions: everything the valuation needs
+// lives in two persistent ContractData entries (CometDEX/comet-contracts-v1,
+// contracts/src/c_pool/storage_types.rs `DataKey` and metadata.rs accessors):
 //
-//   - get_tokens(env: Env) -> Vec<Address>            — no-arg
-//   - get_balance(env: Env, token: Address) -> i128    — 1-arg
-//   - get_normalized_weight(env: Env, token: Address) -> i128 — 1-arg;
-//     comet.rs's own doc comment: "Get the weight of the token in decimal
-//     form with 7 decimals". c_consts.rs defines `STROOP: i128 = 10^7` as
-//     Comet's fixed-point scale, confirming the weight scalar is 7 decimals
-//     — the same scale Comet uses for balances and get_total_supply (the LP
-//     token's total shares), and the scale this file's own inputs/outputs use.
-//   - get_total_supply(env: Env) -> i128                — no-arg
+//   - DataKey::AllRecordData — Map<Address, Record{balance, weight, scalar,
+//     index}>, the same fields get_balance/get_normalized_weight return
+//   - DataKey::TotalShares — i128, what get_total_supply returns
 //
-// services.ContractMetadataService.FetchSingleField already accepts
-// variadic xdr.ScVal arguments, so the two 1-arg getters need no plumbing
-// changes — fetchCometState calls them directly with a single Address
-// argument built by contractAddressScVal (scval.go).
+// One getLedgerEntries request returns both entries plus the contract
+// instance from a single RPC snapshot (the response carries one
+// latestLedger), so the read is atomic by construction — a Comet transaction
+// can never interleave with it — where per-getter simulations would each
+// execute against whatever ledger is latest at that moment. The instance
+// entry's executable WASM hash is asserted against cometWasmHash before any
+// storage is decoded: the deployed contract has no upgrade entrypoint (its
+// layout cannot change at this address), so a mismatch means the configured
+// address is not the pinned Comet pool.
+//
+// Verification (2026-07-22): the key encodings (unit enum variants as
+// single-element ScvVec[Symbol]), the Record field shapes, both legs'
+// 7-decimal scalars, and the instance WASM hash were all confirmed against
+// the live mainnet pool via getLedgerEntries — a bare-Symbol key encoding
+// returns no entry. Comet's own doc comment on get_normalized_weight
+// ("decimal form with 7 decimals") and c_consts.rs `STROOP: i128 = 10^7`
+// pin the weight scale; init.rs asserts total_weight == STROOP.
 package blend
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"math/big"
+
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -51,13 +59,20 @@ const cometPriceDecimals = 7
 // tokens to treat as BLND/USDC.
 const cometTokenCount = 2
 
+// cometWasmHash is the executable WASM hash of the deployed Comet pool
+// contract (identical on mainnet and testnet; pinned 2026-07-08, re-confirmed
+// live 2026-07-22). fetchCometState refuses to decode storage whose contract
+// instance reports any other hash — the storage layout this file relies on
+// is defined by exactly this code.
+const cometWasmHash = "8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36"
+
 // cometState is a Comet weighted pool's raw on-chain balances, weights, and
 // LP total supply, already split into BLND and USDC legs. Balance/weight/
 // supply fields are 7-decimal fixed-point big.Ints (Comet's STROOP scale) —
 // the same shape cometValuation consumes. BLNDAddress is the strkey
-// C-address of the BLND leg's token contract (get_tokens()[blndIdx]) — the
-// price snapshot task (prices.go) needs it to key the derived BLND price row
-// by the real BLND token address rather than the Comet pool's own address.
+// C-address of the BLND leg's token contract — the price snapshot task
+// (prices.go) needs it to key the derived BLND price row by the real BLND
+// token address rather than the Comet pool's own address.
 type cometState struct {
 	BLNDAddress string
 	BLNDBalance *big.Int
@@ -165,67 +180,183 @@ func ratToFixedString(r *big.Rat, decimals int) string {
 	return q.String()
 }
 
-// fetchCometState calls the Comet getters (get_tokens, get_balance,
-// get_normalized_weight, get_total_supply — see package doc for verified
-// signatures) via metadata against the Comet pool at cometID, and splits the
-// two legs into BLND and USDC by weight: the higher-weighted leg is BLND
-// (the pinned Comet pool is an 80/20 BLND:USDC split), regardless of which
-// index get_tokens() happens to return it at. The mutable numeric state is
-// read twice and must match (see the consistency comment inline). Any RPC
-// failure, unexpected return shape, token count other than 2, a mismatch
-// between the two consistency reads, or a tie between the two weights (which
-// would make the BLND/USDC split ambiguous) is reported as an error.
-func fetchCometState(ctx context.Context, metadata services.ContractMetadataService, cometID string) (*cometState, error) {
-	if metadata == nil {
-		return nil, fmt.Errorf("blend: fetchCometState: nil ContractMetadataService")
+// cometUnitKeyScVal builds the ScVal encoding of a Comet DataKey unit enum
+// variant as it appears in ContractData ledger-entry keys: a single-element
+// ScVec holding the variant-name Symbol (verified live — see package doc).
+func cometUnitKeyScVal(variant string) xdr.ScVal {
+	sym := xdr.ScSymbol(variant)
+	vec := &xdr.ScVec{{Type: xdr.ScValTypeScvSymbol, Sym: &sym}}
+	return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &vec}
+}
+
+// cometLedgerKey builds the base64-encoded LedgerKey for one of the Comet
+// pool's persistent ContractData entries at cometID.
+func cometLedgerKey(cometID string, key xdr.ScVal) (string, error) {
+	addrVal, err := contractAddressScVal(cometID)
+	if err != nil {
+		return "", fmt.Errorf("blend: encoding comet pool address: %w", err)
+	}
+	lk := xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeContractData,
+		ContractData: &xdr.LedgerKeyContractData{
+			Contract:   *addrVal.Address,
+			Key:        key,
+			Durability: xdr.ContractDataDurabilityPersistent,
+		},
+	}
+	b64, err := lk.MarshalBinaryBase64()
+	if err != nil {
+		return "", fmt.Errorf("blend: marshaling comet ledger key: %w", err)
+	}
+	return b64, nil
+}
+
+// recordI128Field pulls one named i128 field out of a decoded Comet Record
+// struct (an ScMap keyed by field-name Symbols — see mapGet).
+func recordI128Field(record *xdr.ScMap, token, field string) (*big.Int, error) {
+	fieldVal, found := mapGet(record, field)
+	if !found {
+		return nil, fmt.Errorf("blend: fetchCometState: record for %s: missing %q field", token, field)
+	}
+	parts, ok := fieldVal.GetI128()
+	if !ok {
+		return nil, fmt.Errorf("blend: fetchCometState: record for %s: %q is not an i128 (got %v)", token, field, fieldVal.Type)
+	}
+	return i128ToBigInt(parts), nil
+}
+
+// decodeContractDataVal unmarshals one getLedgerEntries result's base64 XDR
+// payload and returns the ContractData entry's value ScVal.
+func decodeContractDataVal(dataXDR string) (xdr.ScVal, error) {
+	raw, err := base64.StdEncoding.DecodeString(dataXDR)
+	if err != nil {
+		return xdr.ScVal{}, fmt.Errorf("decoding entry base64: %w", err)
+	}
+	var data xdr.LedgerEntryData
+	if err := data.UnmarshalBinary(raw); err != nil {
+		return xdr.ScVal{}, fmt.Errorf("unmarshaling entry XDR: %w", err)
+	}
+	if data.Type != xdr.LedgerEntryTypeContractData || data.ContractData == nil {
+		return xdr.ScVal{}, fmt.Errorf("expected ContractData entry, got %v", data.Type)
+	}
+	return data.ContractData.Val, nil
+}
+
+// fetchCometState reads the Comet pool's state at cometID — token balances,
+// normalized weights, and LP total supply — from its ContractData ledger
+// entries in a single getLedgerEntries call (atomic; see package doc), after
+// asserting the contract instance's WASM hash matches cometWasmHash. The two
+// legs are split into BLND and USDC by weight: the higher-weighted leg is
+// BLND (the pinned Comet pool is an 80/20 BLND:USDC split). Any RPC failure,
+// missing entry, WASM hash mismatch, unexpected shape, token count other
+// than 2, differing token scalars (the valuation's raw-balance ratio assumes
+// both legs share decimals), or a tie between the two weights (which would
+// make the BLND/USDC split ambiguous) is reported as an error.
+func fetchCometState(ctx context.Context, rpc services.RPCService, cometID string) (*cometState, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("blend: fetchCometState: context error: %w", err)
+	}
+	if rpc == nil {
+		return nil, fmt.Errorf("blend: fetchCometState: nil RPCService")
 	}
 
-	tokensVal, err := metadata.FetchSingleField(ctx, cometID, "get_tokens")
+	instanceKey, err := cometLedgerKey(cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance})
 	if err != nil {
-		return nil, fmt.Errorf("blend: fetchCometState: fetching get_tokens: %w", err)
+		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
 	}
-	tokenVals, ok := vecVal(tokensVal)
+	recordKey, err := cometLedgerKey(cometID, cometUnitKeyScVal("AllRecordData"))
+	if err != nil {
+		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
+	}
+	sharesKey, err := cometLedgerKey(cometID, cometUnitKeyScVal("TotalShares"))
+	if err != nil {
+		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
+	}
+
+	result, err := rpc.GetLedgerEntries([]string{instanceKey, recordKey, sharesKey})
+	if err != nil {
+		return nil, fmt.Errorf("blend: fetchCometState: fetching ledger entries: %w", err)
+	}
+	byKey := make(map[string]string, len(result.Entries))
+	for _, entry := range result.Entries {
+		byKey[entry.KeyXDR] = entry.DataXDR
+	}
+	vals := make(map[string]xdr.ScVal, 3)
+	for name, key := range map[string]string{"instance": instanceKey, "AllRecordData": recordKey, "TotalShares": sharesKey} {
+		dataXDR, found := byKey[key]
+		if !found {
+			return nil, fmt.Errorf("blend: fetchCometState: pool %s: %s entry not found on chain", cometID, name)
+		}
+		val, err := decodeContractDataVal(dataXDR)
+		if err != nil {
+			return nil, fmt.Errorf("blend: fetchCometState: pool %s: %s entry: %w", cometID, name, err)
+		}
+		vals[name] = val
+	}
+
+	instance, ok := vals["instance"].GetInstance()
 	if !ok {
-		return nil, fmt.Errorf("blend: fetchCometState: get_tokens: expected Vec, got %v", tokensVal.Type)
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: instance entry is not a ContractInstance (got %v)", cometID, vals["instance"].Type)
 	}
-	if len(tokenVals) != cometTokenCount {
-		return nil, fmt.Errorf("blend: fetchCometState: expected %d tokens in Comet pool %s, got %d", cometTokenCount, cometID, len(tokenVals))
+	wasmHash, ok := instance.Executable.GetWasmHash()
+	if !ok {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: contract executable is not WASM (got %v)", cometID, instance.Executable.Type)
+	}
+	if gotHash := hex.EncodeToString(wasmHash[:]); gotHash != cometWasmHash {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: WASM hash %s does not match the pinned Comet hash %s — refusing to decode its storage", cometID, gotHash, cometWasmHash)
+	}
+
+	recordMap, ok := vals["AllRecordData"].GetMap()
+	if !ok {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: AllRecordData is not a Map (got %v)", cometID, vals["AllRecordData"].Type)
+	}
+	if recordMap == nil || len(*recordMap) != cometTokenCount {
+		got := 0
+		if recordMap != nil {
+			got = len(*recordMap)
+		}
+		return nil, fmt.Errorf("blend: fetchCometState: expected %d tokens in Comet pool %s, got %d", cometTokenCount, cometID, got)
 	}
 
 	tokens := make([]string, cometTokenCount)
-	for i, tv := range tokenVals {
-		addr, ok := addrString(tv)
+	balances := make([]*big.Int, cometTokenCount)
+	weights := make([]*big.Int, cometTokenCount)
+	scalars := make([]*big.Int, cometTokenCount)
+	for i, entry := range *recordMap {
+		addr, ok := addrString(entry.Key)
 		if !ok {
-			return nil, fmt.Errorf("blend: fetchCometState: get_tokens[%d]: expected Address, got %v", i, tv.Type)
+			return nil, fmt.Errorf("blend: fetchCometState: AllRecordData key[%d]: expected Address, got %v", i, entry.Key.Type)
 		}
 		tokens[i] = addr
+
+		record, ok := entry.Val.GetMap()
+		if !ok {
+			return nil, fmt.Errorf("blend: fetchCometState: record for %s: expected Map, got %v", addr, entry.Val.Type)
+		}
+		if balances[i], err = recordI128Field(record, addr, "balance"); err != nil {
+			return nil, err
+		}
+		if weights[i], err = recordI128Field(record, addr, "weight"); err != nil {
+			return nil, err
+		}
+		if scalars[i], err = recordI128Field(record, addr, "scalar"); err != nil {
+			return nil, err
+		}
+	}
+	if scalars[0].Cmp(scalars[1]) != 0 {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: token scalars differ (%s vs %s) — the valuation's raw-balance ratio requires both legs to share decimals", cometID, scalars[0], scalars[1])
 	}
 
-	// Each getter call is its own latest-ledger RPC simulation, so a Comet
-	// transaction (swap, join, exit) landing between calls would mix pre- and
-	// post-trade values into a pool state that never existed on-chain. Soroban
-	// allows only one contract invocation per simulated transaction, so the
-	// getters cannot be batched into a single consistent read; instead the
-	// numeric state is read twice and both readings must agree. Any pool
-	// mutation changes at least one balance or the LP supply, so agreement
-	// means both readings observed the same state. A mismatch errors out —
-	// the snapshot task's next pass retries.
-	first, err := readCometNumericState(ctx, metadata, cometID, tokens)
-	if err != nil {
-		return nil, err
+	sharesParts, ok := vals["TotalShares"].GetI128()
+	if !ok {
+		return nil, fmt.Errorf("blend: fetchCometState: TotalShares: expected i128, got %v", vals["TotalShares"].Type)
 	}
-	second, err := readCometNumericState(ctx, metadata, cometID, tokens)
-	if err != nil {
-		return nil, err
-	}
-	if !first.equal(second) {
-		return nil, fmt.Errorf("blend: fetchCometState: pool %s state changed between consistency reads", cometID)
-	}
+	lpSupply := i128ToBigInt(sharesParts)
 
 	blndIdx := 0
-	switch first.weights[0].Cmp(first.weights[1]) {
+	switch weights[0].Cmp(weights[1]) {
 	case 0:
-		return nil, fmt.Errorf("blend: fetchCometState: cannot identify BLND leg: both tokens have equal weight %s", first.weights[0])
+		return nil, fmt.Errorf("blend: fetchCometState: cannot identify BLND leg: both tokens have equal weight %s", weights[0])
 	case -1:
 		blndIdx = 1
 	}
@@ -233,78 +364,10 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 
 	return &cometState{
 		BLNDAddress: tokens[blndIdx],
-		BLNDBalance: first.balances[blndIdx],
-		USDCBalance: first.balances[usdcIdx],
-		BLNDWeight:  first.weights[blndIdx],
-		USDCWeight:  first.weights[usdcIdx],
-		LPSupply:    first.lpSupply,
+		BLNDBalance: balances[blndIdx],
+		USDCBalance: balances[usdcIdx],
+		BLNDWeight:  weights[blndIdx],
+		USDCWeight:  weights[usdcIdx],
+		LPSupply:    lpSupply,
 	}, nil
-}
-
-// cometNumericReading is one read of a Comet pool's mutable numeric state:
-// per-token balances and normalized weights (parallel to the token list it
-// was read with), and the LP token total supply.
-type cometNumericReading struct {
-	balances []*big.Int
-	weights  []*big.Int
-	lpSupply *big.Int
-}
-
-// equal reports whether two readings observed identical pool state. Both
-// readings must come from the same token list.
-func (r *cometNumericReading) equal(o *cometNumericReading) bool {
-	for i := range r.balances {
-		if r.balances[i].Cmp(o.balances[i]) != 0 || r.weights[i].Cmp(o.weights[i]) != 0 {
-			return false
-		}
-	}
-	return r.lpSupply.Cmp(o.lpSupply) == 0
-}
-
-// readCometNumericState performs one read of the Comet pool's numeric getters
-// — get_balance and get_normalized_weight per token, plus get_total_supply —
-// see fetchCometState for the double-read consistency contract built on it.
-func readCometNumericState(ctx context.Context, metadata services.ContractMetadataService, cometID string, tokens []string) (*cometNumericReading, error) {
-	reading := &cometNumericReading{
-		balances: make([]*big.Int, len(tokens)),
-		weights:  make([]*big.Int, len(tokens)),
-	}
-	for i, tok := range tokens {
-		argVal, err := contractAddressScVal(tok)
-		if err != nil {
-			return nil, fmt.Errorf("blend: fetchCometState: encoding token %s argument: %w", tok, err)
-		}
-
-		balVal, err := metadata.FetchSingleField(ctx, cometID, "get_balance", argVal)
-		if err != nil {
-			return nil, fmt.Errorf("blend: fetchCometState: fetching get_balance(%s): %w", tok, err)
-		}
-		balParts, ok := balVal.GetI128()
-		if !ok {
-			return nil, fmt.Errorf("blend: fetchCometState: get_balance(%s): expected i128, got %v", tok, balVal.Type)
-		}
-		reading.balances[i] = i128ToBigInt(balParts)
-
-		weightVal, err := metadata.FetchSingleField(ctx, cometID, "get_normalized_weight", argVal)
-		if err != nil {
-			return nil, fmt.Errorf("blend: fetchCometState: fetching get_normalized_weight(%s): %w", tok, err)
-		}
-		weightParts, ok := weightVal.GetI128()
-		if !ok {
-			return nil, fmt.Errorf("blend: fetchCometState: get_normalized_weight(%s): expected i128, got %v", tok, weightVal.Type)
-		}
-		reading.weights[i] = i128ToBigInt(weightParts)
-	}
-
-	supplyVal, err := metadata.FetchSingleField(ctx, cometID, "get_total_supply")
-	if err != nil {
-		return nil, fmt.Errorf("blend: fetchCometState: fetching get_total_supply: %w", err)
-	}
-	supplyParts, ok := supplyVal.GetI128()
-	if !ok {
-		return nil, fmt.Errorf("blend: fetchCometState: get_total_supply: expected i128, got %v", supplyVal.Type)
-	}
-	reading.lpSupply = i128ToBigInt(supplyParts)
-
-	return reading, nil
 }

@@ -1,11 +1,12 @@
 // Unit tests for PriceSnapshotService. These exercise the real
 // blenddata.OraclePriceModel against a PostgreSQL test database (dbtest,
-// mirroring internal/data/blend/oracle_prices_test.go's fixture usage) and a
-// mocked services.ContractMetadataService — no real RPC.
+// mirroring internal/data/blend/oracle_prices_test.go's fixture usage) and
+// mocked services.ContractMetadataService/RPCService — no real RPC.
 package blend
 
 import (
 	"context"
+	"math/big"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -118,13 +120,14 @@ func priceDataScVal(price int64, timestamp uint64) xdr.ScVal {
 	return v
 }
 
-func newTestSnapshotService(t *testing.T, oraclePrices *blenddata.OraclePriceModel, meta services.ContractMetadataService, cometID string, bpm *metrics.BlendPriceMetrics) *PriceSnapshotService {
+func newTestSnapshotService(t *testing.T, oraclePrices *blenddata.OraclePriceModel, meta services.ContractMetadataService, cometID string, rpc services.RPCService, bpm *metrics.BlendPriceMetrics) *PriceSnapshotService {
 	t.Helper()
 	svc, err := NewPriceSnapshotService(PriceSnapshotConfig{
 		OraclePrices:         oraclePrices,
 		Metadata:             meta,
 		Interval:             time.Minute,
 		BackstopLPContractID: cometID,
+		RPC:                  rpc,
 		Metrics:              bpm,
 	})
 	require.NoError(t, err)
@@ -157,6 +160,10 @@ func TestNewPriceSnapshotService_Validation(t *testing.T) {
 		svc, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute, Metrics: bpm})
 		require.NoError(t, err)
 		require.NotNil(t, svc)
+	})
+	t.Run("requires RPC when BackstopLPContractID is set", func(t *testing.T) {
+		_, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute, BackstopLPContractID: randomContractAddr(t), Metrics: bpm})
+		assert.ErrorContains(t, err, "RPC is required")
 	})
 }
 
@@ -207,7 +214,7 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 		Return(priceDataScVal(300_000_000, tsZ), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	require.NoError(t, svc.SnapshotOnce(ctx))
 
@@ -262,7 +269,7 @@ func TestSnapshotOnce_UpsertFailureZeroesPricesTracked(t *testing.T) {
 	require.NoError(t, err)
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	err = svc.SnapshotOnce(ctx)
 	require.ErrorContains(t, err, "persisting 1 rows")
@@ -296,7 +303,7 @@ func TestSnapshotOnce_NonePriceSkipped(t *testing.T) {
 		Return(voidScVal(), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	require.NoError(t, svc.SnapshotOnce(ctx))
 
@@ -339,7 +346,7 @@ func TestSnapshotOnce_StalePriceSkipped(t *testing.T) {
 		Return(priceDataScVal(200_000_000, uint64(time.Now().Unix()-staleAge)), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	require.NoError(t, svc.SnapshotOnce(ctx))
 
@@ -384,7 +391,7 @@ func TestSnapshotOnce_NonPositivePriceSkipped(t *testing.T) {
 		Return(priceDataScVal(-5, uint64(time.Now().Unix())), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	require.NoError(t, svc.SnapshotOnce(ctx))
 
@@ -423,7 +430,7 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 		Return(priceDataScVal(500_000_000, uint64(time.Now().Unix())), nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
 
 	err = svc.SnapshotOnce(ctx)
 	require.Error(t, err)
@@ -440,8 +447,8 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 }
 
 // TestSnapshotOnce_CometLeg covers the optional BLND/LP-share derived-pricing
-// leg: when BackstopLPContractID is configured, fetchCometState's getters are
-// called and two rows are written under oracle_contract_id = the Comet pool
+// leg: when BackstopLPContractID is configured, fetchCometState reads the
+// pool's ledger entries and two rows are written under oracle_contract_id = the Comet pool
 // address — the BLND row keyed by the real BLND token address, the LP-share
 // row self-priced (asset_contract_id == oracle_contract_id).
 func TestSnapshotOnce_CometLeg(t *testing.T) {
@@ -452,29 +459,26 @@ func TestSnapshotOnce_CometLeg(t *testing.T) {
 	blndAddr := randomContractAddr(t)
 	usdcAddr := randomContractAddr(t)
 
-	blndArg, err := contractAddressScVal(blndAddr)
-	require.NoError(t, err)
-	usdcArg, err := contractAddressScVal(usdcAddr)
-	require.NoError(t, err)
-
+	// One atomic getLedgerEntries read serves the whole Comet leg: the
+	// instance (WASM hash check), the AllRecordData record map, and
+	// TotalShares — mirroring the live mainnet entry dump in comet.go.
 	meta := services.NewContractMetadataServiceMock(t)
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-		Return(vecScVal(contractAddrScVal(t, blndAddr), contractAddrScVal(t, usdcAddr)), nil).Once()
-	// The numeric getters are each fetched twice: fetchCometState's torn-read
-	// guard requires two agreeing consistency reads.
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
-		Return(i128ScVal(40_000_000_000_000), nil).Times(2) // 4,000,000.0000000
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{usdcArg}).
-		Return(i128ScVal(2_000_000_000_000), nil).Times(2) // 200,000.0000000
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{blndArg}).
-		Return(i128ScVal(8_000_000), nil).Times(2) // 0.8
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{usdcArg}).
-		Return(i128ScVal(2_000_000), nil).Times(2) // 0.2
-	meta.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
-		Return(i128ScVal(10_000_000_000_000), nil).Times(2) // 1,000,000.0000000
+	entries := []entities.LedgerEntryResult{
+		cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometWasmHash)),
+		cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t,
+			[]string{blndAddr, usdcAddr},
+			[]xdr.ScVal{
+				cometRecordVal(t, big.NewInt(40_000_000_000_000), big.NewInt(8_000_000), 100_000_000_000, 0), // 4,000,000.0 BLND, weight 0.8
+				cometRecordVal(t, big.NewInt(2_000_000_000_000), big.NewInt(2_000_000), 100_000_000_000, 1),  // 200,000.0 USDC, weight 0.2
+			})),
+		cometEntryResult(t, cometID, cometUnitKeyScVal("TotalShares"), i128ScVal(10_000_000_000_000)), // 1,000,000.0 shares
+	}
+	rpc := services.NewRPCServiceMock(t)
+	rpc.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool { return len(keys) == 3 })).
+		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: entries}, nil).Once()
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, cometID, bpm)
+	svc := newTestSnapshotService(t, oraclePrices, meta, cometID, rpc, bpm)
 
 	require.NoError(t, svc.SnapshotOnce(ctx))
 

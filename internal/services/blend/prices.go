@@ -16,8 +16,8 @@
 // oracle_contract_id. The BLND row's asset_contract_id is the real BLND
 // token address (cometState.BLNDAddress). Both are recorded at Comet's
 // 7-decimal STROOP scale (cometPriceDecimals) with PriceTimestamp set to the
-// snapshot's own wall-clock time (unix seconds), since the Comet getters
-// carry no oracle-reported timestamp of their own.
+// snapshot's own wall-clock time (unix seconds), since the Comet pool state
+// carries no oracle-reported timestamp of its own.
 //
 // A price the pool contract itself would reject is never persisted: an
 // oracle-reported timestamp older than maxPriceAge is skipped as "stale" and
@@ -56,8 +56,8 @@ type PriceSnapshotConfig struct {
 	// OraclePrices is the blend_oracle_prices data access layer: GetPriceTargets
 	// discovers what to fetch, BatchUpsert persists what was fetched.
 	OraclePrices *blenddata.OraclePriceModel
-	// Metadata performs the RPC simulation calls (decimals, lastprice, and the
-	// Comet getters) against contracts.
+	// Metadata performs the SEP-40 RPC simulation calls (decimals, lastprice)
+	// against oracle contracts.
 	Metadata services.ContractMetadataService
 	// Interval is the wait between the end of one snapshot pass and the start
 	// of the next.
@@ -66,6 +66,9 @@ type PriceSnapshotConfig struct {
 	// Blend v2 backstop's deposit token, as a strkey C-address. Empty disables
 	// the BLND/LP-share derived-pricing leg entirely.
 	BackstopLPContractID string
+	// RPC reads the Comet pool's ContractData ledger entries (fetchCometState).
+	// Required only when BackstopLPContractID is set.
+	RPC services.RPCService
 	// Metrics receives per-pass duration, per-fetch outcome, and tracked-row-
 	// count observations.
 	Metrics *metrics.BlendPriceMetrics
@@ -79,11 +82,12 @@ type PriceSnapshotService struct {
 	metadata     services.ContractMetadataService
 	interval     time.Duration
 	cometID      string
+	rpc          services.RPCService
 	metrics      *metrics.BlendPriceMetrics
 }
 
 // NewPriceSnapshotService validates cfg and constructs a PriceSnapshotService.
-// BackstopLPContractID is the only optional field.
+// BackstopLPContractID is optional; RPC is required alongside it.
 func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, error) {
 	if cfg.OraclePrices == nil {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.OraclePrices is required")
@@ -94,6 +98,9 @@ func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, er
 	if cfg.Interval <= 0 {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.Interval must be positive, got %s", cfg.Interval)
 	}
+	if cfg.BackstopLPContractID != "" && cfg.RPC == nil {
+		return nil, fmt.Errorf("blend: PriceSnapshotConfig.RPC is required when BackstopLPContractID is set")
+	}
 	if cfg.Metrics == nil {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.Metrics is required")
 	}
@@ -102,6 +109,7 @@ func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, er
 		metadata:     cfg.Metadata,
 		interval:     cfg.Interval,
 		cometID:      cfg.BackstopLPContractID,
+		rpc:          cfg.RPC,
 		metrics:      cfg.Metrics,
 	}, nil
 }
@@ -270,7 +278,7 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 // cometValuation) and returns their blend_oracle_prices rows. See the
 // package doc for the row-key convention.
 func (s *PriceSnapshotService) snapshotComet(ctx context.Context) ([]blenddata.OraclePrice, error) {
-	state, err := fetchCometState(ctx, s.metadata, s.cometID)
+	state, err := fetchCometState(ctx, s.rpc, s.cometID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching comet state: %w", err)
 	}
