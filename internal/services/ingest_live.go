@@ -27,6 +27,9 @@ const (
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 	oldestLedgerSyncInterval           = 100
 	lagMetricUpdateInterval            = 1 * time.Second
+	// advisoryUnlockTimeout bounds the detached advisory-lock release at shutdown so a wedged
+	// network session cannot block teardown (and the later pool close) indefinitely.
+	advisoryUnlockTimeout = 10 * time.Second
 )
 
 // persistLedgerData persists processed ledger data to the database in a single
@@ -250,25 +253,37 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("acquiring a connection from the pool: %w", err)
 	}
-	defer conn.Release()
 
-	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
+	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently.
+	// Until the lock is confirmed held, the connection is released on every error path; once it
+	// is held, the deferred release below owns the connection's lifecycle.
+	lockAcquired, err := db.AcquireAdvisoryLock(ctx, conn, m.advisoryLockID)
+	if err != nil {
+		conn.Release()
 		return fmt.Errorf("acquiring advisory lock: %w", err)
-	} else if !lockAcquired {
+	}
+	if !lockAcquired {
+		conn.Release()
 		return errors.New("advisory lock not acquired")
 	}
 	defer func() {
-		// Detach from ctx: a shutdown signal cancels ctx before this defer
-		// runs, and pgx refuses to execute a query on an already-cancelled
-		// context, which would otherwise leak the lock (conn.Release above
-		// only returns the connection to the pool, it doesn't end the
-		// session, so the lock would stay held until the pool itself closes).
-		releaseCtx := context.WithoutCancel(ctx)
-		if err := db.ReleaseAdvisoryLock(releaseCtx, conn, m.advisoryLockID); err != nil {
-			err = fmt.Errorf("releasing advisory lock: %w", err)
-			log.Ctx(ctx).Error(err)
+		// Detach from ctx (a shutdown signal cancels it before this defer runs, and pgx
+		// refuses to execute a query on an already-cancelled context) but keep a finite
+		// deadline so a wedged session cannot block teardown forever. conn.Release only
+		// returns the connection to the pool — it does not end the session — so on any
+		// unlock failure we instead destroy the connection, which ends its session and
+		// releases the advisory lock server-side, rather than handing a lock-holding
+		// connection back to the pool.
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisoryUnlockTimeout)
+		defer cancel()
+		if unlockErr := db.ReleaseAdvisoryLock(releaseCtx, conn, m.advisoryLockID); unlockErr != nil {
+			log.Ctx(ctx).Errorf("releasing advisory lock, destroying connection to end its session: %v", unlockErr)
+			if closeErr := conn.Hijack().Close(releaseCtx); closeErr != nil {
+				log.Ctx(ctx).Warnf("closing advisory-lock connection after failed unlock: %v", closeErr)
+			}
+			return
 		}
+		conn.Release()
 	}()
 
 	// Snapshot which protocols' history/current-state cursors already exist, once, right
@@ -722,7 +737,9 @@ func isPermanentPersistError(err error) bool {
 // staleness is harmless (this-ledger uploads resolve from the buffer; prior
 // rows are immutable once classified), and reading before any transaction
 // opens means it never contends with the CAS/cursor row locks
-// persistLedgerData holds later.
+// persistLedgerData holds later. Because it runs outside the persist retry
+// ladder, it is wrapped in its own bounded backoff so a transient DB blip
+// (e.g. a CNPG failover) does not exit live ingestion.
 func (m *ingestService) prepareClassificationPlan(
 	ctx context.Context,
 	bufferedWasms map[string]data.ProtocolWasms,
@@ -755,7 +772,17 @@ func (m *ingestService) prepareClassificationPlan(
 		}
 		knownHashes = append(knownHashes, c.WasmHash)
 	}
-	known, err := m.models.ProtocolWasms.GetClassifiedByHashes(ctx, m.models.DB, knownHashes)
+	known, err := utils.RetryWithBackoff(ctx, maxClassificationReadRetries, maxRetryBackoff,
+		func(ctx context.Context) (map[types.HashBytea]string, error) {
+			return m.models.ProtocolWasms.GetClassifiedByHashes(ctx, m.models.DB, knownHashes)
+		},
+		func(attempt int, retryErr error, backoff time.Duration) {
+			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("classification_read").Inc()
+			log.Ctx(ctx).Warnf("Error resolving known protocol classifications (attempt %d/%d): %v, retrying in %v...",
+				attempt+1, maxClassificationReadRetries, retryErr, backoff)
+		},
+		isPermanentPersistError,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}

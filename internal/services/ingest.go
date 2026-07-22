@@ -29,6 +29,11 @@ const (
 	maxLedgerFetchRetries = 10
 	// maxRetryBackoff is the maximum backoff duration between retry attempts.
 	maxRetryBackoff = 30 * time.Second
+	// maxClassificationReadRetries bounds retries of the non-transactional read that resolves
+	// prior-ledger protocol classifications. It runs before the persist transaction opens, so a
+	// transient DB blip (e.g. a CNPG failover) there must not exit live ingestion — this keeps the
+	// read under the same retry umbrella as the ledger fetch and the persist ladder.
+	maxClassificationReadRetries = 5
 	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
 	IngestionModeLive = "live"
 	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
