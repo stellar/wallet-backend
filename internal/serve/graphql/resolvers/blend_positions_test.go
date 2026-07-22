@@ -25,14 +25,14 @@ import (
 // balance but NO UserEmissionData entry is owed balance*index/scalar the
 // moment an emission stream exists — not zero.
 func TestClaimableStream(t *testing.T) {
-	scalar := big.NewInt(100_000_000_000_000) // 1e14: 7-decimal token, 10^7 * SCALAR_7
-	index := "1234000000000000"               // 1.234e15
+	scalar := big.NewInt(100_000_000_000_000)     // 1e14: 7-decimal token, 10^7 * SCALAR_7
+	index := big.NewInt(1_234_000_000_000_000) // 1.234e15
 
 	t.Run("no user row, balance held: historical accrual owed", func(t *testing.T) {
 		// balance*index/scalar = 5_000_000 * 1.234e15 / 1e14 = 61_700_000 —
 		// the contract's own test vector for this branch minus the
 		// pre-accrued 1_000_000 (there is no user row to carry accrued).
-		got, err := claimableStream(blenddata.Emission{}, false, &index, big.NewInt(5_000_000), scalar)
+		got, err := claimableStream(blenddata.Emission{}, false, index, big.NewInt(5_000_000), scalar)
 		require.NoError(t, err)
 		assert.Equal(t, "61700000", got.String())
 	})
@@ -44,7 +44,7 @@ func TestClaimableStream(t *testing.T) {
 	})
 
 	t.Run("no user row, zero balance: zero", func(t *testing.T) {
-		got, err := claimableStream(blenddata.Emission{}, false, &index, big.NewInt(0), scalar)
+		got, err := claimableStream(blenddata.Emission{}, false, index, big.NewInt(0), scalar)
 		require.NoError(t, err)
 		assert.Equal(t, "0", got.String())
 	})
@@ -53,9 +53,68 @@ func TestClaimableStream(t *testing.T) {
 		// The contract's test_update_user_emissions_accrues vector:
 		// 1_000_000 + floor(5_000_000 * 1.234e15 / 1e14) = 62_700_000.
 		userEmission := blenddata.Emission{Accrued: "1000000", EmissionIndex: "0"}
-		got, err := claimableStream(userEmission, true, &index, big.NewInt(5_000_000), scalar)
+		got, err := claimableStream(userEmission, true, index, big.NewInt(5_000_000), scalar)
 		require.NoError(t, err)
 		assert.Equal(t, "62700000", got.String())
+	})
+}
+
+// TestProjectedEmissionIndexHelpers covers the resolver-side projection
+// wrappers around rates.go's ProjectEmissionIndex: an idle-but-active stream
+// must report a claimable-now index ahead of the stored one, spread over the
+// right supply (reserve: the side's raw token supply; backstop: unqueued
+// shares only).
+func TestProjectedEmissionIndexHelpers(t *testing.T) {
+	t.Run("reserve: idle active stream projects forward", func(t *testing.T) {
+		d := &blendAssembly{
+			now: 1_500_000_100,
+			reserveEmissionByPoolToken: map[string]blenddata.ReserveEmission{
+				poolTokenKey("POOL", 1): {
+					Eps:           1_000_000_000_000, // 0.01 BLND/s at 1e14
+					EmissionIndex: "1000000",
+					Expiration:    1_600_000_000,
+					LastTime:      1_500_000_000,
+				},
+			},
+		}
+		// Δt=100, supply=1e9 (100.0000000 of a 7-dec token), scalar=1e7:
+		// additional = 100*1e12*1e7/1e9 = 1e12.
+		got, err := d.projectedReserveEmissionIndex("POOL", 1, big.NewInt(1_000_000_000), 7)
+		require.NoError(t, err)
+		assert.Equal(t, "1000001000000", got.String())
+	})
+
+	t.Run("reserve: unconfigured stream is nil", func(t *testing.T) {
+		d := &blendAssembly{now: 1_500_000_100, reserveEmissionByPoolToken: map[string]blenddata.ReserveEmission{}}
+		got, err := d.projectedReserveEmissionIndex("POOL", 1, big.NewInt(1_000_000_000), 7)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("backstop: projects over unqueued shares only", func(t *testing.T) {
+		eps := int64(1_000_000_000_000)
+		lastTime := int64(1_500_000_000)
+		expiration := int64(1_600_000_000)
+		emisIndex := "5000"
+		bp := blenddata.BackstopPool{
+			Shares:         "3000000000",
+			Q4W:            "1000000000",
+			EmisEps:        &eps,
+			EmisIndex:      &emisIndex,
+			EmisExpiration: &expiration,
+			EmisLastTime:   &lastTime,
+		}
+		// unqueued = 3e9-1e9 = 2e9 shares; Δt=100, scalar=1e7:
+		// additional = 100*1e12*1e7/2e9 = 5e11.
+		got, err := projectedBackstopEmissionIndex(bp, big.NewInt(3_000_000_000), 1_500_000_100)
+		require.NoError(t, err)
+		assert.Equal(t, "500000005000", got.String())
+	})
+
+	t.Run("backstop: no emission config is nil", func(t *testing.T) {
+		got, err := projectedBackstopEmissionIndex(blenddata.BackstopPool{Shares: "3000000000", Q4W: "0"}, big.NewInt(3_000_000_000), 1_500_000_100)
+		require.NoError(t, err)
+		assert.Nil(t, got)
 	})
 }
 
@@ -152,11 +211,18 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		types.AddressBytea(poolAddr), types.AddressBytea(account))
 
 	// --- reserve emissions: r0's bToken (index*2+1=1) active, r1's dToken (index*2=2) expired ---
+	// last_time pins ProjectEmissionIndex to its documented no-op branches,
+	// mirroring the reserves' futureLastTime trick: the active stream's
+	// last_time is in year 2100 (lastTime >= now), the expired stream's sits
+	// exactly at its expiration (lastTime >= expiration). Emission indexes
+	// stay exactly the inserted values, hand-computable with no wall-clock
+	// dependence; projection math itself is covered by
+	// TestProjectedEmissionIndexHelpers and rates_test.go.
 	execTestDB(t, `
 		INSERT INTO blend_reserve_emissions (pool_contract_id, reserve_token_id, eps, emission_index, expiration, last_time, last_modified_ledger)
 		VALUES
-		($1, 1, 100000000000, '2000000000000', $2, 100, 100),
-		($1, 2, 999999999999, '3000000000000', $3, 100, 100)`,
+		($1, 1, 100000000000, '2000000000000', $2, $2, 100),
+		($1, 2, 999999999999, '3000000000000', $3, $3, 100)`,
 		types.AddressBytea(poolAddr), futureExpiration, pastExpiration)
 
 	// --- user emission accrual: r0 bToken stream (token_id=1), r1 dToken stream (token_id=2) ---
@@ -177,9 +243,11 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		INSERT INTO blend_backstop_positions (pool_contract_id, user_account_id, shares, q4w, last_modified_ledger)
 		VALUES ($1, $2, '1000000', $3::jsonb, 100)`,
 		types.AddressBytea(poolAddr), types.AddressBytea(account), string(q4wJSON))
+	// emis_last_time in year 2100 pins ProjectEmissionIndex's lastTime>=now
+	// no-op branch, same as the reserve emission rows above.
 	execTestDB(t, `
 		INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, emis_eps, emis_index, emis_expiration, emis_last_time, last_modified_ledger)
-		VALUES ($1, '10000000', '50000000', '0', 999999999999, '5000000000000', 4102444800, 100, 100)`,
+		VALUES ($1, '10000000', '50000000', '0', 999999999999, '5000000000000', 4102444800, 4102444800, 100)`,
 		types.AddressBytea(poolAddr))
 	// backstop emission stream: token_id = BackstopEmissionTokenID (-1), source = pool
 	execTestDB(t, `

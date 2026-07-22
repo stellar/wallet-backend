@@ -274,6 +274,42 @@ func EmissionsAPR(eps int64, expiration, now int64, blndUSD, sideUSD *big.Rat) *
 	return new(big.Rat).Quo(annualUSD, sideUSD)
 }
 
+// ProjectEmissionIndex advances a stream's stored emission index from
+// lastTime to now — the contract distributors' update_emission_data step
+// (pool/src/emissions/distributor.rs, backstop/src/emissions/distributor.rs,
+// mirrored by blend-sdk-js's Emissions.accrue), which every on-chain claim
+// runs BEFORE applying a user's balance. A stored index is only as fresh as
+// the stream's last on-chain touch, so claimable amounts computed against it
+// alone under-report until someone else interacts; projecting closes that gap.
+//
+//	index + floor(Δt·eps·scalar/supply), Δt = min(now, expiration) − lastTime
+//
+// supply is the total balance the stream emits to — a reserve's raw b/dToken
+// supply, or the backstop's UNQUEUED shares (shares − q4w; queued shares earn
+// no emissions). scalar is the supply's own fixed-point unit, 10^decimals for
+// a pool reserve or 1e7 for backstop shares — NOT the claim divisor (that
+// stays scalar·1e7, see ClaimableEmissions): the index carries BLND-per-unit
+// at eps's 1e14 scale divided by 1e7, so advance-by-10^decimals and
+// claim-by-10^decimals·1e7 cancel exactly to raw 7-decimal BLND.
+//
+// Matching the contract's guards, the index is returned unchanged (a copy)
+// when the stream is already fully accrued or can't accrue: lastTime at or
+// past expiration or now, zero eps, or zero/negative supply.
+func ProjectEmissionIndex(index *big.Int, eps int64, lastTime, expiration, now int64, supply, scalar *big.Int) *big.Int {
+	out := new(big.Int).Set(index)
+	if lastTime >= expiration || lastTime >= now || eps == 0 || supply.Sign() <= 0 {
+		return out
+	}
+	t := now
+	if t > expiration {
+		t = expiration
+	}
+	additional := new(big.Int).Mul(big.NewInt(t-lastTime), big.NewInt(eps))
+	additional.Mul(additional, scalar)
+	additional.Quo(additional, supply)
+	return out.Add(out, additional)
+}
+
 // ClaimableEmissions is the contract distributor's claim-conversion step
 // (pool/src/emissions/distributor.rs's update_user_emissions,
 // backstop/src/emissions/distributor.rs's mirror): accrued +

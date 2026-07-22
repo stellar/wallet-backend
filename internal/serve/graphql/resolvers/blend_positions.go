@@ -109,21 +109,20 @@ func usdValueOrNil(amount *big.Int, decimals int32, price *blenddata.OraclePrice
 // time their emissions are touched — the full index counts, from a zero
 // starting point, with nothing pre-accrued.
 //
-// configIndex is the stream's own current emission_index (from
-// blend_reserve_emissions or blend_backstop_pools.emis_index), used as the
-// projection target even past expiration — expiry freezes further real-time
-// growth but doesn't erase the last recorded index. A nil configIndex means
-// no config row exists at all (the stream was never configured); in that
-// case no further growth beyond the user's own Accrued is possible, so the
-// user's own index is used as both sides of the delta.
-func claimableStream(userEmission blenddata.Emission, hasUser bool, configIndex *string, tokenBalance, scalar *big.Int) (*big.Int, error) {
+// emisIndex is the stream's emission index already projected to "now" by the
+// caller (rates.go's ProjectEmissionIndex over the stored
+// blend_reserve_emissions / blend_backstop_pools.emis_index value) — the
+// stored index alone is only as fresh as the stream's last on-chain touch.
+// Projection stops at expiration, so a past-expiration index still counts in
+// full: expiry freezes further real-time growth but doesn't erase what
+// accrued. A nil emisIndex means no config row exists at all (the stream was
+// never configured); in that case no further growth beyond the user's own
+// Accrued is possible, so the user's own index is used as both sides of the
+// delta.
+func claimableStream(userEmission blenddata.Emission, hasUser bool, emisIndex *big.Int, tokenBalance, scalar *big.Int) (*big.Int, error) {
 	if !hasUser {
-		if configIndex == nil || tokenBalance.Sign() <= 0 {
+		if emisIndex == nil || tokenBalance.Sign() <= 0 {
 			return big.NewInt(0), nil
-		}
-		emisIndex, err := parseBigInt(*configIndex)
-		if err != nil {
-			return nil, fmt.Errorf("parsing blend emission config index: %w", err)
 		}
 		return blendrates.ClaimableEmissions(big.NewInt(0), big.NewInt(0), emisIndex, tokenBalance, scalar), nil
 	}
@@ -136,12 +135,8 @@ func claimableStream(userEmission blenddata.Emission, hasUser bool, configIndex 
 		return nil, fmt.Errorf("parsing blend emission index: %w", err)
 	}
 
-	emisIndex := userIndex
-	if configIndex != nil {
-		emisIndex, err = parseBigInt(*configIndex)
-		if err != nil {
-			return nil, fmt.Errorf("parsing blend emission config index: %w", err)
-		}
+	if emisIndex == nil {
+		emisIndex = userIndex
 	}
 
 	return blendrates.ClaimableEmissions(accrued, userIndex, emisIndex, tokenBalance, scalar), nil
@@ -265,12 +260,21 @@ func (d *blendAssembly) priceLookup(oracle, asset types.AddressBytea) *blenddata
 	return nil
 }
 
-func (d *blendAssembly) reserveEmissionConfigIndex(poolAddr string, tokenID int32) *string {
-	if re, ok := d.reserveEmissionByPoolToken[poolTokenKey(poolAddr, tokenID)]; ok {
-		idx := re.EmissionIndex
-		return &idx
+// projectedReserveEmissionIndex returns a reserve emission stream's index
+// projected to "now" (rates.go's ProjectEmissionIndex): the stored index plus
+// the accrual earned since the stream's last on-chain touch, spread over the
+// side's current raw token supply. nil (no error) when the stream was never
+// configured.
+func (d *blendAssembly) projectedReserveEmissionIndex(poolAddr string, tokenID int32, supply *big.Int, decimals int32) (*big.Int, error) {
+	re, ok := d.reserveEmissionByPoolToken[poolTokenKey(poolAddr, tokenID)]
+	if !ok {
+		return nil, nil
 	}
-	return nil
+	stored, err := parseBigInt(re.EmissionIndex)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend emission config index: %w", err)
+	}
+	return blendrates.ProjectEmissionIndex(stored, re.Eps, re.LastTime, re.Expiration, d.now, supply, pow10(decimals)), nil
 }
 
 // emissionsAPRFor computes the emissions APR for one (pool, tokenID) reserve
@@ -457,13 +461,21 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 	// a position can carry claimable history on a side it no longer holds
 	// (e.g. fully repaid debt with unclaimed dToken-stream emissions).
 	claimScalar := reserveClaimScalar(reserve.Decimals)
+	bEmisIndex, err := d.projectedReserveEmissionIndex(poolAddr, bTokenID, rr.BSupply, reserve.Decimals)
+	if err != nil {
+		return nil, err
+	}
 	bUserEmission, bHasUser := d.userEmissionByPoolToken[poolTokenKey(poolAddr, bTokenID)]
-	bClaimable, err := claimableStream(bUserEmission, bHasUser, d.reserveEmissionConfigIndex(poolAddr, bTokenID), bSideBalance, claimScalar)
+	bClaimable, err := claimableStream(bUserEmission, bHasUser, bEmisIndex, bSideBalance, claimScalar)
+	if err != nil {
+		return nil, err
+	}
+	dEmisIndex, err := d.projectedReserveEmissionIndex(poolAddr, dTokenID, rr.DSupply, reserve.Decimals)
 	if err != nil {
 		return nil, err
 	}
 	dUserEmission, dHasUser := d.userEmissionByPoolToken[poolTokenKey(poolAddr, dTokenID)]
-	dClaimable, err := claimableStream(dUserEmission, dHasUser, d.reserveEmissionConfigIndex(poolAddr, dTokenID), liabilityD, claimScalar)
+	dClaimable, err := claimableStream(dUserEmission, dHasUser, dEmisIndex, liabilityD, claimScalar)
 	if err != nil {
 		return nil, err
 	}
@@ -576,6 +588,33 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 	}, nil
 }
 
+// projectedBackstopEmissionIndex returns the backstop emission stream's index
+// projected to "now" over the pool's UNQUEUED shares (shares − q4w):
+// queued-for-withdrawal shares earn no emissions, so the contract distributor
+// spreads accrual over active shares only (backstop/src/emissions/
+// distributor.rs's update_emission_data). nil when the pool has never had an
+// emission config (emis_index NULL). The emis_* columns are written together
+// (BatchUpsertEmissions), so a non-nil index implies the other three are set;
+// falling back to the stored index when they aren't is defensive only.
+func projectedBackstopEmissionIndex(bp blenddata.BackstopPool, poolShares *big.Int, now int64) (*big.Int, error) {
+	if bp.EmisIndex == nil {
+		return nil, nil
+	}
+	stored, err := parseBigInt(*bp.EmisIndex)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend backstop emission index: %w", err)
+	}
+	if bp.EmisEps == nil || bp.EmisLastTime == nil || bp.EmisExpiration == nil {
+		return stored, nil
+	}
+	poolQ4W, err := parseBigInt(bp.Q4W)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend backstop pool q4w: %w", err)
+	}
+	unqueued := new(big.Int).Sub(poolShares, poolQ4W)
+	return blendrates.ProjectEmissionIndex(stored, *bp.EmisEps, *bp.EmisLastTime, *bp.EmisExpiration, now, unqueued, big.NewInt(scalar7)), nil
+}
+
 // blendAuctionTypeEnum maps a blend_auctions.auction_type value to its
 // schema enum (0/1/2, per services/blend/entries.go's AuctionType doc). ok is
 // false for any unrecognized value, which the caller skips rather than
@@ -645,7 +684,7 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 	}
 
 	poolShares, poolTokens := big.NewInt(0), big.NewInt(0)
-	var configIndex *string
+	var emisIndex *big.Int
 	if backstopPool, ok := d.backstopPoolByID[poolAddr]; ok {
 		poolShares, err = parseBigInt(backstopPool.Shares)
 		if err != nil {
@@ -655,7 +694,10 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 		if err != nil {
 			return nil, fmt.Errorf("parsing blend backstop pool tokens: %w", err)
 		}
-		configIndex = backstopPool.EmisIndex
+		emisIndex, err = projectedBackstopEmissionIndex(backstopPool, poolShares, d.now)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	totalShares := new(big.Int).Set(shares)
@@ -679,7 +721,7 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 	usdValue := usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
 
 	userEmission, hasUser := d.userEmissionByPoolToken[poolTokenKey(poolAddr, blenddata.BackstopEmissionTokenID)]
-	claimable, err := claimableStream(userEmission, hasUser, configIndex, shares, backstopClaimScalar)
+	claimable, err := claimableStream(userEmission, hasUser, emisIndex, shares, backstopClaimScalar)
 	if err != nil {
 		return nil, err
 	}
