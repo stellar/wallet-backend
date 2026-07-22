@@ -302,7 +302,7 @@ func (m *PoolModel) GetAll(ctx context.Context) ([]Pool, error) {
 }
 
 // scanReserves scans every row of rows into a Reserve slice, matching
-// blend_reserves' column order. Shared by GetByPools and GetAll.
+// blend_reserves' column order.
 func scanReserves(rows pgx.Rows) ([]Reserve, error) {
 	reserves := []Reserve{}
 	for rows.Next() {
@@ -366,32 +366,6 @@ func (m *ReserveModel) GetByPools(ctx context.Context, poolIDs []string) ([]Rese
 	m.Metrics.QueryDuration.WithLabelValues("GetByPools", reservesTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByPools", reservesTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("GetByPools", reservesTable).Observe(float64(len(poolIDs)))
-	return result, nil
-}
-
-// GetAll returns every blend_reserves row, ordered by (pool_contract_id, reserve_index).
-func (m *ReserveModel) GetAll(ctx context.Context) ([]Reserve, error) {
-	start := time.Now()
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM blend_reserves
-		ORDER BY pool_contract_id, reserve_index`, reservesSelectColumns)
-	rows, err := m.DB.Query(ctx, query)
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", reservesTable, utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("querying all blend reserves: %w", err)
-	}
-	defer rows.Close()
-
-	result, err := scanReserves(rows)
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", reservesTable, utils.GetDBErrorType(err)).Inc()
-		return nil, err
-	}
-
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", reservesTable).Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", reservesTable).Inc()
 	return result, nil
 }
 
