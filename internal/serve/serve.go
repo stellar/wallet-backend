@@ -368,29 +368,41 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc
 
-	// Blend fields are unpaginated but bounded by on-chain limits rather than client
-	// first/last args: Query.blendPools fans out over a bounded catalog (pools ≈ dozens;
-	// each pool ≤ MAX_RESERVES=30 reserves on-chain), the same "unpaginated but bounded"
-	// shape as the accounts fan-out above, so it reuses accountsListComplexityFunc's ×50
-	// multiplier. Account.blendPositions is bounded per-pool by that pool's max_positions
-	// (well under a full page), so it gets a smaller ×10 multiplier.
-	//
-	// Worst case (every field selected, derived from the actual schema + the complexity
-	// math above: default field complexity = 1 + sum(child complexities)):
-	//   blendPools:     BlendPool = 11 scalars + reserves(1 + 17 BlendReserve scalars = 18)
-	//                   => childComplexity 29 => 29*50 = 1450
-	//   blendPositions: BlendAccountPositions = pools(1 + [7 scalars + reserves(1+16=17)]
-	//                   = 25) + backstop(1 + [7 scalars + q4w(1+2=3)] = 11)
-	//                   + backstopClaimedLp(1) => childComplexity 37 => 37*10 = 370
-	// All comfortably under GRAPHQL_COMPLEXITY_LIMIT=6000. None of this touches
-	// AccountTransactionEdge.operations/stateChanges or any other existing entry above —
-	// those stay exactly as budgeted for the freighter full-detail query.
+	// Blend lists are unpaginated but bounded, so each list level carries its own
+	// cardinality multiplier — nested lists are NOT free-riding under a single outer
+	// multiplier; a full blendPools selection is priced as pools × reserves-per-pool.
+	// Bounds are on-chain constants where the contract has one (blend-contracts-v2 @
+	// ba22b487: pool MAX_RESERVES=30, backstop MAX_Q4W_SIZE=20; an auction's bid/lot
+	// asset maps are keyed by the pool's reserve tokens, so ≤ 30ish entries) and
+	// documented assumptions where it doesn't (catalog ≈ dozens of pools → 50, matching
+	// the accounts fan-out above; pools/backstop-deposits/open-auctions per ACCOUNT have
+	// no on-chain cap → priced at 10, a deliberate pricing assumption, not a runtime
+	// truncation — the resolver always returns every row).
+	blendReservesBound := func(childComplexity int) int { return childComplexity * 30 }
+	config.Complexity.BlendPool.Reserves = blendReservesBound
+	config.Complexity.BlendPoolPosition.Reserves = blendReservesBound
+	config.Complexity.BlendBackstopPosition.Q4w = func(childComplexity int) int { return childComplexity * 20 }
+	config.Complexity.BlendAuction.Bid = blendReservesBound
+	config.Complexity.BlendAuction.Lot = blendReservesBound
+	blendPerAccountBound := func(childComplexity int) int { return childComplexity * 10 }
+	config.Complexity.BlendAccountPositions.Pools = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.Backstop = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.ActiveAuctions = blendPerAccountBound
 	config.Complexity.Query.BlendPools = accountsListComplexityFunc
-	// Query.blendPool (single pool by address) is left at the default (1 + childComplexity):
-	// same treatment as the other single-item lookups (accountByAddress, operationByID,
-	// transactionByHash) below, which also have no custom entry. It returns one object, not
-	// a list, so no page-size-style multiplier is needed.
-	config.Complexity.Account.BlendPositions = func(childComplexity int) int {
-		return childComplexity * 10
-	}
+	// Query.blendPool (single pool by address) and Account.blendPositions (one object)
+	// stay at the default (1 + childComplexity): the cardinality now lives on the list
+	// fields inside them, so an outer multiplier would double-charge.
+	//
+	// Worst case with every field selected (complexity_test.go locks the multipliers;
+	// counts follow the schema: BlendReserve 17 scalars, BlendPool 13 scalars,
+	// BlendReservePosition 18, BlendPoolPosition 7, BlendBackstopPosition 7, BlendQ4W 4,
+	// BlendAuction 3 + bid/lot(2 each)):
+	//   blendPools:     50 × (13 + 30×17) = 50 × 523 = 26,150
+	//   blendPositions: 1 + 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1
+	//                   = 1 + 5,470 + 870 + 1,230 + 1 = 7,572
+	// Both exceed a 6,000 complexity limit for the FULL selection — deliberate: the
+	// limit must be raised deployment-side to admit them (see the PR notes), or clients
+	// select fewer fields. None of this touches AccountTransactionEdge.operations/
+	// stateChanges or any other existing entry above — those stay exactly as budgeted
+	// for the freighter full-detail query.
 }
