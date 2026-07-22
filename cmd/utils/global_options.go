@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"go/types"
 	"time"
 
@@ -154,16 +155,25 @@ func NetworkOption(configKey *string) *config.ConfigOption {
 }
 
 // BlendPriceIntervalOption returns the config option for the wait between Blend v2 oracle
-// price snapshot passes. Setting it to 0 disables the snapshot task entirely.
+// price snapshot passes. Setting it to 0 disables the snapshot task entirely; negative
+// values are rejected at startup so a typo can't silently disable price updates.
 func BlendPriceIntervalOption(configKey *time.Duration) *config.ConfigOption {
 	return &config.ConfigOption{
-		Name:           "blend-price-interval",
-		Usage:          `Interval between Blend v2 oracle price snapshot passes (Go duration string, e.g. "60s"). 0 disables the snapshot task.`,
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionDuration,
-		ConfigKey:      configKey,
-		FlagDefault:    "60s",
-		Required:       false,
+		Name:    "blend-price-interval",
+		Usage:   `Interval between Blend v2 oracle price snapshot passes (Go duration string, e.g. "60s"). 0 disables the snapshot task.`,
+		OptType: types.String,
+		CustomSetValue: func(co *config.ConfigOption) error {
+			if err := SetConfigOptionDuration(co); err != nil {
+				return err
+			}
+			if d := *co.ConfigKey.(*time.Duration); d < 0 {
+				return fmt.Errorf("%s must not be negative (0 disables the task), got %s", co.Name, d)
+			}
+			return nil
+		},
+		ConfigKey:   configKey,
+		FlagDefault: "60s",
+		Required:    false,
 	}
 }
 
