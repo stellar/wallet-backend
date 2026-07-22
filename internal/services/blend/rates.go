@@ -110,6 +110,12 @@ func ratFromFixed7(v int32) *big.Rat {
 // underlying supply currently borrowed — as (dSupply*dRate)/(bSupply*
 // bRate). dRate and bRate share the same fixed-point scale (SCALAR_12 for
 // v2), so that scale cancels in the ratio and needs no explicit descaling.
+// The contract's own path descales the two sides first with asymmetric
+// rounding — ceil on liabilities, floor on supply (reserve.rs's
+// to_asset_from_d_token / to_asset_from_b_token) — and then ceils the
+// resulting 7-decimal ratio, whereas this function keeps the exact rational.
+// Go's result is therefore always <= the contract's, by less than 1e-7 for
+// any funded reserve.
 //
 // Branch order mirrors reserve.rs's utilization exactly: zero liabilities
 // is 0, and liabilities >= supply clamps to exactly 1 ("This is capped at
