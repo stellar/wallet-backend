@@ -449,9 +449,9 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 	var emissionsApr *float64
 	switch {
 	case bSideBalance.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.BRate, reserve.Decimals, price)
+		emissionsApr = d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.PB, reserve.Decimals, price)
 	case liabilityD.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.DRate, reserve.Decimals, price)
+		emissionsApr = d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.PD, reserve.Decimals, price)
 	default:
 		zero := 0.0
 		emissionsApr = &zero
