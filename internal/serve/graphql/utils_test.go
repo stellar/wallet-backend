@@ -88,6 +88,7 @@ func TestCustomErrorPresenter(t *testing.T) {
 	for _, code := range []string{
 		"INVALID_TRANSACTION_HASH", "INVALID_ADDRESS", "INTERNAL_ERROR",
 		"COMPLEXITY_LIMIT_EXCEEDED", "QUERY_TOO_DEEP", "UNAUTHENTICATED", "FORBIDDEN",
+		"PERSISTED_QUERY_NOT_FOUND",
 	} {
 		t.Run("known code "+code+" passes through unchanged", func(t *testing.T) {
 			gqlErr := &gqlerror.Error{
@@ -100,6 +101,21 @@ func TestCustomErrorPresenter(t *testing.T) {
 			assert.Equal(t, code, result.Extensions["code"])
 		})
 	}
+
+	t.Run("APQ hash-only cache miss passes through so the client retries with the full query", func(t *testing.T) {
+		// gqlgen's extension.AutomaticPersistedQuery emits this exact code/message when a
+		// client sends only a query hash that is not yet cached. If it were masked to
+		// INTERNAL_SERVER_ERROR, the client would never learn to resend the full query and
+		// every cold-cache APQ request would fail.
+		gqlErr := &gqlerror.Error{
+			Message:    "PersistedQueryNotFound",
+			Extensions: map[string]interface{}{"code": "PERSISTED_QUERY_NOT_FOUND"},
+		}
+		result := CustomErrorPresenter(ctx, gqlErr)
+		require.NotNil(t, result)
+		assert.Equal(t, "PersistedQueryNotFound", result.Message)
+		assert.Equal(t, "PERSISTED_QUERY_NOT_FOUND", result.Extensions["code"])
+	})
 
 	t.Run("validation error with unknown field - variable/input path", func(t *testing.T) {
 		gqlErr := &gqlerror.Error{

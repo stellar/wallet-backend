@@ -35,6 +35,7 @@ var clientSafeErrorCodes = map[string]bool{
 	"QUERY_TOO_DEEP":            true, // query depth limit extension
 	"UNAUTHENTICATED":           true,
 	"FORBIDDEN":                 true,
+	"PERSISTED_QUERY_NOT_FOUND": true, // gqlgen extension.AutomaticPersistedQuery: hash-only cache miss; the client must receive it verbatim to retry with the full query
 }
 
 // CustomErrorPresenter provides more detailed error messages for GraphQL validation errors, and
