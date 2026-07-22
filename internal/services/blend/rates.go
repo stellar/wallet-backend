@@ -27,14 +27,15 @@
 //     argument instead of hardcoding 52; BorrowAPYCompoundingPeriods and
 //     SupplyAPYCompoundingPeriods document which to pass.
 //   - Rate projection: Reserve.accrue applies simple (non-compounding)
-//     per-call growth: new_dRate = dRate*(1+borrowApr*Δt/year). new_bRate's
-//     growth is driven by the same liabilities/supply split as util, so it
-//     reduces algebraically to bRate*(1+supplyApr*Δt/year) (supplyApr
-//     already folds in util and bstopRate — see SupplyAPR) without needing
-//     bSupply/dSupply at all. Verified by hand and against a real mainnet
-//     reserve — see rates_test.go. This drops the SDK's separate ir_mod
-//     reactivity update (ir_mod is an input here, not itself projected) —
-//     out of scope for a display/estimate helper, not a settlement path.
+//     per-call growth: new_dRate = dRate*(1+borrowApr*Δt/year); new_bRate
+//     grows by the accrued interest's supplier share over total supply,
+//     which reduces algebraically to bRate*(1+borrowApr*rawUtil*
+//     (1-bstopRate)*Δt/year) with rawUtil the UNCLAMPED liabilities/supply
+//     ratio — see ProjectRates for why the clamp applies only to the curve,
+//     not the accrual split. Verified by hand and against a real mainnet
+//     reserve — see rates_test.go. ir_mod is an input here, not itself
+//     projected: the contract, too, applies the stored ir_mod across the
+//     whole elapsed window and re-derives it only for the next one.
 //   - Emissions: eps (ReserveEmissionData/BackstopEmissionData) is
 //     uniformly SCALAR_14 (1e14) fixed-point "BLND per second" for BOTH
 //     backstop and pool-reserve emissions (manager.rs: "Eps is scaled by 14
@@ -217,28 +218,45 @@ func roundRat(r *big.Rat) *big.Int {
 }
 
 // ProjectRates projects bRate/dRate forward from lastTime to now given the
-// reserve's current borrowAPR and utilization. The real Reserve.accrue
-// on-chain update also re-derives ir_mod from time-weighted reactivity and
-// splits accrued interest against backstop_credit before dividing by
-// bSupply to get the new bRate — but because bRate's growth rate is driven
-// by the same liabilities/supply split as util, that reduces algebraically
-// to bRate*(1+supplyAPR*Δt/year) (supplyAPR already folds in util and
-// bstopRate — see SupplyAPR), letting this function avoid needing bSupply/
-// dSupply at all. Verified by hand and against a real mainnet reserve (see
-// rates_test.go). Δt<=0 (now at or before lastTime — e.g. a stale
-// projection request) returns bRate/dRate unchanged. Results are rounded
-// to the nearest raw integer, ties away from zero.
-func ProjectRates(bRate, dRate *big.Int, borrowAPR, util *big.Rat, bstopRate int32, lastTime, now int64) (pB, pD *big.Int) {
+// reserve's current borrowAPR (derived from the CLAMPED utilization curve —
+// see Utilization/BorrowAPR) and raw token supplies. It reproduces
+// Reserve::load's accrual (pool/src/pool/reserve.rs) in exact rational form:
+//
+//	pD = dRate·(1 + borrowAPR·Δt/year)
+//	pB = bRate·(1 + borrowAPR·rawUtil·(1−bstopRate)·Δt/year)
+//
+// where rawUtil is the UNCLAMPED liabilities/supply ratio
+// (dSupply·dRate)/(bSupply·bRate). The contract grows bRate by
+// accruedInterest·(1−bstopRate)/totalSupply, which reduces to exactly that —
+// the clamp only shapes the curve's borrowAPR, not the accrual split, so in
+// a bad-debt reserve (liabilities ≥ supply) rawUtil > 1 keeps bRate growing
+// faster than a clamped ratio would (suppliers accrue the full borrower
+// interest). The contract's on-load guards are mirrored exactly: Δt<=0, zero
+// bSupply, or zero liabilities (utilization()==0, i.e. no borrowers) all
+// return bRate/dRate unchanged — the contract bumps last_time and skips the
+// rate update in those states.
+//
+// The real update also re-derives ir_mod from time-weighted reactivity, but
+// only for the NEXT interval: calc_accrual applies the stored ir_mod across
+// the whole elapsed window, which is exactly what holding ir_mod fixed here
+// does. Results are rounded to the nearest raw integer, ties away from zero;
+// the contract's fixed-point path (ceil on dRate accrual, floor on bRate)
+// can differ from this exact-rational form by a few 1e-12 rate units over
+// long idle windows — rates_test.go's mainnet vector pins the exact-rational
+// value (the on-chain fixed-point result is 1 unit higher on pD).
+func ProjectRates(bRate, dRate, bSupply, dSupply *big.Int, borrowAPR *big.Rat, bstopRate int32, lastTime, now int64) (pB, pD *big.Int) {
 	deltaT := now - lastTime
-	if deltaT <= 0 {
+	liabilities := new(big.Int).Mul(dSupply, dRate)
+	supply := new(big.Int).Mul(bSupply, bRate)
+	if deltaT <= 0 || bSupply.Sign() == 0 || liabilities.Sign() == 0 || supply.Sign() == 0 {
 		return new(big.Int).Set(bRate), new(big.Int).Set(dRate)
 	}
 
-	supplyAPR := SupplyAPR(borrowAPR, util, bstopRate)
 	elapsedFraction := big.NewRat(deltaT, SecondsPerYear)
-
 	growthD := new(big.Rat).Mul(borrowAPR, elapsedFraction)
-	growthB := new(big.Rat).Mul(supplyAPR, elapsedFraction)
+	rawUtil := new(big.Rat).SetFrac(liabilities, supply)
+	capture := new(big.Rat).Sub(big.NewRat(1, 1), ratFromFixed7(bstopRate))
+	growthB := new(big.Rat).Mul(new(big.Rat).Mul(growthD, rawUtil), capture)
 
 	newD := new(big.Rat).Mul(new(big.Rat).SetInt(dRate), new(big.Rat).Add(big.NewRat(1, 1), growthD))
 	newB := new(big.Rat).Mul(new(big.Rat).SetInt(bRate), new(big.Rat).Add(big.NewRat(1, 1), growthB))
