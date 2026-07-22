@@ -460,16 +460,18 @@ func TestSnapshotOnce_CometLeg(t *testing.T) {
 	meta := services.NewContractMetadataServiceMock(t)
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
 		Return(vecScVal(contractAddrScVal(t, blndAddr), contractAddrScVal(t, usdcAddr)), nil).Once()
+	// The numeric getters are each fetched twice: fetchCometState's torn-read
+	// guard requires two agreeing consistency reads.
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
-		Return(i128ScVal(40_000_000_000_000), nil).Once() // 4,000,000.0000000
+		Return(i128ScVal(40_000_000_000_000), nil).Times(2) // 4,000,000.0000000
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{usdcArg}).
-		Return(i128ScVal(2_000_000_000_000), nil).Once() // 200,000.0000000
+		Return(i128ScVal(2_000_000_000_000), nil).Times(2) // 200,000.0000000
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{blndArg}).
-		Return(i128ScVal(8_000_000), nil).Once() // 0.8
+		Return(i128ScVal(8_000_000), nil).Times(2) // 0.8
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{usdcArg}).
-		Return(i128ScVal(2_000_000), nil).Once() // 0.2
+		Return(i128ScVal(2_000_000), nil).Times(2) // 0.2
 	meta.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
-		Return(i128ScVal(10_000_000_000_000), nil).Once() // 1,000,000.0000000
+		Return(i128ScVal(10_000_000_000_000), nil).Times(2) // 1,000,000.0000000
 
 	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
 	svc := newTestSnapshotService(t, oraclePrices, meta, cometID, bpm)

@@ -125,7 +125,16 @@ func cometValuation(blndBal, usdcBal, blndWeight, usdcWeight, lpSupply *big.Int)
 	poolValue := new(big.Rat).Add(blndValue, new(big.Rat).SetInt(usdcBal))
 	lpPriceRat := new(big.Rat).Quo(poolValue, new(big.Rat).SetInt(lpSupply))
 
-	return ratToFixedString(blndPriceRat, cometPriceDecimals), ratToFixedString(lpPriceRat, cometPriceDecimals), nil
+	blndPrice = ratToFixedString(blndPriceRat, cometPriceDecimals)
+	lpPrice = ratToFixedString(lpPriceRat, cometPriceDecimals)
+	// A positive rational below half of one 7-decimal unit rounds to "0". A
+	// zero price violates the snapshot invariant that non-positive prices are
+	// never persisted (snapshotOracle skips them as invalid), so reject it
+	// here rather than let downstream valuation report $0 for a live asset.
+	if blndPrice == "0" || lpPrice == "0" {
+		return "", "", fmt.Errorf("blend: cometValuation: price rounds to zero at %d decimals (blnd=%s, lp=%s)", cometPriceDecimals, blndPrice, lpPrice)
+	}
+	return blndPrice, lpPrice, nil
 }
 
 // ratToFixedString converts r into a base-10 fixed-point integer string at
@@ -161,9 +170,11 @@ func ratToFixedString(r *big.Rat, decimals int) string {
 // signatures) via metadata against the Comet pool at cometID, and splits the
 // two legs into BLND and USDC by weight: the higher-weighted leg is BLND
 // (the pinned Comet pool is an 80/20 BLND:USDC split), regardless of which
-// index get_tokens() happens to return it at. Any RPC failure, unexpected
-// return shape, token count other than 2, or a tie between the two weights
-// (which would make the BLND/USDC split ambiguous) is reported as an error.
+// index get_tokens() happens to return it at. The mutable numeric state is
+// read twice and must match (see the consistency comment inline). Any RPC
+// failure, unexpected return shape, token count other than 2, a mismatch
+// between the two consistency reads, or a tie between the two weights (which
+// would make the BLND/USDC split ambiguous) is reported as an error.
 func fetchCometState(ctx context.Context, metadata services.ContractMetadataService, cometID string) (*cometState, error) {
 	if metadata == nil {
 		return nil, fmt.Errorf("blend: fetchCometState: nil ContractMetadataService")
@@ -190,8 +201,74 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 		tokens[i] = addr
 	}
 
-	balances := make([]*big.Int, cometTokenCount)
-	weights := make([]*big.Int, cometTokenCount)
+	// Each getter call is its own latest-ledger RPC simulation, so a Comet
+	// transaction (swap, join, exit) landing between calls would mix pre- and
+	// post-trade values into a pool state that never existed on-chain. Soroban
+	// allows only one contract invocation per simulated transaction, so the
+	// getters cannot be batched into a single consistent read; instead the
+	// numeric state is read twice and both readings must agree. Any pool
+	// mutation changes at least one balance or the LP supply, so agreement
+	// means both readings observed the same state. A mismatch errors out —
+	// the snapshot task's next pass retries.
+	first, err := readCometNumericState(ctx, metadata, cometID, tokens)
+	if err != nil {
+		return nil, err
+	}
+	second, err := readCometNumericState(ctx, metadata, cometID, tokens)
+	if err != nil {
+		return nil, err
+	}
+	if !first.equal(second) {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s state changed between consistency reads", cometID)
+	}
+
+	blndIdx := 0
+	switch first.weights[0].Cmp(first.weights[1]) {
+	case 0:
+		return nil, fmt.Errorf("blend: fetchCometState: cannot identify BLND leg: both tokens have equal weight %s", first.weights[0])
+	case -1:
+		blndIdx = 1
+	}
+	usdcIdx := 1 - blndIdx
+
+	return &cometState{
+		BLNDAddress: tokens[blndIdx],
+		BLNDBalance: first.balances[blndIdx],
+		USDCBalance: first.balances[usdcIdx],
+		BLNDWeight:  first.weights[blndIdx],
+		USDCWeight:  first.weights[usdcIdx],
+		LPSupply:    first.lpSupply,
+	}, nil
+}
+
+// cometNumericReading is one read of a Comet pool's mutable numeric state:
+// per-token balances and normalized weights (parallel to the token list it
+// was read with), and the LP token total supply.
+type cometNumericReading struct {
+	balances []*big.Int
+	weights  []*big.Int
+	lpSupply *big.Int
+}
+
+// equal reports whether two readings observed identical pool state. Both
+// readings must come from the same token list.
+func (r *cometNumericReading) equal(o *cometNumericReading) bool {
+	for i := range r.balances {
+		if r.balances[i].Cmp(o.balances[i]) != 0 || r.weights[i].Cmp(o.weights[i]) != 0 {
+			return false
+		}
+	}
+	return r.lpSupply.Cmp(o.lpSupply) == 0
+}
+
+// readCometNumericState performs one read of the Comet pool's numeric getters
+// — get_balance and get_normalized_weight per token, plus get_total_supply —
+// see fetchCometState for the double-read consistency contract built on it.
+func readCometNumericState(ctx context.Context, metadata services.ContractMetadataService, cometID string, tokens []string) (*cometNumericReading, error) {
+	reading := &cometNumericReading{
+		balances: make([]*big.Int, len(tokens)),
+		weights:  make([]*big.Int, len(tokens)),
+	}
 	for i, tok := range tokens {
 		argVal, err := contractAddressScVal(tok)
 		if err != nil {
@@ -206,7 +283,7 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 		if !ok {
 			return nil, fmt.Errorf("blend: fetchCometState: get_balance(%s): expected i128, got %v", tok, balVal.Type)
 		}
-		balances[i] = i128ToBigInt(balParts)
+		reading.balances[i] = i128ToBigInt(balParts)
 
 		weightVal, err := metadata.FetchSingleField(ctx, cometID, "get_normalized_weight", argVal)
 		if err != nil {
@@ -216,7 +293,7 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 		if !ok {
 			return nil, fmt.Errorf("blend: fetchCometState: get_normalized_weight(%s): expected i128, got %v", tok, weightVal.Type)
 		}
-		weights[i] = i128ToBigInt(weightParts)
+		reading.weights[i] = i128ToBigInt(weightParts)
 	}
 
 	supplyVal, err := metadata.FetchSingleField(ctx, cometID, "get_total_supply")
@@ -227,23 +304,7 @@ func fetchCometState(ctx context.Context, metadata services.ContractMetadataServ
 	if !ok {
 		return nil, fmt.Errorf("blend: fetchCometState: get_total_supply: expected i128, got %v", supplyVal.Type)
 	}
-	lpSupply := i128ToBigInt(supplyParts)
+	reading.lpSupply = i128ToBigInt(supplyParts)
 
-	blndIdx := 0
-	switch weights[0].Cmp(weights[1]) {
-	case 0:
-		return nil, fmt.Errorf("blend: fetchCometState: cannot identify BLND leg: both tokens have equal weight %s", weights[0])
-	case -1:
-		blndIdx = 1
-	}
-	usdcIdx := 1 - blndIdx
-
-	return &cometState{
-		BLNDAddress: tokens[blndIdx],
-		BLNDBalance: balances[blndIdx],
-		USDCBalance: balances[usdcIdx],
-		BLNDWeight:  weights[blndIdx],
-		USDCWeight:  weights[usdcIdx],
-		LPSupply:    lpSupply,
-	}, nil
+	return reading, nil
 }
