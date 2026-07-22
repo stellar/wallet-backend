@@ -434,30 +434,19 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 	suppliedUsd := usdValueOrNil(totalSupplySide, reserve.Decimals, price)
 	borrowedUsd := usdValueOrNil(borrowedTokens, reserve.Decimals, price)
 
-	// emissionsApr reports whichever token side (bToken/dToken) this position
-	// currently holds a nonzero balance on. Blend tracks one BLND-per-second
-	// stream per token id (dToken=idx*2, bToken=idx*2+1), and
-	// BlendReservePosition exposes a single emissionsApr number, so this
-	// resolves that ambiguity by reporting the side actually relevant to the
-	// account's exposure: bToken emissions when it supplies/collateralizes,
-	// otherwise dToken emissions when it has debt. 0 when the position holds
-	// neither side (a fully-exited, zeroed row).
+	// Blend runs two independent BLND-per-second emission streams per reserve
+	// (dToken=idx*2, bToken=idx*2+1), so both sides are reported as their own
+	// pool-wide APR rather than collapsed to whichever side this account
+	// happens to hold. Each is the stream's pool-wide rate (over BSupply/DSupply
+	// at the projected rate), not scaled to the account's balance.
 	bTokenID := reserve.ReserveIndex*2 + 1
 	dTokenID := reserve.ReserveIndex * 2
 	bSideBalance := new(big.Int).Add(supplyB, collateralB)
 
-	var emissionsApr *float64
-	switch {
-	case bSideBalance.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.PB, reserve.Decimals, price)
-	case liabilityD.Sign() > 0:
-		emissionsApr = d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.PD, reserve.Decimals, price)
-	default:
-		zero := 0.0
-		emissionsApr = &zero
-	}
+	emissionsSupplyApr := d.emissionsAPRFor(poolAddr, bTokenID, rr.BSupply, rr.PB, reserve.Decimals, price)
+	emissionsBorrowApr := d.emissionsAPRFor(poolAddr, dTokenID, rr.DSupply, rr.PD, reserve.Decimals, price)
 
-	// emissionsEarnedBlnd, unlike emissionsApr, always sums BOTH streams:
+	// emissionsEarnedBlnd always sums BOTH streams:
 	// a position can carry claimable history on a side it no longer holds
 	// (e.g. fully repaid debt with unclaimed dToken-stream emissions).
 	claimScalar := reserveClaimScalar(reserve.Decimals)
@@ -504,7 +493,8 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 		BorrowedUsd:         borrowedUsd,
 		SupplyApy:           &rr.SupplyApy,
 		BorrowApy:           &rr.BorrowApy,
-		EmissionsApr:        emissionsApr,
+		EmissionsSupplyApr:  emissionsSupplyApr,
+		EmissionsBorrowApr:  emissionsBorrowApr,
 		InterestEarned:      interestEarned.String(),
 		InterestPaid:        interestPaid.String(),
 		EmissionsEarnedBlnd: claimableBLND.String(),
