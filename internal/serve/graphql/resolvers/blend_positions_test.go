@@ -171,7 +171,7 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: dbMetrics},
 		Blend:        blendModels,
 	}
-	resolver := &accountResolver{&Resolver{models: models}}
+	resolver := &accountResolver{&Resolver{models: models, blendBackstopLPContractID: cometAddr}}
 
 	// --- contract_tokens metadata (name/symbol only; decimals authority is blend_reserves) ---
 	execTestDB(t, `
@@ -482,10 +482,11 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	})
 }
 
-// TestFindBackstopPrices pins findBackstopPrices' selection contract:
-// (nil, nil) without a complete (self-priced LP, sibling BLND) group, and a
-// deterministic lowest-oracle-key pick if more than one complete group ever
-// appears (a config-error state — see the function's doc).
+// TestFindBackstopPrices pins findBackstopPrices' selection contract over rows
+// already scoped to the pinned Comet oracle (see the function's doc): (nil,
+// nil) unless both a self-priced LP row and a sibling BLND row are present, and
+// a deterministic lowest-sibling-asset pick if an extra sibling ever appears (a
+// config-error state).
 func TestFindBackstopPrices(t *testing.T) {
 	mk := func(oracle, asset string) blenddata.OraclePrice {
 		return blenddata.OraclePrice{
@@ -506,6 +507,12 @@ func TestFindBackstopPrices(t *testing.T) {
 		assert.Nil(t, blnd)
 	})
 
+	t.Run("sibling row without a self-priced LP row is incomplete", func(t *testing.T) {
+		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "BLND")})
+		assert.Nil(t, lp)
+		assert.Nil(t, blnd)
+	})
+
 	t.Run("one complete group", func(t *testing.T) {
 		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "COMET"), mk("COMET", "BLND")})
 		require.NotNil(t, lp)
@@ -514,18 +521,17 @@ func TestFindBackstopPrices(t *testing.T) {
 		assert.EqualValues(t, "BLND", blnd.AssetContractID)
 	})
 
-	t.Run("two complete groups pick the lowest oracle key, deterministically", func(t *testing.T) {
+	t.Run("extra sibling picks the lowest asset address, deterministically", func(t *testing.T) {
+		// The query orders rows by asset, so an ambiguous extra sibling resolves
+		// to the lowest asset address. Rows are passed pre-ordered here.
 		rows := []blenddata.OraclePrice{
-			mk("COMET_B", "COMET_B"), mk("COMET_B", "BLND_B"),
-			mk("COMET_A", "COMET_A"), mk("COMET_A", "BLND_A"),
+			mk("COMET", "COMET"), mk("COMET", "BLND_A"), mk("COMET", "BLND_B"),
 		}
-		// Repeat to flush out Go map-iteration randomness: every call must
-		// land on the same group.
 		for range 50 {
 			lp, blnd := findBackstopPrices(testCtx, rows)
 			require.NotNil(t, lp)
 			require.NotNil(t, blnd)
-			assert.EqualValues(t, "COMET_A", lp.OracleContractID)
+			assert.EqualValues(t, "COMET", lp.AssetContractID)
 			assert.EqualValues(t, "BLND_A", blnd.AssetContractID)
 		}
 	})
