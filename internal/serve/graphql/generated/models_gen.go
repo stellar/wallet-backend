@@ -115,31 +115,6 @@ type BlendBackstopPosition struct {
 	EmissionsEarnedUsd  *float64    `json:"emissionsEarnedUsd,omitempty"`
 }
 
-// BlendEarnOption is a "where can I earn this asset" catalog view: one entry
-// per asset with at least one enabled reserve in a pool that currently accepts
-// supply (status 0-3). Frozen (4-5) and Setup (6) pools reject deposits
-// on-chain, so their reserves are never earn options.
-type BlendEarnOption struct {
-	AssetContractID string                 `json:"assetContractId"`
-	TokenName       *string                `json:"tokenName,omitempty"`
-	TokenSymbol     *string                `json:"tokenSymbol,omitempty"`
-	TokenDecimals   *int32                 `json:"tokenDecimals,omitempty"`
-	Pools           []*BlendEarnPoolOption `json:"pools"`
-}
-
-// BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
-// supplyApy is the interest-only yield; emissionsSupplyApr is the reserve's
-// BLND-emission yield on the supply side (0 when no active stream, null when
-// the BLND price is unavailable) — supplyApy + emissionsSupplyApr is the
-// emissions-inclusive rate a wallet shows as the earn headline.
-type BlendEarnPoolOption struct {
-	PoolAddress        string   `json:"poolAddress"`
-	PoolName           *string  `json:"poolName,omitempty"`
-	SupplyApy          *float64 `json:"supplyApy,omitempty"`
-	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
-	SuppliedUsd        *float64 `json:"suppliedUsd,omitempty"`
-}
-
 // BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
 // any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
 // suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes

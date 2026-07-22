@@ -143,22 +143,6 @@ type ComplexityRoot struct {
 		UsdValue            func(childComplexity int) int
 	}
 
-	BlendEarnOption struct {
-		AssetContractID func(childComplexity int) int
-		Pools           func(childComplexity int) int
-		TokenDecimals   func(childComplexity int) int
-		TokenName       func(childComplexity int) int
-		TokenSymbol     func(childComplexity int) int
-	}
-
-	BlendEarnPoolOption struct {
-		EmissionsSupplyApr func(childComplexity int) int
-		PoolAddress        func(childComplexity int) int
-		PoolName           func(childComplexity int) int
-		SuppliedUsd        func(childComplexity int) int
-		SupplyApy          func(childComplexity int) int
-	}
-
 	BlendPool struct {
 		Address          func(childComplexity int) int
 		Admin            func(childComplexity int) int
@@ -331,7 +315,6 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AccountByAddress  func(childComplexity int, address string) int
-		BlendEarnOptions  func(childComplexity int) int
 		BlendPool         func(childComplexity int, address string) int
 		BlendPools        func(childComplexity int) int
 		OperationByID     func(childComplexity int, id int64) int
@@ -580,7 +563,6 @@ type QueryResolver interface {
 	StateChanges(ctx context.Context, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	BlendPools(ctx context.Context) ([]*BlendPool, error)
 	BlendPool(ctx context.Context, address string) (*BlendPool, error)
-	BlendEarnOptions(ctx context.Context) ([]*BlendEarnOption, error)
 }
 type ReservesChangeResolver interface {
 	Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error)
@@ -1048,68 +1030,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendBackstopPosition.UsdValue(childComplexity), true
-
-	case "BlendEarnOption.assetContractId":
-		if e.ComplexityRoot.BlendEarnOption.AssetContractID == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnOption.AssetContractID(childComplexity), true
-	case "BlendEarnOption.pools":
-		if e.ComplexityRoot.BlendEarnOption.Pools == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnOption.Pools(childComplexity), true
-	case "BlendEarnOption.tokenDecimals":
-		if e.ComplexityRoot.BlendEarnOption.TokenDecimals == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnOption.TokenDecimals(childComplexity), true
-	case "BlendEarnOption.tokenName":
-		if e.ComplexityRoot.BlendEarnOption.TokenName == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnOption.TokenName(childComplexity), true
-	case "BlendEarnOption.tokenSymbol":
-		if e.ComplexityRoot.BlendEarnOption.TokenSymbol == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnOption.TokenSymbol(childComplexity), true
-
-	case "BlendEarnPoolOption.emissionsSupplyApr":
-		if e.ComplexityRoot.BlendEarnPoolOption.EmissionsSupplyApr == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnPoolOption.EmissionsSupplyApr(childComplexity), true
-	case "BlendEarnPoolOption.poolAddress":
-		if e.ComplexityRoot.BlendEarnPoolOption.PoolAddress == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnPoolOption.PoolAddress(childComplexity), true
-	case "BlendEarnPoolOption.poolName":
-		if e.ComplexityRoot.BlendEarnPoolOption.PoolName == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnPoolOption.PoolName(childComplexity), true
-	case "BlendEarnPoolOption.suppliedUsd":
-		if e.ComplexityRoot.BlendEarnPoolOption.SuppliedUsd == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnPoolOption.SuppliedUsd(childComplexity), true
-	case "BlendEarnPoolOption.supplyApy":
-		if e.ComplexityRoot.BlendEarnPoolOption.SupplyApy == nil {
-			break
-		}
-
-		return e.ComplexityRoot.BlendEarnPoolOption.SupplyApy(childComplexity), true
 
 	case "BlendPool.address":
 		if e.ComplexityRoot.BlendPool.Address == nil {
@@ -1892,12 +1812,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AccountByAddress(childComplexity, args["address"].(string)), true
-	case "Query.blendEarnOptions":
-		if e.ComplexityRoot.Query.BlendEarnOptions == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.BlendEarnOptions(childComplexity), true
 	case "Query.blendPool":
 		if e.ComplexityRoot.Query.BlendPool == nil {
 			break
@@ -2864,8 +2778,7 @@ type SEP41Allowance {
 	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
 #
 # Query.blendPools/blendPool are pool-wide catalog views, independent of any
-# account. Query.blendEarnOptions is a "where can I earn this asset" catalog
-# view. Account.blendPositions is an account's lending, collateral, and
+# account. Account.blendPositions is an account's lending, collateral, and
 # backstop positions across every Blend v2 pool it touches, plus any active
 # Dutch auctions where the account is the auction owner
 # (BlendAccountPositions.activeAuctions).
@@ -2879,7 +2792,6 @@ type SEP41Allowance {
 extend type Query {
   blendPools: [BlendPool!]!
   blendPool(address: String!): BlendPool
-  blendEarnOptions: [BlendEarnOption!]!
 }
 
 extend type Account {
@@ -3102,35 +3014,6 @@ type BlendReserve {
   """Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports."""
   lFactor: Int
   priceUsd: Float
-}
-
-"""
-BlendEarnOption is a "where can I earn this asset" catalog view: one entry
-per asset with at least one enabled reserve in a pool that currently accepts
-supply (status 0-3). Frozen (4-5) and Setup (6) pools reject deposits
-on-chain, so their reserves are never earn options.
-"""
-type BlendEarnOption {
-  assetContractId: String!
-  tokenName: String
-  tokenSymbol: String
-  tokenDecimals: Int
-  pools: [BlendEarnPoolOption!]!
-}
-
-"""
-BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
-supplyApy is the interest-only yield; emissionsSupplyApr is the reserve's
-BLND-emission yield on the supply side (0 when no active stream, null when
-the BLND price is unavailable) — supplyApy + emissionsSupplyApr is the
-emissions-inclusive rate a wallet shows as the earn headline.
-"""
-type BlendEarnPoolOption {
-  poolAddress: String!
-  poolName: String
-  supplyApy: Float
-  emissionsSupplyApr: Float
-  suppliedUsd: Float
 }
 `, BuiltIn: false},
 	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
@@ -6100,308 +5983,6 @@ func (ec *executionContext) _BlendBackstopPosition_emissionsEarnedUsd(ctx contex
 func (ec *executionContext) fieldContext_BlendBackstopPosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendBackstopPosition",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Float does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnOption_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnOption_assetContractId,
-		func(ctx context.Context) (any, error) {
-			return obj.AssetContractID, nil
-		},
-		nil,
-		ec.marshalNString2string,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnOption_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnOption_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnOption_tokenName,
-		func(ctx context.Context) (any, error) {
-			return obj.TokenName, nil
-		},
-		nil,
-		ec.marshalOString2ᚖstring,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnOption_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnOption_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnOption_tokenSymbol,
-		func(ctx context.Context) (any, error) {
-			return obj.TokenSymbol, nil
-		},
-		nil,
-		ec.marshalOString2ᚖstring,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnOption_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnOption_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnOption_tokenDecimals,
-		func(ctx context.Context) (any, error) {
-			return obj.TokenDecimals, nil
-		},
-		nil,
-		ec.marshalOInt2ᚖint32,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnOption_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnOption_pools(ctx context.Context, field graphql.CollectedField, obj *BlendEarnOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnOption_pools,
-		func(ctx context.Context) (any, error) {
-			return obj.Pools, nil
-		},
-		nil,
-		ec.marshalNBlendEarnPoolOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOptionᚄ,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnOption_pools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "poolAddress":
-				return ec.fieldContext_BlendEarnPoolOption_poolAddress(ctx, field)
-			case "poolName":
-				return ec.fieldContext_BlendEarnPoolOption_poolName(ctx, field)
-			case "supplyApy":
-				return ec.fieldContext_BlendEarnPoolOption_supplyApy(ctx, field)
-			case "emissionsSupplyApr":
-				return ec.fieldContext_BlendEarnPoolOption_emissionsSupplyApr(ctx, field)
-			case "suppliedUsd":
-				return ec.fieldContext_BlendEarnPoolOption_suppliedUsd(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type BlendEarnPoolOption", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnPoolOption_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnPoolOption_poolAddress,
-		func(ctx context.Context) (any, error) {
-			return obj.PoolAddress, nil
-		},
-		nil,
-		ec.marshalNString2string,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnPoolOption_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnPoolOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnPoolOption_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnPoolOption_poolName,
-		func(ctx context.Context) (any, error) {
-			return obj.PoolName, nil
-		},
-		nil,
-		ec.marshalOString2ᚖstring,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnPoolOption_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnPoolOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnPoolOption_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnPoolOption_supplyApy,
-		func(ctx context.Context) (any, error) {
-			return obj.SupplyApy, nil
-		},
-		nil,
-		ec.marshalOFloat2ᚖfloat64,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnPoolOption_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnPoolOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Float does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnPoolOption_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnPoolOption_emissionsSupplyApr,
-		func(ctx context.Context) (any, error) {
-			return obj.EmissionsSupplyApr, nil
-		},
-		nil,
-		ec.marshalOFloat2ᚖfloat64,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnPoolOption_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnPoolOption",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Float does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _BlendEarnPoolOption_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendEarnPoolOption) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_BlendEarnPoolOption_suppliedUsd,
-		func(ctx context.Context) (any, error) {
-			return obj.SuppliedUsd, nil
-		},
-		nil,
-		ec.marshalOFloat2ᚖfloat64,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_BlendEarnPoolOption_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "BlendEarnPoolOption",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10851,47 +10432,6 @@ func (ec *executionContext) fieldContext_Query_blendPool(ctx context.Context, fi
 	if fc.Args, err = ec.field_Query_blendPool_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_blendEarnOptions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_Query_blendEarnOptions,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().BlendEarnOptions(ctx)
-		},
-		nil,
-		ec.marshalNBlendEarnOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOptionᚄ,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_Query_blendEarnOptions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "assetContractId":
-				return ec.fieldContext_BlendEarnOption_assetContractId(ctx, field)
-			case "tokenName":
-				return ec.fieldContext_BlendEarnOption_tokenName(ctx, field)
-			case "tokenSymbol":
-				return ec.fieldContext_BlendEarnOption_tokenSymbol(ctx, field)
-			case "tokenDecimals":
-				return ec.fieldContext_BlendEarnOption_tokenDecimals(ctx, field)
-			case "pools":
-				return ec.fieldContext_BlendEarnOption_pools(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type BlendEarnOption", field.Name)
-		},
 	}
 	return fc, nil
 }
@@ -17678,103 +17218,6 @@ func (ec *executionContext) _BlendBackstopPosition(ctx context.Context, sel ast.
 	return out
 }
 
-var blendEarnOptionImplementors = []string{"BlendEarnOption"}
-
-func (ec *executionContext) _BlendEarnOption(ctx context.Context, sel ast.SelectionSet, obj *BlendEarnOption) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, blendEarnOptionImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("BlendEarnOption")
-		case "assetContractId":
-			out.Values[i] = ec._BlendEarnOption_assetContractId(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "tokenName":
-			out.Values[i] = ec._BlendEarnOption_tokenName(ctx, field, obj)
-		case "tokenSymbol":
-			out.Values[i] = ec._BlendEarnOption_tokenSymbol(ctx, field, obj)
-		case "tokenDecimals":
-			out.Values[i] = ec._BlendEarnOption_tokenDecimals(ctx, field, obj)
-		case "pools":
-			out.Values[i] = ec._BlendEarnOption_pools(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.ProcessDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var blendEarnPoolOptionImplementors = []string{"BlendEarnPoolOption"}
-
-func (ec *executionContext) _BlendEarnPoolOption(ctx context.Context, sel ast.SelectionSet, obj *BlendEarnPoolOption) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, blendEarnPoolOptionImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("BlendEarnPoolOption")
-		case "poolAddress":
-			out.Values[i] = ec._BlendEarnPoolOption_poolAddress(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "poolName":
-			out.Values[i] = ec._BlendEarnPoolOption_poolName(ctx, field, obj)
-		case "supplyApy":
-			out.Values[i] = ec._BlendEarnPoolOption_supplyApy(ctx, field, obj)
-		case "emissionsSupplyApr":
-			out.Values[i] = ec._BlendEarnPoolOption_emissionsSupplyApr(ctx, field, obj)
-		case "suppliedUsd":
-			out.Values[i] = ec._BlendEarnPoolOption_suppliedUsd(ctx, field, obj)
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.ProcessDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
 var blendPoolImplementors = []string{"BlendPool"}
 
 func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet, obj *BlendPool) graphql.Marshaler {
@@ -19663,28 +19106,6 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_blendPool(ctx, field)
-				return res
-			}
-
-			rrm := func(ctx context.Context) graphql.Marshaler {
-				return ec.OperationContext.RootResolverMiddleware(ctx,
-					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "blendEarnOptions":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Query_blendEarnOptions(ctx, field)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
 				return res
 			}
 
@@ -22675,58 +22096,6 @@ func (ec *executionContext) marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstel
 		return graphql.Null
 	}
 	return ec._BlendBackstopPosition(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNBlendEarnOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOptionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendEarnOption) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNBlendEarnOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOption(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNBlendEarnOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnOption(ctx context.Context, sel ast.SelectionSet, v *BlendEarnOption) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._BlendEarnOption(ctx, sel, v)
-}
-
-func (ec *executionContext) marshalNBlendEarnPoolOption2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOptionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendEarnPoolOption) graphql.Marshaler {
-	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
-		fc := graphql.GetFieldContext(ctx)
-		fc.Result = &v[i]
-		return ec.marshalNBlendEarnPoolOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOption(ctx, sel, v[i])
-	})
-
-	for _, e := range ret {
-		if e == graphql.Null {
-			return graphql.Null
-		}
-	}
-
-	return ret
-}
-
-func (ec *executionContext) marshalNBlendEarnPoolOption2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendEarnPoolOption(ctx context.Context, sel ast.SelectionSet, v *BlendEarnPoolOption) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._BlendEarnPoolOption(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPool) graphql.Marshaler {

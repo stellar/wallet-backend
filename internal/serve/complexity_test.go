@@ -299,8 +299,8 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 // complexity is easy to verify by hand and stays stable across unrelated schema edits.
 //
 // Worst case (every field selected across the full Blend schema, derived in the comment above
-// the multipliers in addComplexityCalculation): blendPools ≈ 1450, blendEarnOptions ≈ 450,
-// blendPositions ≈ 370 — all comfortably under the production GRAPHQL_COMPLEXITY_LIMIT=6000.
+// the multipliers in addComplexityCalculation): blendPools ≈ 1450, blendPositions ≈ 370 — all
+// comfortably under the production GRAPHQL_COMPLEXITY_LIMIT=6000.
 // This does not touch AccountTransactionEdge.operations/stateChanges or any other existing
 // complexity entry, so the freighter full-detail account-history query budget is unchanged.
 func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
@@ -333,20 +333,6 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 				}
 			}`,
 			// reserves{assetContractId}: default 1+1=2. address(1)+reserves(2)=3 => 3*50=150.
-			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
-		},
-		{
-			name:  "blendEarnOptions carries the accounts-list page-size multiplier",
-			limit: 149,
-			query: `query {
-				blendEarnOptions {
-					assetContractId
-					pools {
-						poolAddress
-					}
-				}
-			}`,
-			// pools{poolAddress}: default 1+1=2. assetContractId(1)+pools(2)=3 => 3*50=150.
 			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
 		},
 		{

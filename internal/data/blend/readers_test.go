@@ -248,29 +248,6 @@ func TestReserveModel_GetByPools(t *testing.T) {
 	})
 }
 
-func TestReserveModel_GetAll(t *testing.T) {
-	ctx, pool, m, cleanup := newReservesFixture(t)
-	defer cleanup()
-
-	poolA := keypair.MustRandom().Address()
-	assetA := keypair.MustRandom().Address()
-	assetB := keypair.MustRandom().Address()
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Reserve{
-			fullReserve(poolA, assetA, 1, 1),
-			fullReserve(poolA, assetB, 0, 1),
-		}))
-	})
-
-	got, err := m.GetAll(ctx)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assertOrderedByAddrThen(t, got,
-		func(r blend.Reserve) types.AddressBytea { return r.PoolContractID },
-		func(r blend.Reserve) int32 { return r.ReserveIndex },
-	)
-}
-
 func TestReserveEmissionModel_GetByPools(t *testing.T) {
 	ctx, pool, m, cleanup := newReserveEmissionsFixture(t)
 	defer cleanup()

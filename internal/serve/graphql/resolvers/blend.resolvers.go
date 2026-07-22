@@ -26,8 +26,3 @@ func (r *queryResolver) BlendPools(ctx context.Context) ([]*graphql1.BlendPool, 
 func (r *queryResolver) BlendPool(ctx context.Context, address string) (*graphql1.BlendPool, error) {
 	return r.getBlendPool(ctx, address)
 }
-
-// BlendEarnOptions is the resolver for the blendEarnOptions field.
-func (r *queryResolver) BlendEarnOptions(ctx context.Context) ([]*graphql1.BlendEarnOption, error) {
-	return r.getBlendEarnOptions(ctx)
-}

@@ -1,8 +1,7 @@
 # Blend v2 lending protocol GraphQL surface.
 #
 # Query.blendPools/blendPool are pool-wide catalog views, independent of any
-# account. Query.blendEarnOptions is a "where can I earn this asset" catalog
-# view. Account.blendPositions is an account's lending, collateral, and
+# account. Account.blendPositions is an account's lending, collateral, and
 # backstop positions across every Blend v2 pool it touches, plus any active
 # Dutch auctions where the account is the auction owner
 # (BlendAccountPositions.activeAuctions).
@@ -16,7 +15,6 @@
 extend type Query {
   blendPools: [BlendPool!]!
   blendPool(address: String!): BlendPool
-  blendEarnOptions: [BlendEarnOption!]!
 }
 
 extend type Account {
@@ -239,33 +237,4 @@ type BlendReserve {
   """Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports."""
   lFactor: Int
   priceUsd: Float
-}
-
-"""
-BlendEarnOption is a "where can I earn this asset" catalog view: one entry
-per asset with at least one enabled reserve in a pool that currently accepts
-supply (status 0-3). Frozen (4-5) and Setup (6) pools reject deposits
-on-chain, so their reserves are never earn options.
-"""
-type BlendEarnOption {
-  assetContractId: String!
-  tokenName: String
-  tokenSymbol: String
-  tokenDecimals: Int
-  pools: [BlendEarnPoolOption!]!
-}
-
-"""
-BlendEarnPoolOption is one pool's offer for a BlendEarnOption's asset.
-supplyApy is the interest-only yield; emissionsSupplyApr is the reserve's
-BLND-emission yield on the supply side (0 when no active stream, null when
-the BLND price is unavailable) — supplyApy + emissionsSupplyApr is the
-emissions-inclusive rate a wallet shows as the earn headline.
-"""
-type BlendEarnPoolOption {
-  poolAddress: String!
-  poolName: String
-  supplyApy: Float
-  emissionsSupplyApr: Float
-  suppliedUsd: Float
 }
