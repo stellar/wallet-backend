@@ -364,7 +364,7 @@ func (d *blendAssembly) computeReserveRates(poolAddr string, reserve blenddata.R
 	supplyApy := blendrates.ToAPY(supplyAPR, blendrates.SupplyAPYCompoundingPeriods)
 	borrowApy := blendrates.ToAPY(borrowAPR, blendrates.BorrowAPYCompoundingPeriods)
 
-	pB, pD := blendrates.ProjectRates(bRate, dRate, borrowAPR, currentUtil, bstopRate, reserve.LastTime, d.now)
+	pB, pD := blendrates.ProjectRates(bRate, dRate, bSupply, dSupply, borrowAPR, bstopRate, reserve.LastTime, d.now)
 
 	return &reserveRates{
 		BRate: bRate, DRate: dRate,
