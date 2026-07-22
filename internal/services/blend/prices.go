@@ -20,7 +20,7 @@
 // carries no oracle-reported timestamp of its own.
 //
 // A price the pool contract itself would reject is never persisted: an
-// oracle-reported timestamp older than maxPriceAge is skipped as "stale" and
+// oracle-reported timestamp older than MaxPriceAge is skipped as "stale" and
 // a price ≤ 0 as "invalid" (both observable via the fetch-outcome counter,
 // staleness additionally via the oldest-price-age gauge).
 //
@@ -45,11 +45,11 @@ import (
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
-// maxPriceAge is how old an oracle-reported price may be and still be
+// MaxPriceAge is how old an oracle-reported price may be and still be
 // persisted. It mirrors the Blend v2 pool contract's own rejection window:
 // pool.rs::load_price panics on prices older than 24h (and on prices ≤ 0),
 // so a price past this age could never be used by the pool it prices for.
-const maxPriceAge = 24 * time.Hour
+const MaxPriceAge = 24 * time.Hour
 
 // PriceSnapshotConfig configures a PriceSnapshotService.
 type PriceSnapshotConfig struct {
@@ -200,7 +200,7 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 // snapshotOracle fetches decimals() once for oracle, then lastprice(asset)
 // for each of targets, skipping (not erroring on) a SEP-40 Option::None
 // response, a price the pool contract would reject as stale (older than
-// maxPriceAge against now) or invalid (≤ 0). A decimals() failure aborts
+// MaxPriceAge against now) or invalid (≤ 0). A decimals() failure aborts
 // this oracle's whole batch — every target's price is meaningless without
 // it — but is isolated to this oracle by the caller. A single target's
 // lastprice failure is isolated to that target: the rest of this oracle's
@@ -255,7 +255,7 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 		if age := now - int64(priceData.Timestamp); age > oldestAge {
 			oldestAge = age
 		}
-		if int64(priceData.Timestamp) < now-int64(maxPriceAge/time.Second) {
+		if int64(priceData.Timestamp) < now-int64(MaxPriceAge/time.Second) {
 			s.metrics.FetchesTotal.WithLabelValues("stale").Inc()
 			continue
 		}

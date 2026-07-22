@@ -31,6 +31,7 @@ require (
 	github.com/tetratelabs/wazero v1.10.1
 	github.com/vektah/gqlparser/v2 v2.5.32
 	github.com/vikstrous/dataloadgen v0.0.9
+	golang.org/x/sync v0.20.0
 	golang.org/x/text v0.37.0
 )
 
@@ -176,7 +177,6 @@ require (
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/api v0.254.0 // indirect

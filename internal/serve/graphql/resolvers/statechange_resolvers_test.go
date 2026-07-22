@@ -494,3 +494,148 @@ func TestAccountResolver_SEP41TransferSurfacesAsStandardBalanceChange(t *testing
 	assert.True(t, bc.ToMuxedID.Valid)
 	assert.Equal(t, "18446744073709551615", bc.ToMuxedID.String)
 }
+
+func TestAccountResolver_LendingStateChangesSurfaceAsLendingChange(t *testing.T) {
+	// Blend v2 LENDING/SUPPLY and LENDING/CLAIM rows -> state_changes rows with
+	// category=LENDING. Through Account.stateChanges these should come back as
+	// LendingChange with tokenId/amount/poolId resolved. poolId lives in the
+	// KeyValue JSONB map, not a dedicated column (see
+	// internal/services/blend/processor.go:stageHistoryRow); backstop CLAIM rows
+	// carry no poolId at all.
+	acct := keypair.MustRandom().Address()
+	parentAccount := &types.Account{StellarAddress: types.AddressBytea(acct)}
+
+	poolAddr := keypair.MustRandom().Address()
+	reserveTokenAddr := randomContractAddress(t)
+	blndTokenAddr := randomContractAddress(t)
+
+	execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1::bytea`, mustAddressBytes(t, acct))
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM state_changes WHERE account_id = $1::bytea`, mustAddressBytes(t, acct))
+	})
+
+	// SUPPLY row: pool-scoped, token_id + amount + key_value.poolId all populated.
+	execTestDB(t, `
+		INSERT INTO state_changes (
+			to_id, state_change_id, state_change_category, state_change_reason,
+			ledger_created_at, ledger_number, account_id, operation_id,
+			token_id, amount, key_value
+		) VALUES ($1, $2, $3, $4, NOW(), $5, $6::bytea, $7, $8::bytea, $9, $10)
+	`,
+		int64(43<<32), int64(1),
+		string(types.StateChangeCategoryLending), string(types.StateChangeReasonSupply),
+		uint32(101), mustAddressBytes(t, acct), int64((43<<32)|1),
+		mustAddressBytes(t, reserveTokenAddr), "1000",
+		map[string]any{"poolId": poolAddr},
+	)
+
+	// CLAIM row: backstop-sourced, no poolId in key_value, token_id is the reward token (BLND-ish).
+	execTestDB(t, `
+		INSERT INTO state_changes (
+			to_id, state_change_id, state_change_category, state_change_reason,
+			ledger_created_at, ledger_number, account_id, operation_id,
+			token_id, amount, key_value
+		) VALUES ($1, $2, $3, $4, NOW(), $5, $6::bytea, $7, $8::bytea, $9, $10)
+	`,
+		int64(43<<32), int64(2),
+		string(types.StateChangeCategoryLending), string(types.StateChangeReasonClaim),
+		uint32(101), mustAddressBytes(t, acct), int64((43<<32)|1),
+		mustAddressBytes(t, blndTokenAddr), "250",
+		map[string]any{"source": "backstop"},
+	)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	resolver := &accountResolver{&Resolver{
+		models: &data.Models{
+			StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
+		},
+		metrics: m,
+	}}
+
+	ctx := getTestCtx("stateChanges", []string{
+		"type", "reason", "tokenId", "amount", "poolId", "ledgerNumber",
+	})
+
+	first := int32(10)
+	conn, err := resolver.StateChanges(ctx, parentAccount, nil, nil, nil, &first, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	require.Len(t, conn.Edges, 2)
+
+	// Ordered ascending by state_change_id within the shared (to_id, operation_id):
+	// SUPPLY (id=1) before CLAIM (id=2).
+	supplySC, ok := conn.Edges[0].Node.(*types.LendingStateChangeModel)
+	require.True(t, ok, "edge[0] should be LendingStateChangeModel, got %T", conn.Edges[0].Node)
+	assert.Equal(t, types.StateChangeCategoryLending, supplySC.StateChangeCategory)
+	assert.Equal(t, types.StateChangeReasonSupply, supplySC.StateChangeReason)
+	assert.Equal(t, reserveTokenAddr, supplySC.TokenID.String())
+	assert.True(t, supplySC.Amount.Valid)
+	assert.Equal(t, "1000", supplySC.Amount.String)
+
+	claimSC, ok := conn.Edges[1].Node.(*types.LendingStateChangeModel)
+	require.True(t, ok, "edge[1] should be LendingStateChangeModel, got %T", conn.Edges[1].Node)
+	assert.Equal(t, types.StateChangeCategoryLending, claimSC.StateChangeCategory)
+	assert.Equal(t, types.StateChangeReasonClaim, claimSC.StateChangeReason)
+	assert.Equal(t, blndTokenAddr, claimSC.TokenID.String())
+	assert.True(t, claimSC.Amount.Valid)
+	assert.Equal(t, "250", claimSC.Amount.String)
+
+	// Resolver-level field checks, including the KeyValue-backed poolId resolver.
+	lendingResolver := &lendingChangeResolver{&Resolver{}}
+
+	poolID, err := lendingResolver.PoolID(ctx, supplySC)
+	require.NoError(t, err)
+	require.NotNil(t, poolID)
+	assert.Equal(t, poolAddr, *poolID)
+
+	// Backstop CLAIM carries no poolId in key_value -> resolver returns nil, not an error.
+	claimPoolID, err := lendingResolver.PoolID(ctx, claimSC)
+	require.NoError(t, err)
+	assert.Nil(t, claimPoolID)
+
+	tokenID, err := lendingResolver.TokenID(ctx, supplySC)
+	require.NoError(t, err)
+	require.NotNil(t, tokenID)
+	assert.Equal(t, reserveTokenAddr, *tokenID)
+
+	amount, err := lendingResolver.Amount(ctx, supplySC)
+	require.NoError(t, err)
+	require.NotNil(t, amount)
+	assert.Equal(t, "1000", *amount)
+}
+
+func TestStateChangeResolver_LendingPoolID(t *testing.T) {
+	ctx := context.Background()
+	resolver := &lendingChangeResolver{&Resolver{}}
+
+	t.Run("poolId present", func(t *testing.T) {
+		obj := &types.LendingStateChangeModel{
+			StateChange: types.StateChange{
+				KeyValue: types.NullableJSONB{"poolId": "CPOOLADDRESS"},
+			},
+		}
+		poolID, err := resolver.PoolID(ctx, obj)
+		require.NoError(t, err)
+		require.NotNil(t, poolID)
+		assert.Equal(t, "CPOOLADDRESS", *poolID)
+	})
+
+	t.Run("nil key_value", func(t *testing.T) {
+		obj := &types.LendingStateChangeModel{}
+		poolID, err := resolver.PoolID(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, poolID)
+	})
+
+	t.Run("key_value without poolId (backstop claim)", func(t *testing.T) {
+		obj := &types.LendingStateChangeModel{
+			StateChange: types.StateChange{
+				KeyValue: types.NullableJSONB{"source": "backstop"},
+			},
+		}
+		poolID, err := resolver.PoolID(ctx, obj)
+		require.NoError(t, err)
+		assert.Nil(t, poolID)
+	})
+}

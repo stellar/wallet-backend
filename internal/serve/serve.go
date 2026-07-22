@@ -58,6 +58,14 @@ type Configs struct {
 	// GraphQL
 	GraphQLComplexityLimit int
 
+	// BlendBackstopLPContractID is the C-address of the Blend v2 backstop's Comet
+	// BLND:USDC weighted pool (BLEND_BACKSTOP_LP_CONTRACT_ID) — the same pin the
+	// ingest-side price snapshot writer targets. It scopes the backstop LP/BLND
+	// price read so a permissionless pool's coincidentally self-priced group can
+	// never be mistaken for the protocol-wide backstop prices. Empty disables the
+	// leg (backstop USD fields resolve to null).
+	BlendBackstopLPContractID string
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 
@@ -107,7 +115,8 @@ type handlerDeps struct {
 	SEP41AllowanceModel       sep41data.AllowanceModelInterface
 
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit    int
+	BlendBackstopLPContractID string
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -203,6 +212,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		GraphQLComplexityLimit:    cfg.GraphQLComplexityLimit,
+		BlendBackstopLPContractID: cfg.BlendBackstopLPContractID,
 	}, nil
 }
 
@@ -238,6 +248,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
+				deps.BlendBackstopLPContractID,
 			)
 
 			config := generated.Config{
@@ -367,4 +378,42 @@ func addComplexityCalculation(config *generated.Config) {
 	}
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc
+
+	// Blend lists are unpaginated but bounded, so each list level carries its own
+	// cardinality multiplier — nested lists are NOT free-riding under a single outer
+	// multiplier; a full blendPools selection is priced as pools × reserves-per-pool.
+	// Bounds are on-chain constants where the contract has one (blend-contracts-v2 @
+	// ba22b487: pool MAX_RESERVES=30, backstop MAX_Q4W_SIZE=20; an auction's bid/lot
+	// asset maps are keyed by the pool's reserve tokens, so ≤ 30ish entries) and
+	// documented assumptions where it doesn't (catalog ≈ dozens of pools → 50, matching
+	// the accounts fan-out above; pools/backstop-deposits/open-auctions per ACCOUNT have
+	// no on-chain cap → priced at 10, a deliberate pricing assumption, not a runtime
+	// truncation — the resolver always returns every row).
+	blendReservesBound := func(childComplexity int) int { return childComplexity * 30 }
+	config.Complexity.BlendPool.Reserves = blendReservesBound
+	config.Complexity.BlendPoolPosition.Reserves = blendReservesBound
+	config.Complexity.BlendBackstopPosition.Q4w = func(childComplexity int) int { return childComplexity * 20 }
+	config.Complexity.BlendAuction.Bid = blendReservesBound
+	config.Complexity.BlendAuction.Lot = blendReservesBound
+	blendPerAccountBound := func(childComplexity int) int { return childComplexity * 10 }
+	config.Complexity.BlendAccountPositions.Pools = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.Backstop = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.ActiveAuctions = blendPerAccountBound
+	config.Complexity.Query.BlendPools = accountsListComplexityFunc
+	// Query.blendPool (single pool by address) and Account.blendPositions (one object)
+	// stay at the default (1 + childComplexity): the cardinality now lives on the list
+	// fields inside them, so an outer multiplier would double-charge.
+	//
+	// Worst case with every field selected (complexity_test.go locks the multipliers;
+	// counts follow the schema: BlendReserve 17 scalars, BlendPool 13 scalars,
+	// BlendReservePosition 18, BlendPoolPosition 7, BlendBackstopPosition 7, BlendQ4W 4,
+	// BlendAuction 3 + bid/lot(2 each)):
+	//   blendPools:     50 × (13 + 30×17) = 50 × 523 = 26,150
+	//   blendPositions: 1 + 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1
+	//                   = 1 + 5,470 + 870 + 1,230 + 1 = 7,572
+	// Both exceed a 6,000 complexity limit for the FULL selection — deliberate: the
+	// limit must be raised deployment-side to admit them (see the PR notes), or clients
+	// select fewer fields. None of this touches AccountTransactionEdge.operations/
+	// stateChanges or any other existing entry above — those stay exactly as budgeted
+	// for the freighter full-detail query.
 }

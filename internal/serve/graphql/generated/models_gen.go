@@ -58,6 +58,212 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
+// BlendAccountPositions aggregates one account's Blend v2 exposure across every
+// pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
+// Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
+// token and re-deposits it, so LP tokens are what the claimer actually receives.
+// Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
+// pool address, so this total can only ever be reported account-wide.
+type BlendAccountPositions struct {
+	Pools             []*BlendPoolPosition     `json:"pools"`
+	Backstop          []*BlendBackstopPosition `json:"backstop"`
+	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
+	// Active Dutch auctions where this account is the auction owner: being
+	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+	// address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+	// Sorted by (poolAddress, auctionType).
+	ActiveAuctions []*BlendAuction `json:"activeAuctions"`
+}
+
+// BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+// and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+// noted per field below.
+type BlendAuction struct {
+	PoolAddress string           `json:"poolAddress"`
+	PoolName    *string          `json:"poolName,omitempty"`
+	AuctionType BlendAuctionType `json:"auctionType"`
+	// Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens.
+	Bid []*BlendAuctionAmount `json:"bid"`
+	// Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying.
+	Lot []*BlendAuctionAmount `json:"lot"`
+	// Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down).
+	StartBlock int32 `json:"startBlock"`
+}
+
+// BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
+type BlendAuctionAmount struct {
+	AssetContractID string `json:"assetContractId"`
+	// Raw on-chain integer amount at the asset's native decimals, NOT a USD value.
+	Amount string `json:"amount"`
+}
+
+// BlendBackstopPosition is an account's backstop deposit in one pool. The
+// backstop is a single protocol-wide contract holding each pool's first-loss
+// capital separately, so exposure is inherently per-pool (poolAddress) even
+// though the backstop is not the pool contract itself — one
+// BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+// backstop share balance; lpTokens/usdValue value the whole deposit — active
+// plus queued-for-withdrawal shares — since queued shares keep earning pool
+// interest and remain slashable first-loss capital until actually withdrawn.
+// emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+// emission stream for this pool; it accrues on active shares only (queued
+// shares earn no emissions).
+type BlendBackstopPosition struct {
+	PoolAddress         string      `json:"poolAddress"`
+	PoolName            *string     `json:"poolName,omitempty"`
+	Shares              string      `json:"shares"`
+	LpTokens            string      `json:"lpTokens"`
+	UsdValue            *float64    `json:"usdValue,omitempty"`
+	Q4w                 []*BlendQ4w `json:"q4w"`
+	EmissionsEarnedBlnd string      `json:"emissionsEarnedBlnd"`
+	EmissionsEarnedUsd  *float64    `json:"emissionsEarnedUsd,omitempty"`
+}
+
+// BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+// any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+// suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+// the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+// the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+// and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+// across reserves; netApy additionally folds in each reserve's
+// emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+// emissions, not netted against the pool's borrow side.
+type BlendPool struct {
+	Address string  `json:"address"`
+	Name    *string `json:"name,omitempty"`
+	// Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+	// (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+	// SETUP reject both. Null until the pool's config entry has been ingested, and
+	// also null for an unrecognized on-chain status value.
+	Status           *BlendPoolStatus `json:"status,omitempty"`
+	OracleContractID *string          `json:"oracleContractId,omitempty"`
+	// Share of borrower interest routed to the pool's backstop, as 7-decimal
+	// fixed point (4750000 = 47.5%).
+	BackstopRate *int32          `json:"backstopRate,omitempty"`
+	MaxPositions *int32          `json:"maxPositions,omitempty"`
+	SuppliedUsd  *float64        `json:"suppliedUsd,omitempty"`
+	BorrowedUsd  *float64        `json:"borrowedUsd,omitempty"`
+	BackstopUsd  *float64        `json:"backstopUsd,omitempty"`
+	InterestApy  *float64        `json:"interestApy,omitempty"`
+	NetApy       *float64        `json:"netApy,omitempty"`
+	Reserves     []*BlendReserve `json:"reserves"`
+	// Pool admin address (G... or C...). Distinguishes owned pools (admin can
+	// retune parameters) from standard pools whose admin is disabled. Null when
+	// not yet observed.
+	Admin *string `json:"admin,omitempty"`
+	// Whether this pool is in the backstop's reward zone and therefore receives BLND emissions.
+	InRewardZone bool `json:"inRewardZone"`
+}
+
+// BlendPoolPosition rolls up an account's reserve positions within one pool.
+type BlendPoolPosition struct {
+	PoolAddress string   `json:"poolAddress"`
+	PoolName    *string  `json:"poolName,omitempty"`
+	UsdValue    *float64 `json:"usdValue,omitempty"`
+	SuppliedUsd *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd *float64 `json:"borrowedUsd,omitempty"`
+	// Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+	// PositionsEstimate convention shown by the Blend UI:
+	// (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+	// 0 for a position with debt but no supply (bad debt is forgiven). Null when
+	// any contributing reserve is missing a fresh oracle price.
+	NetApy *float64 `json:"netApy,omitempty"`
+	// Lifetime BLND this account has claimed from this pool's reserve emissions.
+	ClaimedBlnd string                  `json:"claimedBlnd"`
+	Reserves    []*BlendReservePosition `json:"reserves"`
+}
+
+// BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+// seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+// through the same shares→LP→USD conversion as the position's totals.
+type BlendQ4w struct {
+	Amount     string   `json:"amount"`
+	Expiration int64    `json:"expiration"`
+	LpTokens   string   `json:"lpTokens"`
+	UsdValue   *float64 `json:"usdValue,omitempty"`
+}
+
+// BlendReserve is a pool-wide reserve catalog view: current utilization,
+// supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+// token amounts, all as of "now" (rates are projected forward from the
+// reserve's last on-chain update).
+type BlendReserve struct {
+	AssetContractID    string   `json:"assetContractId"`
+	TokenName          *string  `json:"tokenName,omitempty"`
+	TokenSymbol        *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals      *int32   `json:"tokenDecimals,omitempty"`
+	Enabled            bool     `json:"enabled"`
+	Utilization        *float64 `json:"utilization,omitempty"`
+	SupplyApy          *float64 `json:"supplyApy,omitempty"`
+	BorrowApy          *float64 `json:"borrowApy,omitempty"`
+	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
+	EmissionsBorrowApr *float64 `json:"emissionsBorrowApr,omitempty"`
+	SuppliedTokens     string   `json:"suppliedTokens"`
+	BorrowedTokens     string   `json:"borrowedTokens"`
+	SuppliedUsd        *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd        *float64 `json:"borrowedUsd,omitempty"`
+	// Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral.
+	CFactor *int32 `json:"cFactor,omitempty"`
+	// Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports.
+	LFactor  *int32   `json:"lFactor,omitempty"`
+	PriceUsd *float64 `json:"priceUsd,omitempty"`
+}
+
+// BlendReservePosition is an account's position in one reserve of a pool.
+// suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+// projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+// amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+// the reserve's b/d emission streams; claimed history is tracked per pool only
+// (see BlendPoolPosition.claimedBlnd), not per reserve.
+type BlendReservePosition struct {
+	AssetContractID  string   `json:"assetContractId"`
+	TokenName        *string  `json:"tokenName,omitempty"`
+	TokenSymbol      *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals    *int32   `json:"tokenDecimals,omitempty"`
+	SuppliedTokens   string   `json:"suppliedTokens"`
+	CollateralTokens string   `json:"collateralTokens"`
+	BorrowedTokens   string   `json:"borrowedTokens"`
+	SuppliedUsd      *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd      *float64 `json:"borrowedUsd,omitempty"`
+	SupplyApy        *float64 `json:"supplyApy,omitempty"`
+	BorrowApy        *float64 `json:"borrowApy,omitempty"`
+	// The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+	// value over the side's pool-wide supplied USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
+	// The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+	// value over the side's pool-wide borrowed USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsBorrowApr *float64 `json:"emissionsBorrowApr,omitempty"`
+	// Lifetime interest earned on the supply side of this reserve: the current
+	// underlying value of the account's supply+collateral bTokens (at projected,
+	// as-of-now rates) minus the net principal it contributed — a cost basis
+	// tracked across the account's whole deposit/withdraw history. Token-denominated:
+	// a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+	// priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+	// collateral's underlying value at the reserve's rate when the fill is
+	// processed, so collateral lost to a fill cancels out instead of being reported
+	// as earned interest. Survives a full exit: a position zeroed to no tokens still
+	// reports the earnings realized up to the exit (current value 0 minus the
+	// negative leftover cost basis). May be slightly negative from cost-basis dust
+	// truncation or bRate movement after an exit.
+	InterestEarned string `json:"interestEarned"`
+	// Lifetime interest paid on the debt side of this reserve, mirroring
+	// interestEarned: the current underlying value of the account's liability
+	// dTokens (at projected, as-of-now rates) minus its net borrowed principal
+	// (cost basis tracked from borrow/repay history). Token-denominated (raw
+	// integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+	// full exit the same way. May be slightly negative for the same dust/rate
+	// reasons.
+	InterestPaid        string   `json:"interestPaid"`
+	EmissionsEarnedBlnd string   `json:"emissionsEarnedBlnd"`
+	EmissionsEarnedUsd  *float64 `json:"emissionsEarnedUsd,omitempty"`
+	// The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD.
+	PriceUsd *float64 `json:"priceUsd,omitempty"`
+}
+
 // LiquidityPoolBalance represents an account's liquidity-pool share holding. `balance` is the
 // account's pool shares and `tokenId` is the pool id; `reserves` carries the pool's constituent
 // assets and amounts.
@@ -208,6 +414,132 @@ func (TrustlineBalance) IsBalance()                   {}
 func (this TrustlineBalance) GetBalance() string      { return this.Balance }
 func (this TrustlineBalance) GetTokenID() string      { return this.TokenID }
 func (this TrustlineBalance) GetTokenType() TokenType { return this.TokenType }
+
+type BlendAuctionType string
+
+const (
+	BlendAuctionTypeUserLiquidation BlendAuctionType = "USER_LIQUIDATION"
+	BlendAuctionTypeBadDebt         BlendAuctionType = "BAD_DEBT"
+	BlendAuctionTypeInterest        BlendAuctionType = "INTEREST"
+)
+
+var AllBlendAuctionType = []BlendAuctionType{
+	BlendAuctionTypeUserLiquidation,
+	BlendAuctionTypeBadDebt,
+	BlendAuctionTypeInterest,
+}
+
+func (e BlendAuctionType) IsValid() bool {
+	switch e {
+	case BlendAuctionTypeUserLiquidation, BlendAuctionTypeBadDebt, BlendAuctionTypeInterest:
+		return true
+	}
+	return false
+}
+
+func (e BlendAuctionType) String() string {
+	return string(e)
+}
+
+func (e *BlendAuctionType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendAuctionType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendAuctionType", str)
+	}
+	return nil
+}
+
+func (e BlendAuctionType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendAuctionType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendAuctionType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// BlendPoolStatus is a pool's operational status. On-chain encoding:
+// 0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+// 5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+// borrowing; 4-6 reject both.
+type BlendPoolStatus string
+
+const (
+	BlendPoolStatusAdminActive BlendPoolStatus = "ADMIN_ACTIVE"
+	BlendPoolStatusActive      BlendPoolStatus = "ACTIVE"
+	BlendPoolStatusAdminOnIce  BlendPoolStatus = "ADMIN_ON_ICE"
+	BlendPoolStatusOnIce       BlendPoolStatus = "ON_ICE"
+	BlendPoolStatusAdminFrozen BlendPoolStatus = "ADMIN_FROZEN"
+	BlendPoolStatusFrozen      BlendPoolStatus = "FROZEN"
+	BlendPoolStatusSetup       BlendPoolStatus = "SETUP"
+)
+
+var AllBlendPoolStatus = []BlendPoolStatus{
+	BlendPoolStatusAdminActive,
+	BlendPoolStatusActive,
+	BlendPoolStatusAdminOnIce,
+	BlendPoolStatusOnIce,
+	BlendPoolStatusAdminFrozen,
+	BlendPoolStatusFrozen,
+	BlendPoolStatusSetup,
+}
+
+func (e BlendPoolStatus) IsValid() bool {
+	switch e {
+	case BlendPoolStatusAdminActive, BlendPoolStatusActive, BlendPoolStatusAdminOnIce, BlendPoolStatusOnIce, BlendPoolStatusAdminFrozen, BlendPoolStatusFrozen, BlendPoolStatusSetup:
+		return true
+	}
+	return false
+}
+
+func (e BlendPoolStatus) String() string {
+	return string(e)
+}
+
+func (e *BlendPoolStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendPoolStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendPoolStatus", str)
+	}
+	return nil
+}
+
+func (e BlendPoolStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendPoolStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendPoolStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
 
 type TokenType string
 

@@ -1,0 +1,276 @@
+# Blend v2 lending protocol GraphQL surface.
+#
+# The Query.blendPools/blendPool entry points (a pool-wide catalog view,
+# independent of any account) live on the base type Query in queries.graphqls,
+# and Account.blendPositions (an account's lending, collateral, and backstop
+# positions across every Blend v2 pool it touches, plus any active Dutch
+# auctions where the account is the auction owner —
+# BlendAccountPositions.activeAuctions) lives on type Account in
+# account.graphqls. This file defines every Blend v2 object/enum type those
+# fields resolve to.
+#
+# Money-shaped fields use Float for USD/APY values (nullable wherever a missing
+# oracle price makes the value uncomputable — a genuinely zero balance is still
+# 0, not null) and String! for on-chain integer amounts, kept at full precision
+# rather than lossy float64. A stored price older than 24h counts as missing:
+# the pool contract itself refuses prices past that age.
+
+"""
+BlendAccountPositions aggregates one account's Blend v2 exposure across every
+pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
+Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
+token and re-deposits it, so LP tokens are what the claimer actually receives.
+Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
+pool address, so this total can only ever be reported account-wide.
+"""
+type BlendAccountPositions {
+  pools: [BlendPoolPosition!]!
+  backstop: [BlendBackstopPosition!]!
+  backstopClaimedLp: String!
+  """
+  Active Dutch auctions where this account is the auction owner: being
+  liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+  address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+  Sorted by (poolAddress, auctionType).
+  """
+  activeAuctions: [BlendAuction!]!
+}
+
+"""BlendPoolPosition rolls up an account's reserve positions within one pool."""
+type BlendPoolPosition {
+  poolAddress: String!
+  poolName: String
+  usdValue: Float
+  suppliedUsd: Float
+  borrowedUsd: Float
+  """
+  Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+  PositionsEstimate convention shown by the Blend UI:
+  (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+  0 for a position with debt but no supply (bad debt is forgiven). Null when
+  any contributing reserve is missing a fresh oracle price.
+  """
+  netApy: Float
+  """Lifetime BLND this account has claimed from this pool's reserve emissions."""
+  claimedBlnd: String!
+  reserves: [BlendReservePosition!]!
+}
+
+"""
+BlendReservePosition is an account's position in one reserve of a pool.
+suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+the reserve's b/d emission streams; claimed history is tracked per pool only
+(see BlendPoolPosition.claimedBlnd), not per reserve.
+"""
+type BlendReservePosition {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  suppliedTokens: String!
+  collateralTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  supplyApy: Float
+  borrowApy: Float
+  """
+  The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+  value over the side's pool-wide supplied USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsSupplyApr: Float
+  """
+  The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+  value over the side's pool-wide borrowed USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsBorrowApr: Float
+  """
+  Lifetime interest earned on the supply side of this reserve: the current
+  underlying value of the account's supply+collateral bTokens (at projected,
+  as-of-now rates) minus the net principal it contributed — a cost basis
+  tracked across the account's whole deposit/withdraw history. Token-denominated:
+  a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+  priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+  collateral's underlying value at the reserve's rate when the fill is
+  processed, so collateral lost to a fill cancels out instead of being reported
+  as earned interest. Survives a full exit: a position zeroed to no tokens still
+  reports the earnings realized up to the exit (current value 0 minus the
+  negative leftover cost basis). May be slightly negative from cost-basis dust
+  truncation or bRate movement after an exit.
+  """
+  interestEarned: String!
+  """
+  Lifetime interest paid on the debt side of this reserve, mirroring
+  interestEarned: the current underlying value of the account's liability
+  dTokens (at projected, as-of-now rates) minus its net borrowed principal
+  (cost basis tracked from borrow/repay history). Token-denominated (raw
+  integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+  full exit the same way. May be slightly negative for the same dust/rate
+  reasons.
+  """
+  interestPaid: String!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+  """The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD."""
+  priceUsd: Float
+}
+
+"""
+BlendBackstopPosition is an account's backstop deposit in one pool. The
+backstop is a single protocol-wide contract holding each pool's first-loss
+capital separately, so exposure is inherently per-pool (poolAddress) even
+though the backstop is not the pool contract itself — one
+BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+backstop share balance; lpTokens/usdValue value the whole deposit — active
+plus queued-for-withdrawal shares — since queued shares keep earning pool
+interest and remain slashable first-loss capital until actually withdrawn.
+emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+emission stream for this pool; it accrues on active shares only (queued
+shares earn no emissions).
+"""
+type BlendBackstopPosition {
+  poolAddress: String!
+  poolName: String
+  shares: String!
+  lpTokens: String!
+  usdValue: Float
+  q4w: [BlendQ4W!]!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""
+BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+through the same shares→LP→USD conversion as the position's totals.
+"""
+type BlendQ4W {
+  amount: String!
+  expiration: Int64!
+  lpTokens: String!
+  usdValue: Float
+}
+
+"""
+BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+across reserves; netApy additionally folds in each reserve's
+emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+emissions, not netted against the pool's borrow side.
+"""
+type BlendPool {
+  address: String!
+  name: String
+  """
+  Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+  (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+  SETUP reject both. Null until the pool's config entry has been ingested, and
+  also null for an unrecognized on-chain status value.
+  """
+  status: BlendPoolStatus
+  oracleContractId: String
+  """
+  Share of borrower interest routed to the pool's backstop, as 7-decimal
+  fixed point (4750000 = 47.5%).
+  """
+  backstopRate: Int
+  maxPositions: Int
+  suppliedUsd: Float
+  borrowedUsd: Float
+  backstopUsd: Float
+  interestApy: Float
+  netApy: Float
+  reserves: [BlendReserve!]!
+  """
+  Pool admin address (G... or C...). Distinguishes owned pools (admin can
+  retune parameters) from standard pools whose admin is disabled. Null when
+  not yet observed.
+  """
+  admin: String
+  """Whether this pool is in the backstop's reward zone and therefore receives BLND emissions."""
+  inRewardZone: Boolean!
+}
+
+"""
+BlendPoolStatus is a pool's operational status. On-chain encoding:
+0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+borrowing; 4-6 reject both.
+"""
+enum BlendPoolStatus {
+  ADMIN_ACTIVE
+  ACTIVE
+  ADMIN_ON_ICE
+  ON_ICE
+  ADMIN_FROZEN
+  FROZEN
+  SETUP
+}
+
+enum BlendAuctionType {
+  USER_LIQUIDATION
+  BAD_DEBT
+  INTEREST
+}
+
+"""BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot."""
+type BlendAuctionAmount {
+  assetContractId: String!
+  """Raw on-chain integer amount at the asset's native decimals, NOT a USD value."""
+  amount: String!
+}
+
+"""
+BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+noted per field below.
+"""
+type BlendAuction {
+  poolAddress: String!
+  poolName: String
+  auctionType: BlendAuctionType!
+  """Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens."""
+  bid: [BlendAuctionAmount!]!
+  """Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying."""
+  lot: [BlendAuctionAmount!]!
+  """Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down)."""
+  startBlock: Int!
+}
+
+"""
+BlendReserve is a pool-wide reserve catalog view: current utilization,
+supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+token amounts, all as of "now" (rates are projected forward from the
+reserve's last on-chain update).
+"""
+type BlendReserve {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  enabled: Boolean!
+  utilization: Float
+  supplyApy: Float
+  borrowApy: Float
+  emissionsSupplyApr: Float
+  emissionsBorrowApr: Float
+  suppliedTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  """Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral."""
+  cFactor: Int
+  """Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports."""
+  lFactor: Int
+  priceUsd: Float
+}
