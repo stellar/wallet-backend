@@ -322,6 +322,15 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(latestIngestedLedger))
 	}
 
+	// Re-enrich any SAC contract_tokens rows still left at their ledger-derived
+	// defaults — covering both a fresh load whose enrichment just failed and rows
+	// left stale by an earlier run. This is a best-effort startup pass: a failure is
+	// logged and ingestion proceeds, because the rows keep working defaults and the
+	// next restart retries.
+	if err := m.checkpointService.EnrichStaleSACMetadata(ctx); err != nil {
+		log.Ctx(ctx).Errorf("enriching stale SAC metadata at startup (defaults retained, retried on restart): %v", err)
+	}
+
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {

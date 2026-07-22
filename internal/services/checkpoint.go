@@ -23,17 +23,26 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
 	// flushBatchSize is the number of entries to buffer before flushing to DB.
 	flushBatchSize = 250_000
+	// maxSACEnrichmentRetries bounds retries of the RPC-backed SAC metadata enrichment. A
+	// failure that outlasts the retries falls back to ledger-derived defaults, which the
+	// restartable EnrichStaleSACMetadata pass re-attempts on the next startup.
+	maxSACEnrichmentRetries = 5
 )
 
 // CheckpointService orchestrates checkpoint population by coordinating
 // token and WASM ingestion.
 type CheckpointService interface {
 	PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
+	// EnrichStaleSACMetadata enriches any SAC contract_tokens rows still left at their
+	// ledger-derived defaults. Safe and cheap to call on every startup; it is a no-op
+	// once all SAC rows are enriched. See the method godoc.
+	EnrichStaleSACMetadata(ctx context.Context) error
 }
 
 var _ CheckpointService = (*checkpointService)(nil)
@@ -82,6 +91,11 @@ type checkpointService struct {
 	protocolContractsModel    wbdata.ProtocolContractsModelInterface
 	networkPassphrase         string
 	readerFactory             readerFactory
+	// sacEnrichmentRetries / sacEnrichmentBackoff bound the SAC metadata enrichment
+	// retry. Defaulted in NewCheckpointService; overridable in tests to keep the
+	// retry path fast.
+	sacEnrichmentRetries int
+	sacEnrichmentBackoff time.Duration
 }
 
 // NewCheckpointService creates a CheckpointService.
@@ -101,6 +115,8 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		protocolContractsModel:    cfg.ProtocolContractsModel,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		readerFactory:             defaultReaderFactory,
+		sacEnrichmentRetries:      maxSACEnrichmentRetries,
+		sacEnrichmentBackoff:      maxRetryBackoff,
 	}
 }
 
@@ -340,13 +356,13 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 	}
 
 	// Enrich SAC metadata via RPC in a short follow-up transaction, after the
-	// load (including cursor initialization) has already committed. A fetch
-	// failure here is logged and leaves these rows at their ledger-derived
-	// defaults — it must not undo the completed load; a later classification
-	// pass can retry.
+	// load (including cursor initialization) has already committed. The enrichment
+	// retries on transient failures; if it still fails it is logged and leaves these
+	// rows at their ledger-derived defaults — it must not undo the completed load.
+	// The restartable EnrichStaleSACMetadata pass re-attempts them on the next startup.
 	if len(proc.pendingSACMetadata) > 0 {
-		if enrichErr := s.enrichSACMetadata(ctx, proc.pendingSACMetadata); enrichErr != nil {
-			log.Ctx(ctx).Errorf("enriching SAC metadata after checkpoint load (defaults retained): %v", enrichErr)
+		if enrichErr := s.enrichSACMetadataWithRetry(ctx, proc.pendingSACMetadata); enrichErr != nil {
+			log.Ctx(ctx).Errorf("enriching SAC metadata after checkpoint load (defaults retained, retried on restart): %v", enrichErr)
 		}
 	}
 	return nil
@@ -377,6 +393,45 @@ func (s *checkpointService) enrichSACMetadata(ctx context.Context, contractIDs [
 	}
 	log.Ctx(ctx).Infof("Enriched %d SAC contract_tokens rows after checkpoint load", len(sacContracts))
 	return nil
+}
+
+// enrichSACMetadataWithRetry runs enrichSACMetadata under a bounded backoff so a
+// transient RPC/DB blip does not immediately drop these rows to their ledger-derived
+// defaults. A failure that outlasts the retries is returned to the caller; the
+// restartable EnrichStaleSACMetadata pass is the backstop.
+func (s *checkpointService) enrichSACMetadataWithRetry(ctx context.Context, contractIDs []string) error {
+	_, err := utils.RetryWithBackoff(ctx, s.sacEnrichmentRetries, s.sacEnrichmentBackoff,
+		func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, s.enrichSACMetadata(ctx, contractIDs)
+		},
+		func(attempt int, retryErr error, backoff time.Duration) {
+			log.Ctx(ctx).Warnf("enriching SAC metadata (attempt %d/%d): %v, retrying in %v...",
+				attempt+1, s.sacEnrichmentRetries, retryErr, backoff)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("enriching SAC metadata with retry: %w", err)
+	}
+	return nil
+}
+
+// EnrichStaleSACMetadata finds SAC contract_tokens rows still missing their metadata
+// (name left NULL because a prior enrichment never completed) and enriches them via
+// RPC. It runs on every startup, so an enrichment that failed during checkpoint load
+// — or in an earlier run — is retried until it succeeds; once every SAC row is
+// enriched it finds nothing and is a cheap no-op. A failure is returned for the caller
+// to log: it must not block ingestion, since the rows keep their working defaults and
+// the next startup retries.
+func (s *checkpointService) EnrichStaleSACMetadata(ctx context.Context) error {
+	contractIDs, err := s.contractModel.GetSACContractsMissingMetadata(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("finding SAC contracts missing metadata: %w", err)
+	}
+	if len(contractIDs) == 0 {
+		return nil
+	}
+	log.Ctx(ctx).Infof("Found %d SAC contract_tokens rows missing metadata; enriching", len(contractIDs))
+	return s.enrichSACMetadataWithRetry(ctx, contractIDs)
 }
 
 // processEntry handles Account, Trustline, and ContractData entries from a checkpoint.
