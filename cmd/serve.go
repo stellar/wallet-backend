@@ -29,6 +29,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
+		utils.BlendBackstopLPContractIDOption(&cfg.BlendBackstopLPContractID),
 		utils.AdminPortOption(&cfg.AdminPort),
 		{
 			Name:        "port",

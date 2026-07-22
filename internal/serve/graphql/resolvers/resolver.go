@@ -55,16 +55,24 @@ type Resolver struct {
 	balanceReader BalanceReader
 	metrics       *metrics.Metrics
 	config        ResolverConfig
+	// blendBackstopLPContractID is the configured Comet BLND:USDC pool contract
+	// (BLEND_BACKSTOP_LP_CONTRACT_ID) — the same pin the ingest-side price
+	// snapshot writer targets. The Blend read waves pass it to
+	// OraclePrices.GetBackstopLPPrices so the protocol-wide backstop LP/BLND
+	// prices are read from exactly that oracle. Empty disables the leg (backstop
+	// USD fields resolve to null).
+	blendBackstopLPContractID string
 }
 
 // NewResolver creates a new resolver instance with required dependencies.
-func NewResolver(models *data.Models, rpcService services.RPCService, balanceReader BalanceReader, m *metrics.Metrics, config ResolverConfig) *Resolver {
+func NewResolver(models *data.Models, rpcService services.RPCService, balanceReader BalanceReader, m *metrics.Metrics, config ResolverConfig, blendBackstopLPContractID string) *Resolver {
 	return &Resolver{
-		models:        models,
-		rpcService:    rpcService,
-		balanceReader: balanceReader,
-		metrics:       m,
-		config:        config,
+		models:                    models,
+		rpcService:                rpcService,
+		balanceReader:             balanceReader,
+		metrics:                   m,
+		config:                    config,
+		blendBackstopLPContractID: blendBackstopLPContractID,
 	}
 }
 

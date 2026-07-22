@@ -58,6 +58,14 @@ type Configs struct {
 	// GraphQL
 	GraphQLComplexityLimit int
 
+	// BlendBackstopLPContractID is the C-address of the Blend v2 backstop's Comet
+	// BLND:USDC weighted pool (BLEND_BACKSTOP_LP_CONTRACT_ID) — the same pin the
+	// ingest-side price snapshot writer targets. It scopes the backstop LP/BLND
+	// price read so a permissionless pool's coincidentally self-priced group can
+	// never be mistaken for the protocol-wide backstop prices. Empty disables the
+	// leg (backstop USD fields resolve to null).
+	BlendBackstopLPContractID string
+
 	// Error Tracker
 	AppTracker apptracker.AppTracker
 
@@ -107,7 +115,8 @@ type handlerDeps struct {
 	SEP41AllowanceModel       sep41data.AllowanceModelInterface
 
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit    int
+	BlendBackstopLPContractID string
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -203,6 +212,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		AppTracker:                cfg.AppTracker,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		GraphQLComplexityLimit:    cfg.GraphQLComplexityLimit,
+		BlendBackstopLPContractID: cfg.BlendBackstopLPContractID,
 	}, nil
 }
 
@@ -238,6 +248,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
+				deps.BlendBackstopLPContractID,
 			)
 
 			config := generated.Config{

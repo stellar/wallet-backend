@@ -189,25 +189,37 @@ func (m *OraclePriceModel) GetByOracles(ctx context.Context, oracleIDs []string)
 	return prices, nil
 }
 
-// GetBackstopLPPrices returns every blend_oracle_prices row that shares an
-// oracle with a self-priced row (oracle_contract_id = asset_contract_id) —
-// i.e. a Comet LP token's self-quoted price plus its sibling BLND price
-// quoted under the same oracle.
+// GetBackstopLPPrices returns the pinned Comet oracle's price group: its
+// self-priced LP-share row (oracle_contract_id = asset_contract_id) plus the
+// sibling BLND row quoted under the same oracle.
 //
-// No de-duplication is needed: (oracle_contract_id, asset_contract_id) is the
-// table's primary key, so at most one row per oracle_contract_id can satisfy
-// the self-priced predicate (asset = oracle). The self-join therefore cannot
-// multiply matches — each output row corresponds to exactly one (self-priced
-// row, sibling row) pair, keyed by a distinct oracle_contract_id.
-func (m *OraclePriceModel) GetBackstopLPPrices(ctx context.Context) ([]OraclePrice, error) {
+// cometID is the configured Comet BLND:USDC pool contract
+// (BLEND_BACKSTOP_LP_CONTRACT_ID) — the same pin the price snapshot writer
+// targets when quoting the BLND/LP-share leg (see internal/services/blend/
+// prices.go). Scoping the query to that one protocol-wide oracle is what makes
+// this safe under permissionless pools: a coincidentally self-priced group
+// (any pool whose oracle is also one of its own reserve assets) is never
+// mistaken for the backstop LP prices.
+//
+// Returns an empty, non-nil slice WITHOUT querying when cometID is empty (the
+// pin is unset): the backstop LP/BLND USD fields then resolve to null
+// downstream, exactly like a never-priced asset.
+func (m *OraclePriceModel) GetBackstopLPPrices(ctx context.Context, cometID string) ([]OraclePrice, error) {
+	if cometID == "" {
+		return []OraclePrice{}, nil
+	}
+	cometBytes, err := addressToBytes(cometID)
+	if err != nil {
+		return nil, fmt.Errorf("converting comet contract id for backstop LP price lookup: %w", err)
+	}
+
 	start := time.Now()
 	const query = `
-		SELECT o2.oracle_contract_id, o2.asset_contract_id, o2.price, o2.price_decimals, o2.price_timestamp, o2.updated_at
-		FROM blend_oracle_prices o1
-		JOIN blend_oracle_prices o2 ON o2.oracle_contract_id = o1.oracle_contract_id
-		WHERE o1.oracle_contract_id = o1.asset_contract_id
-		ORDER BY o2.oracle_contract_id, o2.asset_contract_id`
-	rows, err := m.DB.Query(ctx, query)
+		SELECT oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp, updated_at
+		FROM blend_oracle_prices
+		WHERE oracle_contract_id = $1
+		ORDER BY oracle_contract_id, asset_contract_id`
+	rows, err := m.DB.Query(ctx, query, cometBytes)
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetBackstopLPPrices", oraclePricesTable, utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying blend backstop LP oracle prices: %w", err)

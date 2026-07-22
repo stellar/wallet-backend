@@ -106,7 +106,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		Contract: &data.ContractModel{DB: testDBConnectionPool, Metrics: dbMetrics},
 		Blend:    blendModels,
 	}
-	resolver := &queryResolver{&Resolver{models: models}}
+	resolver := &queryResolver{&Resolver{models: models, blendBackstopLPContractID: cometAddr}}
 
 	// --- contract_tokens metadata (name/symbol only; decimals authority is blend_reserves) ---
 	execTestDB(t, `
@@ -448,6 +448,20 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.Len(t, got, 2)
 		for _, p := range got {
 			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil once the LP price is stale", p.Address)
+		}
+	})
+
+	t.Run("unset backstop LP pin nulls backstopUsd (no LP price read at all)", func(t *testing.T) {
+		// With the pin empty, GetBackstopLPPrices short-circuits to an empty
+		// result without querying, so the LP price is never found and every
+		// pool's backstopUsd is null — even though the Comet rows are present
+		// and fresh. This exercises the cmd→resolver plumbing end-to-end.
+		unpinned := &queryResolver{&Resolver{models: models}}
+		got, err := unpinned.BlendPools(testCtx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		for _, p := range got {
+			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil when the backstop LP pin is unset", p.Address)
 		}
 	})
 
