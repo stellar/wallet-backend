@@ -234,6 +234,45 @@ func TestSnapshotOnce_ReserveAssets(t *testing.T) {
 		"oldest-price-age gauge should reflect the oldest oracle-reported timestamp")
 }
 
+// TestSnapshotOnce_UpsertFailureZeroesPricesTracked covers a BatchUpsert
+// failure: the pass reports the error, and the prices-tracked gauge reads 0 —
+// it counts rows actually written, not rows collected.
+func TestSnapshotOnce_UpsertFailureZeroesPricesTracked(t *testing.T) {
+	ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+	defer cleanup()
+
+	oracle := randomContractAddr(t)
+	poolA := randomContractAddr(t)
+	asset := randomContractAddr(t)
+	insertBlendPool(t, ctx, pool, poolA, oracle)
+	insertBlendReserve(t, ctx, pool, poolA, asset, 0)
+
+	assetArg, err := buildSep40StellarAsset(asset)
+	require.NoError(t, err)
+
+	meta := services.NewContractMetadataServiceMock(t)
+	meta.On("FetchSingleField", mock.Anything, oracle, "decimals", []xdr.ScVal(nil)).
+		Return(u32ScVal(7), nil).Once()
+	meta.On("FetchSingleField", mock.Anything, oracle, "lastprice", []xdr.ScVal{assetArg}).
+		Return(priceDataScVal(100_000_000, uint64(time.Now().Unix())), nil).Once()
+
+	// Sabotage the upsert target after target discovery's tables are seeded:
+	// GetPriceTargets reads blend_pools/blend_reserves and still succeeds.
+	_, err = pool.Exec(ctx, `DROP TABLE blend_oracle_prices`)
+	require.NoError(t, err)
+
+	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", bpm)
+
+	err = svc.SnapshotOnce(ctx)
+	require.ErrorContains(t, err, "persisting 1 rows")
+
+	assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")),
+		"the fetch itself succeeded — only persistence failed")
+	assert.Equal(t, 0.0, testutil.ToFloat64(bpm.PricesTracked),
+		"nothing was written, so the gauge must not report collected rows")
+}
+
 // TestSnapshotOnce_NonePriceSkipped covers a SEP-40 Option::None response
 // (ScvVoid): no row is written, no error is raised, and the "none" fetch
 // outcome is counted.

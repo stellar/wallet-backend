@@ -11,11 +11,11 @@ type BlendPriceMetrics struct {
 	// (target discovery + every oracle/Comet fetch + the final batch upsert).
 	// PromQL: histogram_quantile(0.99, rate(wallet_blend_price_snapshot_duration_seconds_bucket[$__rate_interval]))
 	SnapshotDuration prometheus.Histogram
-	// FetchesTotal counts per-(oracle,asset) lastprice fetch outcomes (and the
-	// Comet leg's single derived-valuation outcome), labeled by result:
-	// success, error, none (SEP-40 Option::None — no price recorded yet),
-	// stale (oracle-reported timestamp older than the pool contract's 24h
-	// rejection window), or invalid (price ≤ 0).
+	// FetchesTotal counts per-(oracle,asset) lastprice fetch outcomes (plus
+	// the Comet leg: one success per derived row, one error per failed
+	// attempt), labeled by result: success, error, none (SEP-40 Option::None
+	// — no price recorded yet), stale (oracle-reported timestamp older than
+	// the pool contract's 24h rejection window), or invalid (price ≤ 0).
 	// PromQL: rate(wallet_blend_price_fetches_total{result="error"}[$__rate_interval])
 	FetchesTotal *prometheus.CounterVec
 	// PricesTracked is the row count written by the most recent snapshot pass.
