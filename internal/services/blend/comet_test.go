@@ -2,6 +2,8 @@ package blend
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
 )
 
@@ -138,61 +141,129 @@ func TestCometValuation(t *testing.T) {
 	})
 }
 
-// TestFetchCometState mocks services.ContractMetadataService — no real RPC.
+// cometEntryResult builds one entities.LedgerEntryResult for the Comet pool
+// at poolID whose ContractData key/value are key/val — the shape
+// fetchCometState decodes out of a getLedgerEntries response.
+func cometEntryResult(t *testing.T, poolID string, key, val xdr.ScVal) entities.LedgerEntryResult {
+	t.Helper()
+	keyB64, err := cometLedgerKey(poolID, key)
+	require.NoError(t, err)
+
+	addrVal, err := contractAddressScVal(poolID)
+	require.NoError(t, err)
+	data := xdr.LedgerEntryData{
+		Type: xdr.LedgerEntryTypeContractData,
+		ContractData: &xdr.ContractDataEntry{
+			Contract:   *addrVal.Address,
+			Key:        key,
+			Durability: xdr.ContractDataDurabilityPersistent,
+			Val:        val,
+		},
+	}
+	raw, err := data.MarshalBinary()
+	require.NoError(t, err)
+	return entities.LedgerEntryResult{KeyXDR: keyB64, DataXDR: base64.StdEncoding.EncodeToString(raw)}
+}
+
+// cometInstanceVal builds the ScvContractInstance value for a WASM contract
+// whose executable hash is wasmHashHex.
+func cometInstanceVal(t *testing.T, wasmHashHex string) xdr.ScVal {
+	t.Helper()
+	raw, err := hex.DecodeString(wasmHashHex)
+	require.NoError(t, err)
+	var hash xdr.Hash
+	copy(hash[:], raw)
+	return xdr.ScVal{
+		Type: xdr.ScValTypeScvContractInstance,
+		Instance: &xdr.ScContractInstance{
+			Executable: xdr.ContractExecutable{
+				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+				WasmHash: &hash,
+			},
+		},
+	}
+}
+
+// cometRecordVal builds one Comet Record struct value ({balance, index,
+// scalar, weight} keyed by field-name Symbols, matching the live entry dump
+// in comet.go's verification note).
+func cometRecordVal(t *testing.T, balance *big.Int, weight *big.Int, scalar int64, index uint32) xdr.ScVal {
+	t.Helper()
+	v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+	m := mapScVal(
+		xdr.ScMapEntry{Key: symScVal("balance"), Val: i128ScVal(balance.Int64())},
+		xdr.ScMapEntry{Key: symScVal("index"), Val: u32ScVal(index)},
+		xdr.ScMapEntry{Key: symScVal("scalar"), Val: i128ScVal(scalar)},
+		xdr.ScMapEntry{Key: symScVal("weight"), Val: i128ScVal(weight.Int64())},
+	)
+	v.Map = &m
+	return v
+}
+
+// cometRecordMapVal builds the AllRecordData Map<Address, Record> value for
+// the given token records, in the order supplied.
+func cometRecordMapVal(t *testing.T, tokens []string, records []xdr.ScVal) xdr.ScVal {
+	t.Helper()
+	entries := make([]xdr.ScMapEntry, len(tokens))
+	for i := range tokens {
+		entries[i] = xdr.ScMapEntry{Key: contractAddrScVal(t, tokens[i]), Val: records[i]}
+	}
+	v := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+	m := mapScVal(entries...)
+	v.Map = &m
+	return v
+}
+
+// TestFetchCometState mocks services.RPCService — no real RPC. The happy
+// mocks mirror the live mainnet entry dump recorded in comet.go: an 80/20
+// BLND:USDC record map, a TotalShares i128, and a contract instance pinned
+// to cometWasmHash.
 func TestFetchCometState(t *testing.T) {
 	ctx := context.Background()
 	// cometID (mainnet) / cometIDTestnet exercise fetchCometState against two
-	// distinct pool addresses — the price snapshot task (a later change) will
-	// call it once per network, so the tests deliberately don't hardcode a
-	// single address throughout.
+	// distinct pool addresses — the price snapshot task calls it with whatever
+	// pool the deployment configures, so the tests deliberately don't
+	// hardcode a single address throughout.
 	const (
 		cometID        = "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM"
 		cometIDTestnet = "CA5UTUUPHYL5K22UBRUVC37EARZUGYOSGK3IKIXG2JLCC5ZZLI4BDWDM"
 	)
+	const sevenDecScalar = 100_000_000_000 // 10^(18-7), both legs 7-decimals
 
-	// setupHappyMock wires up get_tokens/get_balance/get_normalized_weight/
-	// get_total_supply against the pool at poolID so the token at index
-	// blndIdx is BLND (weight 0.8) and the other is USDC (weight 0.2),
-	// proving fetchCometState identifies BLND by weight rather than by
-	// get_tokens() position.
-	setupHappyMock := func(t *testing.T, poolID string, blndIdx int) *services.ContractMetadataServiceMock {
+	// happyEntries wires up the three ledger entries for the pool at poolID so
+	// the token at index blndIdx is BLND (weight 0.8) and the other is USDC
+	// (weight 0.2), proving fetchCometState identifies BLND by weight rather
+	// than by record-map position.
+	happyEntries := func(t *testing.T, poolID string, blndIdx int) ([]string, []entities.LedgerEntryResult) {
 		t.Helper()
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-		tokens := []string{tokenA, tokenB}
-		blndAddr, usdcAddr := tokens[blndIdx], tokens[1-blndIdx]
+		tokens := []string{randomContractAddr(t), randomContractAddr(t)}
+		records := make([]xdr.ScVal, 2)
+		records[blndIdx] = cometRecordVal(t, big.NewInt(40_000_000_000_000), big.NewInt(8_000_000), sevenDecScalar, uint32(blndIdx))    // 4,000,000.0 BLND, weight 0.8
+		records[1-blndIdx] = cometRecordVal(t, big.NewInt(2_000_000_000_000), big.NewInt(2_000_000), sevenDecScalar, uint32(1-blndIdx)) // 200,000.0 USDC, weight 0.2
 
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, poolID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
+		return tokens, []entities.LedgerEntryResult{
+			cometEntryResult(t, poolID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometWasmHash)),
+			cometEntryResult(t, poolID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, tokens, records)),
+			cometEntryResult(t, poolID, cometUnitKeyScVal("TotalShares"), i128ScVal(10_000_000_000_000)), // 1,000,000.0 shares
+		}
+	}
 
-		blndArg, err := contractAddressScVal(blndAddr)
-		require.NoError(t, err)
-		usdcArg, err := contractAddressScVal(usdcAddr)
-		require.NoError(t, err)
-
-		// Each numeric getter is fetched twice: fetchCometState's torn-read
-		// guard requires two agreeing consistency reads.
-		m.On("FetchSingleField", mock.Anything, poolID, "get_balance", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(40_000_000_000_000), nil).Times(2) // 4,000,000.0000000
-		m.On("FetchSingleField", mock.Anything, poolID, "get_balance", []xdr.ScVal{usdcArg}).
-			Return(i128ScVal(2_000_000_000_000), nil).Times(2) // 200,000.0000000
-		m.On("FetchSingleField", mock.Anything, poolID, "get_normalized_weight", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(8_000_000), nil).Times(2) // 0.8
-		m.On("FetchSingleField", mock.Anything, poolID, "get_normalized_weight", []xdr.ScVal{usdcArg}).
-			Return(i128ScVal(2_000_000), nil).Times(2) // 0.2
-		m.On("FetchSingleField", mock.Anything, poolID, "get_total_supply", []xdr.ScVal(nil)).
-			Return(i128ScVal(10_000_000_000_000), nil).Times(2) // 1,000,000.0000000
-
+	mockRPC := func(t *testing.T, entries []entities.LedgerEntryResult, err error) *services.RPCServiceMock {
+		t.Helper()
+		m := services.NewRPCServiceMock(t)
+		m.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool { return len(keys) == 3 })).
+			Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: entries}, err).Once()
 		return m
 	}
 
-	t.Run("identifies BLND leg by weight when it is get_tokens()[0]", func(t *testing.T) {
-		m := setupHappyMock(t, cometID, 0)
+	t.Run("identifies BLND leg by weight when it is the first record", func(t *testing.T) {
+		tokens, entries := happyEntries(t, cometID, 0)
+		m := mockRPC(t, entries, nil)
 
 		state, err := fetchCometState(ctx, m, cometID)
 		require.NoError(t, err)
 		require.NotNil(t, state)
+		assert.Equal(t, tokens[0], state.BLNDAddress)
 		assert.Equal(t, big.NewInt(40_000_000_000_000), state.BLNDBalance)
 		assert.Equal(t, big.NewInt(2_000_000_000_000), state.USDCBalance)
 		assert.Equal(t, big.NewInt(8_000_000), state.BLNDWeight)
@@ -200,141 +271,110 @@ func TestFetchCometState(t *testing.T) {
 		assert.Equal(t, big.NewInt(10_000_000_000_000), state.LPSupply)
 	})
 
-	t.Run("identifies BLND leg by weight when it is get_tokens()[1], against a different pool address", func(t *testing.T) {
-		m := setupHappyMock(t, cometIDTestnet, 1)
+	t.Run("identifies BLND leg by weight when it is the second record, against a different pool address", func(t *testing.T) {
+		tokens, entries := happyEntries(t, cometIDTestnet, 1)
+		m := mockRPC(t, entries, nil)
 
 		state, err := fetchCometState(ctx, m, cometIDTestnet)
 		require.NoError(t, err)
 		require.NotNil(t, state)
+		assert.Equal(t, tokens[1], state.BLNDAddress)
 		assert.Equal(t, big.NewInt(40_000_000_000_000), state.BLNDBalance)
 		assert.Equal(t, big.NewInt(2_000_000_000_000), state.USDCBalance)
 	})
 
-	t.Run("nil metadata service degrades with error", func(t *testing.T) {
+	t.Run("nil RPC service degrades with error", func(t *testing.T) {
 		_, err := fetchCometState(ctx, nil, cometID)
 		assert.Error(t, err)
 	})
 
-	t.Run("get_tokens RPC error propagates", func(t *testing.T) {
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(xdr.ScVal{}, assert.AnError).Once()
+	t.Run("RPC error propagates", func(t *testing.T) {
+		m := mockRPC(t, nil, assert.AnError)
 
 		_, err := fetchCometState(ctx, m, cometID)
 		assert.Error(t, err)
 	})
 
-	t.Run("get_tokens wrong shape errors", func(t *testing.T) {
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(u32ScVal(1), nil).Once()
+	t.Run("missing entry errors", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		m := mockRPC(t, entries[:2], nil) // TotalShares absent
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "TotalShares entry not found")
 	})
 
-	t.Run("get_tokens wrong count errors", func(t *testing.T) {
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, randomContractAddr(t))), nil).Once()
+	t.Run("WASM hash mismatch refuses to decode", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		otherHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		entries[0] = cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, otherHash))
+		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "does not match the pinned Comet hash")
 	})
 
-	t.Run("get_balance RPC error propagates", func(t *testing.T) {
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
-			Return(xdr.ScVal{}, assert.AnError).Once()
+	t.Run("wrong token count errors", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		oneToken := []string{randomContractAddr(t)}
+		oneRecord := []xdr.ScVal{cometRecordVal(t, big.NewInt(1), big.NewInt(10_000_000), sevenDecScalar, 0)}
+		entries[1] = cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, oneToken, oneRecord))
+		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "expected 2 tokens")
 	})
 
-	t.Run("get_normalized_weight wrong type errors", func(t *testing.T) {
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
-			Return(i128ScVal(1), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
-			Return(u32ScVal(1), nil).Once()
+	t.Run("differing token scalars error", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		tokens := []string{randomContractAddr(t), randomContractAddr(t)}
+		records := []xdr.ScVal{
+			cometRecordVal(t, big.NewInt(1000), big.NewInt(8_000_000), sevenDecScalar, 0),
+			cometRecordVal(t, big.NewInt(1000), big.NewInt(2_000_000), 1_000_000_000_000, 1), // 6-decimal token
+		}
+		entries[1] = cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, tokens, records))
+		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "token scalars differ")
 	})
 
-	t.Run("get_total_supply RPC error propagates", func(t *testing.T) {
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
-			Return(i128ScVal(1), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
-			Return(i128ScVal(8_000_000), nil).Once().
-			On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
-			Return(i128ScVal(2_000_000), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
-			Return(xdr.ScVal{}, assert.AnError).Once()
+	t.Run("record missing a field errors", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		tokens := []string{randomContractAddr(t), randomContractAddr(t)}
+		noWeight := xdr.ScVal{Type: xdr.ScValTypeScvMap}
+		nm := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("balance"), Val: i128ScVal(1000)},
+			xdr.ScMapEntry{Key: symScVal("scalar"), Val: i128ScVal(sevenDecScalar)},
+		)
+		noWeight.Map = &nm
+		records := []xdr.ScVal{noWeight, cometRecordVal(t, big.NewInt(1000), big.NewInt(2_000_000), sevenDecScalar, 1)}
+		entries[1] = cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, tokens, records))
+		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, `missing "weight" field`)
 	})
 
-	t.Run("state changed between consistency reads errors", func(t *testing.T) {
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-		blndArg, err := contractAddressScVal(tokenA)
-		require.NoError(t, err)
+	t.Run("TotalShares wrong type errors", func(t *testing.T) {
+		_, entries := happyEntries(t, cometID, 0)
+		entries[2] = cometEntryResult(t, cometID, cometUnitKeyScVal("TotalShares"), u32ScVal(1))
+		m := mockRPC(t, entries, nil)
 
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
-		// tokenA's balance moves between the two consistency reads — a swap
-		// landing mid-read — while everything else stays put.
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(40_000_000_000_000), nil).Once().
-			On("FetchSingleField", mock.Anything, cometID, "get_balance", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(41_000_000_000_000), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
-			Return(i128ScVal(2_000_000_000_000), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", []xdr.ScVal{blndArg}).
-			Return(i128ScVal(8_000_000), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
-			Return(i128ScVal(2_000_000), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
-			Return(i128ScVal(10_000_000_000_000), nil)
-
-		_, err = fetchCometState(ctx, m, cometID)
-		assert.ErrorContains(t, err, "state changed between consistency reads")
+		_, err := fetchCometState(ctx, m, cometID)
+		assert.ErrorContains(t, err, "TotalShares: expected i128")
 	})
 
 	t.Run("equal weights are ambiguous and error", func(t *testing.T) {
-		tokenA := randomContractAddr(t)
-		tokenB := randomContractAddr(t)
-
-		m := services.NewContractMetadataServiceMock(t)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_tokens", []xdr.ScVal(nil)).
-			Return(vecScVal(contractAddrScVal(t, tokenA), contractAddrScVal(t, tokenB)), nil).Once()
-		m.On("FetchSingleField", mock.Anything, cometID, "get_balance", mock.Anything).
-			Return(i128ScVal(1), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_normalized_weight", mock.Anything).
-			Return(i128ScVal(5_000_000), nil)
-		m.On("FetchSingleField", mock.Anything, cometID, "get_total_supply", []xdr.ScVal(nil)).
-			Return(i128ScVal(1), nil)
+		_, entries := happyEntries(t, cometID, 0)
+		tokens := []string{randomContractAddr(t), randomContractAddr(t)}
+		records := []xdr.ScVal{
+			cometRecordVal(t, big.NewInt(1000), big.NewInt(5_000_000), sevenDecScalar, 0),
+			cometRecordVal(t, big.NewInt(1000), big.NewInt(5_000_000), sevenDecScalar, 1),
+		}
+		entries[1] = cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, tokens, records))
+		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "cannot identify BLND leg")
 	})
 }
