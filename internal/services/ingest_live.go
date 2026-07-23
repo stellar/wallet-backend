@@ -772,8 +772,12 @@ func (m *ingestService) prepareClassificationPlan(
 		contractSlice = append(contractSlice, c)
 	}
 
-	// Resolve hashes classified in earlier ledgers, skipping this-ledger
-	// uploads (thisBatch) which PrepareClassification matches below.
+	// Each buffered contract carries the wasm hash its instance points at. That
+	// hash may name a wasm uploaded in an earlier ledger (Soroban contract-code
+	// and contract-instance entries are independent), so its bytecode is not in
+	// this ledger's buffer — resolve those from the verdict already stored in
+	// protocol_wasms. Hashes uploaded this ledger (thisBatch) are skipped here
+	// because PrepareClassification classifies them from their buffered bytecode below.
 	knownHashes := make([]types.HashBytea, 0, len(contractSlice))
 	for _, c := range contractSlice {
 		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
