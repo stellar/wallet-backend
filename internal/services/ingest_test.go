@@ -2,14 +2,18 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -1870,6 +1874,7 @@ type testProtocolProcessor struct {
 	ingestStore               *data.IngestStoreModel
 	persistCurrentStateCalls  int
 	failPersistCurrentStateAt uint32
+	lastContracts             []data.ProtocolContracts
 }
 
 func (p *testProtocolProcessor) ProtocolID() string { return p.id }
@@ -1884,6 +1889,7 @@ func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolP
 	p.processLedgerCalls++
 	p.stagedLedgerCount++
 	p.processedLedger = input.LedgerSequence
+	p.lastContracts = input.ProtocolContracts
 	return nil
 }
 
@@ -2407,6 +2413,304 @@ func Test_distinctEventContractIDs(t *testing.T) {
 
 	got := distinctEventContractIDs(events)
 	assert.ElementsMatch(t, [][]byte{idA[:], idB[:]}, got)
+}
+
+func Test_prepareClassificationPlan(t *testing.T) {
+	ctx := context.Background()
+
+	// prepareClassificationPlan only touches models.ProtocolWasms, the
+	// validators/extractor pair, and the ingestion metrics, so a struct
+	// literal with those fields is the whole service surface under test.
+	newSvc := func(wasms data.ProtocolWasmsModelInterface, validators []ProtocolValidator, extractor WasmSpecExtractor) *ingestService {
+		return &ingestService{
+			models:             &data.Models{ProtocolWasms: wasms},
+			appMetrics:         metrics.NewMetrics(prometheus.NewRegistry()),
+			protocolValidators: validators,
+			wasmSpecExtractor:  extractor,
+			rpcService:         &RPCServiceMock{},
+		}
+	}
+
+	var w1Raw, w2Raw, c1Raw, c2Raw [32]byte
+	w1Raw[0], w2Raw[0], c1Raw[0], c2Raw[0] = 0xA1, 0xA2, 0xC1, 0xC2
+	w1 := types.HashBytea(hex.EncodeToString(w1Raw[:]))
+	w2 := types.HashBytea(hex.EncodeToString(w2Raw[:]))
+	c1 := types.HashBytea(hex.EncodeToString(c1Raw[:]))
+	c2 := types.HashBytea(hex.EncodeToString(c2Raw[:]))
+
+	t.Run("nil plan when nothing is buffered", func(t *testing.T) {
+		svc := newSvc(data.NewProtocolWasmsModelMock(t), nil, NewWasmSpecExtractorMock(t))
+
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Nil(t, plan)
+	})
+
+	t.Run("this-batch hashes skip the known lookup; earlier-ledger hashes resolve from it", func(t *testing.T) {
+		// w1 is uploaded this ledger (contract c1 points at it); w2 was uploaded
+		// in an earlier ledger (contract c2 points at it). Only w2 may reach the
+		// GetClassifiedByHashes read — the mock's argument matcher enforces that.
+		wasmsMock := data.NewProtocolWasmsModelMock(t)
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything,
+			mock.MatchedBy(func(hashes []types.HashBytea) bool {
+				return len(hashes) == 1 && hashes[0] == w2
+			}),
+		).Return(map[types.HashBytea]string{w2: "B"}, nil).Once()
+
+		rv := newRecordingValidator("A", w1)
+		extractor := NewWasmSpecExtractorMock(t)
+		extractor.On("ExtractSpec", mock.Anything, mock.Anything).Return([]xdr.ScSpecEntry{{}}, nil).Once()
+		svc := newSvc(wasmsMock, []ProtocolValidator{rv}, extractor)
+
+		plan, err := svc.prepareClassificationPlan(ctx,
+			map[string]data.ProtocolWasms{string(w1): {WasmHash: w1}},
+			map[string][]byte{string(w1): {1, 2, 3}},
+			map[string]data.ProtocolContracts{
+				string(c1): {ContractID: c1, WasmHash: w1},
+				string(c2): {ContractID: c2, WasmHash: w2},
+			},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, map[types.HashBytea]string{w1: "A", w2: "B"}, plan.Matches)
+
+		// The validator saw both contracts annotated: c2 carries the known
+		// verdict, c1 stays unannotated (its wasm is claimed via the matched set).
+		annotations := map[types.HashBytea]string{}
+		for _, ct := range rv.lastContracts {
+			annotations[ct.ContractID] = ct.KnownProtocolID
+		}
+		assert.Equal(t, map[types.HashBytea]string{c1: "", c2: "B"}, annotations)
+	})
+
+	t.Run("contract-only ledger seeds the plan from known verdicts", func(t *testing.T) {
+		wasmsMock := data.NewProtocolWasmsModelMock(t)
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+			Return(map[types.HashBytea]string{w2: "A"}, nil).Once()
+
+		rv := newRecordingValidator("A") // claims no wasms; acts on contracts only
+		// No ExtractSpec expectations: with no buffered wasms there are no
+		// candidates, so the extractor must never run.
+		svc := newSvc(wasmsMock, []ProtocolValidator{rv}, NewWasmSpecExtractorMock(t))
+
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
+		require.Equal(t, 1, rv.prefetchCalls)
+		require.Len(t, rv.lastContracts, 1)
+		assert.Equal(t, "A", rv.lastContracts[0].KnownProtocolID)
+	})
+
+	t.Run("no validators still returns a plan seeded from known verdicts", func(t *testing.T) {
+		wasmsMock := data.NewProtocolWasmsModelMock(t)
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+			Return(map[types.HashBytea]string{w2: "A"}, nil).Once()
+
+		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
+
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
+	})
+
+	t.Run("transient known-read failure is retried", func(t *testing.T) {
+		wasmsMock := data.NewProtocolWasmsModelMock(t)
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, errors.New("transient blip")).Once()
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+			Return(map[types.HashBytea]string{w2: "A"}, nil).Once()
+
+		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
+
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
+		assert.Equal(t, 1.0, testutil.ToFloat64(
+			svc.appMetrics.Ingestion.RetriesTotal.WithLabelValues("classification_read")))
+	})
+
+	t.Run("permanent known-read failure fails fast without retrying", func(t *testing.T) {
+		wasmsMock := data.NewProtocolWasmsModelMock(t)
+		wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, &pgconn.PgError{Code: "42703"}).Once() // undefined_column: retrying cannot succeed
+
+		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
+
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+		require.Error(t, err)
+		assert.Nil(t, plan)
+		assert.Equal(t, 0.0, testutil.ToFloat64(
+			svc.appMetrics.Ingestion.RetriesTotal.WithLabelValues("classification_read")))
+	})
+}
+
+func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
+	setupTest := func(t *testing.T, processors []ProtocolProcessor) (context.Context, *ingestService, *data.Models, *pgxpool.Pool) {
+		t.Helper()
+		dbt := dbtest.Open(t)
+		t.Cleanup(func() { dbt.Close() })
+		ctx := context.Background()
+		pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { pool.Close() })
+
+		m := metrics.NewMetrics(prometheus.NewRegistry())
+
+		models, err := data.NewModels(pool, m.DB)
+		require.NoError(t, err)
+
+		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+		mockTokenIngestionService.On("ProcessTokenChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+
+		svc, err := NewIngestService(IngestServiceConfig{
+			IngestionMode:          IngestionModeLive,
+			Models:                 models,
+			OldestLedgerCursorName: "oldest_ledger_cursor",
+			AppTracker:             &apptracker.MockAppTracker{},
+			RPCService:             &RPCServiceMock{},
+			LedgerBackend:          &LedgerBackendMock{},
+			TokenIngestionService:  mockTokenIngestionService,
+			Metrics:                m,
+			GetLedgersLimit:        defaultGetLedgersLimit,
+			Network:                network.TestNetworkPassphrase,
+			NetworkPassphrase:      network.TestNetworkPassphrase,
+			Archive:                &HistoryArchiveMock{},
+			ProtocolProcessors:     processors,
+		})
+		require.NoError(t, err)
+
+		return ctx, svc, models, pool
+	}
+
+	t.Run("plan matches stamp wasm rows, run Apply in-tx, and admit the buffered contract to staging", func(t *testing.T) {
+		var w1Raw, c1Raw [32]byte
+		w1Raw[0], c1Raw[0] = 0xA1, 0xC1
+		w1 := types.HashBytea(hex.EncodeToString(w1Raw[:]))
+		c1 := types.HashBytea(hex.EncodeToString(c1Raw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		// protocol_wasms.protocol_id is an FK into protocols.
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto')`)
+		require.NoError(t, err)
+
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushProtocolWasm(data.ProtocolWasms{WasmHash: w1})
+		buffer.PushProtocolContracts(data.ProtocolContracts{ContractID: c1, WasmHash: w1})
+
+		rv := newRecordingValidator("testproto", w1)
+		plan := &ClassificationPlan{
+			Matches: map[types.HashBytea]string{w1: "testproto"},
+			perValidator: []validatorPlan{{
+				validator: rv,
+				matched:   map[types.HashBytea]struct{}{w1: {}},
+				contracts: []ContractCandidate{{ContractID: c1, WasmHash: w1}},
+			}},
+		}
+
+		meta := dummyLedgerMeta(100)
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, plan, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// The validator's Apply ran inside the transaction.
+		assert.Equal(t, 1, rv.applyCalls)
+
+		// The persisted wasm row carries the plan's verdict.
+		var protocolID *string
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, w1Raw[:]).Scan(&protocolID))
+		require.NotNil(t, protocolID)
+		assert.Equal(t, "testproto", *protocolID)
+
+		// The contract row was persisted bound to the classified wasm.
+		var storedWasmHash []byte
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT wasm_hash FROM protocol_contracts WHERE contract_id = $1`, c1Raw[:]).Scan(&storedWasmHash))
+		assert.Equal(t, w1Raw[:], storedWasmHash)
+
+		// The buffered contract, classified as this protocol, reached the
+		// processor's staging input through getEffectiveProtocolContracts.
+		require.Equal(t, 1, processor.processLedgerCalls)
+		require.Len(t, processor.lastContracts, 1)
+		assert.Equal(t, c1, processor.lastContracts[0].ContractID)
+	})
+
+	t.Run("upgrade away from the protocol drops committed membership and rebinds the contract row", func(t *testing.T) {
+		var wOldRaw, w2Raw, c2Raw [32]byte
+		wOldRaw[0], w2Raw[0], c2Raw[0] = 0xA0, 0xA2, 0xC2
+		w2 := types.HashBytea(hex.EncodeToString(w2Raw[:]))
+		c2 := types.HashBytea(hex.EncodeToString(c2Raw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		// protocol_wasms.protocol_id is an FK into protocols.
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto'), ('otherproto')`)
+		require.NoError(t, err)
+
+		// Committed state from earlier ledgers: c2 is a testproto contract via wOld.
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_wasms (wasm_hash, protocol_id) VALUES ($1, 'testproto')`, wOldRaw[:])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_contracts (contract_id, wasm_hash) VALUES ($1, $2)`, c2Raw[:], wOldRaw[:])
+		require.NoError(t, err)
+
+		// This ledger: c2 emits an event and rebinds to w2, which the plan
+		// classifies as a different protocol.
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushProtocolWasm(data.ProtocolWasms{WasmHash: w2})
+		buffer.PushProtocolContracts(data.ProtocolContracts{ContractID: c2, WasmHash: w2})
+		eventContractID := xdr.ContractId(c2Raw)
+		buffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &eventContractID}},
+		)
+
+		plan := &ClassificationPlan{Matches: map[types.HashBytea]string{w2: "otherproto"}}
+
+		meta := dummyLedgerMeta(100)
+		_, _, err = svc.persistLedgerData(ctx, 100, &meta, plan, buffer, "latest_ledger_cursor")
+		require.NoError(t, err)
+
+		// The processor staged the ledger but saw no testproto contracts: the
+		// committed membership was dropped because c2's binding changed this
+		// ledger, and its new wasm belongs to another protocol.
+		require.Equal(t, 1, processor.processLedgerCalls)
+		assert.Empty(t, processor.lastContracts)
+
+		// The contract row now points at the new wasm, whose row carries the
+		// plan's verdict for the other protocol.
+		var storedWasmHash []byte
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT wasm_hash FROM protocol_contracts WHERE contract_id = $1`, c2Raw[:]).Scan(&storedWasmHash))
+		assert.Equal(t, w2Raw[:], storedWasmHash)
+
+		var protocolID *string
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, w2Raw[:]).Scan(&protocolID))
+		require.NotNil(t, protocolID)
+		assert.Equal(t, "otherproto", *protocolID)
+	})
 }
 
 // Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer is a regression test for a
