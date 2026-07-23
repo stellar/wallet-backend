@@ -41,7 +41,13 @@ type validatorPlan struct {
 
 // PrepareClassification runs pure signature matching for every candidate WASM
 // against every validator in priority order (first-match-wins), then calls
-// each relevant validator's Prefetch to resolve RPC-sourced enrichment. No
+// each relevant validator's Prefetch to resolve RPC-sourced enrichment.
+// Priority is the order of the validators slice, which production callers
+// build from GetAllValidatorIDs — lexicographic protocol-ID order. When two
+// protocols' signatures overlap (a SEP-41-shaped interface embedded in a
+// richer protocol, for example), the alphabetically earlier protocol ID
+// claims the wasm, so a new protocol whose signature overlaps an existing
+// one must account for its ID's sort rank. No
 // database transaction is opened and no RPC call happens after this function
 // returns — ApplyClassificationPlan finishes the job purely against dbTx.
 //
