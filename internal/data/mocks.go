@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -35,6 +36,14 @@ func NewContractModelMock(t interface {
 
 func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
 	args := m.Called(ctx, dbTx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *ContractModelMock) GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error) {
+	args := m.Called(ctx, q)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -252,8 +261,8 @@ func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]Protoco
 	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
-func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
-	args := m.Called(ctx, dbTx, hashes)
+func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, q db.Querier, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	args := m.Called(ctx, q, hashes)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

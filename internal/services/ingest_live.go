@@ -10,6 +10,7 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -26,15 +27,23 @@ const (
 	maxIngestProcessedDataRetryBackoff = 10 * time.Second
 	oldestLedgerSyncInterval           = 100
 	lagMetricUpdateInterval            = 1 * time.Second
+	// advisoryUnlockTimeout bounds the detached advisory-lock release at shutdown so a wedged
+	// network session cannot block teardown (and the later pool close) indefinitely.
+	advisoryUnlockTimeout = 10 * time.Second
 )
 
 // persistLedgerData persists processed ledger data to the database in a single
 // atomic transaction. It handles: trustline assets, contract tokens, filtered
-// data insertion, token changes, and cursor update.
+// data insertion, token changes, and cursor update. plan is this ledger's
+// classification plan, computed by prepareClassificationPlan before any
+// transaction opens (RPC calls already resolved); pass the same plan across
+// ingestProcessedDataWithRetry's retry attempts so a retry never re-issues
+// RPC calls. plan may be nil when there was nothing to classify this ledger.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
 	ledgerMeta *xdr.LedgerCloseMeta,
+	plan *ClassificationPlan,
 	buffer *indexer.IndexerBuffer,
 	cursorName string,
 ) (int, int, error) {
@@ -61,14 +70,15 @@ func (m *ingestService) persistLedgerData(
 			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
-		// 2.5: Run protocol classification (black-box per protocol). Per-
-		// protocol side effects (e.g. SEP-41 contract_tokens metadata) happen
-		// inside this same dbTx via the validators' Validate calls. Live
-		// protocol processors then stage ledger state from the classification
-		// result before the generic protocol_wasms / protocol_contracts rows
-		// are persisted below.
+		// 2.5: Apply protocol classification (black-box per protocol). plan was
+		// computed by prepareClassificationPlan before this transaction opened,
+		// so any RPC calls (e.g. SEP-41 metadata) already happened;
+		// ApplyClassificationPlan only performs each validator's DB writes
+		// here, atomically with the classification verdict and wasm/contract
+		// rows below. Live protocol processors then stage ledger state from
+		// the classification result before the generic protocol_wasms /
+		// protocol_contracts rows are persisted below.
 		bufferedWasms := buffer.GetProtocolWasms()
-		bufferedBytecodes := buffer.GetProtocolWasmBytecodes()
 		bufferedContracts := buffer.GetProtocolContracts()
 
 		contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
@@ -76,9 +86,12 @@ func (m *ingestService) persistLedgerData(
 			contractSlice = append(contractSlice, c)
 		}
 
-		classification, classifyErr := m.runClassification(ctx, dbTx, bufferedWasms, bufferedBytecodes, contractSlice)
-		if classifyErr != nil {
-			return fmt.Errorf("classifying ledger %d: %w", ledgerSeq, classifyErr)
+		var classification map[types.HashBytea]string
+		if plan != nil {
+			classification = plan.Matches
+		}
+		if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
+			return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
 		}
 
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
@@ -106,20 +119,34 @@ func (m *ingestService) persistLedgerData(
 			}
 
 			for protocolID, processor := range m.protocolProcessors {
-				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
-				currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
-
-				historySwapped, casErr := m.casProtocolCursor(ctx, dbTx, historyCursor, expected, next)
-				if casErr != nil {
-					return casErr
+				// Only attempt the CAS for a cursor m.protocolCursors believes exists (see
+				// snapshotProtocolCursors/reprobeProtocolCursors): a cursor known not yet
+				// initialized is skipped entirely — no DB round trip, no metric — since
+				// there is nothing to CAS against. This also means casProtocolCursor only
+				// ever sees ErrCASCursorMissing for a cursor that existed as of the last
+				// snapshot/re-probe, i.e. a genuine incident, not the operationally normal
+				// not-yet-initialized case.
+				var historySwapped, currentStateSwapped bool
+				if m.protocolCursors.historyExists[protocolID] {
+					var casErr error
+					historyCursor := utils.ProtocolHistoryCursorName(protocolID)
+					historySwapped, casErr = m.casProtocolCursor(ctx, dbTx, historyCursor, expected, next)
+					if casErr != nil {
+						return casErr
+					}
 				}
-				currentStateSwapped, casErr := m.casProtocolCursor(ctx, dbTx, currentStateCursor, expected, next)
-				if casErr != nil {
-					return casErr
+				if m.protocolCursors.currentStateExists[protocolID] {
+					var casErr error
+					currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
+					currentStateSwapped, casErr = m.casProtocolCursor(ctx, dbTx, currentStateCursor, expected, next)
+					if casErr != nil {
+						return casErr
+					}
 				}
 				if !historySwapped && !currentStateSwapped {
-					// Behind tip (value mismatch) or not yet set up (missing row): another
-					// process owns this ledger, so there is nothing to stage.
+					// Behind tip (value mismatch), not yet set up (both cursors known
+					// missing), or the value mismatch a live CAS returns when another
+					// process already owns this ledger: nothing to stage.
 					continue
 				}
 
@@ -197,8 +224,16 @@ func (m *ingestService) persistLedgerData(
 			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		// 6. Update the specified cursor
-		if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
+		// 6. Update the specified cursor. The live latest-ledger cursor is guarded: a session
+		// that silently lost its advisory lock (server-side failover, see startLiveIngestion's
+		// checkLockSession) must not blindly overwrite a value a second instance already
+		// advanced, or the cursor could regress. All other cursors keep the plain blind
+		// upsert — only one process ever owns them by construction.
+		if cursorName == data.LatestLedgerCursorName {
+			if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
+				return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
+			}
+		} else if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
 			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 		}
 
@@ -218,20 +253,44 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("acquiring a connection from the pool: %w", err)
 	}
-	defer conn.Release()
 
-	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently
-	if lockAcquired, err := db.AcquireAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
+	// Acquire advisory lock to prevent multiple ingestion instances from running concurrently.
+	// Until the lock is confirmed held, the connection is released on every error path; once it
+	// is held, the deferred release below owns the connection's lifecycle.
+	lockAcquired, err := db.AcquireAdvisoryLock(ctx, conn, m.advisoryLockID)
+	if err != nil {
+		conn.Release()
 		return fmt.Errorf("acquiring advisory lock: %w", err)
-	} else if !lockAcquired {
+	}
+	if !lockAcquired {
+		conn.Release()
 		return errors.New("advisory lock not acquired")
 	}
 	defer func() {
-		if err := db.ReleaseAdvisoryLock(ctx, conn, m.advisoryLockID); err != nil {
-			err = fmt.Errorf("releasing advisory lock: %w", err)
-			log.Ctx(ctx).Error(err)
+		// Detach from ctx (a shutdown signal cancels it before this defer runs, and pgx
+		// refuses to execute a query on an already-cancelled context) but keep a finite
+		// deadline so a wedged session cannot block teardown forever. conn.Release only
+		// returns the connection to the pool — it does not end the session — so on any
+		// unlock failure we instead destroy the connection, which ends its session and
+		// releases the advisory lock server-side, rather than handing a lock-holding
+		// connection back to the pool.
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisoryUnlockTimeout)
+		defer cancel()
+		if unlockErr := db.ReleaseAdvisoryLock(releaseCtx, conn, m.advisoryLockID); unlockErr != nil {
+			log.Ctx(ctx).Errorf("releasing advisory lock, destroying connection to end its session: %v", unlockErr)
+			if closeErr := conn.Hijack().Close(releaseCtx); closeErr != nil {
+				log.Ctx(ctx).Warnf("closing advisory-lock connection after failed unlock: %v", closeErr)
+			}
+			return
 		}
+		conn.Release()
 	}()
+
+	// Snapshot which protocols' history/current-state cursors already exist, once, right
+	// after the lock is confirmed held. See casProtocolCursor and snapshotProtocolCursors.
+	if err := m.snapshotProtocolCursors(ctx); err != nil {
+		return fmt.Errorf("snapshotting protocol cursors: %w", err)
+	}
 
 	// Get latest ingested ledger to determine DB state
 	latestIngestedLedger, err := m.models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
@@ -263,13 +322,33 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(latestIngestedLedger))
 	}
 
+	// Re-enrich any SAC contract_tokens rows still left at their ledger-derived
+	// defaults — covering both a fresh load whose enrichment just failed and rows
+	// left stale by an earlier run. This is a best-effort startup pass: a failure is
+	// logged and ingestion proceeds, because the rows keep working defaults and the
+	// next restart retries.
+	if err := m.checkpointService.EnrichStaleSACMetadata(ctx); err != nil {
+		log.Ctx(ctx).Errorf("enriching stale SAC metadata at startup (defaults retained, retried on restart): %v", err)
+	}
+
 	// Start unbounded ingestion from latest ledger ingested onwards
 	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
 	if err := m.ledgerBackend.PrepareRange(ctx, ledgerRange); err != nil {
 		return fmt.Errorf("preparing unbounded ledger backend range from %d: %w", startLedger, err)
 	}
 
-	return m.ingestLiveLedgers(ctx, startLedger)
+	// checkLockSession probes the SAME connection that holds the advisory lock: since we
+	// never unlock mid-run, that session staying alive is equivalent to the lock still being
+	// held. A CNPG failover kills the session server-side without this process observing the
+	// TCP disconnect, silently releasing the lock while pgxpool never destroys the (now
+	// server-dead) pooled conn — so without this probe, ingestLiveLedgers would keep writing
+	// through other pool connections even after a second instance acquires the lock.
+	checkLockSession := func(probeCtx context.Context) error {
+		var one int
+		return conn.QueryRow(probeCtx, "SELECT 1").Scan(&one)
+	}
+
+	return m.ingestLiveLedgers(ctx, startLedger, checkLockSession)
 }
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
@@ -295,8 +374,15 @@ func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
 }
 
 // ingestLiveLedgers continuously processes ledgers starting from startLedger,
-// updating cursors and metrics after each successful ledger.
-func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32) error {
+// updating cursors and metrics after each successful ledger. checkLockSession
+// is called once per ledger to verify the advisory-lock-holding Postgres
+// session is still alive (see startLiveIngestion): a CNPG failover can kill
+// that session server-side without this process observing the disconnect, so
+// the lock is silently released while this loop keeps writing through other
+// pool connections. Failing this probe is treated as fatal so the process
+// exits and can re-acquire the lock cleanly on restart, rather than racing a
+// second instance that acquired it in the meantime.
+func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32, checkLockSession func(ctx context.Context) error) error {
 	currentLedger := startLedger
 	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
 
@@ -326,19 +412,28 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}()
 
 	for {
+		if probeErr := checkLockSession(ctx); probeErr != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
+		}
+
+		fetchStart := time.Now()
 		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
 			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
 				return m.ledgerBackend.GetLedger(ctx, currentLedger)
 			},
 			func(attempt int, err error, backoff time.Duration) {
+				m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
 				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
 					currentLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
 			},
+			m.isPermanentFetchError,
 		)
 		if ledgerErr != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
 		}
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
 
 		totalStart := time.Now()
 		processStart := time.Now()
@@ -350,9 +445,21 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
 
+		// Classification runs once here, entirely before any database
+		// transaction opens (RPC prefetch happens now, not while row locks are
+		// held), and the resulting plan is reused verbatim across every retry
+		// attempt below.
+		classifyStart := time.Now()
+		plan, err := m.prepareClassificationPlan(ctx, buffer.GetProtocolWasms(), buffer.GetProtocolWasmBytecodes(), buffer.GetProtocolContracts())
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("preparing classification plan for ledger %d: %w", currentLedger, err)
+		}
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(time.Since(classifyStart).Seconds())
+
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -368,11 +475,15 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		// Publish the just-ingested ledger for the lag updater goroutine started above.
 		latestIngested.Store(currentLedger)
 
-		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs)
+		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
+		// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
+		// up a protocol-setup/migrate run that has initialized one since — see
+		// reprobeProtocolCursors).
 		if currentLedger%oldestLedgerSyncInterval == 0 {
 			if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
 				m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
 			}
+			m.reprobeProtocolCursors(ctx)
 		}
 
 		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
@@ -380,19 +491,106 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}
 }
 
-// casProtocolCursor performs the authoritative compare-and-swap on a protocol
-// cursor. A missing cursor row (ErrCASCursorMissing) is operationally normal — the
-// protocol is registered but protocol-setup / protocol-migrate has not initialized
-// its cursor yet — so it is folded into a soft skip (false, nil); the data layer
-// still records the cursor_missing query-error metric. A value mismatch (another
-// process already owns this ledger) likewise returns (false, nil) from the model.
-// Any other error is returned so the surrounding transaction aborts and retries.
+// protocolCursorSnapshot records, per protocol, whether its history and
+// current-state ingest_store cursor rows exist. It only ever promotes an
+// entry from missing to existing (see reprobeProtocolCursors) — a row
+// vanishing after having existed is the genuine incident casProtocolCursor's
+// error path handles, not something this snapshot demotes on its own. It is
+// read and mutated only from the single live-ingestion goroutine — including
+// retried persistLedgerData attempts, which run synchronously on it — so it
+// needs no locking.
+type protocolCursorSnapshot struct {
+	historyExists      map[string]bool
+	currentStateExists map[string]bool
+}
+
+// snapshotProtocolCursors populates m.protocolCursors from the DB, once, so
+// casProtocolCursor's callers know which protocols' history/current-state
+// cursors are operationally not-yet-initialized (skip the CAS silently)
+// versus expected-present (a CAS reporting the row missing is a genuine
+// incident). Called once by startLiveIngestion right after the advisory lock
+// is confirmed held; ingestLiveLedgers re-probes the still-missing subset on
+// the oldestLedgerSyncInterval cadence via reprobeProtocolCursors.
+func (m *ingestService) snapshotProtocolCursors(ctx context.Context) error {
+	if len(m.protocolProcessors) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m.protocolProcessors)*2)
+	for protocolID := range m.protocolProcessors {
+		keys = append(keys, utils.ProtocolHistoryCursorName(protocolID), utils.ProtocolCurrentStateCursorName(protocolID))
+	}
+	existing, err := m.models.IngestStore.GetMany(ctx, keys)
+	if err != nil {
+		return fmt.Errorf("getting protocol cursor rows: %w", err)
+	}
+	for protocolID := range m.protocolProcessors {
+		_, hExists := existing[utils.ProtocolHistoryCursorName(protocolID)]
+		_, csExists := existing[utils.ProtocolCurrentStateCursorName(protocolID)]
+		m.protocolCursors.historyExists[protocolID] = hExists
+		m.protocolCursors.currentStateExists[protocolID] = csExists
+		if !hExists {
+			log.Ctx(ctx).Infof("protocol %s history production disabled; cursor not initialized", protocolID)
+		}
+		if !csExists {
+			log.Ctx(ctx).Infof("protocol %s current-state production disabled; cursor not initialized", protocolID)
+		}
+	}
+	return nil
+}
+
+// reprobeProtocolCursors re-checks the ingest_store rows for protocols whose history or
+// current-state cursor was missing at the last snapshot/re-probe, promoting missing ->
+// existing when a protocol-setup/migrate run has initialized the row since (so production
+// starts without a restart). Cursors already known to exist are never re-checked here — a row
+// vanishing after having existed is the genuine incident casProtocolCursor's error path
+// handles. Runs outside any transaction, on the oldestLedgerSyncInterval cadence; a DB error is
+// logged and skipped (best-effort, like the oldest-ledger metric sync it runs alongside), not
+// fatal — the next cadence tick tries again.
+func (m *ingestService) reprobeProtocolCursors(ctx context.Context) {
+	var keys []string
+	for protocolID := range m.protocolProcessors {
+		if !m.protocolCursors.historyExists[protocolID] {
+			keys = append(keys, utils.ProtocolHistoryCursorName(protocolID))
+		}
+		if !m.protocolCursors.currentStateExists[protocolID] {
+			keys = append(keys, utils.ProtocolCurrentStateCursorName(protocolID))
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	existing, err := m.models.IngestStore.GetMany(ctx, keys)
+	if err != nil {
+		log.Ctx(ctx).Warnf("re-probing protocol cursors: %v", err)
+		return
+	}
+	for protocolID := range m.protocolProcessors {
+		if !m.protocolCursors.historyExists[protocolID] {
+			if _, ok := existing[utils.ProtocolHistoryCursorName(protocolID)]; ok {
+				m.protocolCursors.historyExists[protocolID] = true
+				log.Ctx(ctx).Infof("protocol %s history cursor initialized; production enabled", protocolID)
+			}
+		}
+		if !m.protocolCursors.currentStateExists[protocolID] {
+			if _, ok := existing[utils.ProtocolCurrentStateCursorName(protocolID)]; ok {
+				m.protocolCursors.currentStateExists[protocolID] = true
+				log.Ctx(ctx).Infof("protocol %s current-state cursor initialized; production enabled", protocolID)
+			}
+		}
+	}
+}
+
+// casProtocolCursor performs the authoritative compare-and-swap on a protocol cursor.
+// Callers only invoke this for a cursor m.protocolCursors marks as existing (see the gating in
+// persistLedgerData) — a cursor known not yet initialized skips this call entirely, so
+// ErrCASCursorMissing here always means a row that existed has since vanished: a genuine
+// incident (dropped row, bad restore), not the operationally normal not-yet-initialized case.
+// That is surfaced as an error like any other so the transaction aborts and live ingestion
+// retries and eventually exits, rather than silently losing protocol state. A value mismatch
+// (another process already owns this ledger — the normal, harmless CAS-lost-the-race case)
+// still returns (false, nil).
 func (m *ingestService) casProtocolCursor(ctx context.Context, dbTx pgx.Tx, cursorName, expected, next string) (bool, error) {
 	swapped, err := m.models.IngestStore.CompareAndSwap(ctx, dbTx, cursorName, expected, next)
-	if errors.Is(err, data.ErrCASCursorMissing) {
-		log.Ctx(ctx).Debugf("protocol cursor %s missing at ledger %s; skipping production for this ledger", cursorName, next)
-		return false, nil
-	}
 	if err != nil {
 		return false, fmt.Errorf("comparing and swapping protocol cursor %s: %w", cursorName, err)
 	}
@@ -456,10 +654,14 @@ func getEffectiveProtocolContracts(
 }
 
 // ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
+// plan was computed once by the caller before this loop started and is reused
+// verbatim across every attempt, so a retried attempt never re-issues the
+// classification RPC calls plan already resolved.
 func (m *ingestService) ingestProcessedDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
+	plan *ClassificationPlan,
 	buffer *indexer.IndexerBuffer,
 ) (int, int, error) {
 	var lastErr error
@@ -470,11 +672,15 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}
 		lastErr = err
+		if isPermanentPersistError(err) {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
+			return 0, 0, fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
+		}
 		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
 		if attempt == maxIngestProcessedDataRetries-1 {
 			break
@@ -498,23 +704,57 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 
-// runClassification builds a ValidationInput from this ledger's buffered
-// raw WASMs and contracts and dispatches to each registered ProtocolValidator
-// in priority order. It returns a wasm hash → protocol_id map covering both
-// previously-committed classifications and this-ledger matches, so live
-// ProcessLedger can reason about same-ledger deploy/upgrade events before
-// protocol_contracts is committed.
+// isPermanentPersistError classifies a persistLedgerData failure using its PostgreSQL SQLSTATE,
+// when available, via errors.As through the wrap chain. SQLSTATE class 22 (data exception), 23
+// (integrity constraint violation), and 42 (syntax or access-rule violation, e.g. an undefined
+// column after schema drift) can never succeed by retrying the same statement, so they are
+// permanent. Class 40 (40001 serialization_failure, 40P01 deadlock_detected), class 08
+// (connection exception), and 57P0x (57P01 admin_shutdown, 57P02 crash_shutdown, 57P03
+// cannot_connect_now — all raised during a CNPG failover) are transient and fall through to the
+// default retry behavior, same as any other SQLSTATE or a non-PgError (e.g. a context deadline).
+// ErrCursorGuardFailed (see IngestStoreModel.UpdateGuarded) is also permanent: it means another
+// writer already owns this ledger's cursor range, so retrying the same write cannot succeed.
+// ErrCASCursorMissing (see IngestStoreModel.CompareAndSwap) is likewise permanent: the cursor row
+// this ledger's protocol CAS targets is gone, and no retry of the same transaction can recreate
+// it — failing fast surfaces the incident instead of burning the whole retry ladder.
+func isPermanentPersistError(err error) bool {
+	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || len(pgErr.Code) < 2 {
+		return false
+	}
+	switch pgErr.Code[:2] {
+	case "22", "23", "42":
+		return true
+	default:
+		return false
+	}
+}
+
+// prepareClassificationPlan runs Phase A of protocol classification for this
+// ledger's buffered raw WASMs and contracts: pure signature matching plus any
+// RPC-sourced enrichment prefetch (e.g. SEP-41 token metadata),
+// entirely before any database transaction opens. Callers must compute this
+// once per ledger and reuse the same plan across retry attempts (like
+// buffer already is) — recomputing it would re-issue RPC calls
+// on every retry. ApplyClassificationPlan (called from inside
+// persistLedgerData's transaction) finishes the job with DB-only writes.
 //
-// Validator side effects (e.g. SEP-41 contract_tokens metadata writes) happen
-// inside dbTx via the validators themselves and commit atomically with the
-// classification verdict.
-func (m *ingestService) runClassification(
+// The known-classification lookup is a non-transactional pool read:
+// staleness is harmless (this-ledger uploads resolve from the buffer; prior
+// rows are immutable once classified), and reading before any transaction
+// opens means it never contends with the CAS/cursor row locks
+// persistLedgerData holds later. Because it runs outside the persist retry
+// ladder, it is wrapped in its own bounded backoff so a transient DB blip
+// (e.g. a CNPG failover) does not exit live ingestion.
+func (m *ingestService) prepareClassificationPlan(
 	ctx context.Context,
-	dbTx pgx.Tx,
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
-	bufferedContracts []data.ProtocolContracts,
-) (map[types.HashBytea]string, error) {
+	bufferedContracts map[string]data.ProtocolContracts,
+) (*ClassificationPlan, error) {
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
 		return nil, nil
 	}
@@ -527,44 +767,56 @@ func (m *ingestService) runClassification(
 		thisBatch[h] = struct{}{}
 	}
 
-	// Resolve hashes classified in earlier ledgers, skipping this-ledger
-	// uploads (thisBatch) which the dispatcher classifies below.
-	knownHashes := make([]types.HashBytea, 0, len(bufferedContracts))
+	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
 	for _, c := range bufferedContracts {
+		contractSlice = append(contractSlice, c)
+	}
+
+	// Each buffered contract carries the wasm hash its instance points at. That
+	// hash may name a wasm uploaded in an earlier ledger (Soroban contract-code
+	// and contract-instance entries are independent), so its bytecode is not in
+	// this ledger's buffer — resolve those from the verdict already stored in
+	// protocol_wasms. Hashes uploaded this ledger (thisBatch) are skipped here
+	// because PrepareClassification classifies them from their buffered bytecode below.
+	knownHashes := make([]types.HashBytea, 0, len(contractSlice))
+	for _, c := range contractSlice {
 		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
 			continue
 		}
 		knownHashes = append(knownHashes, c.WasmHash)
 	}
-	known, err := m.models.ProtocolWasms.GetClassifiedByHashes(ctx, dbTx, knownHashes)
+	known, err := utils.RetryWithBackoff(ctx, maxClassificationReadRetries, maxRetryBackoff,
+		func(ctx context.Context) (map[types.HashBytea]string, error) {
+			return m.models.ProtocolWasms.GetClassifiedByHashes(ctx, m.models.DB, knownHashes)
+		},
+		func(attempt int, retryErr error, backoff time.Duration) {
+			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("classification_read").Inc()
+			log.Ctx(ctx).Warnf("Error resolving known protocol classifications (attempt %d/%d): %v, retrying in %v...",
+				attempt+1, maxClassificationReadRetries, retryErr, backoff)
+		},
+		isPermanentPersistError,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("resolving known protocol classifications: %w", err)
 	}
 
-	// protocolByWasm answers "what protocol owns this wasm hash?": previously
-	// committed classifications overlaid with this-ledger matches. The two key
-	// sets are disjoint (knownHashes excludes thisBatch), so the overlay never
-	// actually collides.
-	protocolByWasm := make(map[types.HashBytea]string, len(known))
-	for hash, pid := range known {
-		protocolByWasm[hash] = pid
-	}
 	if len(m.protocolValidators) == 0 {
-		return protocolByWasm, nil
+		plan := &ClassificationPlan{Matches: make(map[types.HashBytea]string, len(known))}
+		for hash, pid := range known {
+			plan.Matches[hash] = pid
+		}
+		return plan, nil
 	}
 
-	matches, err := DispatchClassification(
-		ctx, dbTx, m.wasmSpecExtractor, m.protocolValidators,
-		bytecodesByHash, bufferedContracts, m.rpcService, m.models, known,
+	plan, err := PrepareClassification(
+		ctx, m.wasmSpecExtractor, m.protocolValidators,
+		bytecodesByHash, contractSlice, m.rpcService, known,
 		m.appMetrics.Ingestion.WasmClassificationFailuresTotal,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("dispatching classification: %w", err)
+		return nil, fmt.Errorf("preparing classification: %w", err)
 	}
-	for hash, pid := range matches {
-		protocolByWasm[hash] = pid
-	}
-	return protocolByWasm, nil
+	return plan, nil
 }
 
 // prepareNewSACContracts filters out existing contracts and returns new SAC contracts for insertion.

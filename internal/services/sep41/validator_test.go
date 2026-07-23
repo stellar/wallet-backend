@@ -432,26 +432,23 @@ func TestValidator_RealWasm(t *testing.T) {
 	})
 }
 
-// TestValidator_NoMatch covers the case where the signature check rejects the
-// candidate spec. No contract_tokens writes happen and no matches are
-// returned.
-func TestValidator_NoMatch(t *testing.T) {
+// TestValidator_Match_NoMatch covers the case where the signature check
+// rejects the candidate spec: no hashes are returned.
+func TestValidator_Match_NoMatch(t *testing.T) {
 	v := NewValidator()
 	hash := indexerTypes.HashBytea("aabb")
-	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
-		Candidates: []services.WasmCandidate{
-			{Hash: hash, SpecEntries: []xdr.ScSpecEntry{{Kind: xdr.ScSpecEntryKindScSpecEntryFunctionV0}}},
-		},
+	matched := v.Match([]services.WasmCandidate{
+		{Hash: hash, SpecEntries: []xdr.ScSpecEntry{{Kind: xdr.ScSpecEntryKindScSpecEntryFunctionV0}}},
 	})
-	require.NoError(t, err)
-	assert.Empty(t, out.MatchedWasms)
+	assert.Empty(t, matched)
 }
 
-// TestValidator_KnownContractEnrichmentRunsWithoutCandidate verifies that the
-// validator enriches contracts whose wasm hash was classified as SEP-41 in a
-// prior batch (KnownProtocolID = "SEP41") even when the wasm itself is not
-// in this batch's Candidates.
-func TestValidator_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
+// TestValidator_Apply_KnownContractEnrichmentRunsWithoutCandidate verifies
+// that Apply enriches contracts whose wasm hash was classified as SEP-41 in a
+// prior batch (KnownProtocolID = "SEP41") even when the wasm itself is not in
+// this batch's candidates, and that Prefetch (no fetcher configured) makes no
+// RPC call before Apply writes the default row.
+func TestValidator_Apply_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
 	contractsMock := data.NewContractModelMock(t)
 	models := &data.Models{Contract: contractsMock}
 
@@ -466,14 +463,16 @@ func TestValidator_KnownContractEnrichmentRunsWithoutCandidate(t *testing.T) {
 	require.NoError(t, err)
 	contractID := indexerTypes.HashBytea(hex.EncodeToString(rawAddr))
 
-	out, err := v.Validate(context.Background(), nil, services.ValidationInput{
-		Contracts: []services.ContractCandidate{
-			{ContractID: contractID, WasmHash: indexerTypes.HashBytea("aabb"), KnownProtocolID: ProtocolID},
-		},
-		Models: models,
-	})
+	matched := map[indexerTypes.HashBytea]struct{}{}
+	contracts := []services.ContractCandidate{
+		{ContractID: contractID, WasmHash: indexerTypes.HashBytea("aabb"), KnownProtocolID: ProtocolID},
+	}
+
+	ctx := context.Background()
+	plan, err := v.Prefetch(ctx, nil, nil, matched, contracts)
 	require.NoError(t, err)
-	assert.Empty(t, out.MatchedWasms, "no in-batch candidates → no match returned")
+
+	require.NoError(t, v.Apply(ctx, nil, matched, contracts, plan, models))
 }
 
 func createScSpecFunctionEntry(name string, inputs []xdr.ScSpecFunctionInputV0, outputs []xdr.ScSpecTypeDef) xdr.ScSpecEntry {

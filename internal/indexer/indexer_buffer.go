@@ -197,7 +197,9 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	return txs
 }
 
-// GetTransactionsParticipants returns a map of transaction ToIDs to its participants.
+// GetTransactionsParticipants returns a map of transaction ToIDs to its
+// participants. The map itself is a shallow clone, but each set.Set[string]
+// value is the buffer's live object; callers must not modify the sets.
 func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -326,8 +328,8 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	pushWithTombstone(b.trustlineChangesByTrustlineKey, b.trustlineTombstones, changeKey, trustlineChange, trustlineOrder, trustlineIsNoopRemove)
 }
 
-// GetTrustlineChanges returns all trustline changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetTrustlineChanges returns the buffer's internal map of trustline changes;
+// callers must not modify it. Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -346,8 +348,8 @@ func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	pushWithTombstone(b.accountChangesByAccountID, b.accountTombstones, accountChange.AccountID, accountChange, accountOrder, accountIsNoopRemove)
 }
 
-// GetAccountChanges returns all account changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetAccountChanges returns the buffer's internal map of account changes;
+// callers must not modify it. Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -370,8 +372,8 @@ func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceCh
 	pushWithTombstone(b.sacBalanceChangesByKey, b.sacTombstones, key, sacBalanceChange, sacBalanceOrder, sacBalanceIsNoopRemove)
 }
 
-// GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetSACBalanceChanges returns the buffer's internal map of SAC balance
+// changes; callers must not modify it. Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -394,8 +396,9 @@ func (b *IndexerBuffer) PushLiquidityPoolShareChange(change types.LiquidityPoolS
 	pushWithTombstone(b.lpShareChangesByKey, b.lpShareTombstones, key, change, lpShareOrder, lpShareIsNoopRemove)
 }
 
-// GetLiquidityPoolShareChanges returns all pool-share balance changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetLiquidityPoolShareChanges returns the buffer's internal map of
+// pool-share balance changes; callers must not modify it. Thread-safe: uses
+// read lock.
 func (b *IndexerBuffer) GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -414,8 +417,8 @@ func (b *IndexerBuffer) PushLiquidityPoolChange(change types.LiquidityPoolChange
 	pushWithTombstone(b.lpChangesByPoolID, b.lpTombstones, change.PoolID, change, lpOrder, lpIsNoopRemove)
 }
 
-// GetLiquidityPoolChanges returns all pool reserve changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetLiquidityPoolChanges returns the buffer's internal map of pool reserve
+// changes; callers must not modify it. Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -447,7 +450,9 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	return ops
 }
 
-// GetOperationsParticipants returns a map of operation IDs to its participants.
+// GetOperationsParticipants returns a map of operation IDs to its
+// participants. The map itself is a shallow clone, but each set.Set[string]
+// value is the buffer's live object; callers must not modify the sets.
 func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -485,8 +490,8 @@ func (b *IndexerBuffer) PushStateChange(transaction types.Transaction, operation
 	}
 }
 
-// GetStateChanges returns a copy of all state changes stored in the buffer.
-// Thread-safe: uses read lock.
+// GetStateChanges returns the buffer's internal slice of state changes;
+// callers must not modify it. Thread-safe: uses read lock.
 func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

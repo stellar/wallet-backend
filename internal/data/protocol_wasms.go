@@ -25,7 +25,7 @@ type ProtocolWasms struct {
 type ProtocolWasmsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, wasms []ProtocolWasms) error
 	GetUnclassified(ctx context.Context) ([]ProtocolWasms, error)
-	GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error)
+	GetClassifiedByHashes(ctx context.Context, q db.Querier, hashes []types.HashBytea) (map[types.HashBytea]string, error)
 	BatchUpdateProtocolID(ctx context.Context, dbTx pgx.Tx, wasmHashes []types.HashBytea, protocolID string) error
 }
 
@@ -92,10 +92,12 @@ func (m *ProtocolWasmsModel) GetUnclassified(ctx context.Context) ([]ProtocolWas
 }
 
 // GetClassifiedByHashes returns wasm_hash → protocol_id for the supplied hashes
-// where protocol_id IS NOT NULL. The read runs inside the supplied dbTx so
-// callers on the live ingest path see classifications consistent with the
-// in-flight transaction.
-func (m *ProtocolWasmsModel) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+// where protocol_id IS NOT NULL. q accepts either the connection pool or a
+// pgx.Tx: this read is used both non-transactionally (classification
+// prefetch, before any ledger transaction opens — staleness here is harmless
+// since this-ledger uploads resolve from the buffer and prior rows are
+// immutable) and, where a caller still holds an open tx, against that tx.
+func (m *ProtocolWasmsModel) GetClassifiedByHashes(ctx context.Context, q db.Querier, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}
@@ -112,7 +114,7 @@ func (m *ProtocolWasmsModel) GetClassifiedByHashes(ctx context.Context, dbTx pgx
 	const query = `SELECT wasm_hash, protocol_id, created_at FROM protocol_wasms WHERE wasm_hash = ANY($1::bytea[]) AND protocol_id IS NOT NULL`
 
 	start := time.Now()
-	wasms, err := db.QueryMany[ProtocolWasms](ctx, dbTx, query, hashBytes)
+	wasms, err := db.QueryMany[ProtocolWasms](ctx, q, query, hashBytes)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetClassifiedByHashes", "protocol_wasms").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetClassifiedByHashes", "protocol_wasms").Inc()

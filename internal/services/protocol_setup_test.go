@@ -39,18 +39,23 @@ func newStubValidator(claim ...types.HashBytea) *stubValidator {
 
 func (s *stubValidator) ProtocolID() string { return testProtocolID }
 
-func (s *stubValidator) Validate(_ context.Context, _ pgx.Tx, input ValidationInput) (ValidationResult, error) {
-	s.gotBatch++
-	if s.classifyErr != nil {
-		return ValidationResult{}, s.classifyErr
-	}
-	out := ValidationResult{}
-	for _, c := range input.Candidates {
+func (s *stubValidator) Match(candidates []WasmCandidate) map[types.HashBytea]struct{} {
+	matched := map[types.HashBytea]struct{}{}
+	for _, c := range candidates {
 		if _, ok := s.claim[c.Hash]; ok {
-			out.MatchedWasms = append(out.MatchedWasms, c.Hash)
+			matched[c.Hash] = struct{}{}
 		}
 	}
-	return out, nil
+	return matched
+}
+
+func (s *stubValidator) Prefetch(_ context.Context, _ RPCService, _ []WasmCandidate, _ map[types.HashBytea]struct{}, _ []ContractCandidate) (any, error) {
+	s.gotBatch++
+	return nil, s.classifyErr
+}
+
+func (s *stubValidator) Apply(_ context.Context, _ pgx.Tx, _ map[types.HashBytea]struct{}, _ []ContractCandidate, _ any, _ *data.Models) error {
+	return nil
 }
 
 func TestProtocolSetupService_Run(t *testing.T) {

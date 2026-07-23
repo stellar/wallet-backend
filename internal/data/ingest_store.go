@@ -24,10 +24,12 @@ const (
 // not exist in ingest_store. The model layer keeps this distinct from the
 // ordinary value-mismatch race so callers can decide what to do — a missing
 // row may be operationally normal (cursor not yet initialized by protocol-setup
-// / protocol-migrate) or a real incident (dropped row, bad restore). The
-// service layer treats this as a soft skip: the `cursor_missing` query-error
-// metric and a per-ledger warn provide the observability signal without
-// killing live ingest. See ingest_live.go persistLedgerData for the handling.
+// / protocol-migrate) or a real incident (dropped row, bad restore). Live
+// ingestion (see ingest_live.go's casProtocolCursor) only ever calls
+// CompareAndSwap for a cursor its protocolCursorSnapshot believes exists, so
+// from that caller this error always means the genuine incident case: the
+// `cursor_missing` query-error metric recorded below fires accordingly,
+// rather than on every not-yet-initialized ledger.
 var ErrCASCursorMissing = errors.New("ingest_store cursor row missing")
 
 type LedgerRange struct {
@@ -114,6 +116,48 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("Update", "ingest_store", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("updating last synced ledger to %d: %w", ledger, err)
+	}
+	return nil
+}
+
+// ErrCursorGuardFailed is returned by UpdateGuarded when the cursor's current
+// value is neither ledger-1 nor ledger (see UpdateGuarded), or the row does
+// not exist. Either way, a writer other than the one calling UpdateGuarded
+// has moved the cursor past what it expected — most commonly a second live
+// ingestion instance that acquired the advisory lock after this session's
+// Postgres session died in a failover (see startLiveIngestion's
+// checkLockSession, which is the primary defense; this guard is the backstop
+// for the race window before that probe observes the dead session).
+var ErrCursorGuardFailed = errors.New("ingest_store guarded cursor update refused: cursor value not owned by this writer")
+
+// UpdateGuarded advances cursorName to ledger only if its current value is ledger-1 (the normal
+// sequential case: this writer is the sole owner and is advancing by exactly one ledger) or
+// ledger itself (the self-value case: the first ledger processed immediately after
+// startLiveIngestion's initializeCursors already set the cursor to this same starting ledger).
+// Any other current value — including a missing row — means a writer other than the caller has
+// moved the cursor, so the swap is refused with ErrCursorGuardFailed instead of silently
+// overwriting a value another instance already advanced (which a blind Update would do).
+func (m *IngestStoreModel) UpdateGuarded(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
+	const query = `
+		UPDATE ingest_store
+		SET value = $1
+		WHERE key = $2 AND value IN ($3, $4)
+	`
+	newValue := strconv.FormatUint(uint64(ledger), 10)
+	prevValue := strconv.FormatUint(uint64(ledger-1), 10)
+
+	start := time.Now()
+	tag, err := dbTx.Exec(ctx, query, newValue, cursorName, prevValue, newValue)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("UpdateGuarded", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("UpdateGuarded", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, err)
+	}
+	if tag.RowsAffected() == 0 {
+		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", "cursor_guard_failed").Inc()
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, ErrCursorGuardFailed)
 	}
 	return nil
 }

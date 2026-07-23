@@ -112,7 +112,7 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
-	log.Ctx(ctx).Infof("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
+	log.Ctx(ctx).Debugf("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
 	return nil
 }
 
@@ -144,7 +144,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 		if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	}
 	return nil
 }
@@ -178,7 +178,7 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
 	}
 	return nil
 }
@@ -211,7 +211,7 @@ func (s *tokenIngestionService) processLiquidityPoolChanges(ctx context.Context,
 		if err := s.liquidityPoolModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting liquidity pools: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d liquidity pools, deleted %d liquidity pools", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d liquidity pools, deleted %d liquidity pools", len(upserts), len(deletes))
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func (s *tokenIngestionService) processLiquidityPoolShareChanges(ctx context.Con
 		if err := s.liquidityPoolBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting liquidity pool balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d liquidity pool balances, deleted %d liquidity pool balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d liquidity pool balances, deleted %d liquidity pool balances", len(upserts), len(deletes))
 	}
 	return nil
 }

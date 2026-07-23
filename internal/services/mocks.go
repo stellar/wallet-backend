@@ -400,3 +400,34 @@ func NewContractMetadataServiceMock(t interface {
 
 	return mock
 }
+
+// CheckpointServiceMock is a mock implementation of CheckpointService.
+type CheckpointServiceMock struct {
+	mock.Mock
+}
+
+var _ CheckpointService = (*CheckpointServiceMock)(nil)
+
+func (c *CheckpointServiceMock) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := c.Called(ctx, checkpointLedger, initializeCursors)
+	return args.Error(0)
+}
+
+func (c *CheckpointServiceMock) EnrichStaleSACMetadata(ctx context.Context) error {
+	args := c.Called(ctx)
+	return args.Error(0)
+}
+
+// NewCheckpointServiceMock creates a new instance of CheckpointServiceMock.
+func NewCheckpointServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *CheckpointServiceMock {
+	mock := &CheckpointServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}

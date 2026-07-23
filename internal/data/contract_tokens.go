@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -29,6 +30,12 @@ func DeterministicContractID(contractID string) uuid.UUID {
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
 	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
+	// GetSACContractsMissingMetadata returns the contract_id of every SAC-typed row
+	// whose name is still NULL — a balance-derived SAC row created with ledger-derived
+	// defaults whose RPC enrichment has not yet succeeded. Enrichment populates name
+	// (see BatchUpdateMetadata), so an enriched row drops out of the result and the set
+	// converges to empty. Reads through any db.Querier (pool or transaction).
+	GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
@@ -78,6 +85,23 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetExisting", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
+	}
+	return ids, nil
+}
+
+// GetSACContractsMissingMetadata returns the contract_id of every SAC-typed
+// contract_tokens row whose name is still NULL. See the interface godoc for why
+// name (not code) is the convergent staleness marker.
+func (m *ContractModel) GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error) {
+	const query = `SELECT contract_id FROM contract_tokens WHERE type = $1 AND name IS NULL`
+
+	start := time.Now()
+	ids, err := db.QueryMany[string](ctx, q, query, string(types.ContractTypeSAC))
+	m.Metrics.QueryDuration.WithLabelValues("GetSACContractsMissingMetadata", "contract_tokens").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("GetSACContractsMissingMetadata", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetSACContractsMissingMetadata", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying SAC contracts missing metadata: %w", err)
 	}
 	return ids, nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -144,6 +145,9 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
+		// Keep the SAC-enrichment retry path exercised but fast in tests.
+		sacEnrichmentRetries: 3,
+		sacEnrichmentBackoff: time.Millisecond,
 	}
 
 	return checkpointTestFixture{
@@ -368,6 +372,231 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T
 	f.protocolContractsModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// makeSACBalanceChange builds an ingest.Change for a ContractData Balance
+// entry whose holder is itself a contract — the shape
+// sac.ContractBalanceFromContractData requires to recognize a SAC balance.
+// With no preceding contract-instance entry in the same checkpoint, this is
+// how a SAC contract ends up in contract_tokens with Code/Name/Symbol unset,
+// needing RPC enrichment (see finalize's pendingSACMetadata bookkeeping).
+func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&tokenContractHash),
+					},
+					Key: xdr.ScVal{
+						Type: xdr.ScValTypeScvVec,
+						Vec: ptrToScVec([]xdr.ScVal{
+							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
+							{
+								Type: xdr.ScValTypeScvAddress,
+								Address: &xdr.ScAddress{
+									Type:       xdr.ScAddressTypeScAddressTypeContract,
+									ContractId: (*xdr.ContractId)(&holderContractHash),
+								},
+							},
+						}),
+					},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        makeBalanceMapVal(500, true, false),
+				},
+			},
+		},
+	}
+}
+
+// checkpointCommitProbeKey is a scratch ingest_store row written by an
+// initializeCursors callback, inside the load's own transaction, purely so a
+// test can prove — via a real, separate connection — whether the load
+// transaction has actually committed yet. Postgres MVCC hides the row from
+// any other connection until commit, which is what makes this a genuine
+// after-commit check rather than an assertion on mock call ordering alone.
+const checkpointCommitProbeKey = "checkpoint_commit_probe"
+
+func writeCheckpointCommitProbe(dbTx pgx.Tx) error {
+	_, err := dbTx.Exec(context.Background(),
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		checkpointCommitProbeKey, "committed")
+	return err
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit
+// is the ING-10 regression test: it proves FetchSACMetadata (the RPC call)
+// only happens once the load transaction — including cursor initialization —
+// has already committed, by querying the commit probe row from the real DB
+// pool (a connection independent of the load's transaction) from inside the
+// FetchSACMetadata mock's callback. If the RPC call were still made inside
+// the load transaction (the ING-10 bug), the probe row would not yet be
+// visible and this assertion would fail.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{9, 9, 9}
+	holderHash := [32]byte{8, 8, 8}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 1 })).Return(nil).Once()
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Type == string(types.ContractTypeSAC) && cs[0].Code == nil
+	})).Return(nil).Once()
+
+	enrichedName := "Test Token"
+	enrichedSymbol := "TST"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Run(func(_ mock.Arguments) {
+			var value string
+			queryErr := f.svc.db.QueryRow(context.Background(),
+				`SELECT value FROM ingest_store WHERE key = $1`, checkpointCommitProbeKey).Scan(&value)
+			require.NoError(t, queryErr, "the load transaction (including cursor init) must already be committed before SAC metadata enrichment runs")
+			assert.Equal(t, "committed", value)
+		}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, writeCheckpointCommitProbe)
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad
+// is the other half of ING-10: a failed SAC metadata fetch must be logged and
+// leave the already-committed load's rows in place (defaults, unenriched),
+// not fail PopulateFromCheckpoint.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{7, 7, 7}
+	holderHash := [32]byte{6, 6, 6}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	// The enrichment is retried; every attempt fails, and the load still must not fail.
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, mock.Anything).
+		Return(nil, errors.New("rpc unavailable")).Times(f.svc.sacEnrichmentRetries)
+
+	// No "BatchUpdateMetadata" expectation is registered: if enrichSACMetadata
+	// called it despite the fetch failing, the mock would fail this test for
+	// an unexpected call.
+
+	cursorsCalled := false
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error {
+		cursorsCalled = true
+		return nil
+	})
+	require.NoError(t, err, "a SAC metadata fetch failure must not fail the completed load")
+	assert.True(t, cursorsCalled)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds proves the
+// bounded retry absorbs a transient enrichment blip: FetchSACMetadata fails twice, then
+// succeeds, and the enrichment write runs exactly once.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{4, 4, 4}
+	holderHash := [32]byte{3, 3, 3}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	enrichedName := "Retry Token"
+	enrichedSymbol := "RTY"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return(nil, errors.New("rpc blip")).Twice()
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp proves the restartable pass
+// is a no-op when no SAC row is missing metadata: it must call neither RPC nor the write.
+func TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp(t *testing.T) {
+	f := setupCheckpointTest(t)
+	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
+		Return([]string{}, nil).Once()
+
+	err := f.svc.EnrichStaleSACMetadata(context.Background())
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows proves the restartable pass
+// enriches SAC rows still left at their ledger-derived defaults.
+func TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{5, 5, 5}
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
+		Return([]string{tokenAddr}, nil).Once()
+
+	enrichedName := "Stale Token"
+	enrichedSymbol := "STL"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.EnrichStaleSACMetadata(context.Background())
 	require.NoError(t, err)
 }
 
