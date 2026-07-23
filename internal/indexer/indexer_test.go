@@ -1469,3 +1469,44 @@ func TestAssignStateChangeStream_SubNamespaces(t *testing.T) {
 		seen[sc.StateChangeID] = true
 	}
 }
+
+// TestIndexer_ProcessLedgerTransactions_RealLedgerParallel drives every real
+// pubnet fixture through the parallel indexing path under the race detector.
+//
+// It enforces the single-owner buffer convention: ProcessLedgerTransactions
+// builds a per-transaction TransactionResult in parallel pool workers with no
+// shared state, then folds those results into the one shared IndexerBuffer
+// serially. Workers must never touch the shared buffer. If that regresses —
+// any worker writing to the buffer — the race detector (make unit-test runs
+// go test -race) fails this test.
+func TestIndexer_ProcessLedgerTransactions_RealLedgerParallel(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	require.NoError(t, err)
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+			txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+			if len(txs) < 2 {
+				t.Skipf("fixture has %d transaction(s); need ≥2 to exercise parallelism", len(txs))
+			}
+
+			buffer := NewIndexerBuffer()
+			participantCount, err := idx.ProcessLedgerTransactions(ctx, txs, buffer)
+			require.NoError(t, err)
+
+			assert.Positive(t, participantCount)
+			assert.Positive(t, buffer.GetNumberOfTransactions())
+			assert.Equal(t, buffer.GetNumberOfTransactions(), len(buffer.GetTransactions()))
+			assert.Positive(t, buffer.GetNumberOfOperations())
+			assert.NotEmpty(t, buffer.GetStateChanges())
+		})
+	}
+}
