@@ -192,11 +192,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
+	requestAuthVerifier, err := buildRequestAuthVerifier(ctx, cfg)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+		return handlerDeps{}, err
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, m.RPC)
@@ -221,6 +220,21 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		GraphQLIntrospectionEnabled: cfg.GraphQLIntrospectionEnabled,
 	}, nil
+}
+
+// buildRequestAuthVerifier returns nil when no client auth public keys are
+// configured, which makes handler() skip the authentication middleware entirely.
+func buildRequestAuthVerifier(ctx context.Context, cfg Configs) (auth.HTTPRequestVerifier, error) {
+	if len(cfg.ClientAuthPublicKeys) == 0 {
+		log.Ctx(ctx).Warn("client-auth-public-keys is empty: request authentication is disabled")
+		return nil, nil
+	}
+
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+	}
+	return auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes)), nil
 }
 
 func handler(deps handlerDeps) http.Handler {

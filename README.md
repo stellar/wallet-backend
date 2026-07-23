@@ -171,6 +171,8 @@ The JWT is signed using an Ed25519 private key derived from a Stellar secret see
 
 The server can be configured to accept multiple (comma-separated) public keys through the `CLIENT_AUTH_PUBLIC_KEYS` environment variable.
 
+If `CLIENT_AUTH_PUBLIC_KEYS` is not set or empty, request authentication is disabled.
+
 ### JWT Claims
 
 The JWT payload field should contain the following fields:
