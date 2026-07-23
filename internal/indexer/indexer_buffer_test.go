@@ -257,6 +257,8 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 			OpParticipants:   map[int64][]string{10: {"alice", "bob"}},
 			StateChanges:     []types.StateChange{sc},
 			AccountChanges:   []types.AccountChange{{AccountID: "alice", SortKey: 1, Operation: types.AccountOpUpdate, Balance: 100}},
+			LPShareChanges:   []types.LiquidityPoolShareChange{{AccountID: "alice", PoolID: "pool1", OperationID: 10, Operation: types.LiquidityPoolShareOpAdd, Shares: 5}},
+			LPChanges:        []types.LiquidityPoolChange{{PoolID: "pool1", OperationID: 10, Operation: types.LiquidityPoolOpAdd, AssetA: "native", ReserveA: 1, AssetB: "USDC:GA", ReserveB: 2}},
 			ParticipantCount: 2,
 		}
 
@@ -268,6 +270,30 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), buffer.GetTransactionsParticipants()[1])
 		assert.Len(t, buffer.GetStateChanges(), 1)
 		assert.Len(t, buffer.GetAccountChanges(), 1)
+		assert.Len(t, buffer.GetLiquidityPoolShareChanges(), 1)
+		assert.Len(t, buffer.GetLiquidityPoolChanges(), 1)
+	})
+
+	t.Run("🟢 LP ADD→REMOVE across folded results nets to nothing (tombstone)", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+
+		add := &TransactionResult{
+			Transaction:    &tx,
+			LPShareChanges: []types.LiquidityPoolShareChange{{AccountID: "alice", PoolID: "pool1", OperationID: 1, Operation: types.LiquidityPoolShareOpAdd, Shares: 5}},
+			LPChanges:      []types.LiquidityPoolChange{{PoolID: "pool1", OperationID: 1, Operation: types.LiquidityPoolOpAdd}},
+		}
+		remove := &TransactionResult{
+			Transaction:    &tx,
+			LPShareChanges: []types.LiquidityPoolShareChange{{AccountID: "alice", PoolID: "pool1", OperationID: 2, Operation: types.LiquidityPoolShareOpRemove}},
+			LPChanges:      []types.LiquidityPoolChange{{PoolID: "pool1", OperationID: 2, Operation: types.LiquidityPoolOpRemove}},
+		}
+
+		buffer.IngestTransactionResult(add)
+		buffer.IngestTransactionResult(remove)
+
+		assert.Len(t, buffer.GetLiquidityPoolShareChanges(), 0)
+		assert.Len(t, buffer.GetLiquidityPoolChanges(), 0)
 	})
 
 	t.Run("🟢 dedups across multiple folded results (CREATE→REMOVE tombstone)", func(t *testing.T) {

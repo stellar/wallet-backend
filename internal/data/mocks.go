@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -35,6 +36,14 @@ func NewContractModelMock(t interface {
 
 func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
 	args := m.Called(ctx, dbTx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *ContractModelMock) GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error) {
+	args := m.Called(ctx, q)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -252,8 +261,8 @@ func (m *ProtocolWasmsModelMock) GetUnclassified(ctx context.Context) ([]Protoco
 	return args.Get(0).([]ProtocolWasms), args.Error(1)
 }
 
-func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, dbTx pgx.Tx, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
-	args := m.Called(ctx, dbTx, hashes)
+func (m *ProtocolWasmsModelMock) GetClassifiedByHashes(ctx context.Context, q db.Querier, hashes []types.HashBytea) (map[types.HashBytea]string, error) {
+	args := m.Called(ctx, q, hashes)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -303,14 +312,6 @@ func (m *ProtocolsModelMock) UpdateCurrentStateMigrationStatus(ctx context.Conte
 
 func (m *ProtocolsModelMock) GetByIDs(ctx context.Context, protocolIDs []string) ([]Protocols, error) {
 	args := m.Called(ctx, protocolIDs)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]Protocols), args.Error(1)
-}
-
-func (m *ProtocolsModelMock) GetClassified(ctx context.Context) ([]Protocols, error) {
-	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -370,4 +371,74 @@ func (m *ProtocolContractsModelMock) GetByWasmHashes(ctx context.Context, wasmHa
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]ProtocolContracts), args.Error(1)
+}
+
+// LiquidityPoolModelMock is a mock implementation of LiquidityPoolModelInterface.
+type LiquidityPoolModelMock struct {
+	mock.Mock
+}
+
+var _ LiquidityPoolModelInterface = (*LiquidityPoolModelMock)(nil)
+
+// NewLiquidityPoolModelMock creates a new instance of LiquidityPoolModelMock.
+func NewLiquidityPoolModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *LiquidityPoolModelMock {
+	mockModel := &LiquidityPoolModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *LiquidityPoolModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []LiquidityPool, deletes []LiquidityPool) error {
+	args := m.Called(ctx, dbTx, upserts, deletes)
+	return args.Error(0)
+}
+
+func (m *LiquidityPoolModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, pools []LiquidityPool) error {
+	args := m.Called(ctx, dbTx, pools)
+	return args.Error(0)
+}
+
+// LiquidityPoolBalanceModelMock is a mock implementation of LiquidityPoolBalanceModelInterface.
+type LiquidityPoolBalanceModelMock struct {
+	mock.Mock
+}
+
+var _ LiquidityPoolBalanceModelInterface = (*LiquidityPoolBalanceModelMock)(nil)
+
+// NewLiquidityPoolBalanceModelMock creates a new instance of LiquidityPoolBalanceModelMock.
+func NewLiquidityPoolBalanceModelMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *LiquidityPoolBalanceModelMock {
+	mockModel := &LiquidityPoolBalanceModelMock{}
+	mockModel.Mock.Test(t)
+
+	t.Cleanup(func() { mockModel.AssertExpectations(t) })
+
+	return mockModel
+}
+
+func (m *LiquidityPoolBalanceModelMock) GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *string, sortOrder SortOrder) ([]LiquidityPoolBalance, error) {
+	args := m.Called(ctx, accountAddress, limit, cursor, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]LiquidityPoolBalance), args.Error(1)
+}
+
+func (m *LiquidityPoolBalanceModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []LiquidityPoolBalance, deletes []LiquidityPoolBalance) error {
+	args := m.Called(ctx, dbTx, upserts, deletes)
+	return args.Error(0)
+}
+
+func (m *LiquidityPoolBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []LiquidityPoolBalance) error {
+	args := m.Called(ctx, dbTx, balances)
+	return args.Error(0)
 }

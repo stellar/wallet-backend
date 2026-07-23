@@ -51,6 +51,11 @@ var sharedTestAccountAddress = keypair.MustRandom().Address()
 // sharedNonExistentAccountAddress is a valid Stellar address that doesn't exist in the test DB.
 var sharedNonExistentAccountAddress = keypair.MustRandom().Address()
 
+// sharedTestLedgerCreatedAt is the ledger_created_at set on every row setupDB inserts. Data-layer
+// batch lookups pin this partition column, so any test building a parent node (Transaction,
+// Operation, StateChange) that references setupDB's fixture must carry this exact value.
+var sharedTestLedgerCreatedAt time.Time
+
 // Test transaction hashes used by setupDB (64-char hex strings for BYTEA storage)
 // These must match the pattern in setupDB: fmt.Sprintf("...487%x", i) where i = 0,1,2,3
 var (
@@ -63,6 +68,7 @@ var (
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) {
 	testLedger := int32(1000)
 	now := time.Now()
+	sharedTestLedgerCreatedAt = now
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
 	ops := make([]*types.Operation, 0, 8)

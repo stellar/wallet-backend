@@ -49,6 +49,10 @@ func (p *SACEventsProcessor) Name() string {
 	return "sac"
 }
 
+func (p *SACEventsProcessor) StateChangeSubBase() int64 {
+	return types.StateChangeSubBaseSACEvents
+}
+
 // ProcessOperation processes contract events and converts them into state changes.
 func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {
 	startTime := time.Now()

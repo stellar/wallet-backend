@@ -17,15 +17,19 @@ import (
 
 // benchIndexer builds an Indexer with the real processors. nil metrics is accepted (see
 // TestIndexer_ProcessLedgerTransactions_FeePhaseBalances).
-func benchIndexer() *Indexer {
-	return NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+func benchIndexer(tb testing.TB) *Indexer {
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return idx
 }
 
 // BenchmarkProcessRealLedger measures a full per-ledger indexing pass: parallel workers build a
 // per-tx TransactionResult, which are folded into one ledger buffer. One sub-benchmark per fixture.
 func BenchmarkProcessRealLedger(b *testing.B) {
 	ctx := context.Background()
-	idx := benchIndexer()
+	idx := benchIndexer(b)
 
 	paths, err := filepath.Glob("testdata/*.xdr.gz")
 	if err != nil {
@@ -56,7 +60,7 @@ func BenchmarkProcessRealLedger(b *testing.B) {
 // buffer Clear that mirrors backfill reuse. One sub-benchmark per fixture.
 func BenchmarkFoldRealLedger(b *testing.B) {
 	ctx := context.Background()
-	idx := benchIndexer()
+	idx := benchIndexer(b)
 
 	paths, err := filepath.Glob("testdata/*.xdr.gz")
 	if err != nil {

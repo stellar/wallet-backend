@@ -173,10 +173,12 @@ func (s *protocolSetupService) classify(ctx context.Context) error {
 		return fmt.Errorf("loading protocol_contracts for unclassified wasms: %w", err)
 	}
 
-	// Run dispatcher and persist matches inside one tx so a validator's side
-	// effects (e.g. contract_tokens metadata writes) commit atomically with
-	// the protocol_wasms.protocol_id stamp.
-	byProtocol, err := s.dispatchAndPersist(ctx, bytecodesByHash, contracts)
+	// Prepare classification (matching plus any RPC-sourced enrichment
+	// prefetch) before opening any transaction, then persist matches and each
+	// validator's DB writes inside one tx so they commit atomically with the
+	// protocol_wasms.protocol_id stamp. No RPC handle is available past this
+	// point.
+	byProtocol, err := s.prepareAndPersist(ctx, bytecodesByHash, contracts)
 	if err != nil {
 		return fmt.Errorf("dispatching classification: %w", err)
 	}
@@ -187,24 +189,30 @@ func (s *protocolSetupService) classify(ctx context.Context) error {
 	return nil
 }
 
-// dispatchAndPersist runs DispatchClassification inside a single tx and
-// updates protocol_wasms.protocol_id from the matches, returning them grouped
-// per protocol. Per-protocol contract_tokens writes happen inside this same tx
-// via validator side effects.
-func (s *protocolSetupService) dispatchAndPersist(ctx context.Context, bytecodesByHash map[types.HashBytea][]byte, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
+// prepareAndPersist runs PrepareClassification (pure matching plus RPC
+// prefetch) before opening any transaction, then applies the resulting plan
+// and updates protocol_wasms.protocol_id inside a single tx, returning the
+// matches grouped per protocol. Per-protocol DB writes (e.g. contract_tokens
+// metadata) happen inside this same tx via ApplyClassificationPlan; no RPC
+// call happens once the transaction opens.
+func (s *protocolSetupService) prepareAndPersist(ctx context.Context, bytecodesByHash map[types.HashBytea][]byte, contracts []data.ProtocolContracts) (map[string][]types.HashBytea, error) {
+	// All candidates here are unclassified, so KnownProtocolID is empty.
+	var knownByHash map[types.HashBytea]string
+	plan, err := PrepareClassification(
+		ctx, s.specExtractor, s.validators,
+		bytecodesByHash, contracts, s.rpcService, knownByHash,
+		s.wasmClassificationFailuresTotal,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("preparing classification: %w", err)
+	}
+
 	var byProtocol map[string][]types.HashBytea
-	err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		// All candidates here are unclassified, so KnownProtocolID is empty.
-		var knownByHash map[types.HashBytea]string
-		matches, dispatchErr := DispatchClassification(
-			ctx, dbTx, s.specExtractor, s.validators,
-			bytecodesByHash, contracts, s.rpcService, s.models, knownByHash,
-			s.wasmClassificationFailuresTotal,
-		)
-		if dispatchErr != nil {
-			return fmt.Errorf("dispatching: %w", dispatchErr)
+	err = db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+		if applyErr := ApplyClassificationPlan(ctx, dbTx, s.models, plan, s.wasmClassificationFailuresTotal); applyErr != nil {
+			return fmt.Errorf("applying classification: %w", applyErr)
 		}
-		byProtocol = bucketByProtocol(matches)
+		byProtocol = bucketByProtocol(plan.Matches)
 		for protocolID, hashes := range byProtocol {
 			if err := s.models.ProtocolWasms.BatchUpdateProtocolID(ctx, dbTx, hashes, protocolID); err != nil {
 				return fmt.Errorf("updating protocol_id for %s: %w", protocolID, err)

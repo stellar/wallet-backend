@@ -23,12 +23,13 @@ type mockDataStore struct {
 	mock.Mock
 }
 
-func (m *mockDataStore) GetFile(ctx context.Context, path string) (io.ReadCloser, error) {
+func (m *mockDataStore) GetFile(ctx context.Context, path string) (io.ReadCloser, int64, error) {
 	args := m.Called(ctx, path)
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil, 0, args.Error(1)
 	}
-	return args.Get(0).(io.ReadCloser), args.Error(1)
+	// Size (second return) is unused by the streaming decode path, so it is always 0 here.
+	return args.Get(0).(io.ReadCloser), 0, args.Error(1)
 }
 
 func (m *mockDataStore) GetFileMetadata(ctx context.Context, path string) (map[string]string, error) {
@@ -450,8 +451,90 @@ func TestDatastoreBackend_WorkerRetryNotExist(t *testing.T) {
 	_, err = backend.GetLedger(ctx, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+	assert.ErrorIs(t, err, ErrBufferDead, "a hard NotExist on a bounded range permanently kills the buffer")
 
 	require.NoError(t, backend.Close())
+}
+
+// TestDatastoreBackend_WorkerExhaustsRetries_BufferDies covers the other path
+// that self-cancels the buffer: a transient error that never clears within
+// RetryLimit attempts. GetLedger must surface ErrBufferDead so callers (the
+// live-ingestion ledger-fetch retry ladder) know retrying is pointless — this
+// buffer is dead and will return the same error forever.
+func TestDatastoreBackend_WorkerExhaustsRetries_BufferDies(t *testing.T) {
+	ds := &mockDataStore{}
+	schema := testSchema(10)
+
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
+		BufferSize: 2,
+		NumWorkers: 1,
+		RetryLimit: 2,
+		RetryWait:  10 * time.Millisecond,
+	}, ds, schema)
+	require.NoError(t, err)
+
+	objectKey0 := schema.GetObjectKeyFromSequenceNumber(0)
+	ds.On("GetFile", mock.Anything, objectKey0).
+		Return(nil, fmt.Errorf("transient network error"))
+
+	ctx := context.Background()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.BoundedRange(0, 9)))
+
+	_, err = backend.GetLedger(ctx, 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBufferDead)
+	assert.NotErrorIs(t, err, context.Canceled, "a dead buffer must be distinguishable from a caller-driven shutdown")
+
+	// A second call against the same (now-dead) backend returns the same
+	// permanent error rather than hanging or succeeding.
+	_, err = backend.GetLedger(ctx, 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrBufferDead)
+
+	require.NoError(t, backend.Close())
+}
+
+func TestDatastoreBackend_ParentContextCancelled_IsNotBufferDead(t *testing.T) {
+	// The buffer's ctx is derived from the ctx passed to PrepareRange, so
+	// cancelling that parent (a shutdown signal, not a worker giving up) also
+	// fires buf.ctx.Done() with cause context.Canceled. GetLedger's error must
+	// not claim ErrBufferDead in that case, or a graceful shutdown would be
+	// misclassified as a permanent ledger-fetch failure worth failing fast on.
+	//
+	// GetFile always returns a transient error with a long RetryWait, so the
+	// worker is reliably still sleeping between attempts (never exhausting
+	// RetryLimit itself, which would call buf.cancel with a real cause) when
+	// the test cancels the parent context.
+	ds := &mockDataStore{}
+	schema := testSchema(10)
+
+	backend, err := newDatastoreBackend(ledgerbackend.BufferedStorageBackendConfig{
+		BufferSize: 2,
+		NumWorkers: 1,
+		RetryLimit: 5,
+		RetryWait:  5 * time.Second,
+	}, ds, schema)
+	require.NoError(t, err)
+
+	// mock.Anything for the path too: with BufferSize 2 and NumWorkers 1, the
+	// construction seed loop queues more than one task (sequences 0, 10, 20),
+	// and which one the single worker is retrying when the parent context is
+	// cancelled is not deterministic.
+	ds.On("GetFile", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("transient network error"))
+
+	parentCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, backend.PrepareRange(parentCtx, ledgerbackend.UnboundedRange(0)))
+	cancel()
+
+	require.Eventually(t, func() bool {
+		_, getErr := backend.GetLedger(context.Background(), 0)
+		return getErr != nil
+	}, time.Second, time.Millisecond, "GetLedger should error once the parent context cancellation propagates")
+
+	_, err = backend.GetLedger(context.Background(), 0)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, ErrBufferDead)
 }
 
 func TestDatastoreBackend_IsPrepared(t *testing.T) {

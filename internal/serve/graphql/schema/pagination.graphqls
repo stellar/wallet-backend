@@ -1,13 +1,3 @@
-type TransactionConnection {
-    edges: [TransactionEdge!]
-    pageInfo: PageInfo!
-}
-
-type TransactionEdge {
-    node: Transaction
-    cursor: String!
-}
-
 type OperationConnection {
     edges: [OperationEdge!]
     pageInfo: PageInfo!

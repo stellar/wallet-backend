@@ -35,7 +35,7 @@ func (r *accountResolver) Balances(ctx context.Context, obj *types.Account, firs
 func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.AccountTransactionConnection, error) {
 	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
@@ -74,7 +74,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
 	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
@@ -111,7 +111,7 @@ func (r *accountResolver) Operations(ctx context.Context, obj *types.Account, si
 func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, filter *graphql1.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 

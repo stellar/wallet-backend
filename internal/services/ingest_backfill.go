@@ -105,7 +105,11 @@ func (m *ingestService) calculateBackfillGaps(ctx context.Context, startLedger, 
 		return nil, fmt.Errorf("getting oldest ingest ledger: %w", err)
 	}
 
-	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx)
+	// Window at oldestIngestedLedger (guaranteed to be a present ledger_number, never inside a
+	// gap) rather than startLedger: this lets GetLedgerGaps's chunk-skipping-friendly WHERE
+	// clause bound the scan without duplicating the explicit "before history began" gap that
+	// case 2 below already appends, and without ever needing to synthesize a leading gap.
+	currentGaps, err := m.models.IngestStore.GetLedgerGaps(ctx, oldestIngestedLedger, endLedger)
 	if err != nil {
 		return nil, fmt.Errorf("calculating gaps in ledger range: %w", err)
 	}

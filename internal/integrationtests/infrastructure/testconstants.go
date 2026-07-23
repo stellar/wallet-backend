@@ -16,6 +16,20 @@ const (
 	TestEURCPaymentAmount         = "75"
 	TestUSDCPaymentAmount         = "100"
 
+	// Liquidity-pool balance test fixtures.
+	//
+	// Two dedicated accounts each issue their own credit asset, pair it with native XLM in a
+	// constant-product pool, and deposit equal legs of TestLiquidityPoolAmount. The initial
+	// deposit into an empty constant-product pool mints sqrt(amountA*amountB) shares, so equal
+	// 100-unit legs mint exactly 100 shares and leave 100 of each asset in reserve. One account
+	// establishes its pool BEFORE the checkpoint snapshot (exercising checkpoint BatchCopy
+	// hydration of liquidity_pool_balances JOINed with liquidity_pools); the other deposits live
+	// AFTER the snapshot (exercising the live delta-ingestion upsert path).
+	TestCheckpointLPAssetCode = "LPTEST"      // credit asset issued by the checkpoint LP account
+	TestLiveLPAssetCode       = "LPLIVE"      // credit asset issued by the live LP account
+	TestLPReserveStroops      = 1_000_000_000 // 100.0000000 per reserve leg after the deposit
+	TestLPShareStroops        = 1_000_000_000 // 100.0000000 pool shares minted by the initial deposit
+
 	// Soroban contract amounts (in stroops with 7 decimals)
 	TestEURCTransferStroops  = 500000000  // 50 EURC
 	TestSEP41TransferStroops = 2000000000 // 200 SEP41 (partial: account1 keeps 300 of its 500 mint)

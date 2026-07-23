@@ -51,6 +51,12 @@ type SACBalanceChangeKey struct {
 	ContractID string
 }
 
+// LiquidityPoolShareChangeKey is a composite key for deduplicating pool-share balance changes.
+type LiquidityPoolShareChangeKey struct {
+	AccountID string
+	PoolID    string
+}
+
 // ContractEventKey identifies a contract-event group by transaction and
 // operation index within a single ledger. The indexer extracts contract
 // events once per InvokeHostFunction op (successful txs only) and stashes
@@ -70,12 +76,16 @@ type IndexerBuffer struct {
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	accountChangesByAccountID      map[string]types.AccountChange
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
+	lpShareChangesByKey            map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
+	lpChangesByPoolID              map[string]types.LiquidityPoolChange
 	// Tombstones record the order value at which a create/add was cancelled by a same-ledger
 	// remove. They keep the highest-order-wins invariant intact across the delete, so a later
 	// lower-order change cannot resurrect a removed key. See pushWithTombstone.
 	accountTombstones     map[string]int64
 	trustlineTombstones   map[TrustlineChangeKey]int64
 	sacTombstones         map[SACBalanceChangeKey]int64
+	lpShareTombstones     map[LiquidityPoolShareChangeKey]int64
+	lpTombstones          map[string]int64
 	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
 	sacContractsByID      map[string]*data.Contract         // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash   map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
@@ -96,9 +106,13 @@ func NewIndexerBuffer() *IndexerBuffer {
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
+		lpShareChangesByKey:            make(map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange),
+		lpChangesByPoolID:              make(map[string]types.LiquidityPoolChange),
 		accountTombstones:              make(map[string]int64),
 		trustlineTombstones:            make(map[TrustlineChangeKey]int64),
 		sacTombstones:                  make(map[SACBalanceChangeKey]int64),
+		lpShareTombstones:              make(map[LiquidityPoolShareChangeKey]int64),
+		lpTombstones:                   make(map[string]int64),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
@@ -157,7 +171,8 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	return txs
 }
 
-// GetTransactionsParticipants returns the map of transaction ToIDs to their participants.
+// GetTransactionsParticipants returns the buffer's live map of transaction ToIDs to their
+// participants; callers must not modify it or the sets it holds.
 func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
 	return b.participantsByToID
 }
@@ -218,6 +233,18 @@ func sacBalanceIsNoopRemove(existing, incoming types.SACBalanceChange) bool {
 	return existing.Operation == types.SACBalanceOpAdd && incoming.Operation == types.SACBalanceOpRemove
 }
 
+func lpShareOrder(c types.LiquidityPoolShareChange) int64 { return c.OperationID }
+
+func lpShareIsNoopRemove(existing, incoming types.LiquidityPoolShareChange) bool {
+	return existing.Operation == types.LiquidityPoolShareOpAdd && incoming.Operation == types.LiquidityPoolShareOpRemove
+}
+
+func lpOrder(c types.LiquidityPoolChange) int64 { return c.OperationID }
+
+func lpIsNoopRemove(existing, incoming types.LiquidityPoolChange) bool {
+	return existing.Operation == types.LiquidityPoolOpAdd && incoming.Operation == types.LiquidityPoolOpRemove
+}
+
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
 	code, issuer, err := ParseAssetString(trustlineChange.Asset)
@@ -242,7 +269,8 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 	pushWithTombstone(b.trustlineChangesByTrustlineKey, b.trustlineTombstones, changeKey, trustlineChange, trustlineOrder, trustlineIsNoopRemove)
 }
 
-// GetTrustlineChanges returns all trustline changes stored in the buffer.
+// GetTrustlineChanges returns the buffer's internal map of trustline changes;
+// callers must not modify it.
 func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange {
 	return b.trustlineChangesByTrustlineKey
 }
@@ -255,7 +283,8 @@ func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
 	pushWithTombstone(b.accountChangesByAccountID, b.accountTombstones, accountChange.AccountID, accountChange, accountOrder, accountIsNoopRemove)
 }
 
-// GetAccountChanges returns all account changes stored in the buffer.
+// GetAccountChanges returns the buffer's internal map of account changes;
+// callers must not modify it.
 func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 	return b.accountChangesByAccountID
 }
@@ -272,9 +301,42 @@ func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceCh
 	pushWithTombstone(b.sacBalanceChangesByKey, b.sacTombstones, key, sacBalanceChange, sacBalanceOrder, sacBalanceIsNoopRemove)
 }
 
-// GetSACBalanceChanges returns all SAC balance changes stored in the buffer.
+// GetSACBalanceChanges returns the buffer's internal map of SAC balance
+// changes; callers must not modify it.
 func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange {
 	return b.sacBalanceChangesByKey
+}
+
+// PushLiquidityPoolShareChange adds a pool-share balance change to the buffer with deduplication.
+// Keeps the change with highest OperationID per (AccountID, PoolID). An ADD→REMOVE within the same
+// ledger nets to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
+// pushWithTombstone).
+func (b *IndexerBuffer) PushLiquidityPoolShareChange(change types.LiquidityPoolShareChange) {
+	key := LiquidityPoolShareChangeKey{
+		AccountID: change.AccountID,
+		PoolID:    change.PoolID,
+	}
+	pushWithTombstone(b.lpShareChangesByKey, b.lpShareTombstones, key, change, lpShareOrder, lpShareIsNoopRemove)
+}
+
+// GetLiquidityPoolShareChanges returns the buffer's internal map of
+// pool-share balance changes; callers must not modify it.
+func (b *IndexerBuffer) GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange {
+	return b.lpShareChangesByKey
+}
+
+// PushLiquidityPoolChange adds a pool reserve change to the buffer with deduplication.
+// Keeps the change with highest OperationID per PoolID. An ADD→REMOVE within the same ledger nets
+// to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
+// pushWithTombstone).
+func (b *IndexerBuffer) PushLiquidityPoolChange(change types.LiquidityPoolChange) {
+	pushWithTombstone(b.lpChangesByPoolID, b.lpTombstones, change.PoolID, change, lpOrder, lpIsNoopRemove)
+}
+
+// GetLiquidityPoolChanges returns the buffer's internal map of pool reserve
+// changes; callers must not modify it.
+func (b *IndexerBuffer) GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange {
+	return b.lpChangesByPoolID
 }
 
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
@@ -293,7 +355,8 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	return ops
 }
 
-// GetOperationsParticipants returns the map of operation IDs to their participants.
+// GetOperationsParticipants returns the buffer's live map of operation IDs to their
+// participants; callers must not modify it or the sets it holds.
 func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
 	return b.participantsByOpID
 }
@@ -325,7 +388,8 @@ func (b *IndexerBuffer) PushStateChange(transaction *types.Transaction, operatio
 	}
 }
 
-// GetStateChanges returns all state changes stored in the buffer.
+// GetStateChanges returns the buffer's internal slice of state changes;
+// callers must not modify it.
 func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	return b.stateChanges
 }
@@ -347,6 +411,8 @@ type TransactionResult struct {
 	TrustlineChanges      []types.TrustlineChange
 	AccountChanges        []types.AccountChange
 	SACBalanceChanges     []types.SACBalanceChange
+	LPShareChanges        []types.LiquidityPoolShareChange
+	LPChanges             []types.LiquidityPoolChange
 	SACContracts          []*data.Contract
 	ProtocolWasms         []data.ProtocolWasms
 	ProtocolWasmBytecodes map[string][]byte
@@ -378,6 +444,12 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	}
 	for _, sacBalanceChange := range r.SACBalanceChanges {
 		b.PushSACBalanceChange(sacBalanceChange)
+	}
+	for _, lpShareChange := range r.LPShareChanges {
+		b.PushLiquidityPoolShareChange(lpShareChange)
+	}
+	for _, lpChange := range r.LPChanges {
+		b.PushLiquidityPoolChange(lpChange)
 	}
 	for _, contract := range r.SACContracts {
 		b.PushSACContract(contract)
@@ -424,14 +496,18 @@ func (b *IndexerBuffer) Clear() {
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
 
-	// Clear account and SAC balance changes maps
+	// Clear account, SAC, and liquidity-pool balance changes maps
 	clear(b.accountChangesByAccountID)
 	clear(b.sacBalanceChangesByKey)
+	clear(b.lpShareChangesByKey)
+	clear(b.lpChangesByPoolID)
 
 	// Clear tombstones
 	clear(b.accountTombstones)
 	clear(b.trustlineTombstones)
 	clear(b.sacTombstones)
+	clear(b.lpShareTombstones)
+	clear(b.lpTombstones)
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.
@@ -466,7 +542,7 @@ func (b *IndexerBuffer) PushProtocolWasm(wasm data.ProtocolWasms) {
 }
 
 // PushProtocolWasmBytecode stores raw WASM bytecode keyed by hash. Used by the
-// classification dispatcher in PersistLedgerData to extract specs and run
+// classification dispatcher in persistLedgerData to extract specs and run
 // per-protocol validators. Bytecode is content-addressed by hash, so
 // first-write wins is safe.
 func (b *IndexerBuffer) PushProtocolWasmBytecode(wasmHash string, bytecode []byte) {

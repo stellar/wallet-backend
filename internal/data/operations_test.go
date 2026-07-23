@@ -191,67 +191,6 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 	}
 }
 
-func TestOperationModel_GetAll(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &OperationModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	now := time.Now()
-
-	// Create test transactions first (hash is BYTEA, using valid 64-char hex strings)
-	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
-	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES
-			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
-			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
-			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
-	`, now, testHash1, testHash2, testHash3)
-	require.NoError(t, err)
-
-	// Create test operations (IDs must be in TOID range for each transaction: (to_id, to_id + 4096))
-	xdr1 := types.XDRBytea([]byte("xdr1"))
-	xdr2 := types.XDRBytea([]byte("xdr2"))
-	xdr3 := types.XDRBytea([]byte("xdr3"))
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-		VALUES
-			(2, 'PAYMENT', $2, 'op_success', true, 1, $1),
-			(4098, 'CREATE_ACCOUNT', $3, 'op_success', true, 2, $1),
-			(8194, 'PAYMENT', $4, 'op_success', true, 3, $1)
-	`, now, xdr1, xdr2, xdr3)
-	require.NoError(t, err)
-
-	// Test GetAll without limit (gets all operations)
-	operations, err := m.GetAll(ctx, "", nil, nil, ASC)
-	require.NoError(t, err)
-	assert.Len(t, operations, 3)
-	assert.Equal(t, int64(2), operations[0].CompositeCursor.ID)
-	assert.Equal(t, int64(4098), operations[1].CompositeCursor.ID)
-	assert.Equal(t, int64(8194), operations[2].CompositeCursor.ID)
-
-	// Test GetAll with smaller limit
-	limit := int32(2)
-	operations, err = m.GetAll(ctx, "", &limit, nil, ASC)
-	require.NoError(t, err)
-	assert.Len(t, operations, 2)
-	assert.Equal(t, int64(2), operations[0].CompositeCursor.ID)
-	assert.Equal(t, int64(4098), operations[1].CompositeCursor.ID)
-}
-
 func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -392,7 +331,11 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 				Metrics: dbMetrics,
 			}
 
-			operations, err := m.BatchGetByToIDs(ctx, tc.toIDs, "", tc.limit, tc.sortOrder)
+			ledgerCreatedAts := make([]time.Time, len(tc.toIDs))
+			for i := range ledgerCreatedAts {
+				ledgerCreatedAts[i] = now
+			}
+			operations, err := m.BatchGetByToIDs(ctx, tc.toIDs, ledgerCreatedAts, "", tc.limit, tc.sortOrder)
 			require.NoError(t, err)
 			assert.Len(t, operations, tc.expectedCount)
 
@@ -435,6 +378,44 @@ func TestOperationModel_BatchGetByToIDs(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("wrong ledger_created_at for a key returns no operations for that key (time pin enforced)", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &OperationModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		wrongTime := now.Add(-24 * time.Hour)
+		operations, err := m.BatchGetByToIDs(ctx, []int64{4096}, []time.Time{wrongTime}, "", nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, operations)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &OperationModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		_, err := m.BatchGetByToIDs(ctx, []int64{4096, 8192}, []time.Time{now}, "", nil, ASC)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
+
+	// Regression: the cursor's ledger_created_at must not be read off the LATERAL's own
+	// projection (which only carries the caller-requested columns) — a narrow column set that
+	// excludes ledgerCreatedAt must not break the query with "column does not exist".
+	t.Run("narrow column selection excluding ledger_created_at still resolves the cursor", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		dbMetrics := metrics.NewMetrics(reg).DB
+		m := &OperationModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+		operations, err := m.BatchGetByToIDs(ctx, []int64{4096}, []time.Time{now}, "operation_type", nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, operations, 3)
+		for _, op := range operations {
+			assert.NotZero(t, op.CompositeCursor.LedgerCreatedAt)
+			assert.NotZero(t, op.CompositeCursor.ID)
+		}
+	})
 }
 
 func int32Ptr(v int32) *int32 {
@@ -486,11 +467,18 @@ func TestOperationModel_BatchGetByToID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByToID
-	operations, err := m.BatchGetByToID(ctx, 4096, "", nil, nil, ASC)
+	operations, err := m.BatchGetByToID(ctx, 4096, now, "", nil, nil, ASC)
 	require.NoError(t, err)
 	assert.Len(t, operations, 2)
 	assert.Equal(t, xdr1.String(), operations[0].OperationXDR.String())
 	assert.Equal(t, xdr3.String(), operations[1].OperationXDR.String())
+
+	t.Run("wrong ledger_created_at returns no operations (time pin enforced)", func(t *testing.T) {
+		wrongTime := now.Add(-24 * time.Hour)
+		operations, err := m.BatchGetByToID(ctx, 4096, wrongTime, "", nil, nil, ASC)
+		require.NoError(t, err)
+		assert.Empty(t, operations)
+	})
 }
 
 func TestOperationModel_BatchGetByAccountAddresses(t *testing.T) {
@@ -663,7 +651,8 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByStateChangeID
-	operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096, 8192, 12288}, []int64{4097, 8193, 4097}, []int64{1, 1, 1}, "")
+	ledgerCreatedAts := []time.Time{now, now, now}
+	operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096, 8192, 12288}, []int64{4097, 8193, 4097}, []int64{1, 1, 1}, ledgerCreatedAts, "")
 	require.NoError(t, err)
 	assert.Len(t, operations, 3)
 
@@ -675,6 +664,26 @@ func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	assert.Equal(t, int64(4097), stateChangeIDsFound["4096-4097-1"])
 	assert.Equal(t, int64(8193), stateChangeIDsFound["8192-8193-1"])
 	assert.Equal(t, int64(4097), stateChangeIDsFound["12288-4097-1"])
+
+	t.Run("wrong ledger_created_at for a key excludes it (time pin enforced)", func(t *testing.T) {
+		wrongTime := now.Add(-24 * time.Hour)
+		operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096}, []int64{4097}, []int64{1}, []time.Time{wrongTime}, "")
+		require.NoError(t, err)
+		assert.Empty(t, operations)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		_, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096, 8192}, []int64{4097, 8193}, []int64{1, 1}, []time.Time{now}, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
+
+	// Regression: ORDER BY must not read a column absent from the LATERAL's narrowed projection.
+	t.Run("narrow column selection excluding ledger_created_at does not break ORDER BY", func(t *testing.T) {
+		operations, err := m.BatchGetByStateChangeIDs(ctx, []int64{4096}, []int64{4097}, []int64{1}, []time.Time{now}, "operation_type")
+		require.NoError(t, err)
+		assert.Len(t, operations, 1)
+	})
 }
 
 // BenchmarkOperationModel_BatchCopy benchmarks bulk insert using pgx's binary COPY protocol.
@@ -832,4 +841,37 @@ func TestOperationModel_BatchGetAccountOperationsByToIDs(t *testing.T) {
 		assert.Equal(t, int64(4098), ops[2].ID)
 		assert.Equal(t, int64(4097), ops[3].ID)
 	})
+}
+
+// A client selecting no time fields must still get operations whose LedgerCreatedAt is
+// hydrated: the state-change and transaction relationship resolvers pin their lookups on the
+// parent operation's partition timestamp, so every projection forces ledger_created_at.
+func TestOperationModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	m := &OperationModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES (4098, 'PAYMENT', 'xdr', 'op_success', true, 1, $1)
+	`, now)
+	require.NoError(t, err)
+
+	op, err := m.GetByID(ctx, 4098, "id")
+	require.NoError(t, err)
+	assert.True(t, now.Equal(op.LedgerCreatedAt), "GetByID with minimal projection must hydrate ledger_created_at")
+
+	limit := int32(10)
+
+	batched, err := m.BatchGetByToID(ctx, 4096, now, "id", &limit, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, batched, 1)
+	assert.True(t, now.Equal(batched[0].Operation.LedgerCreatedAt), "BatchGetByToID with minimal projection must hydrate ledger_created_at")
 }

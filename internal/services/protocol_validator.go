@@ -16,41 +16,55 @@ import (
 )
 
 // ProtocolValidator is the per-protocol seam the data-migration framework
-// calls during classification. The framework hands the validator a batch of
-// candidate WASMs (with parsed spec entries) plus the contracts referencing
-// those WASMs, and the validator returns the wasm hashes it claims. A
-// validator is free to do anything else it needs inside the supplied dbTx —
-// fetch on-chain metadata, write protocol-specific side tables, anything —
-// and the framework treats those side effects as invisible. Only the returned
-// matches drive generic persistence into protocol_wasms.protocol_id.
+// calls during classification. Classification is split into three phases so
+// the framework can prefetch RPC-sourced enrichment before opening any
+// database transaction, then apply pure DB writes inside it:
+//
+//  1. Match: pure signature check, no RPC, no DB.
+//  2. Prefetch: resolves on-chain enrichment (e.g. SEP-41 token
+//     metadata) via RPC. Called before any transaction opens.
+//  3. Apply: persists the protocol's side effects (e.g.
+//     contract_tokens rows) inside the caller's dbTx, using only what Prefetch
+//     already resolved. No RPC handle reaches this phase.
 //
 // First-match-wins ordering across protocols is enforced by the dispatcher:
-// by the time Validate is called for a given protocol, candidates already
+// by the time Match is called for a given protocol, candidates already
 // claimed by a higher-priority protocol have been filtered out.
 type ProtocolValidator interface {
 	ProtocolID() string
-	Validate(ctx context.Context, dbTx pgx.Tx, input ValidationInput) (ValidationResult, error)
-}
 
-// ValidationInput is the batch handed to a protocol's Validate call.
-type ValidationInput struct {
-	// Candidates are WASMs awaiting classification in this batch. Each entry
-	// carries the raw bytecode and pre-extracted ScSpecEntry items.
-	Candidates []WasmCandidate
-	// Contracts references both in-batch candidates and previously-classified
-	// WASMs. KnownProtocolID is set for hashes already classified by an
-	// earlier ledger or protocol-setup run; the empty string means the wasm
-	// has not been classified yet (or was classified to no match).
-	Contracts []ContractCandidate
-	// RPC is available for validators that need live network reads (e.g.
-	// fetching token metadata via simulation). May be nil; validators must
-	// degrade gracefully.
-	RPC RPCService
-	// Models provides the full data layer. Validators should write only to
-	// protocol-specific tables here; the framework persists the generic
-	// protocol_wasms / protocol_contracts mapping based on the returned
-	// matches.
-	Models *data.Models
+	// Match runs the protocol's signature check against each candidate's
+	// pre-extracted spec entries and returns the hashes it claims. Pure — no
+	// RPC, no DB access — safe to call before any transaction or network
+	// round-trip.
+	Match(candidates []WasmCandidate) map[types.HashBytea]struct{}
+
+	// Prefetch resolves RPC-sourced enrichment for contracts whose wasm is
+	// newly matched (per matched) or already classified by an earlier run
+	// (per each ContractCandidate.KnownProtocolID). candidates is the same
+	// filtered slice handed to Match, in case a validator needs to
+	// re-derive per-candidate detail Match's uniform return type can't
+	// carry (e.g. a protocol-specific contract role). Called before any
+	// database transaction opens; rpc may be nil (e.g. offline
+	// protocol-migrate paths without RPC configured), in which case
+	// implementations must degrade to an empty/zero-value plan rather than
+	// erroring. Per-contract fetch failures are absorbed here (logged,
+	// omitted from the returned plan) — mirroring today's best-effort
+	// semantics, Prefetch should not fail the batch.
+	//
+	// The returned plan is opaque to the framework; it is passed back
+	// verbatim to Apply.
+	Prefetch(ctx context.Context, rpc RPCService, candidates []WasmCandidate, matched map[types.HashBytea]struct{}, contracts []ContractCandidate) (plan any, err error)
+
+	// Apply persists this batch's classification side effects (e.g.
+	// contract_tokens rows) inside dbTx, using only the plan Prefetch already
+	// resolved. The dispatch boundary passes Apply no RPC handle — Prefetch is
+	// the sole RPC entry point — so implementations must not perform any network
+	// round-trip here (including via an RPC client the validator retains on its
+	// own receiver) while dbTx's row locks are held; a validator whose Prefetch
+	// could not reach RPC already reflects that in its plan (e.g. an empty
+	// enrichment map), not as an Apply-time error.
+	Apply(ctx context.Context, dbTx pgx.Tx, matched map[types.HashBytea]struct{}, contracts []ContractCandidate, plan any, models *data.Models) error
 }
 
 // WasmCandidate represents one WASM awaiting classification. Bytecode and
@@ -69,16 +83,6 @@ type ContractCandidate struct {
 	ContractID      types.HashBytea
 	WasmHash        types.HashBytea
 	KnownProtocolID string
-}
-
-// ValidationResult is what a protocol returns from Validate. MatchedWasms
-// drives the framework's stamp of protocol_wasms.protocol_id. Contract claims
-// are an internal detail of the validator's own enrichment path — the
-// framework persists protocol_contracts unconditionally as a contract→wasm
-// map and the wasm's protocol_id (set via this match) is what downstream
-// JOINs use to resolve the protocol.
-type ValidationResult struct {
-	MatchedWasms []types.HashBytea
 }
 
 const (

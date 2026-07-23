@@ -28,10 +28,10 @@ func TestOperationResolver_Transaction(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 
 	t.Run("success", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, parentOperation)
@@ -42,7 +42,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("nil operation panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
@@ -52,7 +52,7 @@ func TestOperationResolver_Transaction(t *testing.T) {
 
 	t.Run("operation with non-existent transaction", func(t *testing.T) {
 		nonExistentOperation := &types.Operation{ID: 9999}
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, nonExistentOperation)
@@ -74,10 +74,10 @@ func TestOperationResolver_Accounts(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 
 	t.Run("success", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, parentOperation)
@@ -88,7 +88,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 	})
 
 	t.Run("nil operation panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
@@ -98,7 +98,7 @@ func TestOperationResolver_Accounts(t *testing.T) {
 
 	t.Run("operation with no associated accounts", func(t *testing.T) {
 		nonExistentOperation := &types.Operation{ID: 9999}
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("accounts", []string{"address"}), middleware.LoadersKey, loaders)
 
 		accounts, err := resolver.Accounts(ctx, nonExistentOperation)
@@ -124,11 +124,11 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 			},
 		},
 	}}
-	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64()}
+	parentOperation := &types.Operation{ID: toid.New(1000, 1, 1).ToInt64(), LedgerCreatedAt: sharedTestLedgerCreatedAt}
 	nonExistentOperation := &types.Operation{ID: 9999}
 
 	t.Run("success without pagination", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation, nil, nil, nil, nil)
@@ -157,7 +157,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("get state changes with first/after pagination", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		opID := toid.New(1000, 1, 1).ToInt64()
@@ -193,7 +193,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("get state changes with last/before pagination", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		opID := toid.New(1000, 1, 1).ToInt64()
@@ -230,7 +230,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("invalid pagination params", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		first := int32(0)
 		last := int32(1)
@@ -239,28 +239,28 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 
 		_, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first must be greater than 0")
+		assert.Contains(t, err.Error(), "first must be greater than 0")
 
 		first = int32(1)
 		_, err = resolver.StateChanges(ctx, parentOperation, &first, nil, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and last cannot be used together")
+		assert.Contains(t, err.Error(), "first and last cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentOperation, nil, &after, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: after and before cannot be used together")
+		assert.Contains(t, err.Error(), "after and before cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentOperation, &first, nil, nil, &before)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: first and before cannot be used together")
+		assert.Contains(t, err.Error(), "first and before cannot be used together")
 
 		_, err = resolver.StateChanges(ctx, parentOperation, nil, &after, &last, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "validating pagination params: last and after cannot be used together")
+		assert.Contains(t, err.Error(), "last and after cannot be used together")
 	})
 
 	t.Run("pagination with larger limit than available data", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 		first := int32(100)
 		stateChanges, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
@@ -270,8 +270,17 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 	})
 
+	t.Run("first exceeds the nested page limit", func(t *testing.T) {
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
+		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
+		first := int32(101)
+		_, err := resolver.StateChanges(ctx, parentOperation, &first, nil, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "first must be less than or equal to 100")
+	})
+
 	t.Run("nil operation panics", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		assert.Panics(t, func() {
@@ -280,7 +289,7 @@ func TestOperationResolver_StateChanges(t *testing.T) {
 	})
 
 	t.Run("operation with no state changes", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(resolver.models)
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("state_changes", []string{""}), middleware.LoadersKey, loaders)
 
 		stateChanges, err := resolver.StateChanges(ctx, nonExistentOperation, nil, nil, nil, nil)

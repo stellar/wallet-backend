@@ -26,19 +26,20 @@ func (r *transactionResolver) Hash(ctx context.Context, obj *types.Transaction) 
 // It's called when a GraphQL query requests the operations within a transaction
 func (r *transactionResolver) Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.OperationConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeInt64)
+	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeInt64)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.OperationColumnsKey{
-		ToID:      obj.ToID,
-		Columns:   strings.Join(dbColumns, ", "),
-		Limit:     &queryLimit,
-		Cursor:    params.Cursor,
-		SortOrder: params.SortOrder,
+		ToID:            obj.ToID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.Cursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	operations, err := loaders.OperationsByToIDLoader.Load(ctx, loaderKey)
@@ -90,19 +91,20 @@ func (r *transactionResolver) Accounts(ctx context.Context, obj *types.Transacti
 // It's called when a GraphQL query requests the state changes within a transaction
 func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
+	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		ToID:      obj.ToID,
-		Columns:   strings.Join(dbColumns, ", "),
-		Limit:     &queryLimit,
-		Cursor:    params.StateChangeCursor,
-		SortOrder: params.SortOrder,
+		ToID:            obj.ToID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.StateChangeCursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	stateChanges, err := loaders.StateChangesByToIDLoader.Load(ctx, loaderKey)

@@ -114,6 +114,89 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("retention_policy_job_id_stable_across_calls", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDsBefore := make(map[string]int)
+		for _, table := range hypertables {
+			jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_retention' AND hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying retention job_id for %s", table)
+			jobIDsBefore[table] = jobID
+		}
+
+		// Re-applying the same retention period must not delete/recreate the job.
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		for _, table := range hypertables {
+			jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_retention' AND hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying retention job_id for %s", table)
+			assert.Equal(t, jobIDsBefore[table], jobID, "retention job_id should be stable across identical re-application for %s", table)
+		}
+	})
+
+	t.Run("retention_policy_altered_not_recreated", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDsBefore := make(map[string]int)
+		for _, table := range hypertables {
+			jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_retention' AND hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying retention job_id for %s", table)
+			jobIDsBefore[table] = jobID
+		}
+
+		// Changing the retention period must alter the existing job in place,
+		// not delete and recreate it.
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		for _, table := range hypertables {
+			jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+				`SELECT job_id FROM timescaledb_information.jobs
+				 WHERE proc_name = 'policy_retention' AND hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying retention job_id for %s", table)
+			assert.Equal(t, jobIDsBefore[table], jobID, "retention job_id should be stable when the period changes for %s", table)
+
+			dropAfterMatches, err := db.QueryOne[bool](ctx, dbConnectionPool,
+				`SELECT (config->>'drop_after')::interval = '90 days'::interval
+				 FROM timescaledb_information.jobs WHERE job_id = $1`,
+				jobID,
+			)
+			require.NoError(t, err, "querying drop_after for %s", table)
+			assert.True(t, dropAfterMatches, "drop_after should be updated to 90 days for %s", table)
+		}
+	})
+
 	t.Run("reconciliation_job_created", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -158,6 +241,69 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job after re-application")
+	})
+
+	t.Run("reconciliation_job_id_stable_across_calls", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDBefore, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+
+		// Re-applying with a different retention period but the same cursor name
+		// must not delete/recreate the reconciliation job.
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "90 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDAfter, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, jobIDBefore, jobIDAfter, "reconciliation job_id should be stable across re-application")
+	})
+
+	t.Run("reconciliation_job_altered_not_recreated_when_cursor_changes", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDBefore, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+
+		// A changed cursor name must alter the existing job's config in place,
+		// not delete and recreate the job.
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "renamed_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		jobIDAfter, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, jobIDBefore, jobIDAfter, "reconciliation job_id should be stable when the cursor name changes")
+
+		cursorName, err := db.QueryOne[string](ctx, dbConnectionPool,
+			`SELECT config->>'cursor_name' FROM timescaledb_information.jobs WHERE job_id = $1`,
+			jobIDAfter,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "renamed_cursor", cursorName, "cursor_name should be updated in the reconciliation job's config")
 	})
 
 	t.Run("no_reconciliation_job_without_retention", func(t *testing.T) {

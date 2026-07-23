@@ -36,6 +36,7 @@ func buildNativeBalanceFromDB(nativeBalance *data.NativeBalance, networkPassphra
 		MinimumBalance:     minimumBalanceStr,
 		BuyingLiabilities:  buyingLiabilitiesStr,
 		SellingLiabilities: sellingLiabilitiesStr,
+		NumSubentries:      nativeBalance.NumSubEntries,
 		LastModifiedLedger: nativeBalance.LedgerNumber,
 	}, nil
 }
@@ -66,6 +67,23 @@ func buildSACBalanceFromDB(sacBalance data.SACBalance) *graphql1.SACBalance {
 		Decimals:          int32(sacBalance.Decimals),
 		IsAuthorized:      sacBalance.IsAuthorized,
 		IsClawbackEnabled: sacBalance.IsClawbackEnabled,
+	}
+}
+
+// buildLiquidityPoolBalanceFromDB constructs a LiquidityPoolBalance from a liquidity_pool_balances
+// row JOINed with its pool reserves. `balance` is the account's pool shares and `tokenId`/
+// `liquidityPoolId` are the pool id; `reserves` carries the pool's constituent assets and amounts.
+func buildLiquidityPoolBalanceFromDB(lp data.LiquidityPoolBalance) *graphql1.LiquidityPoolBalance {
+	return &graphql1.LiquidityPoolBalance{
+		TokenID:         lp.PoolID,
+		Balance:         amount.StringFromInt64(lp.Shares),
+		TokenType:       graphql1.TokenTypeLiquidityPool,
+		LiquidityPoolID: lp.PoolID,
+		Reserves: []*graphql1.LiquidityPoolReserve{
+			{Asset: lp.AssetA, Amount: amount.StringFromInt64(lp.AmountA)},
+			{Asset: lp.AssetB, Amount: amount.StringFromInt64(lp.AmountB)},
+		},
+		LastModifiedLedger: lp.LedgerNumber,
 	}
 }
 

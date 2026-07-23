@@ -43,6 +43,15 @@ const (
 	defaultRetryWait         = 5 * time.Second
 )
 
+// ErrBufferDead marks a GetLedger failure as terminal: the ledgerBuffer's
+// internal context was cancelled by the buffer itself (a worker exhausted
+// its download retry budget, or hit a hard NotExist on a bounded range),
+// independent of the caller's context lifecycle. The buffer never recovers
+// from this — every subsequent GetLedger call on this backend instance
+// returns the same error — so callers should treat it as permanent rather
+// than retrying against a dead buffer.
+var ErrBufferDead = errors.New("ledger buffer permanently cancelled")
+
 var _ ledgerbackend.LedgerBackend = (*datastoreBackend)(nil)
 
 // datastoreBackend implements ledgerbackend.LedgerBackend with optimizations
@@ -401,7 +410,7 @@ func (buf *ledgerBuffer) downloadAndStore(sequence uint32) {
 // directly to the decoder, streaming through zstd without an intermediate allocation.
 func (buf *ledgerBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMetaBatch, error) {
 	objectKey := buf.schema.GetObjectKeyFromSequenceNumber(sequence)
-	reader, err := buf.dataStore.GetFile(buf.ctx, objectKey)
+	reader, _, err := buf.dataStore.GetFile(buf.ctx, objectKey)
 	if err != nil {
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("fetching ledger file %s: %w", objectKey, err)
 	}
@@ -417,10 +426,21 @@ func (buf *ledgerBuffer) downloadAndDecode(sequence uint32) (xdr.LedgerCloseMeta
 
 // getNextBatch receives the next decoded batch from the buffer in sequence order.
 // After receiving, it enqueues a new download task to maintain the buffer invariant.
+//
+// buf.ctx is derived from the caller-supplied ctx via context.WithCancelCause, so
+// buf.ctx.Done() fires both when that parent ctx is cancelled (shutdown — its cause is
+// context.Canceled, matching close()'s own buf.cancel(context.Canceled)) and when
+// downloadAndStore gives up on a sequence and calls buf.cancel with a real error. Only the
+// latter means the buffer itself has permanently died; distinguishing on the cause lets
+// callers (the ledger-fetch retry ladder) tell "will never recover" apart from "shutting down".
 func (buf *ledgerBuffer) getNextBatch(ctx context.Context) (xdr.LedgerCloseMetaBatch, error) {
 	select {
 	case <-buf.ctx.Done():
-		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("buffer context cancelled: %w", context.Cause(buf.ctx))
+		cause := context.Cause(buf.ctx)
+		if errors.Is(cause, context.Canceled) {
+			return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("buffer context cancelled: %w", cause)
+		}
+		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("%w: %w", ErrBufferDead, cause)
 	case <-ctx.Done():
 		return xdr.LedgerCloseMetaBatch{}, fmt.Errorf("caller context cancelled: %w", ctx.Err())
 	case batch := <-buf.batchQueue:

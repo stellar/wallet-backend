@@ -3,6 +3,8 @@ package services
 import (
 	"fmt"
 	"sort"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // processorRegistry holds factory functions keyed by protocol ID. Factories
@@ -45,8 +47,17 @@ func GetAllProcessorIDs() []string {
 
 // BuildProcessors materializes processors for the given protocol IDs from the
 // registry. Returns an error if any ID has no registered factory.
+//
+// It also validates the state_change_id namespace bases of the built set: every
+// base must be positive and a multiple of types.StateChangeOrdinalNamespaceWidth
+// (base 0 is the main indexer's sub-namespaced region and is off-limits to
+// protocol processors), and no two processors may share a base. Both boot entry
+// points (internal/ingest and cmd/protocol_migrate) funnel through here, so a
+// stale or duplicated base copied into a new processor fails fast at startup
+// rather than silently colliding state_change_ids on-disk.
 func BuildProcessors(deps ProtocolDeps, protocolIDs []string) ([]ProtocolProcessor, error) {
 	out := make([]ProtocolProcessor, 0, len(protocolIDs))
+	protocolIDByBase := make(map[int64]string, len(protocolIDs))
 	for _, pid := range protocolIDs {
 		factory, ok := GetProcessor(pid)
 		if !ok {
@@ -56,6 +67,18 @@ func BuildProcessors(deps ProtocolDeps, protocolIDs []string) ([]ProtocolProcess
 		if p == nil {
 			return nil, fmt.Errorf("processor factory for protocol %q returned nil", pid)
 		}
+
+		base := p.StateChangeOrdinalBase()
+		if base <= 0 || base%types.StateChangeOrdinalNamespaceWidth != 0 {
+			return nil, fmt.Errorf("protocol %q has invalid state_change_id base %d: "+
+				"must be a positive multiple of %d", p.ProtocolID(), base, types.StateChangeOrdinalNamespaceWidth)
+		}
+		if other, dup := protocolIDByBase[base]; dup {
+			return nil, fmt.Errorf("protocols %q and %q share state_change_id base %d",
+				other, p.ProtocolID(), base)
+		}
+		protocolIDByBase[base] = p.ProtocolID()
+
 		out = append(out, p)
 	}
 	return out, nil

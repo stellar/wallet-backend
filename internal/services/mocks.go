@@ -126,8 +126,8 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
-	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, accountChangesByAccountID, sacBalanceChangesByKey)
+func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, accountChangesByAccountID, sacBalanceChangesByKey, lpShareChangesByKey, lpChangesByPoolID)
 	return args.Error(0)
 }
 
@@ -264,6 +264,11 @@ func (m *ProtocolProcessorMock) ProtocolID() string {
 	return args.String(0)
 }
 
+func (m *ProtocolProcessorMock) StateChangeOrdinalBase() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
+}
+
 func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
 	args := m.Called(ctx, input)
 	return args.Error(0)
@@ -389,6 +394,37 @@ func NewContractMetadataServiceMock(t interface {
 },
 ) *ContractMetadataServiceMock {
 	mock := &ContractMetadataServiceMock{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// CheckpointServiceMock is a mock implementation of CheckpointService.
+type CheckpointServiceMock struct {
+	mock.Mock
+}
+
+var _ CheckpointService = (*CheckpointServiceMock)(nil)
+
+func (c *CheckpointServiceMock) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
+	args := c.Called(ctx, checkpointLedger, initializeCursors)
+	return args.Error(0)
+}
+
+func (c *CheckpointServiceMock) EnrichStaleSACMetadata(ctx context.Context) error {
+	args := c.Called(ctx)
+	return args.Error(0)
+}
+
+// NewCheckpointServiceMock creates a new instance of CheckpointServiceMock.
+func NewCheckpointServiceMock(t interface {
+	mock.TestingT
+	Cleanup(func())
+},
+) *CheckpointServiceMock {
+	mock := &CheckpointServiceMock{}
 	mock.Mock.Test(t)
 
 	t.Cleanup(func() { mock.AssertExpectations(t) })

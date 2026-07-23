@@ -24,7 +24,8 @@ func TestBalanceSourcesForAddress(t *testing.T) {
 		g := keypair.MustRandom().Address()
 		gSources := balanceSourcesForAddress(g)
 		assert.Contains(t, gSources, balanceSourceSEP41, "G-addresses must advertise SEP-41 as a balance source")
-		assert.Equal(t, []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41}, gSources)
+		assert.Contains(t, gSources, balanceSourceLiquidityPool, "G-addresses must advertise liquidity-pool shares as a balance source")
+		assert.Equal(t, []balanceSource{balanceSourceNative, balanceSourceClassic, balanceSourceSEP41, balanceSourceLiquidityPool}, gSources)
 	})
 
 	t.Run("includes SEP-41 for C-addresses alongside SAC", func(t *testing.T) {
@@ -100,6 +101,7 @@ func TestAccountResolver_SEP41BalancesReturnedByBalancesConnection(t *testing.T)
 		&data.TrustlineBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.NativeBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&data.SACBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		&data.LiquidityPoolBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.BalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 		&sep41data.AllowanceModel{DB: testDBConnectionPool, Metrics: m.DB},
 	)

@@ -7,7 +7,7 @@ CREATE TABLE sep41_allowances (
     owner_id BYTEA NOT NULL,
     spender_id BYTEA NOT NULL,
     contract_id UUID NOT NULL,
-    amount TEXT NOT NULL DEFAULT '0',
+    amount NUMERIC NOT NULL DEFAULT 0,
     expiration_ledger INTEGER NOT NULL DEFAULT 0,
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (owner_id, spender_id, contract_id),
@@ -15,17 +15,20 @@ CREATE TABLE sep41_allowances (
         FOREIGN KEY (contract_id) REFERENCES contract_tokens(id)
         DEFERRABLE INITIALLY DEFERRED
 ) WITH (
-    fillfactor = 80,
+    fillfactor = 90,
     autovacuum_vacuum_scale_factor = 0.02,
     autovacuum_vacuum_threshold = 50,
     autovacuum_analyze_scale_factor = 0.01,
     autovacuum_analyze_threshold = 50,
-    autovacuum_vacuum_cost_delay = 0,
-    autovacuum_vacuum_cost_limit = 1000
+    autovacuum_vacuum_cost_delay = 0
 );
 
-CREATE INDEX idx_sep41_allowances_owner ON sep41_allowances(owner_id);
-CREATE INDEX idx_sep41_allowances_spender ON sep41_allowances(spender_id);
+-- owner_id is the PK's leading column, so a lookup by owner alone already uses the PK
+-- index; a dedicated single-column index on it would be redundant.
+-- No code path filters by spender_id alone, so a dedicated index for it would sit unused.
+-- Backs the expired-allowance sweep's ORDER BY expiration_ledger LIMIT n. BatchUpsert
+-- updates expiration_ledger, so this makes those updates non-HOT — an accepted
+-- tradeoff at allowance write volumes.
 CREATE INDEX idx_sep41_allowances_expiration_ledger ON sep41_allowances(expiration_ledger);
 
 -- +migrate Down

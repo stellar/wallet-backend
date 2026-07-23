@@ -178,8 +178,9 @@ func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuil
 }
 
 // Build returns the constructed state change.
-// Note: StateChangeID is assigned at insertion time by BatchCopy, not here.
-// This ensures retries on PK collision generate fresh IDs automatically.
+// Note: StateChangeID is left zero here — the emitter assigns it afterward via
+// types.AssignStateChangeOrdinals, numbering each transaction's or window's
+// state changes in deterministic emission order before persisting.
 func (b *StateChangeBuilder) Build() types.StateChange {
 	return b.base
 }

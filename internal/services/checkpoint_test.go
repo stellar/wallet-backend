@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
@@ -87,16 +88,18 @@ func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest
 
 // checkpointTestFixture holds a checkpointService and all mocked dependencies.
 type checkpointTestFixture struct {
-	svc                     *checkpointService
-	reader                  *ChangeReaderMock
-	contractMetadataService *ContractMetadataServiceMock
-	trustlineAssetModel     *wbdata.TrustlineAssetModelMock
-	trustlineBalanceModel   *wbdata.TrustlineBalanceModelMock
-	nativeBalanceModel      *wbdata.NativeBalanceModelMock
-	sacBalanceModel         *wbdata.SACBalanceModelMock
-	contractModel           *wbdata.ContractModelMock
-	protocolWasmModel       *wbdata.ProtocolWasmsModelMock
-	protocolContractsModel  *wbdata.ProtocolContractsModelMock
+	svc                       *checkpointService
+	reader                    *ChangeReaderMock
+	contractMetadataService   *ContractMetadataServiceMock
+	trustlineAssetModel       *wbdata.TrustlineAssetModelMock
+	trustlineBalanceModel     *wbdata.TrustlineBalanceModelMock
+	nativeBalanceModel        *wbdata.NativeBalanceModelMock
+	sacBalanceModel           *wbdata.SACBalanceModelMock
+	liquidityPoolModel        *wbdata.LiquidityPoolModelMock
+	liquidityPoolBalanceModel *wbdata.LiquidityPoolBalanceModelMock
+	contractModel             *wbdata.ContractModelMock
+	protocolWasmModel         *wbdata.ProtocolWasmsModelMock
+	protocolContractsModel    *wbdata.ProtocolContractsModelMock
 }
 
 // setupCheckpointTest creates a checkpointService with mocked dependencies and a real DB pool.
@@ -115,38 +118,51 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	trustlineBalanceModelMock := wbdata.NewTrustlineBalanceModelMock(t)
 	nativeBalanceModelMock := wbdata.NewNativeBalanceModelMock(t)
 	sacBalanceModelMock := wbdata.NewSACBalanceModelMock(t)
+	liquidityPoolModelMock := wbdata.NewLiquidityPoolModelMock(t)
+	liquidityPoolBalanceModelMock := wbdata.NewLiquidityPoolBalanceModelMock(t)
+	// The batch flush always issues a BatchCopy for the liquidity-pool models (with empty slices
+	// when a checkpoint carries no pool data), so accept any invocation across all checkpoint tests.
+	liquidityPoolModelMock.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	liquidityPoolBalanceModelMock.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	contractModelMock := wbdata.NewContractModelMock(t)
 	protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 	protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 
 	svc := &checkpointService{
-		db:                      dbPool,
-		archive:                 &HistoryArchiveMock{},
-		contractMetadataService: contractMetadataServiceMock,
-		trustlineAssetModel:     trustlineAssetModelMock,
-		trustlineBalanceModel:   trustlineBalanceModelMock,
-		nativeBalanceModel:      nativeBalanceModelMock,
-		sacBalanceModel:         sacBalanceModelMock,
-		contractModel:           contractModelMock,
-		protocolWasmModel:       protocolWasmModelMock,
-		protocolContractsModel:  protocolContractsModelMock,
-		networkPassphrase:       network.TestNetworkPassphrase,
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		contractMetadataService:   contractMetadataServiceMock,
+		trustlineAssetModel:       trustlineAssetModelMock,
+		trustlineBalanceModel:     trustlineBalanceModelMock,
+		nativeBalanceModel:        nativeBalanceModelMock,
+		sacBalanceModel:           sacBalanceModelMock,
+		liquidityPoolModel:        liquidityPoolModelMock,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModelMock,
+		contractModel:             contractModelMock,
+		protocolWasmModel:         protocolWasmModelMock,
+		protocolContractsModel:    protocolContractsModelMock,
+		networkPassphrase:         network.TestNetworkPassphrase,
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
+		// Keep the SAC-enrichment retry path exercised but fast in tests.
+		sacEnrichmentRetries: 3,
+		sacEnrichmentBackoff: time.Millisecond,
 	}
 
 	return checkpointTestFixture{
-		svc:                     svc,
-		reader:                  readerMock,
-		contractMetadataService: contractMetadataServiceMock,
-		trustlineAssetModel:     trustlineAssetModelMock,
-		trustlineBalanceModel:   trustlineBalanceModelMock,
-		nativeBalanceModel:      nativeBalanceModelMock,
-		sacBalanceModel:         sacBalanceModelMock,
-		contractModel:           contractModelMock,
-		protocolWasmModel:       protocolWasmModelMock,
-		protocolContractsModel:  protocolContractsModelMock,
+		svc:                       svc,
+		reader:                    readerMock,
+		contractMetadataService:   contractMetadataServiceMock,
+		trustlineAssetModel:       trustlineAssetModelMock,
+		trustlineBalanceModel:     trustlineBalanceModelMock,
+		nativeBalanceModel:        nativeBalanceModelMock,
+		sacBalanceModel:           sacBalanceModelMock,
+		liquidityPoolModel:        liquidityPoolModelMock,
+		liquidityPoolBalanceModel: liquidityPoolBalanceModelMock,
+		contractModel:             contractModelMock,
+		protocolWasmModel:         protocolWasmModelMock,
+		protocolContractsModel:    protocolContractsModelMock,
 	}
 }
 
@@ -238,6 +254,100 @@ func TestCheckpointService_PopulateFromCheckpoint_AccountEntry(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// makePoolShareChange builds a checkpoint change for a pool_share trustline (per-account shares).
+func makePoolShareChange(account xdr.AccountId, poolID xdr.PoolId, shares int64) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeTrustline,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeTrustline,
+			TrustLine: &xdr.TrustLineEntry{
+				AccountId: account,
+				Asset:     xdr.TrustLineAsset{Type: xdr.AssetTypeAssetTypePoolShare, LiquidityPoolId: &poolID},
+				Balance:   xdr.Int64(shares),
+			},
+		}},
+	}
+}
+
+// makeLpEntryChange builds a checkpoint change for a constant-product LiquidityPoolEntry.
+func makeLpEntryChange(poolID xdr.PoolId, assetA, assetB xdr.Asset, reserveA, reserveB int64) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeLiquidityPool,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LiquidityPoolEntry{
+				LiquidityPoolId: poolID,
+				Body: xdr.LiquidityPoolEntryBody{
+					Type: xdr.LiquidityPoolTypeLiquidityPoolConstantProduct,
+					ConstantProduct: &xdr.LiquidityPoolEntryConstantProduct{
+						Params:   xdr.LiquidityPoolConstantProductParameters{AssetA: assetA, AssetB: assetB, Fee: xdr.LiquidityPoolFeeV18},
+						ReserveA: xdr.Int64(reserveA),
+						ReserveB: xdr.Int64(reserveB),
+					},
+				},
+			},
+		}},
+	}
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
+	require.NoError(t, err)
+	defer dbPool.Close()
+
+	issuer := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	account := xdr.MustAddress(issuer)
+	poolID := xdr.PoolId{1, 2, 3}
+	expectedPoolID := xdr.Hash(poolID).HexString()
+	usdc := xdr.MustNewCreditAsset("USDC", issuer)
+
+	readerMock := NewChangeReaderMock(t)
+	readerMock.On("Read").Return(makeLpEntryChange(poolID, xdr.MustNewNativeAsset(), usdc, 100, 200), nil).Once()
+	readerMock.On("Read").Return(makePoolShareChange(account, poolID, 5000), nil).Once()
+	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	readerMock.On("Close").Return(nil).Once()
+
+	trustlineBalanceModel := wbdata.NewTrustlineBalanceModelMock(t)
+	nativeBalanceModel := wbdata.NewNativeBalanceModelMock(t)
+	sacBalanceModel := wbdata.NewSACBalanceModelMock(t)
+	lpModel := wbdata.NewLiquidityPoolModelMock(t)
+	lpBalanceModel := wbdata.NewLiquidityPoolBalanceModelMock(t)
+
+	// The pool-share trustline and LP entry route to the liquidity-pool models, never to
+	// trustline/native/sac (those flush empty).
+	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool {
+		return len(pools) == 1 && pools[0].PoolID == expectedPoolID &&
+			pools[0].AssetA == "native" && pools[0].AmountA == 100 &&
+			pools[0].AssetB == "USDC:"+issuer && pools[0].AmountB == 200
+	})).Return(nil).Once()
+	lpBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(bals []wbdata.LiquidityPoolBalance) bool {
+		return len(bals) == 1 && bals[0].PoolID == expectedPoolID &&
+			bals[0].Shares == 5000 && bals[0].AccountID == types.AddressBytea(issuer)
+	})).Return(nil).Once()
+
+	svc := &checkpointService{
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		trustlineBalanceModel:     trustlineBalanceModel,
+		nativeBalanceModel:        nativeBalanceModel,
+		sacBalanceModel:           sacBalanceModel,
+		liquidityPoolModel:        lpModel,
+		liquidityPoolBalanceModel: lpBalanceModel,
+		networkPassphrase:         network.TestNetworkPassphrase,
+		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
+			return readerMock, nil
+		},
+	}
+
+	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
 func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T) {
 	f := setupCheckpointTest(t)
 
@@ -262,6 +372,231 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T
 	f.protocolContractsModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// makeSACBalanceChange builds an ingest.Change for a ContractData Balance
+// entry whose holder is itself a contract — the shape
+// sac.ContractBalanceFromContractData requires to recognize a SAC balance.
+// With no preceding contract-instance entry in the same checkpoint, this is
+// how a SAC contract ends up in contract_tokens with Code/Name/Symbol unset,
+// needing RPC enrichment (see finalize's pendingSACMetadata bookkeeping).
+func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: (*xdr.ContractId)(&tokenContractHash),
+					},
+					Key: xdr.ScVal{
+						Type: xdr.ScValTypeScvVec,
+						Vec: ptrToScVec([]xdr.ScVal{
+							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
+							{
+								Type: xdr.ScValTypeScvAddress,
+								Address: &xdr.ScAddress{
+									Type:       xdr.ScAddressTypeScAddressTypeContract,
+									ContractId: (*xdr.ContractId)(&holderContractHash),
+								},
+							},
+						}),
+					},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        makeBalanceMapVal(500, true, false),
+				},
+			},
+		},
+	}
+}
+
+// checkpointCommitProbeKey is a scratch ingest_store row written by an
+// initializeCursors callback, inside the load's own transaction, purely so a
+// test can prove — via a real, separate connection — whether the load
+// transaction has actually committed yet. Postgres MVCC hides the row from
+// any other connection until commit, which is what makes this a genuine
+// after-commit check rather than an assertion on mock call ordering alone.
+const checkpointCommitProbeKey = "checkpoint_commit_probe"
+
+func writeCheckpointCommitProbe(dbTx pgx.Tx) error {
+	_, err := dbTx.Exec(context.Background(),
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		checkpointCommitProbeKey, "committed")
+	return err
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit
+// is the ING-10 regression test: it proves FetchSACMetadata (the RPC call)
+// only happens once the load transaction — including cursor initialization —
+// has already committed, by querying the commit probe row from the real DB
+// pool (a connection independent of the load's transaction) from inside the
+// FetchSACMetadata mock's callback. If the RPC call were still made inside
+// the load transaction (the ING-10 bug), the probe row would not yet be
+// visible and this assertion would fail.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{9, 9, 9}
+	holderHash := [32]byte{8, 8, 8}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 1 })).Return(nil).Once()
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Type == string(types.ContractTypeSAC) && cs[0].Code == nil
+	})).Return(nil).Once()
+
+	enrichedName := "Test Token"
+	enrichedSymbol := "TST"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Run(func(_ mock.Arguments) {
+			var value string
+			queryErr := f.svc.db.QueryRow(context.Background(),
+				`SELECT value FROM ingest_store WHERE key = $1`, checkpointCommitProbeKey).Scan(&value)
+			require.NoError(t, queryErr, "the load transaction (including cursor init) must already be committed before SAC metadata enrichment runs")
+			assert.Equal(t, "committed", value)
+		}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, writeCheckpointCommitProbe)
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad
+// is the other half of ING-10: a failed SAC metadata fetch must be logged and
+// leave the already-committed load's rows in place (defaults, unenriched),
+// not fail PopulateFromCheckpoint.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{7, 7, 7}
+	holderHash := [32]byte{6, 6, 6}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	// The enrichment is retried; every attempt fails, and the load still must not fail.
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, mock.Anything).
+		Return(nil, errors.New("rpc unavailable")).Times(f.svc.sacEnrichmentRetries)
+
+	// No "BatchUpdateMetadata" expectation is registered: if enrichSACMetadata
+	// called it despite the fetch failing, the mock would fail this test for
+	// an unexpected call.
+
+	cursorsCalled := false
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error {
+		cursorsCalled = true
+		return nil
+	})
+	require.NoError(t, err, "a SAC metadata fetch failure must not fail the completed load")
+	assert.True(t, cursorsCalled)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds proves the
+// bounded retry absorbs a transient enrichment blip: FetchSACMetadata fails twice, then
+// succeeds, and the enrichment write runs exactly once.
+func TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{4, 4, 4}
+	holderHash := [32]byte{3, 3, 3}
+	change := makeSACBalanceChange(tokenHash, holderHash)
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.reader.On("Read").Return(change, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	enrichedName := "Retry Token"
+	enrichedSymbol := "RTY"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return(nil, errors.New("rpc blip")).Twice()
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp proves the restartable pass
+// is a no-op when no SAC row is missing metadata: it must call neither RPC nor the write.
+func TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp(t *testing.T) {
+	f := setupCheckpointTest(t)
+	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
+		Return([]string{}, nil).Once()
+
+	err := f.svc.EnrichStaleSACMetadata(context.Background())
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows proves the restartable pass
+// enriches SAC rows still left at their ledger-derived defaults.
+func TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	tokenHash := [32]byte{5, 5, 5}
+	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
+
+	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
+		Return([]string{tokenAddr}, nil).Once()
+
+	enrichedName := "Stale Token"
+	enrichedSymbol := "STL"
+	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
+		Return([]*wbdata.Contract{{
+			ID:         wbdata.DeterministicContractID(tokenAddr),
+			ContractID: tokenAddr,
+			Type:       string(types.ContractTypeSAC),
+			Name:       &enrichedName,
+			Symbol:     &enrichedSymbol,
+		}}, nil).Once()
+	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
+	})).Return(nil).Once()
+
+	err := f.svc.EnrichStaleSACMetadata(context.Background())
 	require.NoError(t, err)
 }
 
@@ -526,13 +861,36 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assert.Equal(t, 1, proc.trustlineCount)
 	})
 
-	t.Run("trustline_pool_share_skipped", func(t *testing.T) {
+	t.Run("trustline_pool_share_routed_to_liquidity_pool_balances", func(t *testing.T) {
 		proc := newTestCheckpointProcessor()
-		change := makePoolShareTrustlineChange("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+		change := makePoolShareTrustlineChange(address)
 		proc.processEntry(change)
 
+		// Pool-share trustlines are shares, not asset balances: they go to liquidity_pool_balances.
 		assert.Empty(t, proc.batch.trustlineBalances)
-		assert.Equal(t, 0, proc.entries)
+		require.Len(t, proc.batch.liquidityPoolBalances, 1)
+		lpb := proc.batch.liquidityPoolBalances[0]
+		assert.Equal(t, address, string(lpb.AccountID))
+		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), lpb.PoolID)
+		assert.Equal(t, int64(1000), lpb.Shares)
+		assert.Equal(t, 1, proc.entries)
+	})
+
+	t.Run("liquidity_pool_entry_routed_to_liquidity_pools", func(t *testing.T) {
+		proc := newTestCheckpointProcessor()
+		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		change := makeLpEntryChange(xdr.PoolId{4, 5, 6}, xdr.MustNewNativeAsset(), xdr.MustNewCreditAsset("USDC", issuer), 100, 200)
+		proc.processEntry(change)
+
+		require.Len(t, proc.batch.liquidityPools, 1)
+		lp := proc.batch.liquidityPools[0]
+		assert.Equal(t, xdr.Hash(xdr.PoolId{4, 5, 6}).HexString(), lp.PoolID)
+		assert.Equal(t, "native", lp.AssetA)
+		assert.Equal(t, int64(100), lp.AmountA)
+		assert.Equal(t, "USDC:"+issuer, lp.AssetB)
+		assert.Equal(t, int64(200), lp.AmountB)
+		assert.Equal(t, 1, proc.entries)
 	})
 
 	t.Run("contract_instance_non_sac", func(t *testing.T) {

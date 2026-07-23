@@ -379,3 +379,98 @@ func TestHashBytea_String(t *testing.T) {
 		})
 	}
 }
+
+// buildOrdinalTestInput returns a fixed slice of state changes spanning two
+// operations, interleaved in emission order: op 10 gets three, op 20 gets two.
+func buildOrdinalTestInput() []StateChange {
+	return []StateChange{
+		{ToID: 1, OperationID: 10, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 1, OperationID: 20, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 1, OperationID: 10, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 1, OperationID: 10, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 1, OperationID: 20, StateChangeCategory: StateChangeCategoryBalance},
+	}
+}
+
+func TestAssignStateChangeOrdinals_OrdinalsPerOperationGroup(t *testing.T) {
+	changes := buildOrdinalTestInput()
+	AssignStateChangeOrdinals(changes, StateChangeOrdinalBaseIndexer)
+
+	// op 10's three changes are numbered 1..3 in the order they appear; op 20's
+	// two changes are numbered 1..2 independently, interleaved with op 10's.
+	assert.Equal(t, []int64{1, 1, 2, 3, 2}, []int64{
+		changes[0].StateChangeID, changes[1].StateChangeID, changes[2].StateChangeID,
+		changes[3].StateChangeID, changes[4].StateChangeID,
+	})
+}
+
+func TestAssignStateChangeOrdinals_NamespaceBaseIsAdded(t *testing.T) {
+	changes := buildOrdinalTestInput()
+	AssignStateChangeOrdinals(changes, StateChangeOrdinalBaseBlend)
+
+	for _, sc := range changes {
+		assert.GreaterOrEqual(t, sc.StateChangeID, StateChangeOrdinalBaseBlend)
+		assert.Less(t, sc.StateChangeID, StateChangeOrdinalBaseBlend+1000)
+	}
+	// Same relative ordinals as the unnamespaced case, offset by the base.
+	assert.Equal(t, StateChangeOrdinalBaseBlend+1, changes[0].StateChangeID)
+	assert.Equal(t, StateChangeOrdinalBaseBlend+3, changes[3].StateChangeID)
+}
+
+func TestAssignStateChangeOrdinals_Deterministic(t *testing.T) {
+	first := buildOrdinalTestInput()
+	second := buildOrdinalTestInput()
+
+	AssignStateChangeOrdinals(first, StateChangeOrdinalBaseSEP41)
+	AssignStateChangeOrdinals(second, StateChangeOrdinalBaseSEP41)
+
+	// Processing the same input twice (e.g. a re-ingested ledger) must produce
+	// byte-identical state_change_ids, not just equal-length results.
+	require.Len(t, second, len(first))
+	for i := range first {
+		assert.Equal(t, first[i].StateChangeID, second[i].StateChangeID, "index %d", i)
+	}
+}
+
+func TestAssignStateChangeOrdinals_DifferentEmittersNeverCollide(t *testing.T) {
+	indexerChanges := []StateChange{{ToID: 1, OperationID: 42}}
+	sep41Changes := []StateChange{{ToID: 1, OperationID: 42}}
+	blendChanges := []StateChange{{ToID: 1, OperationID: 42}}
+
+	AssignStateChangeOrdinals(indexerChanges, StateChangeOrdinalBaseIndexer)
+	AssignStateChangeOrdinals(sep41Changes, StateChangeOrdinalBaseSEP41)
+	AssignStateChangeOrdinals(blendChanges, StateChangeOrdinalBaseBlend)
+
+	// Same (to_id, operation_id) from three independent emitters: without
+	// namespacing these would all be state_change_id=1 and collide on the
+	// state_changes primary key.
+	ids := map[int64]bool{
+		indexerChanges[0].StateChangeID: true,
+		sep41Changes[0].StateChangeID:   true,
+		blendChanges[0].StateChangeID:   true,
+	}
+	assert.Len(t, ids, 3, "each emitter's ID for the same operation must be distinct")
+}
+
+func TestAssignStateChangeOrdinals_GroupsByToIDAndOperationID(t *testing.T) {
+	// A window-scoped emitter can stage transaction-level changes with
+	// OperationID=0 for several transactions (distinct ToIDs) in one call.
+	// Ordinals restart per (to_id, operation_id) pair, not per operation_id
+	// alone: otherwise a row's ID would depend on which other transactions
+	// happen to share the window, and re-running the same ledger under
+	// different window bounds would produce different IDs for the same logical
+	// row — silently bypassing the state_changes primary key on re-ingest.
+	changes := []StateChange{
+		{ToID: 100, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 100, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 200, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+		{ToID: 200, OperationID: 0, StateChangeCategory: StateChangeCategoryBalance},
+	}
+	AssignStateChangeOrdinals(changes, StateChangeOrdinalBaseIndexer)
+
+	// Keying on operation_id alone would yield 1,2,3,4 (one shared bucket).
+	assert.Equal(t, []int64{1, 2, 1, 2}, []int64{
+		changes[0].StateChangeID, changes[1].StateChangeID,
+		changes[2].StateChangeID, changes[3].StateChangeID,
+	})
+}

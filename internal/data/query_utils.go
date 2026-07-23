@@ -160,6 +160,12 @@ func getDBColumns(model any) set.Set[string] {
 
 // prepareColumnsWithID ensures that all specified identifier columns are always included in the column list.
 // It appends whatever idColumns are passed in, which is useful for tables (such as state_changes) that use composite keys.
+//
+// Every transaction/operation/state-change projection also forces ledger_created_at — the
+// hypertable partition column — even when the client didn't request that field: relationship
+// resolvers pin their child lookups on the parent row's ledger_created_at (see the dataloader
+// keys), so a row fetched without it would silently time-pin those lookups to the zero value
+// and return empty relationships.
 func prepareColumnsWithID(columns string, model any, prefix string, idColumns ...string) string {
 	var dbColumns set.Set[string]
 	if columns == "" {

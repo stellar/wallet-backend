@@ -38,6 +38,18 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
+const (
+	// graphqlWriteTimeout bounds how long the server may spend writing a response. Chosen above
+	// the slowest legitimate query (a full page of account history) so normal traffic never trips
+	// it, while still bounding how long a slow/stuck query can pin a DB connection from the pool.
+	graphqlWriteTimeout = 35 * time.Second
+	// graphqlIdleTimeout bounds how long a keep-alive connection may sit idle between requests.
+	graphqlIdleTimeout = 2 * time.Minute
+	// requestContextTimeout bounds how long a single request's context stays live so resolvers and
+	// DB calls downstream observe cancellation rather than running unbounded.
+	requestContextTimeout = 30 * time.Second
+)
+
 type Configs struct {
 	Port int
 	// AdminPort, when > 0, serves pprof endpoints at /debug/pprof on a separate
@@ -56,7 +68,8 @@ type Configs struct {
 	RPCURL string
 
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit      int
+	GraphQLIntrospectionEnabled bool
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -97,16 +110,18 @@ type handlerDeps struct {
 	NetworkPassphrase   string
 
 	// Services
-	Metrics               *metrics.Metrics
-	RPCService            services.RPCService
-	TrustlineBalanceModel data.TrustlineBalanceModelInterface
-	NativeBalanceModel    data.NativeBalanceModelInterface
-	SACBalanceModel       data.SACBalanceModelInterface
-	SEP41BalanceModel     sep41data.BalanceModelInterface
-	SEP41AllowanceModel   sep41data.AllowanceModelInterface
+	Metrics                   *metrics.Metrics
+	RPCService                services.RPCService
+	TrustlineBalanceModel     data.TrustlineBalanceModelInterface
+	NativeBalanceModel        data.NativeBalanceModelInterface
+	SACBalanceModel           data.SACBalanceModelInterface
+	LiquidityPoolBalanceModel data.LiquidityPoolBalanceModelInterface
+	SEP41BalanceModel         sep41data.BalanceModelInterface
+	SEP41AllowanceModel       sep41data.AllowanceModelInterface
 
 	// GraphQL
-	GraphQLComplexityLimit int
+	GraphQLComplexityLimit      int
+	GraphQLIntrospectionEnabled bool
 
 	// Error Tracker
 	AppTracker apptracker.AppTracker
@@ -140,8 +155,10 @@ func Serve(cfg Configs) error {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	supporthttp.Run(supporthttp.Config{
-		ListenAddr: addr,
-		Handler:    handler(deps),
+		ListenAddr:   addr,
+		Handler:      handler(deps),
+		WriteTimeout: graphqlWriteTimeout,
+		IdleTimeout:  graphqlIdleTimeout,
 		OnStarting: func() {
 			log.Infof("🌐 Starting Wallet Backend server on port %d", cfg.Port)
 		},
@@ -175,11 +192,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
 
-	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
+	requestAuthVerifier, err := buildRequestAuthVerifier(ctx, cfg)
 	if err != nil {
-		return handlerDeps{}, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+		return handlerDeps{}, err
 	}
-	requestAuthVerifier := auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes))
 
 	httpClient := http.Client{Timeout: 30 * time.Second}
 	rpcService, err := services.NewRPCService(cfg.RPCURL, cfg.NetworkPassphrase, &httpClient, m.RPC)
@@ -188,20 +204,37 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	}
 
 	return handlerDeps{
-		Models:                 models,
-		RequestAuthVerifier:    requestAuthVerifier,
-		SupportedAssets:        cfg.SupportedAssets,
-		Metrics:                m,
-		RPCService:             rpcService,
-		TrustlineBalanceModel:  models.TrustlineBalance,
-		NativeBalanceModel:     models.NativeBalance,
-		SACBalanceModel:        models.SACBalance,
-		SEP41BalanceModel:      models.SEP41.Balances,
-		SEP41AllowanceModel:    models.SEP41.Allowances,
-		AppTracker:             cfg.AppTracker,
-		NetworkPassphrase:      cfg.NetworkPassphrase,
-		GraphQLComplexityLimit: cfg.GraphQLComplexityLimit,
+		Models:                      models,
+		RequestAuthVerifier:         requestAuthVerifier,
+		SupportedAssets:             cfg.SupportedAssets,
+		Metrics:                     m,
+		RPCService:                  rpcService,
+		TrustlineBalanceModel:       models.TrustlineBalance,
+		NativeBalanceModel:          models.NativeBalance,
+		SACBalanceModel:             models.SACBalance,
+		LiquidityPoolBalanceModel:   models.LiquidityPoolBalance,
+		SEP41BalanceModel:           models.SEP41.Balances,
+		SEP41AllowanceModel:         models.SEP41.Allowances,
+		AppTracker:                  cfg.AppTracker,
+		NetworkPassphrase:           cfg.NetworkPassphrase,
+		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
+		GraphQLIntrospectionEnabled: cfg.GraphQLIntrospectionEnabled,
 	}, nil
+}
+
+// buildRequestAuthVerifier returns nil when no client auth public keys are
+// configured, which makes handler() skip the authentication middleware entirely.
+func buildRequestAuthVerifier(ctx context.Context, cfg Configs) (auth.HTTPRequestVerifier, error) {
+	if len(cfg.ClientAuthPublicKeys) == 0 {
+		log.Ctx(ctx).Warn("client-auth-public-keys is empty: request authentication is disabled")
+		return nil, nil
+	}
+
+	jwtTokenParser, err := auth.NewMultiJWTTokenParser(time.Duration(cfg.ClientAuthMaxTimeoutSeconds)*time.Second, cfg.ClientAuthPublicKeys...)
+	if err != nil {
+		return nil, fmt.Errorf("instantiating multi JWT token parser: %w", err)
+	}
+	return auth.NewHTTPRequestVerifier(jwtTokenParser, int64(cfg.ClientAuthMaxBodySizeBytes)), nil
 }
 
 func handler(deps handlerDeps) http.Handler {
@@ -222,18 +255,20 @@ func handler(deps handlerDeps) http.Handler {
 
 	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
+		// Bound each request's context so a slow/stuck query can't pin a DB connection forever.
+		r.Use(middleware.RequestTimeoutMiddleware(requestContextTimeout))
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
 			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
-			r.Use(middleware.DataloaderMiddleware(deps.Models))
+			r.Use(middleware.DataloaderMiddleware(deps.Models, deps.Metrics.Dataloader))
 
 			resolver := resolvers.NewResolver(
 				deps.Models,
 				deps.RPCService,
-				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
+				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
 			)
@@ -251,11 +286,17 @@ func handler(deps handlerDeps) http.Handler {
 			srv.AddTransport(transport.GET{})
 			srv.AddTransport(transport.POST{})
 			srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
-			srv.Use(extension.Introspection{})
+			// Introspection is registered only when explicitly enabled (GQL-06): gqlgen disables
+			// introspection by default when this extension is absent, and leaving the full schema
+			// discoverable via __schema/__type is not appropriate for a production endpoint.
+			if deps.GraphQLIntrospectionEnabled {
+				srv.Use(extension.Introspection{})
+			}
 			srv.Use(extension.AutomaticPersistedQuery{
 				Cache: lru.New[string](100),
 			})
 			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
+			srv.Use(graphqlutils.DepthLimit{MaxDepth: graphqlutils.MaxQueryDepth})
 			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
 
 			// Add complexity logging - reports all queries with their complexity values
@@ -337,16 +378,16 @@ func addComplexityCalculation(config *generated.Config) {
 	paginatedQueryComplexityFunc := func(childComplexity int, first *int32, _ *string, last *int32, _ *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}
-	config.Complexity.Query.Transactions = paginatedQueryComplexityFunc
-	config.Complexity.Query.Operations = paginatedQueryComplexityFunc
-	config.Complexity.Query.StateChanges = paginatedQueryComplexityFunc
+	// timeBoundedPaginatedComplexityFunc is for the account-scoped connections that take
+	// since/until (Account.transactions/operations/stateChanges): since/until narrow the result
+	// set but don't change the page-size-based complexity accounting, so they're accepted and
+	// ignored here.
+	timeBoundedPaginatedComplexityFunc := func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
+		return calculatePaginatedComplexity(childComplexity, first, last)
+	}
 	config.Complexity.Account.Balances = paginatedQueryComplexityFunc
-	config.Complexity.Account.Transactions = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
-		return calculatePaginatedComplexity(childComplexity, first, last)
-	}
-	config.Complexity.Account.Operations = func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
-		return calculatePaginatedComplexity(childComplexity, first, last)
-	}
+	config.Complexity.Account.Transactions = timeBoundedPaginatedComplexityFunc
+	config.Complexity.Account.Operations = timeBoundedPaginatedComplexityFunc
 	config.Complexity.Account.StateChanges = func(childComplexity int, filter *generated.AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int {
 		return calculatePaginatedComplexity(childComplexity, first, last)
 	}

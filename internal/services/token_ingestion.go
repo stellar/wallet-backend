@@ -16,9 +16,9 @@ import (
 
 // TokenIngestionService provides write access to account token storage during live ingestion.
 type TokenIngestionService interface {
-	// ProcessTokenChanges applies trustline and SAC balance changes to PostgreSQL.
-	// This is called by the indexer for each ledger's state changes during live ingestion.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
+	// ProcessTokenChanges applies trustline, native, SAC, and liquidity-pool balance changes to
+	// PostgreSQL. This is called by the indexer for each ledger's state changes during live ingestion.
+	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error
 }
 
 // Verify interface compliance at compile time
@@ -26,34 +26,40 @@ var _ TokenIngestionService = (*tokenIngestionService)(nil)
 
 // TokenIngestionServiceConfig holds configuration for creating a TokenIngestionService.
 type TokenIngestionServiceConfig struct {
-	TrustlineBalanceModel wbdata.TrustlineBalanceModelInterface
-	NativeBalanceModel    wbdata.NativeBalanceModelInterface
-	SACBalanceModel       wbdata.SACBalanceModelInterface
-	NetworkPassphrase     string
+	TrustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	NativeBalanceModel        wbdata.NativeBalanceModelInterface
+	SACBalanceModel           wbdata.SACBalanceModelInterface
+	LiquidityPoolModel        wbdata.LiquidityPoolModelInterface
+	LiquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
+	NetworkPassphrase         string
 }
 
 // tokenIngestionService implements TokenIngestionService.
 type tokenIngestionService struct {
-	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface
-	nativeBalanceModel    wbdata.NativeBalanceModelInterface
-	sacBalanceModel       wbdata.SACBalanceModelInterface
-	networkPassphrase     string
+	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
+	nativeBalanceModel        wbdata.NativeBalanceModelInterface
+	sacBalanceModel           wbdata.SACBalanceModelInterface
+	liquidityPoolModel        wbdata.LiquidityPoolModelInterface
+	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
+	networkPassphrase         string
 }
 
 // NewTokenIngestionService creates a TokenIngestionService for ingestion.
 func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionService {
 	return &tokenIngestionService{
-		trustlineBalanceModel: cfg.TrustlineBalanceModel,
-		nativeBalanceModel:    cfg.NativeBalanceModel,
-		sacBalanceModel:       cfg.SACBalanceModel,
-		networkPassphrase:     cfg.NetworkPassphrase,
+		trustlineBalanceModel:     cfg.TrustlineBalanceModel,
+		nativeBalanceModel:        cfg.NativeBalanceModel,
+		sacBalanceModel:           cfg.SACBalanceModel,
+		liquidityPoolModel:        cfg.LiquidityPoolModel,
+		liquidityPoolBalanceModel: cfg.LiquidityPoolBalanceModel,
+		networkPassphrase:         cfg.NetworkPassphrase,
 	}
 }
 
 // ProcessTokenChanges processes token changes and stores them in PostgreSQL.
 // This is called by the indexer for each ledger's state changes during live ingestion.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
-	if len(trustlineChangesByTrustlineKey) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 {
+func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
+	if len(trustlineChangesByTrustlineKey) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 && len(lpShareChangesByKey) == 0 && len(lpChangesByPoolID) == 0 {
 		return nil
 	}
 
@@ -64,6 +70,12 @@ func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pg
 		return err
 	}
 	if err := s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey); err != nil {
+		return err
+	}
+	if err := s.processLiquidityPoolChanges(ctx, dbTx, lpChangesByPoolID); err != nil {
+		return err
+	}
+	if err := s.processLiquidityPoolShareChanges(ctx, dbTx, lpShareChangesByKey); err != nil {
 		return err
 	}
 	return nil
@@ -100,7 +112,7 @@ func (s *tokenIngestionService) processTrustlineChanges(ctx context.Context, dbT
 			return fmt.Errorf("upserting trustline balances: %w", err)
 		}
 	}
-	log.Ctx(ctx).Infof("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
+	log.Ctx(ctx).Debugf("upserted %d trustlines, deleted %d trustlines", len(upserts), len(deletes))
 	return nil
 }
 
@@ -122,6 +134,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 				MinimumBalance:     change.MinimumBalance,
 				BuyingLiabilities:  change.BuyingLiabilities,
 				SellingLiabilities: change.SellingLiabilities,
+				NumSubEntries:      change.NumSubEntries,
 				LedgerNumber:       change.LedgerNumber,
 			})
 		}
@@ -131,7 +144,7 @@ func (s *tokenIngestionService) processNativeBalanceChanges(ctx context.Context,
 		if err := s.nativeBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting native balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d native balances, deleted %d native balances", len(upserts), len(deletes))
 	}
 	return nil
 }
@@ -165,7 +178,71 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		if err := s.sacBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
 			return fmt.Errorf("upserting SAC balances: %w", err)
 		}
-		log.Ctx(ctx).Infof("upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
+		log.Ctx(ctx).Debugf("upserted %d SAC balances, deleted %d SAC balances", len(upserts), len(deletes))
+	}
+	return nil
+}
+
+// processLiquidityPoolChanges handles liquidity pool reserve upserts and deletes.
+func (s *tokenIngestionService) processLiquidityPoolChanges(ctx context.Context, dbTx pgx.Tx, changesByPoolID map[string]types.LiquidityPoolChange) error {
+	if len(changesByPoolID) == 0 {
+		return nil
+	}
+
+	var upserts []wbdata.LiquidityPool
+	var deletes []wbdata.LiquidityPool
+	for _, change := range changesByPoolID {
+		pool := wbdata.LiquidityPool{
+			PoolID:       change.PoolID,
+			AssetA:       change.AssetA,
+			AmountA:      change.ReserveA,
+			AssetB:       change.AssetB,
+			AmountB:      change.ReserveB,
+			LedgerNumber: change.LedgerNumber,
+		}
+		if change.Operation == types.LiquidityPoolOpRemove {
+			deletes = append(deletes, pool)
+		} else {
+			upserts = append(upserts, pool)
+		}
+	}
+
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.liquidityPoolModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting liquidity pools: %w", err)
+		}
+		log.Ctx(ctx).Debugf("upserted %d liquidity pools, deleted %d liquidity pools", len(upserts), len(deletes))
+	}
+	return nil
+}
+
+// processLiquidityPoolShareChanges handles pool-share balance upserts and deletes.
+func (s *tokenIngestionService) processLiquidityPoolShareChanges(ctx context.Context, dbTx pgx.Tx, changesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange) error {
+	if len(changesByKey) == 0 {
+		return nil
+	}
+
+	var upserts []wbdata.LiquidityPoolBalance
+	var deletes []wbdata.LiquidityPoolBalance
+	for _, change := range changesByKey {
+		balance := wbdata.LiquidityPoolBalance{
+			AccountID:    types.AddressBytea(change.AccountID),
+			PoolID:       change.PoolID,
+			Shares:       change.Shares,
+			LedgerNumber: change.LedgerNumber,
+		}
+		if change.Operation == types.LiquidityPoolShareOpRemove {
+			deletes = append(deletes, balance)
+		} else {
+			upserts = append(upserts, balance)
+		}
+	}
+
+	if len(upserts) > 0 || len(deletes) > 0 {
+		if err := s.liquidityPoolBalanceModel.BatchUpsert(ctx, dbTx, upserts, deletes); err != nil {
+			return fmt.Errorf("upserting liquidity pool balances: %w", err)
+		}
+		log.Ctx(ctx).Debugf("upserted %d liquidity pool balances, deleted %d liquidity pool balances", len(upserts), len(deletes))
 	}
 	return nil
 }

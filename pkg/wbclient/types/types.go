@@ -82,10 +82,11 @@ const (
 type TokenType string
 
 const (
-	TokenTypeNative  TokenType = "NATIVE"
-	TokenTypeClassic TokenType = "CLASSIC"
-	TokenTypeSAC     TokenType = "SAC"
-	TokenTypeSEP41   TokenType = "SEP41"
+	TokenTypeNative        TokenType = "NATIVE"
+	TokenTypeClassic       TokenType = "CLASSIC"
+	TokenTypeSAC           TokenType = "SAC"
+	TokenTypeSEP41         TokenType = "SEP41"
+	TokenTypeLiquidityPool TokenType = "LIQUIDITY_POOL"
 )
 
 // Balance is an interface representing different types of account balances
@@ -98,13 +99,17 @@ type Balance interface {
 
 // NativeBalance represents a native XLM balance
 type NativeBalance struct {
-	BalanceValue       string    `json:"balance"`
-	TokenID            string    `json:"tokenId"`
-	TokenType          TokenType `json:"tokenType"`
-	MinimumBalance     string    `json:"minimumBalance"`
-	BuyingLiabilities  string    `json:"buyingLiabilities"`
-	SellingLiabilities string    `json:"sellingLiabilities"`
-	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+	BalanceValue string    `json:"balance"`
+	TokenID      string    `json:"tokenId"`
+	TokenType    TokenType `json:"tokenType"`
+	// MinimumBalance is the base reserve requirement (excludes liabilities):
+	// (2 + numSubentries + numSponsoring - numSponsored) * baseReserve; matches stellar-core getMinBalance.
+	// Spendable balance = balance - MinimumBalance - SellingLiabilities.
+	MinimumBalance     string `json:"minimumBalance"`
+	BuyingLiabilities  string `json:"buyingLiabilities"`
+	SellingLiabilities string `json:"sellingLiabilities"`
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
+	NumSubentries      uint32 `json:"numSubentries"`
 }
 
 func (b *NativeBalance) GetBalance() string      { return b.BalanceValue }
@@ -169,6 +174,29 @@ func (b *SEP41Balance) GetTokenID() string      { return b.TokenID }
 func (b *SEP41Balance) GetTokenType() TokenType { return b.TokenType }
 func (b *SEP41Balance) isBalance()              {}
 
+// LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount.
+type LiquidityPoolReserve struct {
+	Asset  string `json:"asset"`
+	Amount string `json:"amount"`
+}
+
+// LiquidityPoolBalance represents an account's liquidity-pool share holding.
+// BalanceValue is the account's pool shares and TokenID is the pool id; Reserves carries
+// the pool's constituent assets and amounts.
+type LiquidityPoolBalance struct {
+	BalanceValue       string                 `json:"balance"`
+	TokenID            string                 `json:"tokenId"`
+	TokenType          TokenType              `json:"tokenType"`
+	LiquidityPoolID    string                 `json:"liquidityPoolId"`
+	Reserves           []LiquidityPoolReserve `json:"reserves"`
+	LastModifiedLedger uint32                 `json:"lastModifiedLedger"`
+}
+
+func (b *LiquidityPoolBalance) GetBalance() string      { return b.BalanceValue }
+func (b *LiquidityPoolBalance) GetTokenID() string      { return b.TokenID }
+func (b *LiquidityPoolBalance) GetTokenType() TokenType { return b.TokenType }
+func (b *LiquidityPoolBalance) isBalance()              {}
+
 // UnmarshalBalance unmarshals a JSON balance into the appropriate concrete type
 // based on the __typename field
 func UnmarshalBalance(data []byte) (Balance, error) {
@@ -205,6 +233,12 @@ func UnmarshalBalance(data []byte) (Balance, error) {
 		var balance SEP41Balance
 		if err := json.Unmarshal(data, &balance); err != nil {
 			return nil, fmt.Errorf("unmarshaling SEP-41 balance: %w", err)
+		}
+		return &balance, nil
+	case "LiquidityPoolBalance":
+		var balance LiquidityPoolBalance
+		if err := json.Unmarshal(data, &balance); err != nil {
+			return nil, fmt.Errorf("unmarshaling liquidity pool balance: %w", err)
 		}
 		return &balance, nil
 	default:

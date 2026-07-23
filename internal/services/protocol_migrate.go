@@ -18,10 +18,15 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// progressLogInterval is the fixed ledger cadence for migration progress logs and the
-// getHealth target-tip refresh. It is deliberately decoupled from the commit window
-// (--window-size) so tuning the commit size does not change observability cadence.
-const progressLogInterval uint32 = 100
+// progressLogInterval is the fixed ledger cadence for migration progress logs. It is deliberately
+// decoupled from the commit window (--window-size) so tuning the commit size does not change log
+// cadence. At migration throughput (hundreds of l/s) this yields a progress line every few seconds.
+const progressLogInterval uint32 = 1000
+
+// tipRefreshInterval is how often the background goroutine polls getHealth to refresh the
+// target_tip gauge. Loose freshness suffices — the gauge feeds only the %-remaining dashboard,
+// and the chain tip advances ~1 ledger every few seconds.
+const tipRefreshInterval = 15 * time.Second
 
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
 type protocolTracker struct {
@@ -209,12 +214,13 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 	return active, nil
 }
 
-// stageTimers accumulates per-stage wall-clock within a progress interval so the
-// migration loop can report where time goes: fetching a ledger, extracting its
-// contract events, folding it into the processors, or flushing a window to the DB.
-// It is reset after each progress log, so each line reflects only that interval.
+// stageTimers accumulates per-stage wall-clock across the whole migration run so the loop can
+// report where time goes: waiting for a ledger, extracting its contract events, folding it into
+// the processors, or flushing a window to the DB. It is never reset, so breakdown() reports the
+// cumulative share — stable line-to-line and fairly amortizing costs (like flush) that occur far
+// less often than the progress-log interval.
 type stageTimers struct {
-	fetch   time.Duration // GetLedger
+	fetch   time.Duration // GetLedger wait (consumer stall, not download time); ≈0 while the datastore prefetch keeps up, rises only when it can't
 	extract time.Duration // ExtractContractEventsForLedger
 	process time.Duration // ProcessLedger across all trackers
 	flush   time.Duration // flushWindow (CAS + Persist), including tip flushes
@@ -222,14 +228,14 @@ type stageTimers struct {
 
 func (t stageTimers) total() time.Duration { return t.fetch + t.extract + t.process + t.flush }
 
-// breakdown renders each stage's share of the staged total as a percentage.
+// breakdown renders each stage's share of the cumulative staged total as a percentage.
 func (t stageTimers) breakdown() string {
 	total := t.total()
 	if total == 0 {
-		return "fetch=0% extract=0% process=0% flush=0%"
+		return "fetch-wait=0% extract=0% process=0% flush=0%"
 	}
 	pct := func(d time.Duration) float64 { return 100 * float64(d) / float64(total) }
-	return fmt.Sprintf("fetch=%.0f%% extract=%.0f%% process=%.0f%% flush=%.0f%%",
+	return fmt.Sprintf("fetch-wait=%.0f%% extract=%.0f%% process=%.0f%% flush=%.0f%%",
 		pct(t.fetch), pct(t.extract), pct(t.process), pct(t.flush))
 }
 
@@ -302,6 +308,16 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		},
 	); prepErr != nil {
 		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
+	}
+
+	// Refresh the target_tip gauge off the hot path: a background goroutine polls RPC health so
+	// the migration loop never blocks on getHealth. The gauge feeds only the %-remaining dashboard
+	// (nothing in the loop reads it), so the goroutine is its sole writer and needs no locking; it
+	// stops when this function returns.
+	if s.tipProvider != nil {
+		tipCtx, cancelTip := context.WithCancel(ctx)
+		defer cancelTip()
+		go s.refreshTargetTip(tipCtx)
 	}
 
 	var (
@@ -386,29 +402,46 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		s.metrics.CurrentLedger.Set(float64(seq))
 		s.metrics.LedgersProcessed.Inc()
 		intervalLedgers++
-		if seq%progressLogInterval == 0 {
-			if s.tipProvider != nil {
-				if tip, tipErr := s.tipProvider(); tipErr == nil {
-					s.metrics.TargetTip.Set(float64(tip))
-				} else {
-					log.Ctx(ctx).Debugf("migration tip provider error (skipping target_tip update): %v", tipErr)
-				}
-			}
+		// Gate on ledgers processed, not seq%interval: an absolute-seq gate emits nothing for a
+		// run whose span never crosses a multiple of the interval (e.g. a short near-tip
+		// current-state run that hands off before reaching one).
+		if intervalLedgers >= progressLogInterval {
 			wall := time.Since(intervalStart)
 			var lps float64
 			if wall > 0 {
 				lps = float64(intervalLedgers) / wall.Seconds()
 			}
 			log.Ctx(ctx).Infof(
-				"Progress: processed ledger %d | %d ledgers in %s (%.1f l/s) | fetch=%s extract=%s process=%s flush=%s | %s",
+				"Progress: processed ledger %d | %d ledgers in %s (%.1f l/s) | %s",
 				seq, intervalLedgers, wall.Round(time.Millisecond), lps,
-				timers.fetch.Round(time.Millisecond), timers.extract.Round(time.Millisecond),
-				timers.process.Round(time.Millisecond), timers.flush.Round(time.Millisecond),
 				timers.breakdown(),
 			)
-			timers = stageTimers{}
 			intervalLedgers = 0
 			intervalStart = time.Now()
+		}
+	}
+}
+
+// refreshTargetTip polls the RPC chain tip on tipRefreshInterval and updates the target_tip
+// gauge, keeping the getHealth call off the migration hot path. It is the gauge's sole writer
+// (the loop never reads it), so it needs no synchronization. It checks ctx before each poll so
+// cancellation stops further RPC calls promptly, and returns when ctx is cancelled.
+func (s *protocolMigrateEngine) refreshTargetTip(ctx context.Context) {
+	ticker := time.NewTicker(tipRefreshInterval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		if tip, err := s.tipProvider(); err == nil {
+			s.metrics.TargetTip.Set(float64(tip))
+		} else {
+			log.Ctx(ctx).Debugf("migration tip provider error (skipping target_tip update): %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

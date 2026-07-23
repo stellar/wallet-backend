@@ -36,7 +36,7 @@ curl -X POST http://localhost:8080/graphql \
 
 **Schema Introspection:**
 
-You can explore the full schema using GraphQL introspection:
+You can explore the full schema using GraphQL introspection, when enabled:
 
 ```graphql
 query {
@@ -49,18 +49,17 @@ query {
 }
 ```
 
+Introspection (`__schema`, `__type`) is **disabled by default** — it exposes the full schema, including any unreleased or internal-only fields, to anyone who can reach the endpoint. Enable it with the `--graphql-introspection-enabled` flag or `GRAPHQL_INTROSPECTION_ENABLED` environment variable. Production deployments should leave it disabled; dev environments typically enable it.
+
 ## Queries
 
-The GraphQL API provides six root queries for accessing blockchain data. Account balances are fetched through `accountByAddress`:
+The GraphQL API provides three root queries for accessing blockchain data — `transactionByHash`, `accountByAddress`, and `operationById`. Account balances are fetched through `accountByAddress`:
 
 | # | Query | Description |
 |---|-------|-------------|
 | 1 | [`transactionByHash`](#1-get-transaction-by-hash) | Get a specific transaction by its hash |
-| 2 | [`transactions`](#2-list-all-transactions) | List all transactions with pagination |
-| 3 | [`accountByAddress`](#3-get-account-by-address) | Get account info and related data |
-| 4 | [`operations`](#4-list-all-operations) | List all operations with pagination |
-| 5 | [`operationById`](#5-get-operation-by-id) | Get a specific operation by ID |
-| 6 | [`stateChanges`](#6-list-state-changes) | List all state changes with pagination |
+| 2 | [`accountByAddress`](#2-get-account-by-address) | Get account info and related data |
+| 3 | [`operationById`](#3-get-operation-by-id) | Get a specific operation by ID |
 
 ### 1. Get Transaction by Hash
 
@@ -96,40 +95,7 @@ query GetTransaction {
 }
 ```
 
-### 2. List All Transactions
-
-Query transactions with cursor-based pagination.
-
-```graphql
-query ListTransactions {
-  transactions(first: 10, after: "cursor123") {
-    edges {
-      node {
-        hash
-        ledgerNumber
-        ledgerCreatedAt
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-      startCursor
-      endCursor
-    }
-  }
-}
-```
-
-**Pagination Parameters:**
-- `first: Int` - Return the first N items (forward pagination)
-- `after: String` - Return items after this cursor
-- `last: Int` - Return the last N items (backward pagination)
-- `before: String` - Return items before this cursor
-
-Note that you can only use `first/after` and `last/before`. Any other combination will result in an error.
-
-### 3. Get Account by Address
+### 2. Get Account by Address
 
 Retrieve account information and related data.
 
@@ -205,58 +171,7 @@ The `stateChanges` field on Account supports an optional `filter` parameter with
 | `category` | `String` | Filter by state change category (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `RESERVES`) |
 | `reason` | `String` | Filter by state change reason (e.g., `CREDIT`, `DEBIT`, `CREATE`, `MERGE`, `ADD`, `REMOVE`) |
 
-### 4. List All Operations
-
-Query operations across all transactions.
-
-```graphql
-query ListOperations {
-  operations(first: 20) {
-    edges {
-      node {
-        id
-        operationType
-        operationXdr
-        resultCode
-        successful
-        ledgerNumber
-        ledgerCreatedAt
-
-        # Parent transaction
-        transaction {
-          hash
-          envelopeXdr
-        }
-
-        # Related accounts
-        accounts {
-          address
-        }
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-}
-```
-
-**Operation Types:**
-
-The `operationType` field supports all Stellar operation types:
-- `CREATE_ACCOUNT`, `PAYMENT`, `PATH_PAYMENT_STRICT_RECEIVE`, `PATH_PAYMENT_STRICT_SEND`
-- `MANAGE_SELL_OFFER`, `CREATE_PASSIVE_SELL_OFFER`, `MANAGE_BUY_OFFER`
-- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`
-- `MANAGE_DATA`, `BUMP_SEQUENCE`
-- `CREATE_CLAIMABLE_BALANCE`, `CLAIM_CLAIMABLE_BALANCE`
-- `BEGIN_SPONSORING_FUTURE_RESERVES`, `END_SPONSORING_FUTURE_RESERVES`, `REVOKE_SPONSORSHIP`
-- `CLAWBACK`, `CLAWBACK_CLAIMABLE_BALANCE`, `SET_TRUST_LINE_FLAGS`
-- `LIQUIDITY_POOL_DEPOSIT`, `LIQUIDITY_POOL_WITHDRAW`
-- `INVOKE_HOST_FUNCTION`, `EXTEND_FOOTPRINT_TTL`, `RESTORE_FOOTPRINT` (Soroban)
-
-### 5. Get Operation by ID
+### 3. Get Operation by ID
 
 Retrieve a specific operation by its ID.
 
@@ -294,91 +209,20 @@ query GetOperation {
 }
 ```
 
-### 6. List State Changes
+**Operation Types:**
 
-Query all state changes.
+The `operationType` field supports all Stellar operation types:
+- `CREATE_ACCOUNT`, `PAYMENT`, `PATH_PAYMENT_STRICT_RECEIVE`, `PATH_PAYMENT_STRICT_SEND`
+- `MANAGE_SELL_OFFER`, `CREATE_PASSIVE_SELL_OFFER`, `MANAGE_BUY_OFFER`
+- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`
+- `MANAGE_DATA`, `BUMP_SEQUENCE`
+- `CREATE_CLAIMABLE_BALANCE`, `CLAIM_CLAIMABLE_BALANCE`
+- `BEGIN_SPONSORING_FUTURE_RESERVES`, `END_SPONSORING_FUTURE_RESERVES`, `REVOKE_SPONSORSHIP`
+- `CLAWBACK`, `CLAWBACK_CLAIMABLE_BALANCE`, `SET_TRUST_LINE_FLAGS`
+- `LIQUIDITY_POOL_DEPOSIT`, `LIQUIDITY_POOL_WITHDRAW`
+- `INVOKE_HOST_FUNCTION`, `EXTEND_FOOTPRINT_TTL`, `RESTORE_FOOTPRINT` (Soroban)
 
-```graphql
-query ListStateChanges {
-  stateChanges(first: 50) {
-    edges {
-      node {
-        # Common fields (available on all state change types)
-        type
-        reason
-        ledgerNumber
-        ledgerCreatedAt
-        ingestedAt
-
-        account {
-          address
-        }
-
-        operation {
-          id
-          operationType
-        }
-
-        transaction {
-          hash
-        }
-
-        # Type-specific fields using fragments
-        ... on StandardBalanceChange {
-          tokenId
-          amount
-        }
-
-        ... on AccountChange {
-          funderAddress    # Address that funded the account (for CREATE reason)
-        }
-
-        ... on SignerChange {
-          signerAddress
-          signerWeights
-        }
-
-        ... on SignerThresholdsChange {
-          thresholds
-        }
-
-        ... on MetadataChange {
-          keyValue
-        }
-
-        ... on FlagsChange {
-          flags
-        }
-
-        ... on TrustlineChange {
-          tokenId
-          limit
-          keyValue         # JSON containing additional trustline data
-        }
-
-        ... on ReservesChange {
-          sponsoredAddress
-          sponsorAddress
-          keyValue         # JSON containing additional reserve data
-        }
-
-        ... on BalanceAuthorizationChange {
-          tokenId
-          flags
-          keyValue
-        }
-      }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-}
-```
-
-### 7. Get Account Balances
+### 4. Get Account Balances
 
 Retrieve account balances through a Relay-style connection, including native XLM, classic trustlines, and contract tokens.
 
@@ -553,8 +397,8 @@ This query returns structured GraphQL errors with error codes in the `extensions
 | Error Code | Description |
 |------------|-------------|
 | `INVALID_ADDRESS` | The provided address is not a valid Stellar account (G...) or contract (C...) address |
-| `RPC_UNAVAILABLE` | Failed to fetch balance data from Stellar RPC |
-| `INTERNAL_ERROR` | An unexpected error occurred while processing the balance request |
+| `BAD_USER_INPUT` | `first`/`last` exceeds the page size cap, or an invalid pagination argument combination was given |
+| `INTERNAL_ERROR` | An unexpected error occurred while fetching or processing balance data (storage or RPC failure) |
 
 **Error Response Example:**
 
@@ -585,28 +429,32 @@ The API uses **Relay-style cursor-based pagination** for all list queries. This 
 ```graphql
 # Get first page
 query {
-  transactions(first: 10) {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10) {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }
 
 # Get next page
 query {
-  transactions(first: 10, after: "endCursorFromPreviousPage") {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10, after: "endCursorFromPreviousPage") {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }
@@ -617,28 +465,32 @@ query {
 ```graphql
 # Get last page
 query {
-  transactions(last: 10) {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasPreviousPage
-      startCursor
+  accountByAddress(address: "GABC...") {
+    transactions(last: 10) {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasPreviousPage
+        startCursor
+      }
     }
   }
 }
 
 # Get previous page
 query {
-  transactions(last: 10, before: "startCursorFromCurrentPage") {
-    edges {
-      node { hash }
-      cursor
-    }
-    pageInfo {
-      hasPreviousPage
-      startCursor
+  accountByAddress(address: "GABC...") {
+    transactions(last: 10, before: "startCursorFromCurrentPage") {
+      edges {
+        node { hash }
+        cursor
+      }
+      pageInfo {
+        hasPreviousPage
+        startCursor
+      }
     }
   }
 }
@@ -649,6 +501,10 @@ query {
 - `hasPreviousPage: Boolean!` - True if more items exist before the current page
 - `startCursor: String` - Cursor of the first item in the page
 - `endCursor: String` - Cursor of the last item in the page
+
+**Page Size Limits:**
+
+Every connection in the schema — account-scoped (`Account.transactions`/`operations`/`stateChanges`/`balances`/`sep41Allowances`) and nested (`Transaction.operations`/`stateChanges`, `Operation.stateChanges`) — caps `first`/`last` at **100**. A page size above the cap is rejected with a `BAD_USER_INPUT` error rather than silently clamped, so callers get an explicit signal instead of a smaller-than-requested page.
 
 ## State Changes
 
@@ -700,20 +556,22 @@ Reasons provide context for why a state change occurred:
 
 ```graphql
 query GetBalanceChanges {
-  stateChanges(first: 100) {
-    edges {
-      node {
-        type
-        reason
+  accountByAddress(address: "GABC...") {
+    stateChanges(first: 100) {
+      edges {
+        node {
+          type
+          reason
 
-        ... on StandardBalanceChange {
-          tokenId
-          amount
-          account {
-            address
-          }
-          transaction {
-            hash
+          ... on StandardBalanceChange {
+            tokenId
+            amount
+            account {
+              address
+            }
+            transaction {
+              hash
+            }
           }
         }
       }
@@ -795,7 +653,7 @@ Several state change fields return JSON-formatted strings containing old and new
 
 ## Error Handling
 
-The GraphQL API returns structured errors with detailed information:
+The GraphQL API returns structured errors with an `extensions.code` field so clients can branch on error type without parsing the message.
 
 **Error Response Format:**
 
@@ -803,11 +661,12 @@ The GraphQL API returns structured errors with detailed information:
 {
   "errors": [
     {
-      "message": "Account already exists",
+      "message": "invalid transaction hash format: must be a 64-character hex string",
       "extensions": {
-        "code": "ACCOUNT_ALREADY_EXISTS"
+        "code": "INVALID_TRANSACTION_HASH",
+        "hash": "not-a-hash"
       },
-      "path": ["registerAccount"]
+      "path": ["transactionByHash"]
     }
   ],
   "data": null
@@ -834,6 +693,24 @@ Some errors include additional context in the `extensions` field. For example, w
 }
 ```
 
+**Error Codes:**
+
+| Error Code | Meaning |
+|------------|---------|
+| `BAD_USER_INPUT` | Client-correctable validation failure — an invalid pagination combination, a page size over the cap, or similar |
+| `INVALID_ADDRESS` | The provided address is not a valid Stellar account (G...) or contract (C...) address |
+| `INVALID_TRANSACTION_HASH` | The provided hash is not a 64-character hex string |
+| `INTERNAL_ERROR` | A sanitized, generic failure from a specific resolver (e.g. the balances query) that already masks its own internal detail |
+| `GRAPHQL_VALIDATION_FAILED` | The query failed schema validation (unknown field, bad argument, ...) |
+| `GRAPHQL_PARSE_FAILED` | The query failed to parse |
+| `COMPLEXITY_LIMIT_EXCEEDED` | The query's computed complexity exceeds the configured limit (see [Complexity Limits](#2-complexity-limits)) |
+| `QUERY_TOO_DEEP` | The query's selection set nests deeper than the depth limit (see [Depth Limit](#3-depth-limit)) |
+| `INTERNAL_SERVER_ERROR` | An unmasked internal failure — see below |
+
+**Error Masking:**
+
+Any error surfaced without one of the codes above is treated as an internal failure: the server logs the underlying error server-side and returns a generic `"internal server error"` message under `INTERNAL_SERVER_ERROR` instead of forwarding the raw error text to the client. This prevents a bare SQL driver error, a wrapped Go error, or other internal detail (query text, table/column names, etc.) from leaking to callers.
+
 ## Performance Features
 
 The GraphQL API is optimized for production use with several performance enhancements:
@@ -852,15 +729,17 @@ For example, without dataloader, the following query would:
 However, with dataloader, the individual DB calls to get operations get converted to a single DB call for all batched operations for all transactions.
 ```graphql
 query ListTransactions {
-  transactions(first: 5, after: "cursor123") {
-    edges {
-      node {
-        operations {
-          id
-          operationType
-          operationXdr
-          ledgerNumber
-          ledgerCreatedAt
+  accountByAddress(address: "GABC...") {
+    transactions(first: 5, after: "cursor123") {
+      edges {
+        node {
+          operations {
+            id
+            operationType
+            operationXdr
+            ledgerNumber
+            ledgerCreatedAt
+          }
         }
       }
     }
@@ -870,24 +749,49 @@ query ListTransactions {
 
 ### 2. Complexity Limits
 
-Queries are limited by a configurable complexity score (default: **1000**) to prevent resource exhaustion. Complexity is calculated based on:
+Queries are limited by a configurable complexity score to prevent resource exhaustion. Complexity is calculated based on:
 - Number of fields requested
 - Pagination parameters (`first`/`last` multiplied by field complexity)
 
-The complexity limit can be configured via the `--graphql-complexity-limit` flag or the `GRAPHQL_COMPLEXITY_LIMIT` environment variable.
+The complexity limit is set via the `--graphql-complexity-limit` flag (see `cmd/utils/global_options.go` for the built-in default) or the `GRAPHQL_COMPLEXITY_LIMIT` environment variable; deployments commonly override the built-in default to fit their own query patterns.
 
 If a query exceeds the limit, you'll receive an error:
 ```json
 {
   "errors": [
     {
-      "message": "operation has complexity 1100, which exceeds the limit of 1000"
+      "message": "operation has complexity 1100, which exceeds the limit of 1000",
+      "extensions": {
+        "code": "COMPLEXITY_LIMIT_EXCEEDED"
+      }
     }
   ]
 }
 ```
 
-### 3. Automatic Persisted Queries (APQ)
+### 3. Depth Limit
+
+Independent of the complexity limit, queries are also limited by selection-set nesting depth (default: **15**). A chain of `first: 1` connections costs only ~1 in complexity per level regardless of how deep it goes, so depth is capped separately to reject pathologically deep queries that would otherwise slip under the complexity budget. Fragment spreads are resolved against the query's fragments before measuring depth, so nesting can't be hidden behind a fragment indirection.
+
+If a query exceeds the limit, you'll receive an error with code `QUERY_TOO_DEEP`:
+```json
+{
+  "errors": [
+    {
+      "message": "operation has depth 18, which exceeds the limit of 15",
+      "extensions": {
+        "code": "QUERY_TOO_DEEP"
+      }
+    }
+  ]
+}
+```
+
+### 4. Request Timeout
+
+Each request's context is bounded to **30 seconds**. A resolver or database query still running when the timeout elapses is canceled and the request fails; this bounds worst-case resource usage per request independent of the complexity and depth limits.
+
+### 5. Automatic Persisted Queries (APQ)
 
 Reduces bandwidth by allowing clients to send query hashes instead of full query strings:
 
@@ -895,7 +799,7 @@ Reduces bandwidth by allowing clients to send query hashes instead of full query
 # First request: Send full query with hash
 POST /graphql
 {
-  "query": "{ transactions(first: 10) { ... } }",
+  "query": "{ accountByAddress(address: \"GABC...\") { transactions(first: 10) { ... } } }",
   "extensions": {
     "persistedQuery": {
       "version": 1,
@@ -916,18 +820,20 @@ POST /graphql
 }
 ```
 
-### 4. Field Selection Optimization
+### 6. Field Selection Optimization
 
 The API only queries database columns that are requested in the GraphQL query, reducing unnecessary data transfer:
 
 ```graphql
 # Only queries 'hash' and 'ledgerNumber' columns
 query {
-  transactions(first: 10) {
-    edges {
-      node {
-        hash
-        ledgerNumber
+  accountByAddress(address: "GABC...") {
+    transactions(first: 10) {
+      edges {
+        node {
+          hash
+          ledgerNumber
+        }
       }
     }
   }

@@ -5,7 +5,7 @@
 # TimescaleDB from the apt repo and layers it onto the CNPG base image.
 #
 # Usage:
-#   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.25.0 -t cnpg-timescaledb .
+#   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.28.2 -t cnpg-timescaledb .
 
 ARG PG_MAJOR=17
 
@@ -15,7 +15,7 @@ ARG PG_MAJOR=17
 FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-bookworm AS timescaledb-builder
 
 ARG PG_MAJOR
-ARG TSDB_VERSION=2.25.0
+ARG TSDB_VERSION=2.28.2
 
 USER root
 

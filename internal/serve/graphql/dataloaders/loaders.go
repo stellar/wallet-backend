@@ -11,7 +11,18 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
+
+// loaderBatchCapacity fires a batch as soon as this many distinct keys are enqueued.
+// It matches the maximum page size, so a full page's fan-out never waits on the timer.
+const loaderBatchCapacity = 100
+
+// loaderWait is the collection window before an under-capacity batch fires. Keys for one
+// GraphQL request arrive in a near-instant burst (sibling resolvers run concurrently), so
+// the window only exists to catch that burst; each nested loader level serializes one
+// window, so this is a per-level latency floor, not a throughput knob.
+const loaderWait = 1 * time.Millisecond
 
 // Dataloaders struct holds all dataloader instances for GraphQL resolvers
 // Each dataloader batches requests for a specific type of data relationship
@@ -62,19 +73,54 @@ type Dataloaders struct {
 // This is called during GraphQL server initialization
 // The dataloaders are then injected into GraphQL context by middleware
 // GraphQL resolvers access these loaders to batch database queries efficiently
-func NewDataloaders(models *data.Models) *Dataloaders {
+//
+// m may be nil (e.g. in tests constructing loaders directly without a metrics handle); every
+// instrumentation call site guards against it.
+func NewDataloaders(models *data.Models, m *metrics.DataloaderMetrics) *Dataloaders {
 	return &Dataloaders{
-		OperationsByToIDLoader:           operationsByToIDLoader(models),
-		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models),
-		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models),
-		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models),
-		StateChangesByToIDLoader:         stateChangesByToIDLoader(models),
-		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models),
-		AccountsByToIDLoader:             accountsByToIDLoader(models),
-		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models),
-		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models),
-		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models),
+		OperationsByToIDLoader:           operationsByToIDLoader(models, m),
+		OperationByStateChangeIDLoader:   operationByStateChangeIDLoader(models, m),
+		TransactionByStateChangeIDLoader: transactionByStateChangeIDLoader(models, m),
+		TransactionsByOperationIDLoader:  transactionByOperationIDLoader(models, m),
+		StateChangesByToIDLoader:         stateChangesByToIDLoader(models, m),
+		StateChangesByOperationIDLoader:  stateChangesByOperationIDLoader(models, m),
+		AccountsByToIDLoader:             accountsByToIDLoader(models, m),
+		AccountsByOperationIDLoader:      accountsByOperationIDLoader(models, m),
+		AccountOperationsByToIDLoader:    accountOperationsByToIDLoader(models, m),
+		AccountStateChangesByToIDLoader:  accountStateChangesByToIDLoader(models, m),
 	}
+}
+
+// observeBatch records batch-size and fetch-duration metrics for one dataloader batch. It
+// returns a func to call when the batch's fetch work is complete (deferred by the caller), so
+// duration spans every shape-group fetch the batch was split into. m may be nil.
+func observeBatch(m *metrics.DataloaderMetrics, name string, keyCount int) func() {
+	if m == nil {
+		return func() {}
+	}
+	m.BatchSize.WithLabelValues(name).Observe(float64(keyCount))
+	start := time.Now()
+	return func() {
+		m.FetchDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
+	}
+}
+
+// QueryShape captures the query-shaping parameters of a dataloader key: the parameters a fetcher
+// closure reads off of keys[0] and applies to the whole slice it's given (Columns, Limit, Cursor,
+// SortOrder). dataloadgen hands a batch to the fetch function as one flat, ungrouped slice of
+// keys, so two keys differing in any of these fields (e.g. two GraphQL aliases of the same field
+// with different sub-selections) must never be fetched together — the fetcher would apply one
+// key's shape to both. newOneToManyLoader and newOneToOneLoader group each batch by QueryShape
+// before calling the fetcher, so every slice the fetcher sees is shape-homogeneous and keys[0] is
+// representative of the whole slice. One-to-one loaders only vary in Columns, so they leave
+// Limit/Cursor/SortOrder at their zero values.
+type QueryShape struct {
+	Columns   string
+	Limit     int32
+	HasLimit  bool
+	Cursor    any
+	HasCursor bool
+	SortOrder data.SortOrder
 }
 
 // newOneToManyLoader is a generic helper function that creates a dataloader for one-to-many relationships.
@@ -82,8 +128,13 @@ func NewDataloaders(models *data.Models) *Dataloaders {
 // order of the original keys. This reduces boilerplate code in dataloader definitions.
 //
 // Parameters:
-//   - fetcher: A function that fetches all items for a given set of keys.
+//   - fetcher: A function that fetches all items for a given set of keys. Every call is guaranteed
+//     to receive a shape-homogeneous slice (see QueryShape), so it may safely derive query
+//     parameters from keys[0] and apply them to the whole slice.
 //   - getKey: A function that extracts the grouping key from an item.
+//   - shapeOf: Extracts the query shape from a key, used to group the batch before fetching.
+//   - name: A static loader name used only as the "loader" metrics label (fixed set, bounded cardinality).
+//   - m: Metrics handle for batch-size/fetch-duration instrumentation; may be nil.
 //
 // Returns:
 //   - A configured dataloadgen.Loader for one-to-many relationships.
@@ -92,46 +143,91 @@ func newOneToManyLoader[K comparable, PK comparable, V any, T any](
 	getPKFromItem func(item T) PK,
 	getPKFromKey func(key K) PK,
 	transform func(item T) V,
+	shapeOf func(key K) QueryShape,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, []*V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([][]*V, []error) {
-			items, err := fetcher(ctx, keys)
-			if err != nil {
-				// if the fetcher function returns an error, we'll return it for each key.
-				// this is a requirement for dataloadgen, which expects an error for each key.
-				errors := make([]error, len(keys))
-				for i := range keys {
-					errors[i] = err
-				}
-				return nil, errors
-			}
+			done := observeBatch(m, name, len(keys))
+			defer done()
 
-			// An item is the actual data from the database that we want to return.
-			// The key contains the primary key and the set of columns to return.
-			//
-			// For e.g. if we want to get all operations for a transaction, the key will
-			// be the a struct containing the transaction hash and the columns to return.
-			// The items will be a slice of operations which will be grouped by the primary key, which is the transaction hash.
-			// We can do this by creating a map with the primary key as the key and the items as the value.
-			// We can then return the items in the order of the keys.
-			itemsByPK := make(map[PK][]*V)
-			for _, item := range items {
-				key := getPKFromItem(item)
-				transformedItem := transform(item)
-				itemsByPK[key] = append(itemsByPK[key], &transformedItem)
-			}
-
-			// Build result in the order of the keys.
 			result := make([][]*V, len(keys))
-			for i, key := range keys {
-				result[i] = itemsByPK[getPKFromKey(key)]
+			errs := make([]error, len(keys))
+
+			for _, indices := range groupIndicesByShape(keys, shapeOf) {
+				items, err := fetcher(ctx, subset(keys, indices))
+				if err != nil {
+					for _, i := range indices {
+						errs[i] = err
+					}
+					continue
+				}
+
+				// An item is the actual data from the database that we want to return.
+				// The key contains the primary key and the set of columns to return.
+				//
+				// For e.g. if we want to get all operations for a transaction, the key will
+				// be the a struct containing the transaction hash and the columns to return.
+				// The items will be a slice of operations which will be grouped by the primary key, which is the transaction hash.
+				// We can do this by creating a map with the primary key as the key and the items as the value.
+				// We can then return the items in the order of the keys.
+				itemsByPK := make(map[PK][]*V)
+				for _, item := range items {
+					pk := getPKFromItem(item)
+					transformedItem := transform(item)
+					itemsByPK[pk] = append(itemsByPK[pk], &transformedItem)
+				}
+
+				for _, i := range indices {
+					result[i] = itemsByPK[getPKFromKey(keys[i])]
+				}
 			}
 
-			return result, nil
+			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
+}
+
+// groupIndicesByShape partitions a batch's key indices by QueryShape, so the fetcher only ever
+// sees shape-homogeneous slices. A group whose shape carries a cursor and holds more than one key
+// is split into singleton groups instead: the multi-key data-layer methods take no cursor
+// parameter, so a >1-key cursored group must be fetched one key at a time to honor each key's
+// cursor rather than silently dropping it.
+func groupIndicesByShape[K comparable](keys []K, shapeOf func(K) QueryShape) [][]int {
+	indicesByShape := make(map[QueryShape][]int)
+	var order []QueryShape
+	for i, key := range keys {
+		shape := shapeOf(key)
+		if _, seen := indicesByShape[shape]; !seen {
+			order = append(order, shape)
+		}
+		indicesByShape[shape] = append(indicesByShape[shape], i)
+	}
+
+	groups := make([][]int, 0, len(order))
+	for _, shape := range order {
+		indices := indicesByShape[shape]
+		if shape.HasCursor && len(indices) > 1 {
+			for _, i := range indices {
+				groups = append(groups, []int{i})
+			}
+			continue
+		}
+		groups = append(groups, indices)
+	}
+	return groups
+}
+
+// subset returns the keys at the given indices, preserving order.
+func subset[K any](keys []K, indices []int) []K {
+	out := make([]K, len(indices))
+	for j, i := range indices {
+		out[j] = keys[i]
+	}
+	return out
 }
 
 // newAccountScopedLoader creates a dataloader for account-scoped one-to-many lookups keyed by
@@ -148,9 +244,14 @@ func newAccountScopedLoader[K comparable, V any](
 	toID func(key K) int64,
 	ledgerCreatedAt func(key K) time.Time,
 	itemToID func(item *V) int64,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, []*V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([][]*V, []error) {
+			done := observeBatch(m, name, len(keys))
+			defer done()
+
 			result := make([][]*V, len(keys))
 			errs := make([]error, len(keys))
 
@@ -191,8 +292,8 @@ func newAccountScopedLoader[K comparable, V any](
 
 			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
 }
 
@@ -201,10 +302,15 @@ func newAccountScopedLoader[K comparable, V any](
 // order of the original keys. This is useful for relationships where each key maps to exactly one item.
 //
 // Parameters:
-//   - fetcher: A function that fetches all items for a given set of keys.
+//   - fetcher: A function that fetches all items for a given set of keys. Every call is guaranteed
+//     to receive a shape-homogeneous slice (see QueryShape), so it may safely derive query
+//     parameters from keys[0] and apply them to the whole slice.
 //   - getKey: A function that extracts the grouping key from an item.
 //   - setKey: A function that associates a fetched item with its corresponding key. This is necessary
 //     because the fetcher may not return items in the same order as the input keys.
+//   - shapeOf: Extracts the query shape from a key, used to group the batch before fetching.
+//   - name: A static loader name used only as the "loader" metrics label (fixed set, bounded cardinality).
+//   - m: Metrics handle for batch-size/fetch-duration instrumentation; may be nil.
 //
 // Returns:
 //   - A configured dataloadgen.Loader for one-to-one relationships.
@@ -213,33 +319,42 @@ func newOneToOneLoader[K comparable, PK comparable, V any, T any](
 	getPKFromItem func(item T) PK,
 	getPKFromKey func(key K) PK,
 	transform func(item T) V,
+	shapeOf func(key K) QueryShape,
+	name string,
+	m *metrics.DataloaderMetrics,
 ) *dataloadgen.Loader[K, *V] {
 	return dataloadgen.NewLoader(
 		func(ctx context.Context, keys []K) ([]*V, []error) {
-			items, err := fetcher(ctx, keys)
-			if err != nil {
-				errors := make([]error, len(keys))
-				for i := range keys {
-					errors[i] = err
-				}
-				return nil, errors
-			}
-
-			itemsByKey := make(map[PK]*V)
-			for _, item := range items {
-				key := getPKFromItem(item)
-				transformedItem := transform(item)
-				itemsByKey[key] = &transformedItem
-			}
+			done := observeBatch(m, name, len(keys))
+			defer done()
 
 			result := make([]*V, len(keys))
-			for i, key := range keys {
-				result[i] = itemsByKey[getPKFromKey(key)]
+			errs := make([]error, len(keys))
+
+			for _, indices := range groupIndicesByShape(keys, shapeOf) {
+				items, err := fetcher(ctx, subset(keys, indices))
+				if err != nil {
+					for _, i := range indices {
+						errs[i] = err
+					}
+					continue
+				}
+
+				itemsByPK := make(map[PK]*V)
+				for _, item := range items {
+					pk := getPKFromItem(item)
+					transformedItem := transform(item)
+					itemsByPK[pk] = &transformedItem
+				}
+
+				for _, i := range indices {
+					result[i] = itemsByPK[getPKFromKey(keys[i])]
+				}
 			}
 
-			return result, nil
+			return result, errs
 		},
-		dataloadgen.WithBatchCapacity(100),
-		dataloadgen.WithWait(5*time.Millisecond),
+		dataloadgen.WithBatchCapacity(loaderBatchCapacity),
+		dataloadgen.WithWait(loaderWait),
 	)
 }

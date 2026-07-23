@@ -25,7 +25,7 @@ const sep41ProtocolID = "SEP41"
 // wallet-backend subcommands as one-shot containers and asserts the migrated
 // SEP-41 state, rather than driving the migration services in-process. The
 // per-ledger CAS gating and windowed-coalescing engine mechanics are covered by
-// unit tests (services.Test_PersistLedgerData_ProtocolCASGating,
+// unit tests (services.Test_persistLedgerData_ProtocolCASGating,
 // TestProtocolMigrateEngine*); this suite's unique value is verifying the real
 // binaries produce correct end state.
 type DataMigrationTestSuite struct {

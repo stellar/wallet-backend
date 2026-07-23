@@ -52,8 +52,17 @@ type SharedContainers struct {
 	balanceTestAccount2KeyPair    *keypair.Full
 	feeBumpSourceKeyPair          *keypair.Full // Fee-bump fee source for the fee-phase balance test (#637); moves only in the fee phase
 	sorobanRefundSourceKeyPair    *keypair.Full // Soroban tx source: pays a refunded resource fee and is touched by its own transfer op
-	masterKeyPair                 *keypair.Full
-	masterAccount                 *txnbuild.SimpleAccount
+	// checkpointLPAccountKeyPair issues its own credit asset and establishes a liquidity pool BEFORE
+	// the checkpoint snapshot, so its pool-share balance is hydrated via checkpoint BatchCopy.
+	checkpointLPAccountKeyPair *keypair.Full
+	// liveLPAccountKeyPair issues its own credit asset and deposits into a pool AFTER the snapshot,
+	// as a submitted use case, so its pool-share balance is produced by live delta ingestion.
+	liveLPAccountKeyPair *keypair.Full
+	masterKeyPair        *keypair.Full
+	masterAccount        *txnbuild.SimpleAccount
+
+	// checkpointLiquidityPoolID is the pool id (hex) of the pool created before the checkpoint snapshot.
+	checkpointLiquidityPoolID string
 
 	// Deployed contracts
 	usdcContractAddress string
@@ -137,6 +146,8 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 	s.balanceTestAccount2KeyPair = keypair.MustRandom()
 	s.feeBumpSourceKeyPair = keypair.MustRandom()
 	s.sorobanRefundSourceKeyPair = keypair.MustRandom()
+	s.checkpointLPAccountKeyPair = keypair.MustRandom()
+	s.liveLPAccountKeyPair = keypair.MustRandom()
 
 	// We are not funding this account, as it will be funded by the primary account through a sponsored account creation operation
 	s.sponsoredNewAccountKeyPair = keypair.MustRandom()
@@ -151,6 +162,8 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 		s.balanceTestAccount2KeyPair,
 		s.feeBumpSourceKeyPair,
 		s.sorobanRefundSourceKeyPair,
+		s.checkpointLPAccountKeyPair,
+		s.liveLPAccountKeyPair,
 	})
 
 	// Create trustlines - these will be used for the account balances test
@@ -161,6 +174,11 @@ func (s *SharedContainers) setupTestAccounts(ctx context.Context, t *testing.T) 
 
 	// Create EURC trustlines for balance test account 1 only
 	s.createEURCTrustlines(ctx, t)
+
+	// Create a liquidity pool for the checkpoint LP account BEFORE the checkpoint snapshot so its
+	// pool-share balance is hydrated via the checkpoint BatchCopy path. The live LP account only
+	// deposits later, as a submitted use case, exercising the live delta-ingestion path instead.
+	s.createLiquidityPool(ctx, t)
 
 	return nil
 }
@@ -520,6 +538,12 @@ type TestEnvironment struct {
 	SponsoredNewAccountKP *keypair.Full
 	BalanceTestAccount1KP *keypair.Full
 	BalanceTestAccount2KP *keypair.Full
+	// CheckpointLPAccountKP holds pool shares from a pool established before the checkpoint snapshot,
+	// exercising checkpoint BatchCopy hydration of liquidity_pool_balances JOINed with liquidity_pools.
+	CheckpointLPAccountKP *keypair.Full
+	// LiveLPAccountKP holds pool shares deposited via a submitted use case after the snapshot,
+	// exercising the live delta-ingestion path.
+	LiveLPAccountKP *keypair.Full
 	// FeeBumpSourceKP pays only a fee-bump fee in the fixtures — touched by no operation —
 	// so its native balance moves only in the fee phase (#637 regression coverage).
 	FeeBumpSourceKP *keypair.Full
@@ -538,10 +562,14 @@ type TestEnvironment struct {
 	HolderContractAddress string
 	// MasterAccountAddress is the address of the master/root account that issues classic assets.
 	// Used for asserting issuer addresses in trustline and SAC balance tests.
-	MasterAccountAddress     string
-	ClaimBalanceID           string
-	ClawbackBalanceID        string
-	LiquidityPoolID          string
+	MasterAccountAddress string
+	ClaimBalanceID       string
+	ClawbackBalanceID    string
+	LiquidityPoolID      string
+	// CheckpointLiquidityPoolID is the pool id (hex) of the pool created before the checkpoint snapshot.
+	CheckpointLiquidityPoolID string
+	// LiveLiquidityPoolID is the pool id (hex) of the pool created by the live LP deposit use case.
+	LiveLiquidityPoolID      string
 	NetworkPassphrase        string
 	UseCases                 []*UseCase
 	ClaimAndClawbackUseCases []*UseCase
@@ -618,6 +646,7 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		sponsoredNewAccountKP,
 		balanceTestAccount1KP,
 		balanceTestAccount2KP,
+		containers.liveLPAccountKeyPair,
 		masterAccountKP,
 		rpcService,
 		containers.holderContractAddress,
@@ -646,16 +675,20 @@ func NewTestEnvironment(ctx context.Context, containers *SharedContainers) (*Tes
 		SponsoredNewAccountKP: sponsoredNewAccountKP,
 		BalanceTestAccount1KP: balanceTestAccount1KP,
 		BalanceTestAccount2KP: balanceTestAccount2KP,
+		CheckpointLPAccountKP: containers.checkpointLPAccountKeyPair,
+		LiveLPAccountKP:       containers.liveLPAccountKeyPair,
 		FeeBumpSourceKP:       containers.feeBumpSourceKeyPair,
 		SorobanRefundSourceKP: containers.sorobanRefundSourceKeyPair,
 		USDCContractAddress:   containers.usdcContractAddress,
 		EURCContractAddress:   containers.eurcContractAddress,
 		// Pass through contract addresses for test assertions
-		SEP41ContractAddress:  containers.sep41ContractAddress,
-		HolderContractAddress: containers.holderContractAddress,
-		MasterAccountAddress:  masterAccountKP.Address(),
-		UseCases:              useCases,
-		NetworkPassphrase:     networkPassphrase,
-		LiquidityPoolID:       fixtures.LiquidityPoolID,
+		SEP41ContractAddress:      containers.sep41ContractAddress,
+		HolderContractAddress:     containers.holderContractAddress,
+		MasterAccountAddress:      masterAccountKP.Address(),
+		UseCases:                  useCases,
+		NetworkPassphrase:         networkPassphrase,
+		LiquidityPoolID:           fixtures.LiquidityPoolID,
+		CheckpointLiquidityPoolID: containers.checkpointLiquidityPoolID,
+		LiveLiquidityPoolID:       fixtures.LiveLiquidityPoolID,
 	}, nil
 }

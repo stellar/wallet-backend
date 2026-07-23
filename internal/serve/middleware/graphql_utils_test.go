@@ -20,7 +20,7 @@ func TestGetOperationIdentifier(t *testing.T) {
 			expected: "<unnamed>",
 		},
 		{
-			name: "explicit operation name is preferred",
+			name: "explicit operation name is ignored in favor of root field name",
 			oc: &graphql.OperationContext{
 				OperationName: "GetAccount",
 				Operation: &ast.OperationDefinition{
@@ -29,7 +29,7 @@ func TestGetOperationIdentifier(t *testing.T) {
 					},
 				},
 			},
-			expected: "GetAccount",
+			expected: "accountByAddress",
 		},
 		{
 			name: "anonymous query returns first field name",

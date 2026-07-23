@@ -34,12 +34,24 @@ CREATE TABLE operations (
 
 SELECT enable_chunk_skipping('operations', 'id');
 
+-- TimescaleDB's default single-column index on the partition column. Retention drops chunks by
+-- range metadata, and no query path filters this table by bare ledger_created_at (reads go through
+-- the primary key or the operations_accounts table), so it has zero consumers.
+DROP INDEX IF EXISTS operations_ledger_created_at_idx;
+
 -- Table: operations_accounts (TimescaleDB hypertable for automatic cleanup with retention)
 CREATE TABLE operations_accounts (
     operation_id BIGINT NOT NULL,
     account_id BYTEA NOT NULL,
     ledger_created_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (account_id, operation_id, ledger_created_at)
+    -- Column order (account_id, ledger_created_at, operation_id) serves both consumers as a
+    -- single index: BatchGetByAccountAddress pins account_id by equality and sorts by
+    -- (ledger_created_at, operation_id), which the planner walks as an index (only) scan over
+    -- this PK -- forward or backward; BatchGetAccountOperationsByToIDs probes equality on
+    -- account_id, equality on ledger_created_at, and a range on operation_id, which fits this
+    -- key as a perfect prefix. The dedicated (account_id, ledger_created_at DESC, operation_id
+    -- DESC) index once needed for the former is now redundant.
+    PRIMARY KEY (account_id, ledger_created_at, operation_id)
 ) WITH (
     tsdb.hypertable,
     tsdb.partition_column = 'ledger_created_at',
@@ -50,8 +62,12 @@ CREATE TABLE operations_accounts (
 
 SELECT enable_chunk_skipping('operations_accounts', 'operation_id');
 
+-- TimescaleDB's default single-column index on the partition column. Retention drops chunks
+-- by range metadata, and no query path filters this table by bare ledger_created_at, so it
+-- has zero consumers.
+DROP INDEX IF EXISTS operations_accounts_ledger_created_at_idx;
+
 CREATE INDEX idx_operations_accounts_operation_id ON operations_accounts(operation_id);
-CREATE INDEX idx_operations_accounts_account_id ON operations_accounts(account_id, ledger_created_at DESC, operation_id DESC);
 
 -- +migrate Down
 

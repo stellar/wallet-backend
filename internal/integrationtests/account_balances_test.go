@@ -27,6 +27,7 @@ import (
 	"strconv"
 
 	"github.com/stellar/go-stellar-sdk/amount"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
@@ -160,6 +161,42 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 			suite.Fail("Unexpected balance type: %T", balance)
 		}
 	}
+}
+
+// TestCheckpoint_LiquidityPoolAccount_HasPoolShareBalance verifies that the dedicated liquidity-pool
+// account — which established a constant-product pool and deposited before the checkpoint snapshot —
+// has its pool-share balance hydrated through the checkpoint BatchCopy path. This proves the
+// liquidity_pool_balances ⋈ liquidity_pools JOIN is populated from the snapshot:
+//   - Native XLM (reduced by the deposited leg + fees)
+//   - Liquidity-pool share balance (TestLPShareStroops shares; native + LPTEST reserves)
+func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_LiquidityPoolAccount_HasPoolShareBalance() {
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
+		context.Background(),
+		suite.testEnv.CheckpointLPAccountKP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and the liquidity-pool share")
+
+	var lp *types.LiquidityPoolBalance
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
+			suite.Require().Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+		case *types.LiquidityPoolBalance:
+			lp = b
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
+
+	suite.Require().NotNil(lp, "expected a liquidity-pool share balance hydrated from the checkpoint")
+	assetB := infrastructure.TestCheckpointLPAssetCode + ":" + suite.testEnv.CheckpointLPAccountKP.Address()
+	assertLiquidityPoolBalance(suite.Require(), lp,
+		suite.testEnv.CheckpointLiquidityPoolID,
+		amount.StringFromInt64(infrastructure.TestLPShareStroops),
+		"native", amount.StringFromInt64(infrastructure.TestLPReserveStroops),
+		assetB, amount.StringFromInt64(infrastructure.TestLPReserveStroops))
 }
 
 // TestCheckpoint_Account1_ForwardPagination verifies that GetAccountBalances
@@ -450,6 +487,43 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Sorob
 	suite.Require().Less(onChainStroops, fundingStroops, "source should have paid a net fee and transferred XLM out")
 }
 
+// TestLiveIngestion_LiquidityPoolAccount_HasPoolShareBalance verifies that the dedicated live
+// liquidity-pool account — which deposited into a constant-product pool via a submitted use case
+// (prepareLiveLiquidityPoolDepositOps) without withdrawing — has its pool-share balance produced by
+// the live delta-ingestion path (liquidity_pools + liquidity_pool_balances upserts). This is the
+// live counterpart to the checkpoint hydration test:
+//   - Native XLM (reduced by the deposited leg + fees)
+//   - Liquidity-pool share balance (TestLPShareStroops shares; native + LPLIVE reserves)
+func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_LiquidityPoolAccount_HasPoolShareBalance() {
+	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
+		context.Background(),
+		suite.testEnv.LiveLPAccountKP.Address(),
+	)
+	suite.Require().NoError(err)
+	suite.Require().Equal(2, len(balances), "Expected 2 balances: native XLM and the liquidity-pool share")
+
+	var lp *types.LiquidityPoolBalance
+	for _, balance := range balances {
+		switch b := balance.(type) {
+		case *types.NativeBalance:
+			suite.Require().Equal(types.TokenTypeNative, b.GetTokenType())
+			suite.Require().Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+		case *types.LiquidityPoolBalance:
+			lp = b
+		default:
+			suite.Fail("Unexpected balance type: %T", balance)
+		}
+	}
+
+	suite.Require().NotNil(lp, "expected a liquidity-pool share balance produced by live ingestion")
+	assetB := infrastructure.TestLiveLPAssetCode + ":" + suite.testEnv.LiveLPAccountKP.Address()
+	assertLiquidityPoolBalance(suite.Require(), lp,
+		suite.testEnv.LiveLiquidityPoolID,
+		amount.StringFromInt64(infrastructure.TestLPShareStroops),
+		"native", amount.StringFromInt64(infrastructure.TestLPReserveStroops),
+		assetB, amount.StringFromInt64(infrastructure.TestLPReserveStroops))
+}
+
 // assertSEP41TokenBalance verifies a SEP-41 balance node matches the custom token
 // deployed in setup and migrated by DataMigrationTestSuite. The API returns the
 // raw i128 amount (unscaled by decimals), so expectedAmount is the stroop count
@@ -459,4 +533,21 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) assertSEP41TokenBalance
 	suite.Require().Equal(suite.testEnv.SEP41ContractAddress, b.GetTokenID())
 	suite.Require().Equal(expectedAmount, b.GetBalance(), "SEP-41 balance should equal the migrated amount")
 	suite.Require().Equal(int32(7), b.Decimals, "SEP-41 token was deployed with 7 decimals")
+}
+
+// assertLiquidityPoolBalance verifies a liquidity-pool balance node exposes the expected pool id,
+// share balance, and both reserve legs (canonical asset + amount, in AssetA/AssetB order). It is a
+// free function rather than a suite method because both the checkpoint and live-ingestion suites
+// assert pool-share balances; expectedShares/amountA/amountB are decimal strings (e.g. "100.0000000").
+func assertLiquidityPoolBalance(r *require.Assertions, b *types.LiquidityPoolBalance, expectedPoolID, expectedShares, assetA, amountA, assetB, amountB string) {
+	r.Equal(types.TokenTypeLiquidityPool, b.GetTokenType())
+	r.Equal(expectedPoolID, b.GetTokenID(), "LP tokenId should be the pool id")
+	r.Equal(expectedPoolID, b.LiquidityPoolID, "LP liquidityPoolId should be the pool id")
+	r.Equal(expectedShares, b.GetBalance(), "LP share balance mismatch")
+	r.Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
+	r.Len(b.Reserves, 2, "LP should expose both reserve legs")
+	r.Equal(assetA, b.Reserves[0].Asset, "reserve[0] asset mismatch")
+	r.Equal(amountA, b.Reserves[0].Amount, "reserve[0] amount mismatch")
+	r.Equal(assetB, b.Reserves[1].Asset, "reserve[1] asset mismatch")
+	r.Equal(amountB, b.Reserves[1].Amount, "reserve[1] amount mismatch")
 }

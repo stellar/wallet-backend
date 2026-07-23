@@ -9,9 +9,12 @@ type NativeBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
+    # base reserve requirement (excludes liabilities): (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
+    # Spendable balance = balance - minimumBalance - sellingLiabilities.
     minimumBalance: String!
     buyingLiabilities: String!
     sellingLiabilities: String!
+    numSubentries: UInt32!
     lastModifiedLedger: UInt32!
 }
 
@@ -41,6 +44,27 @@ type SACBalance implements Balance {
     decimals: Int!
     isAuthorized: Boolean!
     isClawbackEnabled: Boolean!
+}
+
+"""LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount."""
+type LiquidityPoolReserve {
+    asset: String!
+    amount: String!
+}
+
+"""
+LiquidityPoolBalance represents an account's liquidity-pool share holding. `balance` is the
+account's pool shares and `tokenId` is the pool id; `reserves` carries the pool's constituent
+assets and amounts.
+"""
+type LiquidityPoolBalance implements Balance {
+    balance: String!
+    tokenId: String!
+    tokenType: TokenType!
+
+    liquidityPoolId: String!
+    reserves: [LiquidityPoolReserve!]!
+    lastModifiedLedger: UInt32!
 }
 
 """SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder."""

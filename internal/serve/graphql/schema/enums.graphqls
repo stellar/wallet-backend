@@ -75,4 +75,5 @@ enum TokenType {
   CLASSIC
   SAC
   SEP41
+  LIQUIDITY_POOL
 }

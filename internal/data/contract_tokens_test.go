@@ -135,6 +135,41 @@ func TestContractModel_GetExisting(t *testing.T) {
 	})
 }
 
+func TestContractModel_GetSACContractsMissingMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	name := "Enriched"
+	symbol := "ENR"
+	contracts := []*Contract{
+		// Stale SAC (name NULL) — the only row that should be returned.
+		{ID: DeterministicContractID("sac-stale"), ContractID: "sac-stale", Type: "SAC", Decimals: 0},
+		// Enriched SAC (name set) — excluded, since enrichment populates name.
+		{ID: DeterministicContractID("sac-enriched"), ContractID: "sac-enriched", Type: "SAC", Name: &name, Symbol: &symbol, Decimals: 7},
+		// Non-SAC row with a NULL name — excluded, wrong type.
+		{ID: DeterministicContractID("sep41-null"), ContractID: "sep41-null", Type: "SEP41", Decimals: 0},
+	}
+
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return m.BatchInsert(ctx, dbTx, contracts)
+	})
+	require.NoError(t, err)
+
+	// Read through the pool — the production caller path (db.Querier).
+	ids, err := m.GetSACContractsMissingMetadata(ctx, dbConnectionPool)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"sac-stale"}, ids)
+}
+
 func TestContractModel_BatchInsert(t *testing.T) {
 	ctx := context.Background()
 

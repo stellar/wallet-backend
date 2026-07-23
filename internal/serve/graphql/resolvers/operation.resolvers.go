@@ -74,19 +74,20 @@ func (r *operationResolver) Accounts(ctx context.Context, obj *types.Operation) 
 // Field resolvers receive the parent object (Operation) and return the field value
 func (r *operationResolver) StateChanges(ctx context.Context, obj *types.Operation, first *int32, after *string, last *int32, before *string) (*graphql1.StateChangeConnection, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.StateChange{})
-	params, err := parsePaginationParams(first, after, last, before, CursorTypeStateChange)
+	params, err := parseNestedPaginationParams(first, after, last, before, CursorTypeStateChange)
 	if err != nil {
-		return nil, fmt.Errorf("parsing pagination params: %w", err)
+		return nil, err
 	}
 	queryLimit := *params.Limit + 1 // +1 to check if there is a next page
 
 	loaders := ctx.Value(middleware.LoadersKey).(*dataloaders.Dataloaders)
 	loaderKey := dataloaders.StateChangeColumnsKey{
-		OperationID: obj.ID,
-		Columns:     strings.Join(dbColumns, ", "),
-		Limit:       &queryLimit,
-		Cursor:      params.StateChangeCursor,
-		SortOrder:   params.SortOrder,
+		OperationID:     obj.ID,
+		Columns:         strings.Join(dbColumns, ", "),
+		Limit:           &queryLimit,
+		Cursor:          params.StateChangeCursor,
+		SortOrder:       params.SortOrder,
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	stateChanges, err := loaders.StateChangesByOperationIDLoader.Load(ctx, loaderKey)

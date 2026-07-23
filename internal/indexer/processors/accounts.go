@@ -19,6 +19,14 @@ const (
 	BaseReserveStroops      = 5_000_000
 )
 
+// MinimumBalance returns the base reserve requirement in stroops for an account,
+// matching stellar-core's getMinBalance: (2 + numSubEntries + numSponsoring - numSponsored) * baseReserve.
+// It excludes liabilities; consumers needing spendable balance subtract selling liabilities themselves.
+// https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
+func MinimumBalance(account xdr.AccountEntry) int64 {
+	return int64(MinimumBaseReserveCount+account.NumSubEntries+account.NumSponsoring()-account.NumSponsored()) * BaseReserveStroops
+}
+
 // Balance-change phases within a single ledger, in Stellar's canonical close order: every
 // transaction's fee is charged, then all operations apply, then post-apply (Soroban) fee refunds
 // are credited. Refunds come from GetPostApplyFeeChanges, which surfaces the protocol-23+
@@ -190,11 +198,8 @@ func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq u
 	accChange.BuyingLiabilities = int64(liabilities.Buying)
 	accChange.SellingLiabilities = int64(liabilities.Selling)
 
-	// Calculate the minimum balance for base reserves: https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves#effect-on-minimum-balance
-	numSubEntries := account.NumSubEntries
-	numSponsoring := account.NumSponsoring()
-	numSponsored := account.NumSponsored()
-	accChange.MinimumBalance = int64(MinimumBaseReserveCount+numSubEntries+numSponsoring-numSponsored)*BaseReserveStroops + accChange.SellingLiabilities
+	accChange.NumSubEntries = uint32(account.NumSubEntries)
+	accChange.MinimumBalance = MinimumBalance(account)
 
 	return accChange, false, nil
 }

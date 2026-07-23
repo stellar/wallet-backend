@@ -34,6 +34,8 @@ type IndexerBufferInterface interface {
 	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
 	GetAccountChanges() map[string]types.AccountChange
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
+	GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
+	GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
@@ -56,8 +58,19 @@ type ParticipantsProcessorInterface interface {
 }
 
 type OperationProcessorInterface interface {
+	// ProcessOperation returns this operation's state changes. The slice must be
+	// in canonical, reproducible order — derived from the transaction meta / XDR
+	// walk order, never Go map iteration, goroutine completion, or channel
+	// arrival order — because types.AssignStateChangeOrdinals freezes each
+	// element's state_change_id from its position within the (to_id, operation_id)
+	// group. Cross-operation ordering is free: ordinals are keyed per group, so
+	// only order WITHIN one call's returned slice is load-bearing.
 	ProcessOperation(ctx context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error)
 	Name() string
+	// StateChangeSubBase is this processor's slot in the indexer's state_change_id
+	// sub-namespace registry (see types.StateChangeSubBase*). It is part of the
+	// on-disk ID layout and must never change once rows exist with it.
+	StateChangeSubBase() int64
 }
 
 // LedgerChangeProcessor is a generic interface for processors that extract data from ledger changes.
@@ -81,6 +94,8 @@ type Indexer struct {
 	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
 	accountsProcessor          AccountsProcessorInterface
 	sacBalancesProcessor       LedgerChangeProcessor[types.SACBalanceChange]
+	lpSharesProcessor          LedgerChangeProcessor[types.LiquidityPoolShareChange]
+	lpProcessor                LedgerChangeProcessor[types.LiquidityPoolChange]
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
 	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
@@ -94,8 +109,14 @@ type Indexer struct {
 // during ledger meta processing; classification is performed downstream
 // (per-batch) by services.DispatchClassification — this keeps the indexer
 // agnostic of any specific protocol or its validator shape.
-func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) *Indexer {
-	return &Indexer{
+//
+// It validates the state_change_id sub-base registry of the built processor
+// set (see validateStateChangeSubBases), so a stale or duplicated sub-base
+// copied into a new processor fails fast at startup rather than surfacing as
+// a state_changes primary-key violation on the first ledger where two
+// processors emit for the same operation.
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) (*Indexer, error) {
+	indexer := &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
@@ -104,6 +125,8 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 		protocolContractsProcessor: processors.NewProtocolContractsProcessor(ingestionMetrics),
 		accountsProcessor:          processors.NewAccountsProcessor(ingestionMetrics),
 		trustlinesProcessor:        processors.NewTrustlinesProcessor(ingestionMetrics),
+		lpSharesProcessor:          processors.NewLiquidityPoolSharesProcessor(ingestionMetrics),
+		lpProcessor:                processors.NewLiquidityPoolsProcessor(ingestionMetrics),
 		processors: []OperationProcessorInterface{
 			processors.NewEffectsProcessor(networkPassphrase, ingestionMetrics),
 			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
@@ -113,6 +136,34 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 		ingestionMetrics:  ingestionMetrics,
 		networkPassphrase: networkPassphrase,
 	}
+	if err := validateStateChangeSubBases(indexer.processors); err != nil {
+		return nil, fmt.Errorf("validating state_change_id sub-bases: %w", err)
+	}
+	return indexer, nil
+}
+
+// validateStateChangeSubBases validates the state_change_id sub-base registry
+// of the given processor set (see types.StateChangeSubBase*): every sub-base
+// must be a non-negative multiple of types.StateChangeSubNamespaceWidth that
+// fits inside the indexer's emitter namespace, and no two streams may share
+// one. The token-transfer stream's slot is reserved up front since it is
+// emitted outside the processors slice (see getTransactionStateChanges).
+func validateStateChangeSubBases(procs []OperationProcessorInterface) error {
+	streamBySubBase := map[int64]string{types.StateChangeSubBaseTokenTransfer: "token_transfer"}
+	for _, p := range procs {
+		subBase := p.StateChangeSubBase()
+		if subBase <= 0 || subBase%types.StateChangeSubNamespaceWidth != 0 || subBase >= types.StateChangeOrdinalNamespaceWidth {
+			return fmt.Errorf("processor %q has invalid state_change_id sub-base %d: "+
+				"must be a positive multiple of %d below %d",
+				p.Name(), subBase, types.StateChangeSubNamespaceWidth, types.StateChangeOrdinalNamespaceWidth)
+		}
+		if other, dup := streamBySubBase[subBase]; dup {
+			return fmt.Errorf("indexer streams %q and %q share state_change_id sub-base %d",
+				other, p.Name(), subBase)
+		}
+		streamBySubBase[subBase] = p.Name()
+	}
+	return nil
 }
 
 // ProcessLedgerTransactions processes all transactions in a ledger in parallel.
@@ -245,6 +296,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 		result.SACBalanceChanges = append(result.SACBalanceChanges, sacBalanceChanges...)
 
+		lpShareChanges, lpShareErr := i.lpSharesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if lpShareErr != nil {
+			return nil, fmt.Errorf("processing liquidity pool share changes: %w", lpShareErr)
+		}
+		result.LPShareChanges = append(result.LPShareChanges, lpShareChanges...)
+
+		lpChanges, lpErr := i.lpProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+		if lpErr != nil {
+			return nil, fmt.Errorf("processing liquidity pool changes: %w", lpErr)
+		}
+		result.LPChanges = append(result.LPChanges, lpChanges...)
+
 		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacInstanceErr != nil {
 			return nil, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
@@ -302,13 +365,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
-	// Collect state changes, dropping empties and those whose operation is missing. The fold
-	// resolves each change's operation from result.Operations by OperationID.
+	// Collect state changes, dropping those whose operation is missing. Empty-AccountID entries
+	// are already filtered (and IDs assigned per processor stream) by getTransactionStateChanges.
+	// The fold resolves each change's operation from result.Operations by OperationID.
 	for _, stateChange := range stateChanges {
-		// Skip empty state changes (no account to associate with)
-		if stateChange.AccountID == "" {
-			continue
-		}
 		// Fee state changes (OperationID == 0) have no associated operation; the rest must
 		// resolve to a known operation.
 		if stateChange.OperationID != 0 && result.Operations[stateChange.OperationID] == nil {
@@ -321,19 +381,23 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	return result, nil
 }
 
-// getTransactionStateChanges processes operations of a transaction and calculates all state changes
+// getTransactionStateChanges processes operations of a transaction and calculates all state
+// changes. Each emitting processor's stream is filtered and given its deterministic
+// state_change_ids independently, inside that processor's own sub-namespace (see the sub-base
+// registry in types), so the returned changes are ready to persist and no processor's IDs
+// depend on another processor's output or on registration order.
 func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) ([]types.StateChange, error) {
-	stateChanges := []types.StateChange{}
+	streams := make([][]types.StateChange, len(i.processors))
 
 	// Process operations sequentially since there are only 3 processors per operation
 	// Creating a worker pool here adds unnecessary overhead
 	for _, opParticipants := range opsParticipants {
-		for _, processor := range i.processors {
+		for procIdx, processor := range i.processors {
 			processorStateChanges, processorErr := processor.ProcessOperation(ctx, opParticipants.OpWrapper)
 			if processorErr != nil && !errors.Is(processorErr, processors.ErrInvalidOpType) {
 				return nil, fmt.Errorf("processing %s state changes: %w", processor.Name(), processorErr)
 			}
-			stateChanges = append(stateChanges, processorStateChanges...)
+			streams[procIdx] = append(streams[procIdx], processorStateChanges...)
 		}
 	}
 
@@ -342,9 +406,29 @@ func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction in
 	if err != nil {
 		return nil, fmt.Errorf("processing token transfer state changes: %w", err)
 	}
-	stateChanges = append(stateChanges, tokenTransferStateChanges...)
 
+	var stateChanges []types.StateChange
+	for procIdx, processor := range i.processors {
+		stateChanges = assignStateChangeStream(stateChanges, streams[procIdx], processor.StateChangeSubBase())
+	}
+	stateChanges = assignStateChangeStream(stateChanges, tokenTransferStateChanges, types.StateChangeSubBaseTokenTransfer)
 	return stateChanges, nil
+}
+
+// assignStateChangeStream drops stream entries with no account to associate with, assigns
+// the retained ones their deterministic state_change_ids at the emitting processor's slot in
+// the indexer namespace, and appends them to dst. Filtering before assignment keeps ordinals
+// gap-free (1..N per (to_id, operation_id) group) for what's actually persisted.
+func assignStateChangeStream(dst, stream []types.StateChange, subBase int64) []types.StateChange {
+	retained := stream[:0]
+	for _, stateChange := range stream {
+		if stateChange.AccountID == "" {
+			continue
+		}
+		retained = append(retained, stateChange)
+	}
+	types.AssignStateChangeOrdinals(retained, types.StateChangeOrdinalBaseIndexer+subBase)
+	return append(dst, retained...)
 }
 
 // GetLedgerTransactions extracts transactions from ledger close meta.

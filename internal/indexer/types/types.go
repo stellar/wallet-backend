@@ -244,13 +244,16 @@ type AccountChange struct {
 	// SortKey is a within-ledger dedup rank (phase|tx|op via accountSortKey), not a TOID.
 	// The buffer keeps the highest per account to pick the chronologically-last balance;
 	// it is never persisted.
-	SortKey            int64
-	LedgerNumber       uint32
-	Operation          AccountOpType
-	Balance            int64
+	SortKey      int64
+	LedgerNumber uint32
+	Operation    AccountOpType
+	Balance      int64
+	// MinimumBalance is the base reserve requirement in stroops (excludes liabilities):
+	// (2 + NumSubEntries + numSponsoring - numSponsored) * baseReserve; matches stellar-core getMinBalance.
 	MinimumBalance     int64
 	BuyingLiabilities  int64
 	SellingLiabilities int64
+	NumSubEntries      uint32
 }
 
 type AccountOpType string
@@ -278,6 +281,47 @@ const (
 	SACBalanceOpAdd    SACBalanceOp = "ADD"
 	SACBalanceOpUpdate SACBalanceOp = "UPDATE"
 	SACBalanceOpRemove SACBalanceOp = "REMOVE"
+)
+
+// LiquidityPoolShareChange is an account's pool-share balance change extracted from a
+// pool_share trustline. PoolID is the hex-encoded pool id; Shares is the trustline balance.
+type LiquidityPoolShareChange struct {
+	AccountID    string
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolShareOp
+	Shares       int64
+}
+
+type LiquidityPoolShareOp string
+
+const (
+	LiquidityPoolShareOpAdd    LiquidityPoolShareOp = "ADD"
+	LiquidityPoolShareOpUpdate LiquidityPoolShareOp = "UPDATE"
+	LiquidityPoolShareOpRemove LiquidityPoolShareOp = "REMOVE"
+)
+
+// LiquidityPoolChange is a constant-product pool's reserve change extracted from a
+// LiquidityPoolEntry ledger entry. PoolID is the hex-encoded pool id; AssetA/AssetB are
+// canonical asset strings ("native" or "CODE:ISSUER").
+type LiquidityPoolChange struct {
+	PoolID       string
+	OperationID  int64
+	LedgerNumber uint32
+	Operation    LiquidityPoolOp
+	AssetA       string
+	ReserveA     int64
+	AssetB       string
+	ReserveB     int64
+}
+
+type LiquidityPoolOp string
+
+const (
+	LiquidityPoolOpAdd    LiquidityPoolOp = "ADD"
+	LiquidityPoolOpUpdate LiquidityPoolOp = "UPDATE"
+	LiquidityPoolOpRemove LiquidityPoolOp = "REMOVE"
 )
 
 type Account struct {
@@ -641,6 +685,101 @@ type StateChangeCursor struct {
 
 type StateChangeCursorGetter interface {
 	GetCursor() StateChangeCursor
+}
+
+// State change ID namespace registry.
+//
+// state_changes rows are written by more than one independent emitter: the
+// main indexer (effects, token transfers, etc.) and protocol processors
+// (SEP-41, Blend) that persist their own history inside a separately
+// CAS-guarded transaction. Two emitters can legitimately target the same
+// (to_id, operation_id) — e.g. a SEP-41 or Blend contract invocation is one
+// operation the main indexer also sees. Each emitter numbers its own state
+// changes 1..N in deterministic emission order within an (to_id, operation_id)
+// group (see AssignStateChangeOrdinals) and adds its base below, so the
+// resulting state_change_id values can never collide across emitters even
+// when they share an operation. Bases are consecutive multiples of
+// StateChangeOrdinalNamespaceWidth and must never change once rows exist with
+// them.
+//
+// Why the split at bit 40: an int64 has 63 usable positive bits. Reserving the
+// low 40 bits per namespace carves the space into 2^23 (~8.4M) emitter
+// namespaces, each holding 2^40 (~1.1e12) ordinals per (to_id, operation_id)
+// group. Transaction meta size limits cap a single operation's emissions at a
+// few thousand, and new emitters are added only at code-review speed, so both
+// sides of the split sit orders of magnitude beyond their physical bounds —
+// neither dimension can become the binding constraint, and frozen bases never
+// face renumbering pressure.
+//
+// The indexer subdivides its namespace further, one sub-namespace per
+// emitting processor — see the sub-base registry below.
+const (
+	// StateChangeOrdinalNamespaceWidth is the span of state_change_id values
+	// reserved for each emitter namespace; the bases below are consecutive
+	// multiples of it. Changing it renumbers every base and is forbidden once
+	// rows exist.
+	StateChangeOrdinalNamespaceWidth int64 = 1 << 40
+
+	StateChangeOrdinalBaseIndexer int64 = 0
+	StateChangeOrdinalBaseSEP41   int64 = 1 * StateChangeOrdinalNamespaceWidth
+	StateChangeOrdinalBaseBlend   int64 = 2 * StateChangeOrdinalNamespaceWidth
+)
+
+// Sub-namespace registry within the indexer's emitter namespace.
+//
+// The indexer is itself multi-stream: several processors (token transfers,
+// effects, contract deploys, SAC events) can emit state changes for the same
+// operation. Each processor numbers its own emissions independently (see
+// Indexer.getTransactionStateChanges) and adds StateChangeOrdinalBaseIndexer
+// plus its sub-base below, so IDs never depend on the order processors are
+// registered or invoked in — adding or reordering processors cannot shift
+// another processor's IDs. Within one processor, emission order derives from
+// the transaction meta (canonical on-chain data), which is what makes the
+// scheme reproducible across runs.
+//
+// Sub-bases split the indexer's 1<<40-wide namespace at bit 28: 2^12 = 4096
+// sub-streams fit inside it, each with 2^28 (~268M) ordinals per
+// (to_id, operation_id) group. As with the bit-40 emitter split, both sides
+// sit orders of magnitude beyond their physical bounds — transaction meta size
+// limits cap per-operation emissions at a few thousand, and new sub-streams
+// are added only at code-review speed — so neither dimension can become the
+// binding constraint. Protocol emitters (SEP-41, Blend) are single-stream and use their
+// base directly; a future multi-stream emitter subdivides its own namespace
+// the same way. Like the emitter bases, sub-bases must never change once
+// rows exist with them; new processors take the next unused slot.
+const (
+	// StateChangeSubNamespaceWidth is the span of state_change_id values
+	// reserved for each indexer sub-stream; the sub-bases below are consecutive
+	// multiples of it. Changing it renumbers every sub-base and is forbidden
+	// once rows exist.
+	StateChangeSubNamespaceWidth int64 = 1 << 28
+
+	StateChangeSubBaseTokenTransfer  int64 = 0 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseEffects        int64 = 1 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseContractDeploy int64 = 2 * StateChangeSubNamespaceWidth
+	StateChangeSubBaseSACEvents      int64 = 3 * StateChangeSubNamespaceWidth
+)
+
+// AssignStateChangeOrdinals assigns each state change in changes a
+// deterministic state_change_id: an ordinal numbered 1..N in slice order
+// within each distinct (to_id, operation_id) group, plus base. base is the calling
+// emitter's namespace base — plus its processor's sub-base for multi-stream
+// emitters like the indexer. Processing the same input twice (e.g. a
+// re-ingested ledger) yields byte-identical IDs, so a duplicate BatchCopy
+// fails loudly on the state_changes primary key instead of inserting
+// duplicate rows.
+//
+// Callers must pass one emission stream at a time — the final, filtered slice
+// actually handed to BatchCopy — so ordinals come out contiguous (1..N, no
+// gaps) per group within the stream's namespace.
+func AssignStateChangeOrdinals(changes []StateChange, base int64) {
+	type ordinalKey struct{ toID, opID int64 }
+	next := make(map[ordinalKey]int64, len(changes))
+	for i := range changes {
+		k := ordinalKey{changes[i].ToID, changes[i].OperationID}
+		next[k]++
+		changes[i].StateChangeID = base + next[k]
+	}
 }
 
 type NullableJSONB map[string]any

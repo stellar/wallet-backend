@@ -454,3 +454,29 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String())
 	})
 }
+
+// TestEffects_ParseThresholds_DeterministicOrder pins the emission order of threshold state
+// changes: when a single SetOptions effect updates low, medium, and high thresholds together,
+// the resulting state changes must always come back in low -> medium -> high order so that
+// ordinals assigned within a (to_id, operation_id) group are reproducible across re-ingests.
+func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
+	processor := NewEffectsProcessor(networkPassphrase, nil)
+	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+		WithAccount("GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH").
+		WithCategory(types.StateChangeCategorySignatureThreshold)
+	effect := &EffectOutput{
+		Address: "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH",
+		Details: map[string]interface{}{
+			"low_threshold":  xdr.Uint32(1),
+			"med_threshold":  xdr.Uint32(2),
+			"high_threshold": xdr.Uint32(3),
+		},
+	}
+
+	thresholdChanges := processor.parseThresholds(changeBuilder, effect, nil)
+
+	require.Len(t, thresholdChanges, 3)
+	assert.Equal(t, types.StateChangeReasonLow, thresholdChanges[0].StateChangeReason)
+	assert.Equal(t, types.StateChangeReasonMedium, thresholdChanges[1].StateChangeReason)
+	assert.Equal(t, types.StateChangeReasonHigh, thresholdChanges[2].StateChangeReason)
+}

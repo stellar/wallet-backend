@@ -24,10 +24,12 @@ const (
 // not exist in ingest_store. The model layer keeps this distinct from the
 // ordinary value-mismatch race so callers can decide what to do — a missing
 // row may be operationally normal (cursor not yet initialized by protocol-setup
-// / protocol-migrate) or a real incident (dropped row, bad restore). The
-// service layer treats this as a soft skip: the `cursor_missing` query-error
-// metric and a per-ledger warn provide the observability signal without
-// killing live ingest. See ingest_live.go PersistLedgerData for the handling.
+// / protocol-migrate) or a real incident (dropped row, bad restore). Live
+// ingestion (see ingest_live.go's casProtocolCursor) only ever calls
+// CompareAndSwap for a cursor its protocolCursorSnapshot believes exists, so
+// from that caller this error always means the genuine incident case: the
+// `cursor_missing` query-error metric recorded below fires accordingly,
+// rather than on every not-yet-initialized ledger.
 var ErrCASCursorMissing = errors.New("ingest_store cursor row missing")
 
 type LedgerRange struct {
@@ -118,6 +120,48 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 	return nil
 }
 
+// ErrCursorGuardFailed is returned by UpdateGuarded when the cursor's current
+// value is neither ledger-1 nor ledger (see UpdateGuarded), or the row does
+// not exist. Either way, a writer other than the one calling UpdateGuarded
+// has moved the cursor past what it expected — most commonly a second live
+// ingestion instance that acquired the advisory lock after this session's
+// Postgres session died in a failover (see startLiveIngestion's
+// checkLockSession, which is the primary defense; this guard is the backstop
+// for the race window before that probe observes the dead session).
+var ErrCursorGuardFailed = errors.New("ingest_store guarded cursor update refused: cursor value not owned by this writer")
+
+// UpdateGuarded advances cursorName to ledger only if its current value is ledger-1 (the normal
+// sequential case: this writer is the sole owner and is advancing by exactly one ledger) or
+// ledger itself (the self-value case: the first ledger processed immediately after
+// startLiveIngestion's initializeCursors already set the cursor to this same starting ledger).
+// Any other current value — including a missing row — means a writer other than the caller has
+// moved the cursor, so the swap is refused with ErrCursorGuardFailed instead of silently
+// overwriting a value another instance already advanced (which a blind Update would do).
+func (m *IngestStoreModel) UpdateGuarded(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
+	const query = `
+		UPDATE ingest_store
+		SET value = $1
+		WHERE key = $2 AND value IN ($3, $4)
+	`
+	newValue := strconv.FormatUint(uint64(ledger), 10)
+	prevValue := strconv.FormatUint(uint64(ledger-1), 10)
+
+	start := time.Now()
+	tag, err := dbTx.Exec(ctx, query, newValue, cursorName, prevValue, newValue)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("UpdateGuarded", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("UpdateGuarded", "ingest_store").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, err)
+	}
+	if tag.RowsAffected() == 0 {
+		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", "cursor_guard_failed").Inc()
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, ErrCursorGuardFailed)
+	}
+	return nil
+}
+
 func (m *IngestStoreModel) CompareAndSwap(ctx context.Context, dbTx pgx.Tx, cursorName string, expectedValue string, newValue string) (bool, error) {
 	// A plain UPDATE returns RowsAffected=0 for both "value mismatch" and
 	// "row missing" — callers treat false as a race loss and mark the
@@ -154,7 +198,7 @@ func (m *IngestStoreModel) CompareAndSwap(ctx context.Context, dbTx pgx.Tx, curs
 func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
 	const query = `
 		UPDATE ingest_store
-		SET value = LEAST(value::integer, $2)::text
+		SET value = LEAST(value::bigint, $2)::text
 		WHERE key = $1
 	`
 	start := time.Now()
@@ -169,19 +213,35 @@ func (m *IngestStoreModel) UpdateMin(ctx context.Context, dbTx pgx.Tx, cursorNam
 	return nil
 }
 
-func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context) ([]LedgerRange, error) {
+// GetLedgerGaps returns gaps between consecutive present ledger_number values within
+// [startLedger, endLedger]. The window bounds the cost two ways: chunks whose recorded
+// ledger_number range (enable_chunk_skipping on transactions.ledger_number; ranges are
+// captured when a chunk is compressed) doesn't overlap the window are excluded at plan
+// time, and any remaining out-of-window batches are dropped by the columnstore's batch
+// min/max metadata without decompression.
+//
+// Edge semantics: callers must pass a startLedger that is itself a present ledger_number (e.g.
+// the oldest ingested ledger) — the left edge is NOT synthesized. If startLedger fell strictly
+// inside an already-open gap, this function would not report the portion before the first
+// present row in-window; this mirrors the original unwindowed behavior, which never reported a
+// gap before the very first row in the whole table. The right edge IS handled: COALESCE falls
+// back to endLedger+1 when LEAD finds no next row within the window (the next present ledger
+// lies beyond endLedger, or doesn't exist yet), so a gap still open at the window's boundary is
+// reported clipped to endLedger instead of silently dropped (plain LEAD would return NULL there,
+// failing the gap_start <= gap_end filter and losing the trailing partial gap).
+func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context, startLedger, endLedger uint32) ([]LedgerRange, error) {
 	const query = `
 		SELECT gap_start, gap_end FROM (
 			SELECT
 				ledger_number + 1 AS gap_start,
-				LEAD(ledger_number) OVER (ORDER BY ledger_number) - 1 AS gap_end
-			FROM (SELECT DISTINCT ledger_number FROM transactions) t
+				COALESCE(LEAD(ledger_number) OVER (ORDER BY ledger_number), $2 + 1) - 1 AS gap_end
+			FROM (SELECT DISTINCT ledger_number FROM transactions WHERE ledger_number BETWEEN $1 AND $2) t
 		) gaps
 		WHERE gap_start <= gap_end
 		ORDER BY gap_start
 	`
 	start := time.Now()
-	ledgerGaps, err := db.QueryMany[LedgerRange](ctx, m.DB, query)
+	ledgerGaps, err := db.QueryMany[LedgerRange](ctx, m.DB, query, int32(startLedger), int32(endLedger))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetLedgerGaps", "transactions").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetLedgerGaps", "transactions").Inc()

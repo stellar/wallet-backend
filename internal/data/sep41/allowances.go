@@ -82,13 +82,13 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, li
 
 	query := `
 		SELECT
-			a.spender_id, a.contract_id, a.amount, a.expiration_ledger, a.last_modified_ledger,
+			a.spender_id, a.contract_id, a.amount::text, a.expiration_ledger, a.last_modified_ledger,
 			ct.contract_id AS token_id
 		FROM sep41_allowances a
 		INNER JOIN contract_tokens ct ON ct.id = a.contract_id
 		WHERE a.owner_id = $1
 		  AND a.expiration_ledger >= COALESCE(
-		      (SELECT value::integer FROM ingest_store WHERE key = $2),
+		      (SELECT value::bigint FROM ingest_store WHERE key = $2),
 		      0
 		  )`
 	args := []interface{}{types.AddressBytea(ownerAddress), latestIngestLedgerCursor}
@@ -196,10 +196,12 @@ func (m *AllowanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts [
 				owner_id, spender_id, contract_id,
 				amount, expiration_ledger, last_modified_ledger
 			)
-			SELECT * FROM UNNEST(
+			SELECT u.owner_id, u.spender_id, u.contract_id,
+				u.amount::numeric, u.expiration_ledger, u.last_modified_ledger
+			FROM UNNEST(
 				$1::bytea[], $2::bytea[], $3::uuid[],
 				$4::text[], $5::integer[], $6::integer[]
-			)
+			) AS u(owner_id, spender_id, contract_id, amount, expiration_ledger, last_modified_ledger)
 			ON CONFLICT (owner_id, spender_id, contract_id) DO UPDATE SET
 				amount               = EXCLUDED.amount,
 				expiration_ledger    = EXCLUDED.expiration_ledger,

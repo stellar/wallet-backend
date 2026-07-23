@@ -29,6 +29,11 @@ const (
 	maxLedgerFetchRetries = 10
 	// maxRetryBackoff is the maximum backoff duration between retry attempts.
 	maxRetryBackoff = 30 * time.Second
+	// maxClassificationReadRetries bounds retries of the non-transactional read that resolves
+	// prior-ledger protocol classifications. It runs before the persist transaction opens, so a
+	// transient DB blip (e.g. a CNPG failover) there must not exit live ingestion — this keeps the
+	// read under the same retry umbrella as the ledger fetch and the persist ladder.
+	maxClassificationReadRetries = 5
 	// IngestionModeLive represents continuous ingestion from the latest ledger onwards.
 	IngestionModeLive = "live"
 	// IngestionModeBackfill represents historical ledger ingestion for a specified range.
@@ -56,6 +61,11 @@ type IngestServiceConfig struct {
 	// === Ledger Backend ===
 	LedgerBackend        ledgerbackend.LedgerBackend
 	LedgerBackendFactory LedgerBackendFactory
+	// IsPermanentFetchError classifies a GetLedger error as permanent, i.e. no
+	// amount of retrying will fix it (e.g. the datastore backend's prefetch
+	// buffer has died). Optional: nil (the zero value) retries every
+	// ledger-fetch error as before.
+	IsPermanentFetchError func(error) bool
 
 	// === Cursors ===
 	OldestLedgerCursorName string
@@ -68,7 +78,7 @@ type IngestServiceConfig struct {
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
 
 	// === Live Classification ===
-	// ProtocolValidators are run once per ledger inside PersistLedgerData against
+	// ProtocolValidators are run once per ledger inside persistLedgerData against
 	// the buffered raw WASMs and contracts. Order matters: validators earlier in
 	// the slice win first-match-wins ties for the same wasm hash. Pass the result
 	// of services.BuildValidators with services.GetAllValidatorIDs() (already
@@ -101,10 +111,10 @@ func generateAdvisoryLockID(network string) int {
 
 type IngestService interface {
 	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
-	// PersistLedgerData persists processed ledger data to the database in a single atomic transaction.
-	// This is the shared core used by both live ingestion and loadtest.
-	// Returns the number of transactions and operations persisted.
-	PersistLedgerData(ctx context.Context, ledgerSeq uint32, buffer *indexer.IndexerBuffer, cursorName string) (int, int, error)
+	// Close stops the worker pools this service owns. Call it after Run has
+	// returned (no ledger indexing/backfill in flight) and before the shared
+	// DB pool is closed.
+	Close()
 }
 
 var _ IngestService = (*ingestService)(nil)
@@ -118,6 +128,7 @@ type ingestService struct {
 	rpcService                RPCService
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
+	isPermanentFetchError     func(error) bool
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
 	appMetrics                *metrics.Metrics
@@ -125,6 +136,7 @@ type ingestService struct {
 	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
+	ledgerIndexerPool         pond.Pool
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
@@ -133,11 +145,21 @@ type ingestService struct {
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
+	// protocolCursors tracks, per protocol, whether its history/current-state
+	// ingest_store cursor rows exist. See casProtocolCursor and
+	// snapshotProtocolCursors in ingest_live.go. Always non-nil; empty maps
+	// (the zero value for every protocol) mean "not yet initialized",
+	// matching the pre-startLiveIngestion state.
+	protocolCursors *protocolCursorSnapshot
 }
 
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
-	// Create worker pool for the ledger indexer (parallel transaction processing within a ledger)
-	ledgerIndexerPool := pond.NewPool(0)
+	// Create worker pool for the ledger indexer (parallel transaction processing within a
+	// ledger). This is CPU-bound XDR decode/processing work, not RPC-bound, so it's sized off
+	// NumCPU rather than an RPC batch size; 2x gives headroom for goroutines blocked on the
+	// occasional DB lookup without letting the pool grow unbounded (pond.NewPool(0) is
+	// unbounded).
+	ledgerIndexerPool := pond.NewPool(2 * runtime.NumCPU())
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
@@ -162,6 +184,11 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
 	}
 
+	ledgerIndexer, err := indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger indexer: %w", err)
+	}
+
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
@@ -171,12 +198,14 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
+		isPermanentFetchError:     cfg.IsPermanentFetchError,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		getLedgersLimit:           cfg.GetLedgersLimit,
-		ledgerIndexer:             indexer.NewIndexer(cfg.NetworkPassphrase, ledgerIndexerPool, cfg.Metrics.Ingestion),
+		ledgerIndexer:             ledgerIndexer,
+		ledgerIndexerPool:         ledgerIndexerPool,
 		contractMetadataService:   cfg.ContractMetadataService,
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,
@@ -186,6 +215,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
+		protocolCursors: &protocolCursorSnapshot{
+			historyExists:      make(map[string]bool, len(ppMap)),
+			currentStateExists: make(map[string]bool, len(ppMap)),
+		},
 	}, nil
 }
 
@@ -200,6 +233,21 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 		return m.startBackfilling(ctx, startLedger, endLedger)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
+	}
+}
+
+// Close stops the worker pools this service owns: the ledger-indexer pool, the
+// backfill pool, and any protocol validator that owns resources (e.g. the
+// SEP-41 validator's metadata-fetch pool). It must be called after Run has
+// returned — when nothing is being indexed or backfilled — and before the
+// shared DB pool closes, since a draining task may still issue DB work.
+func (m *ingestService) Close() {
+	m.ledgerIndexerPool.StopAndWait()
+	m.backfillPool.StopAndWait()
+	for _, v := range m.protocolValidators {
+		if closer, ok := v.(interface{ Close() }); ok {
+			closer.Close()
+		}
 	}
 }
 
@@ -230,7 +278,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
 		return 0, 0, err
 	}
-	log.Ctx(ctx).Infof("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
+	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 	return len(txs), len(ops), nil
 }
 

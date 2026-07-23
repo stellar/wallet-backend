@@ -145,14 +145,76 @@ func TestIndexer_NewIndexer(t *testing.T) {
 	networkPassphrase := network.TestNetworkPassphrase
 	pool := pond.NewPool(runtime.NumCPU())
 
-	indexer := NewIndexer(networkPassphrase, pool, nil)
+	indexer, err := NewIndexer(networkPassphrase, pool, nil)
 
+	require.NoError(t, err)
 	require.NotNil(t, indexer)
 	assert.NotNil(t, indexer.participantsProcessor)
 	assert.NotNil(t, indexer.tokenTransferProcessor)
 	assert.NotNil(t, indexer.processors)
 	assert.NotNil(t, indexer.pool)
 	assert.Len(t, indexer.processors, 3) // effects, contract deploy, SAC events
+}
+
+func TestValidateStateChangeSubBases(t *testing.T) {
+	newProc := func(name string, subBase int64) *MockOperationProcessor {
+		p := &MockOperationProcessor{SubBase: subBase}
+		p.On("Name").Return(name).Maybe()
+		return p
+	}
+
+	testCases := []struct {
+		name            string
+		procs           []OperationProcessorInterface
+		wantErrContains string
+	}{
+		{
+			name: "🟢 distinct aligned sub-bases",
+			procs: []OperationProcessorInterface{
+				newProc("effects", types.StateChangeSubBaseEffects),
+				newProc("contract_deploy", types.StateChangeSubBaseContractDeploy),
+			},
+		},
+		{
+			name: "🔴 duplicate sub-base between two processors",
+			procs: []OperationProcessorInterface{
+				newProc("effects", types.StateChangeSubBaseEffects),
+				newProc("copy_pasted", types.StateChangeSubBaseEffects),
+			},
+			wantErrContains: `indexer streams "effects" and "copy_pasted" share state_change_id sub-base`,
+		},
+		{
+			name:            "🔴 sub-base 0 is reserved for the token transfer stream",
+			procs:           []OperationProcessorInterface{newProc("zero", 0)},
+			wantErrContains: `processor "zero" has invalid state_change_id sub-base 0`,
+		},
+		{
+			name:            "🔴 sub-base not a multiple of the sub-namespace width",
+			procs:           []OperationProcessorInterface{newProc("misaligned", types.StateChangeSubNamespaceWidth+1)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+		{
+			name:            "🔴 negative sub-base",
+			procs:           []OperationProcessorInterface{newProc("negative", -types.StateChangeSubNamespaceWidth)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+		{
+			name:            "🔴 sub-base outside the indexer emitter namespace",
+			procs:           []OperationProcessorInterface{newProc("oversized", types.StateChangeOrdinalNamespaceWidth)},
+			wantErrContains: "invalid state_change_id sub-base",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateStateChangeSubBases(tc.procs)
+			if tc.wantErrContains == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErrContains)
+			}
+		})
+	}
 }
 
 func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
@@ -166,6 +228,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -203,6 +267,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -214,6 +280,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
@@ -268,6 +336,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -315,6 +385,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -326,6 +398,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
@@ -608,6 +682,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockTrustlines := &MockTrustlinesProcessor{}
 		mockAccounts := &MockAccountsProcessor{}
 		mockSACBalances := &MockSACBalancesProcessor{}
+		mockLPShares := &MockLiquidityPoolSharesProcessor{}
+		mockLPPools := &MockLiquidityPoolsProcessor{}
 		mockSACInstances := &MockSACInstancesProcessor{}
 		mockProtocolWasms := &MockProtocolWasmsProcessor{}
 		mockProtocolContracts := &MockProtocolContractsProcessor{}
@@ -643,6 +719,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
 		mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+		mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+		mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
 		mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
 		mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
 		mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
@@ -654,6 +732,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			trustlinesProcessor:        mockTrustlines,
 			accountsProcessor:          mockAccounts,
 			sacBalancesProcessor:       mockSACBalances,
+			lpSharesProcessor:          mockLPShares,
+			lpProcessor:                mockLPPools,
 			sacInstancesProcessor:      mockSACInstances,
 			protocolWasmsProcessor:     mockProtocolWasms,
 			protocolContractsProcessor: mockProtocolContracts,
@@ -746,9 +826,10 @@ func TestIndexer_ProcessLedgerTransactions_FeePhaseBalances(t *testing.T) {
 		},
 	}
 
-	indexer := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	indexer, err := NewIndexer(network.TestNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	require.NoError(t, err)
 	buffer := NewIndexerBuffer()
-	_, err := indexer.ProcessLedgerTransactions(context.Background(), []ingest.LedgerTransaction{feeTx}, buffer)
+	_, err = indexer.ProcessLedgerTransactions(context.Background(), []ingest.LedgerTransaction{feeTx}, buffer)
 	require.NoError(t, err)
 
 	accountChanges := buffer.GetAccountChanges()
@@ -1336,4 +1417,55 @@ func TestExtractContractEventsForLedger_CorpusCoversWrapperVersions(t *testing.T
 	}
 	require.True(t, wrapperWithEvents[1], "corpus must include a wrapper-V1 (Protocol 20-22) ledger with extracted contract events")
 	require.True(t, wrapperWithEvents[2], "corpus must include a wrapper-V2 (Protocol 23+) ledger with extracted contract events")
+}
+
+func TestAssignStateChangeStream_SubNamespaces(t *testing.T) {
+	effects := []types.StateChange{
+		{OperationID: 42, AccountID: "GA"},
+		{OperationID: 42, AccountID: "GB"},
+		{OperationID: 43, AccountID: "GC"},
+	}
+	tokenTransfers := []types.StateChange{
+		{OperationID: 42, AccountID: "GD"},
+		{OperationID: 42, AccountID: ""}, // no account — dropped before assignment
+		{OperationID: 42, AccountID: "GE"},
+	}
+
+	var merged []types.StateChange
+	merged = assignStateChangeStream(merged, effects, types.StateChangeSubBaseEffects)
+	merged = assignStateChangeStream(merged, tokenTransfers, types.StateChangeSubBaseTokenTransfer)
+
+	// Each stream numbers its own emissions 1..N per operation inside its own
+	// sub-namespace; the account-less entry is filtered out first so ordinals
+	// stay gap-free.
+	require.Len(t, merged, 5)
+	assert.Equal(t, types.StateChangeSubBaseEffects+1, merged[0].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseEffects+2, merged[1].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseEffects+1, merged[2].StateChangeID) // op 43: its own group
+	assert.Equal(t, types.StateChangeSubBaseTokenTransfer+1, merged[3].StateChangeID)
+	assert.Equal(t, types.StateChangeSubBaseTokenTransfer+2, merged[4].StateChangeID)
+
+	// The IDs a stream gets are a function of that stream alone: assigning the
+	// same effects emissions with no other stream present yields identical IDs.
+	// This is the property that makes IDs immune to processors being added,
+	// removed, or reordered around this one.
+	alone := assignStateChangeStream(nil, []types.StateChange{
+		{OperationID: 42, AccountID: "GA"},
+		{OperationID: 42, AccountID: "GB"},
+		{OperationID: 43, AccountID: "GC"},
+	}, types.StateChangeSubBaseEffects)
+	require.Len(t, alone, 3)
+	for i := range alone {
+		assert.Equal(t, merged[i].StateChangeID, alone[i].StateChangeID)
+	}
+
+	// All IDs across streams sharing operation 42 are distinct.
+	seen := map[int64]bool{}
+	for _, sc := range merged {
+		if sc.OperationID != 42 {
+			continue
+		}
+		assert.False(t, seen[sc.StateChangeID], "duplicate state_change_id %d", sc.StateChangeID)
+		seen[sc.StateChangeID] = true
+	}
 }

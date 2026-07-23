@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
-	goloadtest "github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
 	"github.com/stellar/go-stellar-sdk/support/log"
 )
@@ -93,30 +92,5 @@ func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
 		BufferSize:   uint32(cfg.GetLedgersLimit),
 	})
 	log.Infof("Using RPCLedgerBackend for ledger ingestion with buffer size %d", cfg.GetLedgersLimit)
-	return backend, nil
-}
-
-// LoadtestBackendConfig holds configuration for the loadtest ledger backend.
-type LoadtestBackendConfig struct {
-	NetworkPassphrase   string
-	LedgersFilePath     string
-	LedgerCloseDuration time.Duration
-	Datastore           DatastoreConfig
-}
-
-// NewLoadtestLedgerBackend creates a ledger backend that reads synthetic ledgers from a file.
-func NewLoadtestLedgerBackend(ctx context.Context, cfg LoadtestBackendConfig) (ledgerbackend.LedgerBackend, error) {
-	dsBackend, err := newDatastoreLedgerBackend(ctx, cfg.Datastore, cfg.NetworkPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("creating datastore ledger backend: %w", err)
-	}
-	config := goloadtest.LedgerBackendConfig{
-		NetworkPassphrase:   cfg.NetworkPassphrase,
-		LedgersFilePath:     cfg.LedgersFilePath,
-		LedgerCloseDuration: cfg.LedgerCloseDuration,
-		LedgerBackend:       dsBackend,
-	}
-	backend := goloadtest.NewLedgerBackend(config)
-	log.Infof("Using LoadtestLedgerBackend with file: %s", cfg.LedgersFilePath)
 	return backend, nil
 }

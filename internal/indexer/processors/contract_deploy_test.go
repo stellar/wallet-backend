@@ -146,6 +146,93 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 	}
 }
 
+// Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder pins the emission
+// order for an operation that deploys several contracts across its root host function and its
+// auth invocation tree. AssignStateChangeOrdinals (internal/indexer/types/types.go) derives each
+// state change's ID from its slice position within the operation, so re-ingesting the same ledger
+// must yield the same slice order every time. This test asserts the exact order (not
+// ElementsMatch) and also exercises dedup: the auth tree redeclares the same contract creation
+// that a sibling subinvocation already produced, and it must not be emitted twice.
+func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t *testing.T) {
+	const (
+		rootDeployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+		subDeployerB = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
+		subDeployerC = "GAGWN4445WLODCXT7RUZXJLQK5XWX4GICXDOAAZZGK2N3BR67RIIVWJ7"
+
+		contractA = "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF" // rootDeployer + TestSalt, root host function
+	)
+	saltB := xdr.Uint256{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+	saltC := xdr.Uint256{2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2}
+
+	preimageB := xdr.ContractIdPreimageFromAddress{Address: makeScAddress(subDeployerB), Salt: saltB}
+	preimageC := xdr.ContractIdPreimageFromAddress{Address: makeScAddress(subDeployerC), Salt: saltC}
+
+	contractB, err := calculateContractID(network.TestNetworkPassphrase, preimageB)
+	require.NoError(t, err)
+	contractC, err := calculateContractID(network.TestNetworkPassphrase, preimageC)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	op := makeBasicSorobanOp()
+	setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContract, rootDeployer)
+	op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{
+		{
+			RootInvocation: xdr.SorobanAuthorizedInvocation{
+				Function: xdr.SorobanAuthorizedFunction{
+					Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+				},
+				SubInvocations: []xdr.SorobanAuthorizedInvocation{
+					{
+						// Deploys contractB, then walks depth-first into its own SubInvocations
+						// (deploying contractC) before the loop moves on to the next sibling.
+						Function: xdr.SorobanAuthorizedFunction{
+							Type:                 xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+							CreateContractHostFn: &xdr.CreateContractArgs{ContractIdPreimage: xdr.ContractIdPreimage{Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress, FromAddress: &preimageB}},
+						},
+						SubInvocations: []xdr.SorobanAuthorizedInvocation{
+							{
+								Function: xdr.SorobanAuthorizedFunction{
+									Type:                   xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn,
+									CreateContractV2HostFn: &xdr.CreateContractArgsV2{ContractIdPreimage: xdr.ContractIdPreimage{Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress, FromAddress: &preimageC}},
+								},
+							},
+						},
+					},
+					{
+						// Redeclares the same contractB creation as the sibling above; must be
+						// deduped and not appear a second time in the output.
+						Function: xdr.SorobanAuthorizedFunction{
+							Type:                 xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+							CreateContractHostFn: &xdr.CreateContractArgs{ContractIdPreimage: xdr.ContractIdPreimage{Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress, FromAddress: &preimageB}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(ctx, op)
+	require.NoError(t, err)
+
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+		WithOperationID(53021371269121).
+		WithReason(types.StateChangeReasonCreate).
+		WithCategory(types.StateChangeCategoryAccount)
+
+	wantOrder := []types.StateChange{
+		builder.Clone().WithDeployer(rootDeployer).WithAccount(contractA).Build(),
+		builder.Clone().WithDeployer(subDeployerB).WithAccount(contractB).Build(),
+		builder.Clone().WithDeployer(subDeployerC).WithAccount(contractC).Build(),
+	}
+
+	require.Len(t, stateChanges, len(wantOrder))
+	for i := range wantOrder {
+		assertStateChangeEqual(t, wantOrder[i], stateChanges[i])
+	}
+}
+
 func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 	const (
 		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"

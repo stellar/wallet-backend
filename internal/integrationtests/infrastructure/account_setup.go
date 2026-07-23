@@ -8,7 +8,10 @@ import (
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 )
 
 // CreateAndFundAccounts creates and funds multiple accounts in a single transaction using the master account
@@ -123,6 +126,60 @@ func (s *SharedContainers) createEURCTrustlines(ctx context.Context, t *testing.
 	require.NoError(t, err, "failed to create EURC trustline")
 
 	log.Ctx(ctx).Infof("🔗 Created EURC trustline for balance test account 1 %s: %s:%s", s.balanceTestAccount1KeyPair.Address(), eurcAsset.Code, eurcAsset.Issuer)
+}
+
+// createLiquidityPool establishes a constant-product liquidity pool for the checkpoint LP test
+// account BEFORE the checkpoint snapshot is taken, so the resulting pool reserves and pool-share
+// balance are hydrated through the checkpoint BatchCopy path (liquidity_pool_balances JOINed with
+// liquidity_pools) rather than live delta ingestion.
+//
+// The account issues its own credit asset, pairs it with native XLM, and deposits equal legs of
+// TestLiquidityPoolAmount. The initial deposit into an empty pool mints TestLPShareStroops shares
+// and leaves TestLPReserveStroops in each reserve. It deliberately does not withdraw, so the shares
+// persist into the snapshot. The computed pool id is recorded on SharedContainers for the assertion.
+func (s *SharedContainers) createLiquidityPool(ctx context.Context, t *testing.T) {
+	xlmAsset := txnbuild.NativeAsset{}
+	customAsset := txnbuild.CreditAsset{
+		Code:   TestCheckpointLPAssetCode,
+		Issuer: s.checkpointLPAccountKeyPair.Address(),
+	}
+
+	poolID, err := txnbuild.NewLiquidityPoolId(xlmAsset, customAsset)
+	require.NoError(t, err, "creating checkpoint liquidity pool ID")
+	poolIDXDR, err := poolID.ToXDR()
+	require.NoError(t, err, "converting checkpoint liquidity pool ID to XDR")
+	s.checkpointLiquidityPoolID = processors.PoolIDToString(poolIDXDR)
+
+	poolAsset := txnbuild.LiquidityPoolShareChangeTrustAsset{
+		LiquidityPoolParameters: txnbuild.LiquidityPoolParameters{
+			AssetA: xlmAsset,
+			AssetB: customAsset,
+			Fee:    txnbuild.LiquidityPoolFeeV18,
+		},
+	}
+
+	ops := []txnbuild.Operation{
+		// The account establishes a trustline to the liquidity pool (creates the pool + share trustline).
+		&txnbuild.ChangeTrust{
+			Line:          poolAsset,
+			SourceAccount: s.checkpointLPAccountKeyPair.Address(),
+		},
+		// The account deposits equal legs and keeps the resulting shares.
+		&txnbuild.LiquidityPoolDeposit{
+			LiquidityPoolID: poolID,
+			MaxAmountA:      TestLiquidityPoolAmount, // 100 XLM
+			MaxAmountB:      TestLiquidityPoolAmount, // 100 LPTEST
+			MinPrice:        xdr.Price{N: xdr.Int32(1), D: xdr.Int32(1)},
+			MaxPrice:        xdr.Price{N: xdr.Int32(1), D: xdr.Int32(1)},
+			SourceAccount:   s.checkpointLPAccountKeyPair.Address(),
+		},
+	}
+
+	_, err = executeClassicOperation(ctx, t, s, ops, []*keypair.Full{s.masterKeyPair, s.checkpointLPAccountKeyPair})
+	require.NoError(t, err, "failed to create checkpoint liquidity pool")
+
+	log.Ctx(ctx).Infof("💧 Created checkpoint liquidity pool %s for account %s (asset %s:%s)",
+		s.checkpointLiquidityPoolID, s.checkpointLPAccountKeyPair.Address(), customAsset.Code, customAsset.Issuer)
 }
 
 // SubmitPaymentOp executes a native XLM payment from the master account to a destination

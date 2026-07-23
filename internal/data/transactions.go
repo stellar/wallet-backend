@@ -23,7 +23,7 @@ type TransactionModel struct {
 }
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
 	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
 	start := time.Now()
 	hashBytea := types.HashBytea(hash)
@@ -36,54 +36,6 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
 	}
 	return &transaction, nil
-}
-
-func (m *TransactionModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.TransactionWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id")
-	queryBuilder := strings.Builder{}
-	var args []interface{}
-	argIndex := 1
-
-	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_id FROM transactions`, columns)
-
-	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
-	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
-	if cursor != nil {
-		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
-			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
-			{Name: "to_id", Value: cursor.ID},
-		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" WHERE " + clause)
-		args = append(args, cursorArgs...)
-		argIndex = nextIdx
-	}
-
-	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC")
-	} else {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC")
-	}
-
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
-		args = append(args, *limit)
-	}
-
-	query := queryBuilder.String()
-	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions.cursor_ledger_created_at ASC, transactions.cursor_id ASC`, query)
-	}
-
-	start := time.Now()
-	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", "transactions").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "transactions").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", "transactions", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("getting transactions: %w", err)
-	}
-	return transactions, nil
 }
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
@@ -188,7 +140,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 //
 // See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
 func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id", "ledger_created_at")
 	// Join operations to transactions using TOID encoding:
 	// An operation ID's lower 12 bits encode the operation index within the transaction.
 	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
@@ -212,26 +164,33 @@ func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operation
 	return transactions, nil
 }
 
-// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes
-func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, columns string) ([]*types.TransactionWithStateChangeID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id")
-
-	// Build tuples for the IN clause. Since (to_id, operation_id, state_change_id) is the primary key of state_changes,
-	// it will be faster to search on this tuple.
-	tuples := make([]string, len(scOrders))
-	for i := range scOrders {
-		tuples[i] = fmt.Sprintf("(%d, %d, %d)", scToIDs[i], scOpIDs[i], scOrders[i])
+// BatchGetByStateChangeIDs gets the transactions that are associated with the given state changes.
+// The state-change key triple's to_id already identifies the parent transaction (to_id is the PK
+// prefix of state_changes), so this probes transactions directly instead of joining through
+// state_changes. Callers supply each key's parent ledger_created_at (the state change's ledger
+// time, same ledger as its transaction) so the LATERAL can pin the complete transactions primary
+// key (to_id, ledger_created_at). The LATERAL LIMIT 1 is load-bearing: a subquery containing LIMIT
+// cannot be flattened into a join, so the planner must run this as one per-key PK probe (see
+// BatchGetByAccountAddress) instead of decompressing the whole hypertable to hash-join a full
+// IN-list of (to_id, operation_id, state_change_id) tuples.
+func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs []int64, scOpIDs []int64, scOrders []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.TransactionWithStateChangeID, error) {
+	if len(scToIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("scToIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(scToIDs), len(ledgerCreatedAts))
 	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 
 	query := fmt.Sprintf(`
-		SELECT %s, CONCAT(sc.to_id, '-', sc.operation_id, '-', sc.state_change_id) as state_change_id
-		FROM transactions
-		INNER JOIN state_changes sc ON transactions.to_id = sc.to_id
-		WHERE (sc.to_id, sc.operation_id, sc.state_change_id) IN (%s)
-		`, columns, strings.Join(tuples, ", "))
+		SELECT %s, CONCAT(k.to_id, '-', k.operation_id, '-', k.state_change_id) AS state_change_id
+		FROM UNNEST($1::bigint[], $2::bigint[], $3::bigint[], $4::timestamptz[]) AS k(to_id, operation_id, state_change_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT %s FROM transactions t
+			WHERE t.to_id = k.to_id AND t.ledger_created_at = k.ledger_created_at
+			LIMIT 1
+		) t
+	`, columns, columns)
 
 	start := time.Now()
-	transactions, err := db.QueryManyPtrs[types.TransactionWithStateChangeID](ctx, m.DB, query)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithStateChangeID](ctx, m.DB, query, scToIDs, scOpIDs, scOrders, ledgerCreatedAts)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByStateChangeIDs", "transactions").Observe(float64(len(scOrders)))
