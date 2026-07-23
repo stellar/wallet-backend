@@ -86,6 +86,11 @@ type IndexerBuffer struct {
 	lpShareTombstones     map[LiquidityPoolShareChangeKey]int64
 	lpTombstones          map[string]int64
 	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
+	// parsedAssetsByString memoizes the parse + deterministic-ID derivation per unique asset
+	// string (nil value = string is known-invalid). It is content-derived — the same string always
+	// yields the same result — so it is never cleared in Clear() and is bounded by the number of
+	// unique asset strings ever seen.
+	parsedAssetsByString  map[string]*data.TrustlineAsset
 	sacContractsByID      map[string]*data.Contract         // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash   map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
 	wasmBytecodesByHash   map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
@@ -113,6 +118,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		lpShareTombstones:              make(map[LiquidityPoolShareChangeKey]int64),
 		lpTombstones:                   make(map[string]int64),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
+		parsedAssetsByString:           make(map[string]*data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
 		protocolWasmsByHash:            make(map[string]data.ProtocolWasms),
 		wasmBytecodesByHash:            make(map[string][]byte),
@@ -247,25 +253,35 @@ func lpIsNoopRemove(existing, incoming types.LiquidityPoolChange) bool {
 }
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
+// The parse + deterministic-ID derivation is memoized per asset string (see parsedAssetsByString),
+// so a repeated asset — valid or invalid — skips re-parsing and re-validation.
 func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChange) {
-	code, issuer, err := ParseAssetString(trustlineChange.Asset)
-	if err != nil {
+	asset, cached := b.parsedAssetsByString[trustlineChange.Asset]
+	if !cached {
+		code, issuer, err := ParseAssetString(trustlineChange.Asset)
+		if err == nil {
+			trustlineID := data.DeterministicAssetID(code, issuer)
+			asset = &data.TrustlineAsset{
+				ID:     trustlineID,
+				Code:   code,
+				Issuer: issuer,
+			}
+		}
+		// A nil asset records a known-invalid string so repeated invalid assets skip re-validation.
+		b.parsedAssetsByString[trustlineChange.Asset] = asset
+	}
+	if asset == nil {
 		return // Skip invalid assets
 	}
-	trustlineID := data.DeterministicAssetID(code, issuer)
 
 	// Track unique asset with pre-computed deterministic ID
-	if _, exists := b.uniqueTrustlineAssets[trustlineID]; !exists {
-		b.uniqueTrustlineAssets[trustlineID] = data.TrustlineAsset{
-			ID:     trustlineID,
-			Code:   code,
-			Issuer: issuer,
-		}
+	if _, exists := b.uniqueTrustlineAssets[asset.ID]; !exists {
+		b.uniqueTrustlineAssets[asset.ID] = *asset
 	}
 
 	changeKey := TrustlineChangeKey{
 		AccountID:   trustlineChange.AccountID,
-		TrustlineID: trustlineID,
+		TrustlineID: asset.ID,
 	}
 	pushWithTombstone(b.trustlineChangesByTrustlineKey, b.trustlineTombstones, changeKey, trustlineChange, trustlineOrder, trustlineIsNoopRemove)
 }
@@ -494,6 +510,9 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.opByID)
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
+	// parsedAssetsByString is intentionally NOT cleared: it is content-derived (same string always
+	// yields the same parse result), so it stays valid across flushes and is bounded by the number
+	// of unique asset strings ever seen.
 	clear(b.trustlineChangesByTrustlineKey)
 	clear(b.sacContractsByID)
 	clear(b.protocolWasmsByHash)

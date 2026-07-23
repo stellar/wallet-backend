@@ -784,3 +784,53 @@ func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
 		}
 	})
 }
+
+func TestIndexerBuffer_PushTrustlineChange_MemoizedAssets(t *testing.T) {
+	const (
+		asset   = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+		addrA   = "GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON"
+		addrB   = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+		invalid = "not-a-valid-asset"
+	)
+	trustline := func(accountID string, opID int64, op types.TrustlineOpType) types.TrustlineChange {
+		return types.TrustlineChange{
+			AccountID:   accountID,
+			Asset:       asset,
+			OperationID: opID,
+			Operation:   op,
+		}
+	}
+
+	t.Run("🟢 same valid asset under two accounts yields one unique asset", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushTrustlineChange(trustline(addrA, 100, types.TrustlineOpAdd))
+		buffer.PushTrustlineChange(trustline(addrB, 200, types.TrustlineOpAdd))
+
+		assert.Len(t, buffer.GetTrustlineChanges(), 2)
+		require.Len(t, buffer.GetUniqueTrustlineAssets(), 1)
+	})
+
+	t.Run("🔴 invalid asset is silently dropped on every push", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		change := types.TrustlineChange{AccountID: addrA, Asset: invalid, OperationID: 100, Operation: types.TrustlineOpAdd}
+		buffer.PushTrustlineChange(change)
+		buffer.PushTrustlineChange(change)
+
+		assert.Empty(t, buffer.GetTrustlineChanges())
+		assert.Empty(t, buffer.GetUniqueTrustlineAssets())
+	})
+
+	t.Run("🟢 memo survives Clear and repopulates unique assets", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushTrustlineChange(trustline(addrA, 100, types.TrustlineOpAdd))
+		require.Len(t, buffer.GetUniqueTrustlineAssets(), 1)
+
+		buffer.Clear()
+		assert.Empty(t, buffer.GetTrustlineChanges())
+		assert.Empty(t, buffer.GetUniqueTrustlineAssets())
+
+		buffer.PushTrustlineChange(trustline(addrA, 100, types.TrustlineOpAdd))
+		assert.Len(t, buffer.GetTrustlineChanges(), 1)
+		require.Len(t, buffer.GetUniqueTrustlineAssets(), 1)
+	})
+}
