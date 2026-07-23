@@ -69,7 +69,7 @@ func TestAccountScopedLoaders_NoCrossAccountLeakInSharedBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("operations loader does not leak across accounts in one batch", func(t *testing.T) {
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.AccountOperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 			{AccountID: acctA, ToID: toID, LedgerCreatedAt: now},
 			{AccountID: acctB, ToID: toID, LedgerCreatedAt: now},
@@ -83,7 +83,7 @@ func TestAccountScopedLoaders_NoCrossAccountLeakInSharedBatch(t *testing.T) {
 	})
 
 	t.Run("state-changes loader does not leak across accounts in one batch", func(t *testing.T) {
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.AccountStateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 			{AccountID: acctA, ToID: toID, LedgerCreatedAt: now},
 			{AccountID: acctB, ToID: toID, LedgerCreatedAt: now},
@@ -139,7 +139,7 @@ func TestAccountScopedLoaders_PerColumnsFetchInSharedBatch(t *testing.T) {
 	`, now, toID+1, types.AddressBytea(acct))
 	require.NoError(t, err)
 
-	loaders := NewDataloaders(models)
+	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.AccountOperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 		{AccountID: acct, ToID: toID, LedgerCreatedAt: now, Columns: "id"},
 		{AccountID: acct, ToID: toID, LedgerCreatedAt: now, Columns: "id, operation_type"},
@@ -218,7 +218,7 @@ func TestAccountScopedLoaders_BatchRoutesPerToID(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("operations loader routes per to_id", func(t *testing.T) {
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.AccountOperationsByToIDLoader.LoadAll(ctx, []OperationColumnsKey{
 			{AccountID: acct, ToID: toIDA, LedgerCreatedAt: now},
 			{AccountID: acct, ToID: toIDB, LedgerCreatedAt: now},
@@ -241,7 +241,7 @@ func TestAccountScopedLoaders_BatchRoutesPerToID(t *testing.T) {
 	})
 
 	t.Run("state-changes loader routes per to_id", func(t *testing.T) {
-		loaders := NewDataloaders(models)
+		loaders := NewDataloaders(models, m.Dataloader)
 		results, err := loaders.AccountStateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 			{AccountID: acct, ToID: toIDA, LedgerCreatedAt: now},
 			{AccountID: acct, ToID: toIDB, LedgerCreatedAt: now},

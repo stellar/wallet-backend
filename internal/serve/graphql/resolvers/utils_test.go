@@ -47,3 +47,119 @@ func TestParseAccountPaginationParams(t *testing.T) {
 		assert.Equal(t, maxAccountPageLimit, *params.Limit)
 	})
 }
+
+// requireBadUserInput asserts that err chains to a *gqlerror.Error carrying the BAD_USER_INPUT
+// code, the shape the custom error presenter (GQL-05) requires to avoid masking a legitimate
+// client-input error behind a generic "internal server error".
+func requireBadUserInput(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var gqlErr *gqlerror.Error
+	require.ErrorAs(t, err, &gqlErr)
+	assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
+}
+
+func TestValidatePaginationParamsReturnsBadUserInput(t *testing.T) {
+	first := int32(1)
+	last := int32(1)
+	after := "cursor"
+	before := "cursor"
+	zero := int32(0)
+	negative := int32(-1)
+
+	requireBadUserInput(t, validatePaginationParams(&first, nil, &last, nil))
+	requireBadUserInput(t, validatePaginationParams(nil, &after, nil, &before))
+	requireBadUserInput(t, validatePaginationParams(&zero, nil, nil, nil))
+	requireBadUserInput(t, validatePaginationParams(nil, nil, &zero, nil))
+	requireBadUserInput(t, validatePaginationParams(&negative, nil, nil, nil))
+	requireBadUserInput(t, validatePaginationParams(nil, nil, &negative, nil))
+	requireBadUserInput(t, validatePaginationParams(&first, nil, nil, &before))
+	requireBadUserInput(t, validatePaginationParams(nil, &after, &last, nil))
+}
+
+func TestDecodeInt64CursorReturnsBadUserInput(t *testing.T) {
+	t.Run("invalid base64 returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := "not-valid-base64!!!"
+		_, err := decodeInt64Cursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("non-numeric decoded value returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("not-a-number")
+		_, err := decodeInt64Cursor(&bad)
+		requireBadUserInput(t, err)
+	})
+}
+
+func TestDecodeStringCursorReturnsBadUserInput(t *testing.T) {
+	bad := "not-valid-base64!!!"
+	_, err := decodeStringCursor(&bad)
+	requireBadUserInput(t, err)
+}
+
+func TestParseCompositeCursorReturnsBadUserInput(t *testing.T) {
+	t.Run("invalid base64 returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := "not-valid-base64!!!"
+		_, err := parseCompositeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("wrong number of parts returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("only-one-part")
+		_, err := parseCompositeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("non-numeric ledger_created_at returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("notanumber:5")
+		_, err := parseCompositeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("non-numeric id returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("5:notanumber")
+		_, err := parseCompositeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+}
+
+func TestParseStateChangeCursorReturnsBadUserInput(t *testing.T) {
+	t.Run("invalid base64 returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := "not-valid-base64!!!"
+		_, err := parseStateChangeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("wrong number of parts returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("only:three:parts")
+		_, err := parseStateChangeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+
+	t.Run("non-numeric part returns BAD_USER_INPUT", func(t *testing.T) {
+		bad := encodeCursor("5:6:notanumber:8")
+		_, err := parseStateChangeCursor(&bad)
+		requireBadUserInput(t, err)
+	})
+}
+
+// TestParsePaginationParamsMalformedCursorIsBadUserInput locks in the GQL-11 interplay with GQL-05:
+// a malformed client cursor must still surface as BAD_USER_INPUT after being wrapped by
+// parsePaginationParams's fmt.Errorf("...: %w", err) — the presenter's errors.As must find the
+// coded error through the wrap chain rather than it being masked as an internal error.
+func TestParsePaginationParamsMalformedCursorIsBadUserInput(t *testing.T) {
+	first := int32(1)
+	bad := "not-valid-base64!!!"
+
+	_, err := parsePaginationParams(&first, &bad, nil, nil, CursorTypeComposite)
+	requireBadUserInput(t, err)
+
+	_, err = parsePaginationParams(&first, &bad, nil, nil, CursorTypeStateChange)
+	requireBadUserInput(t, err)
+
+	_, err = parsePaginationParams(&first, &bad, nil, nil, CursorTypeString)
+	requireBadUserInput(t, err)
+
+	_, err = parsePaginationParams(&first, &bad, nil, nil, CursorTypeInt64)
+	requireBadUserInput(t, err)
+}

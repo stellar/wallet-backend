@@ -8,14 +8,41 @@ import (
 	"fmt"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
+
+	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
 // DefaultPageLimit is the implicit page size used when GraphQL pagination args
 // are omitted. Execution and complexity accounting must share this value.
 const DefaultPageLimit int32 = 50
 
-// CustomErrorPresenter provides more detailed error messages for GraphQL validation errors
+// clientSafeErrorCodes enumerates every GraphQL error "code" extension the API deliberately
+// constructs (or that gqlgen itself assigns) for client consumption: validation/parse errors,
+// the complexity and depth limits, and the app's own coded resolver errors (see
+// resolvers/errors.go and the badUserInputError/balanceBadUserInputError helpers). Any error
+// presented without one of these codes is treated as an internal failure by CustomErrorPresenter
+// and masked before it reaches the client.
+var clientSafeErrorCodes = map[string]bool{
+	"BAD_USER_INPUT":            true,
+	"INVALID_TRANSACTION_HASH":  true,
+	"INVALID_ADDRESS":           true,
+	"INTERNAL_ERROR":            true, // resolvers/account_balances.go: already a sanitized, generic message
+	"GRAPHQL_VALIDATION_FAILED": true, // gqlparser query validation (unknown field, bad args, ...)
+	"GRAPHQL_PARSE_FAILED":      true, // gqlparser query parse errors
+	"COMPLEXITY_LIMIT_EXCEEDED": true, // gqlgen extension.FixedComplexityLimit
+	"QUERY_TOO_DEEP":            true, // query depth limit extension
+	"UNAUTHENTICATED":           true,
+	"FORBIDDEN":                 true,
+	"PERSISTED_QUERY_NOT_FOUND": true, // gqlgen extension.AutomaticPersistedQuery: hash-only cache miss; the client must receive it verbatim to retry with the full query
+}
+
+// CustomErrorPresenter provides more detailed error messages for GraphQL validation errors, and
+// masks any error that isn't one of clientSafeErrorCodes behind a generic message. Resolvers and
+// the data layer can return plain Go errors (a SQL driver error, a wrapped fmt.Errorf, ...); left
+// unmasked, DefaultErrorPresenter would forward err.Error() verbatim to the client, potentially
+// leaking query text, table/column names, or other internal detail (GQL-05).
 func CustomErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 	var gqlErr *gqlerror.Error
 	if errors.As(err, &gqlErr) {
@@ -42,5 +69,38 @@ func CustomErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 			}
 		}
 	}
-	return graphql.DefaultErrorPresenter(ctx, err)
+
+	presented := graphql.DefaultErrorPresenter(ctx, err)
+
+	if code, ok := presented.Extensions["code"].(string); ok && clientSafeErrorCodes[code] {
+		return presented
+	}
+
+	oc := safeGetOperationContext(ctx)
+	fc := graphql.GetFieldContext(ctx)
+	log.Ctx(ctx).WithFields(log.F{
+		"graphql_operation": middleware.GetOperationIdentifier(oc),
+		"graphql_field":     middleware.GetFieldPath(fc),
+	}).Errorf("internal GraphQL error: %v", err)
+
+	return &gqlerror.Error{
+		Message:    "internal server error",
+		Path:       presented.Path,
+		Locations:  presented.Locations,
+		Extensions: map[string]interface{}{"code": "INTERNAL_SERVER_ERROR"},
+	}
+}
+
+// safeGetOperationContext returns the request's OperationContext, or nil if none is set.
+// graphql.GetOperationContext panics when no context has been attached; errors dispatched before
+// DispatchOperation runs (parse errors, validation errors, and operationContextMutator errors such
+// as the complexity and depth limits) go through DispatchError, which never attaches one, so the
+// presenter must tolerate that instead of panicking on every such error.
+func safeGetOperationContext(ctx context.Context) (oc *graphql.OperationContext) {
+	defer func() {
+		if recover() != nil {
+			oc = nil
+		}
+	}()
+	return graphql.GetOperationContext(ctx)
 }

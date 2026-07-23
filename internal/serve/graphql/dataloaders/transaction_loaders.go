@@ -9,6 +9,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type TransactionColumnsKey struct {
@@ -22,7 +23,7 @@ type TransactionColumnsKey struct {
 // txByOperationIDLoader creates a dataloader for fetching transactions by operation ID
 // This prevents N+1 queries when multiple operations request their transaction
 // The loader batches multiple operation IDs into a single database query
-func transactionByOperationIDLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
+func transactionByOperationIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithOperationID, error) {
 			operationIDs := make([]int64, len(keys))
@@ -41,13 +42,16 @@ func transactionByOperationIDLoader(models *data.Models) *dataloadgen.Loader[Tra
 		func(item *types.TransactionWithOperationID) types.Transaction {
 			return item.Transaction
 		},
+		transactionColumnsKeyShape,
+		"TransactionsByOperationIDLoader",
+		m,
 	)
 }
 
 // transactionByStateChangeIDLoader creates a dataloader for fetching transactions by state change ID
 // This prevents N+1 queries when multiple state changes request their transactions
 // The loader batches multiple state change IDs into a single database query
-func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
+func transactionByStateChangeIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[TransactionColumnsKey, *types.Transaction] {
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithStateChangeID, error) {
 			columns := keys[0].Columns
@@ -72,5 +76,15 @@ func transactionByStateChangeIDLoader(models *data.Models) *dataloadgen.Loader[T
 		func(item *types.TransactionWithStateChangeID) types.Transaction {
 			return item.Transaction
 		},
+		transactionColumnsKeyShape,
+		"TransactionByStateChangeIDLoader",
+		m,
 	)
+}
+
+// transactionColumnsKeyShape is the query shape for TransactionColumnsKey: Columns is the only
+// field that determines the SQL statement the fetcher builds (these loaders take no limit or
+// cursor), so any two keys requesting different columns must land in different batch groups.
+func transactionColumnsKeyShape(key TransactionColumnsKey) QueryShape {
+	return QueryShape{Columns: key.Columns}
 }

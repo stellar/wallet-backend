@@ -124,67 +124,6 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	return stateChanges, nil
 }
 
-func (m *StateChangeModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	if err := validatePositiveLimit(limit); err != nil {
-		return nil, err
-	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
-	var queryBuilder strings.Builder
-	var args []interface{}
-	argIndex := 1
-
-	fmt.Fprintf(&queryBuilder, `
-		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
-		FROM state_changes
-	`, columns)
-
-	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
-	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
-	if cursor != nil {
-		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
-			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
-			{Name: "to_id", Value: cursor.ToID},
-			{Name: "operation_id", Value: cursor.OperationID},
-			{Name: "state_change_id", Value: cursor.StateChangeID},
-		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" WHERE " + clause)
-		args = append(args, cursorArgs...)
-		argIndex = nextIdx
-	}
-
-	// Order with ledger_created_at as leading column for TimescaleDB ChunkAppend
-	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC")
-	} else {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, to_id ASC, operation_id ASC, state_change_id ASC")
-	}
-
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
-		args = append(args, *limit)
-	}
-
-	query := queryBuilder.String()
-
-	// For backward pagination, wrap query to reverse the final order.
-	// We use cursor alias columns (e.g., "cursor_ledger_created_at") in ORDER BY to avoid
-	// ambiguity since the inner SELECT includes both original columns and cursor aliases.
-	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS statechanges ORDER BY statechanges.cursor_ledger_created_at ASC, statechanges.cursor_to_id ASC, statechanges.cursor_operation_id ASC, statechanges.cursor_state_change_id ASC`, query)
-	}
-
-	start := time.Now()
-	stateChanges, err := db.QueryManyPtrs[types.StateChangeWithCursor](ctx, m.DB, query, args...)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", "state_changes").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "state_changes").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", "state_changes", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("getting all state changes: %w", err)
-	}
-	return stateChanges, nil
-}
-
 // BatchCopy inserts state changes using pgx's binary COPY protocol.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 //

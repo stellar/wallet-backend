@@ -99,29 +99,6 @@ func buildTransactionByHashQuery(fields []string) string {
 	`, fieldList)
 }
 
-// buildTransactionsQuery builds the GraphQL query for fetching transactions with pagination
-func buildTransactionsQuery(fields []string) string {
-	fieldList := buildFieldList(fields, defaultTransactionFields)
-	return fmt.Sprintf(`
-		query Transactions($first: Int, $after: String, $last: Int, $before: String) {
-			transactions(first: $first, after: $after, last: $last, before: $before) {
-				edges {
-					node {
-						%s
-					}
-					cursor
-				}
-				pageInfo {
-					startCursor
-					endCursor
-					hasNextPage
-					hasPreviousPage
-				}
-			}
-		}
-	`, fieldList)
-}
-
 // buildAccountByAddressQuery builds the GraphQL query for fetching an account by address
 func buildAccountByAddressQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultAccountFields)
@@ -129,29 +106,6 @@ func buildAccountByAddressQuery(fields []string) string {
 		query AccountByAddress($address: String!) {
 			accountByAddress(address: $address) {
 				%s
-			}
-		}
-	`, fieldList)
-}
-
-// buildOperationsQuery builds the GraphQL query for fetching operations with pagination
-func buildOperationsQuery(fields []string) string {
-	fieldList := buildFieldList(fields, defaultOperationFields)
-	return fmt.Sprintf(`
-		query Operations($first: Int, $after: String, $last: Int, $before: String) {
-			operations(first: $first, after: $after, last: $last, before: $before) {
-				edges {
-					node {
-						%s
-					}
-					cursor
-				}
-				pageInfo {
-					startCursor
-					endCursor
-					hasNextPage
-					hasPreviousPage
-				}
 			}
 		}
 	`, fieldList)
@@ -167,30 +121,6 @@ func buildOperationByIDQuery(fields []string) string {
 			}
 		}
 	`, fieldList)
-}
-
-// buildStateChangesQuery builds the GraphQL query for fetching state changes with pagination
-func buildStateChangesQuery() string {
-	// For state changes, we always use fragments to handle polymorphic types
-	// Individual field selection is not supported for state changes due to their polymorphic nature
-	return fmt.Sprintf(`
-		query StateChanges($first: Int, $after: String, $last: Int, $before: String) {
-			stateChanges(first: $first, after: $after, last: $last, before: $before) {
-				edges {
-					node {
-						%s
-					}
-					cursor
-				}
-				pageInfo {
-					startCursor
-					endCursor
-					hasNextPage
-					hasPreviousPage
-				}
-			}
-		}
-	`, stateChangeFragments)
 }
 
 // buildAccountTransactionsQuery builds the GraphQL query for fetching an account's transactions with pagination

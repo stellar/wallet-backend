@@ -37,56 +37,6 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	return &operation, nil
 }
 
-func (m *OperationModel) GetAll(ctx context.Context, columns string, limit *int32, cursor *types.CompositeCursor, sortOrder SortOrder) ([]*types.OperationWithCursor, error) {
-	if err := validatePositiveLimit(limit); err != nil {
-		return nil, err
-	}
-	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
-	queryBuilder := strings.Builder{}
-	var args []interface{}
-	argIndex := 1
-
-	fmt.Fprintf(&queryBuilder, `SELECT %s, ledger_created_at as cursor_ledger_created_at, id as cursor_id FROM operations`, columns)
-
-	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
-	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
-	if cursor != nil {
-		clause, cursorArgs, nextIdx := buildDecomposedCursorCondition([]CursorColumn{
-			{Name: "ledger_created_at", Value: cursor.LedgerCreatedAt},
-			{Name: "id", Value: cursor.ID},
-		}, sortOrder, argIndex)
-		queryBuilder.WriteString(" WHERE " + clause)
-		args = append(args, cursorArgs...)
-		argIndex = nextIdx
-	}
-
-	if sortOrder == DESC {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at DESC, id DESC")
-	} else {
-		queryBuilder.WriteString(" ORDER BY ledger_created_at ASC, id ASC")
-	}
-
-	if limit != nil {
-		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
-		args = append(args, *limit)
-	}
-	query := queryBuilder.String()
-	if sortOrder == DESC {
-		query = fmt.Sprintf(`SELECT * FROM (%s) AS operations ORDER BY operations.cursor_ledger_created_at ASC, operations.cursor_id ASC`, query)
-	}
-
-	start := time.Now()
-	operations, err := db.QueryManyPtrs[types.OperationWithCursor](ctx, m.DB, query, args...)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", "operations").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", "operations").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", "operations", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("getting operations: %w", err)
-	}
-	return operations, nil
-}
-
 // BatchGetByToIDs gets the operations that are associated with the given transaction ToIDs.
 //
 // # TOID (Total Order ID) Encoding - SEP-35

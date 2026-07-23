@@ -42,24 +42,12 @@ type TransactionByHashData struct {
 	TransactionByHash *types.GraphQLTransaction `json:"transactionByHash"`
 }
 
-type TransactionsData struct {
-	Transactions *types.TransactionConnection `json:"transactions"`
-}
-
 type AccountByAddressData struct {
 	AccountByAddress *types.Account `json:"accountByAddress"`
 }
 
-type OperationsData struct {
-	Operations *types.OperationConnection `json:"operations"`
-}
-
 type OperationByIDData struct {
 	OperationByID *types.Operation `json:"operationById"`
-}
-
-type StateChangesData struct {
-	StateChanges *types.StateChangeConnection `json:"stateChanges"`
 }
 
 type AccountTransactionsData struct {
@@ -267,25 +255,6 @@ func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...
 	return data.TransactionByHash, nil
 }
 
-func (c *Client) GetTransactions(ctx context.Context, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {
-	var fields []string
-	if len(opts) > 0 && opts[0] != nil {
-		fields = opts[0].TransactionFields
-	}
-
-	variables, err := buildPaginationVars(first, last, after, before)
-	if err != nil {
-		return nil, fmt.Errorf("building pagination variables: %w", err)
-	}
-
-	data, err := executeGraphQL[TransactionsData](c, ctx, buildTransactionsQuery(fields), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return data.Transactions, nil
-}
-
 func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts ...*QueryOptions) (*types.Account, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -304,25 +273,6 @@ func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts .
 	return data.AccountByAddress, nil
 }
 
-func (c *Client) GetOperations(ctx context.Context, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
-	var fields []string
-	if len(opts) > 0 && opts[0] != nil {
-		fields = opts[0].OperationFields
-	}
-
-	variables, err := buildPaginationVars(first, last, after, before)
-	if err != nil {
-		return nil, fmt.Errorf("building pagination variables: %w", err)
-	}
-
-	data, err := executeGraphQL[OperationsData](c, ctx, buildOperationsQuery(fields), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return data.Operations, nil
-}
-
 func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryOptions) (*types.Operation, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -339,20 +289,6 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 	}
 
 	return data.OperationByID, nil
-}
-
-func (c *Client) GetStateChanges(ctx context.Context, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	variables, err := buildPaginationVars(first, last, after, before)
-	if err != nil {
-		return nil, fmt.Errorf("building pagination variables: %w", err)
-	}
-
-	data, err := executeGraphQL[StateChangesData](c, ctx, buildStateChangesQuery(), variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return data.StateChanges, nil
 }
 
 func (c *Client) GetAccountTransactions(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {

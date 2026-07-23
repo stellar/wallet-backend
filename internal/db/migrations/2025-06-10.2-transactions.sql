@@ -25,14 +25,11 @@ SELECT enable_chunk_skipping('transactions', 'to_id');
 -- non-overlapping chunks at plan time.
 SELECT enable_chunk_skipping('transactions', 'ledger_number');
 
--- Replaces the default single-column (ledger_created_at DESC) index TimescaleDB
--- auto-creates on the hypertable's partition column. The root GraphQL connection
--- sorts by (ledger_created_at DESC, to_id DESC), which the default index can't serve
--- for a top-N first page (it still needs a heapsort on to_id within each timestamp).
--- This composite index matches the API sort key directly and makes the auto-created
--- one redundant.
+-- TimescaleDB's default single-column index on the partition column. Retention drops chunks by
+-- range metadata, and no query path filters this table by bare ledger_created_at (reads go through
+-- the primary key, idx_transactions_hash, or the transactions_accounts table), so it has zero
+-- consumers.
 DROP INDEX IF EXISTS transactions_ledger_created_at_idx;
-CREATE INDEX idx_transactions_created_at_sort ON transactions (ledger_created_at DESC, to_id DESC);
 
 CREATE INDEX idx_transactions_hash ON transactions(hash);
 

@@ -164,6 +164,20 @@ func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+// GraphQLIntrospectionEnabledOption controls whether GraphQL schema introspection (__schema,
+// __type) is served. Defaults to disabled: introspection makes the full schema (including any
+// unreleased or internal-only fields) discoverable to anyone who can reach the endpoint.
+func GraphQLIntrospectionEnabledOption(configKey *bool) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "graphql-introspection-enabled",
+		Usage:       "Whether to enable GraphQL schema introspection (__schema, __type). Disabled by default in production.",
+		OptType:     types.Bool,
+		ConfigKey:   configKey,
+		FlagDefault: false,
+		Required:    false,
+	}
+}
+
 // DBPoolOptions returns config options for tuning the pgxpool connection pool.
 func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration, maxConnIdleTime *time.Duration) config.ConfigOptions {
 	return config.ConfigOptions{

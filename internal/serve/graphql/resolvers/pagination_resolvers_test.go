@@ -72,7 +72,7 @@ func TestAccountTransactionEdgeResolver(t *testing.T) {
 	}
 
 	t.Run("operations are scoped to the account", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(models)
+		loaders := dataloaders.NewDataloaders(models, m.Dataloader)
 		c := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 		ops, err := resolver.Operations(c, edge)
 		require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestAccountTransactionEdgeResolver(t *testing.T) {
 	})
 
 	t.Run("state changes are scoped to the account", func(t *testing.T) {
-		loaders := dataloaders.NewDataloaders(models)
+		loaders := dataloaders.NewDataloaders(models, m.Dataloader)
 		// Select "type" (state_change_category): it is the discriminator convertStateChangeTypes
 		// switches on, so it must be among the loaded columns for the row to resolve to a concrete
 		// type rather than a nil BaseStateChange. The loader force-loads to_id via prepareColumnsWithID.
@@ -163,7 +163,7 @@ func TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *te
 	require.False(t, edge.Node.LedgerCreatedAt.IsZero(), "node must carry the real ledger_created_at for partition pinning")
 	require.Equal(t, types.AddressBytea(acct), edge.AccountAddress, "Transactions must stamp the parent account onto each edge so nested resolvers scope correctly")
 
-	loaders := dataloaders.NewDataloaders(models)
+	loaders := dataloaders.NewDataloaders(models, m.Dataloader)
 	opCtx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 	ops, err := edgeResolver.Operations(opCtx, edge)
 	require.NoError(t, err)

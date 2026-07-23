@@ -222,54 +222,6 @@ func TestTransactionModel_GetByHash(t *testing.T) {
 	assert.Equal(t, int64(1), transaction.ToID)
 }
 
-func TestTransactionModel_GetAll(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &TransactionModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	now := time.Now()
-
-	// Create test transactions
-	testHash1 := types.HashBytea("1076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	testHash2 := types.HashBytea("2076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	testHash3 := types.HashBytea("3076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES
-			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
-			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
-			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
-	`, testHash1, testHash2, testHash3, now)
-	require.NoError(t, err)
-
-	// Test GetAll without specifying cursor and limit (gets all transactions)
-	transactions, err := m.GetAll(ctx, "", nil, nil, ASC)
-	require.NoError(t, err)
-	assert.Len(t, transactions, 3)
-	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
-	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
-	assert.Equal(t, int64(3), transactions[2].CompositeCursor.ID)
-
-	// Test GetAll with smaller limit
-	limit := int32(2)
-	transactions, err = m.GetAll(ctx, "", &limit, nil, ASC)
-	require.NoError(t, err)
-	assert.Len(t, transactions, 2)
-	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
-	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
-}
-
 func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -558,10 +510,6 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	assert.True(t, now.Equal(tx.LedgerCreatedAt), "GetByHash with minimal projection must hydrate ledger_created_at")
 
 	limit := int32(10)
-	txs, err := m.GetAll(ctx, "hash", &limit, nil, DESC)
-	require.NoError(t, err)
-	require.Len(t, txs, 1)
-	assert.True(t, now.Equal(txs[0].Transaction.LedgerCreatedAt), "GetAll with minimal projection must hydrate ledger_created_at")
 
 	// End-to-end: the hydrated timestamp pins the child operations lookup.
 	ops, err := opModel.BatchGetByToID(ctx, tx.ToID, tx.LedgerCreatedAt, "id", &limit, nil, ASC)

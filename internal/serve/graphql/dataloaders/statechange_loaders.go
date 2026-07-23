@@ -9,11 +9,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-)
-
-const (
-	// TODO: this should be configurable via config
-	MaxStateChangesPerBatch = 10
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 type StateChangeColumnsKey struct {
@@ -30,7 +26,7 @@ type StateChangeColumnsKey struct {
 // stateChangesByToIDLoader creates a dataloader for fetching state changes by to_id
 // This prevents N+1 queries when multiple transactions request their state changes
 // The loader batches multiple to_ids into a single database query
-func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
+func stateChangesByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the to_id column since that will be used as the primary key to group the state changes
@@ -41,6 +37,9 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
+			if limit == nil || *limit <= 0 {
+				return nil, fmt.Errorf("state changes loader requires a positive limit")
+			}
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
@@ -50,12 +49,11 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 
 			toIDs := make([]int64, len(keys))
 			ledgerCreatedAts := make([]time.Time, len(keys))
-			maxLimit := min(*limit, MaxStateChangesPerBatch)
 			for i, key := range keys {
 				toIDs[i] = key.ToID
 				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, &maxLimit, sortOrder)
+			return models.StateChanges.BatchGetByToIDs(ctx, toIDs, ledgerCreatedAts, columns, limit, sortOrder)
 		},
 		func(item *types.StateChangeWithCursor) int64 {
 			return item.StateChange.ToID
@@ -66,13 +64,33 @@ func stateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChan
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+		stateChangeColumnsKeyShape,
+		"StateChangesByToIDLoader",
+		m,
 	)
+}
+
+// stateChangeColumnsKeyShape is the query shape for one-to-many state-change loaders keyed by
+// StateChangeColumnsKey (see stateChangesByToIDLoader, stateChangesByOperationIDLoader): Columns,
+// Limit, Cursor and SortOrder all determine the SQL statement the fetcher builds, so any two keys
+// differing in one of these fields must land in different batch groups.
+func stateChangeColumnsKeyShape(key StateChangeColumnsKey) QueryShape {
+	shape := QueryShape{Columns: key.Columns, SortOrder: key.SortOrder}
+	if key.Limit != nil {
+		shape.Limit = *key.Limit
+		shape.HasLimit = true
+	}
+	if key.Cursor != nil {
+		shape.Cursor = *key.Cursor
+		shape.HasCursor = true
+	}
+	return shape
 }
 
 // stateChangesByOperationIDLoader creates a dataloader for fetching state changes by operation ID
 // This prevents N+1 queries when multiple operations request their state changes
 // The loader batches multiple operation IDs into a single database query
-func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
+func stateChangesByOperationIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChangeWithCursor] {
 	return newOneToManyLoader(
 		func(ctx context.Context, keys []StateChangeColumnsKey) ([]*types.StateChangeWithCursor, error) {
 			// Add the operation_id column since that will be used as the primary key to group the state changes
@@ -83,6 +101,9 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 			}
 			sortOrder := keys[0].SortOrder
 			limit := keys[0].Limit
+			if limit == nil || *limit <= 0 {
+				return nil, fmt.Errorf("state changes loader requires a positive limit")
+			}
 
 			// If there is only one key, we can use a simpler query without resorting to the CTE expressions.
 			// Also, when a single key is requested, we can allow using normal cursor based pagination.
@@ -107,6 +128,9 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(item *types.StateChangeWithCursor) types.StateChangeWithCursor {
 			return *item
 		},
+		stateChangeColumnsKeyShape,
+		"StateChangesByOperationIDLoader",
+		m,
 	)
 }
 
@@ -115,7 +139,7 @@ func stateChangesByOperationIDLoader(models *data.Models) *dataloadgen.Loader[St
 // newAccountScopedLoader). BatchGetAccountStateChangesByToIDs forces the to_id grouping key into the
 // SELECT via prepareColumnsWithID, so — unlike stateChangesByToIDLoader — no manual column injection
 // is needed here.
-func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
+func accountStateChangesByToIDLoader(models *data.Models, m *metrics.DataloaderMetrics) *dataloadgen.Loader[StateChangeColumnsKey, []*types.StateChange] {
 	return newAccountScopedLoader(
 		models.StateChanges.BatchGetAccountStateChangesByToIDs,
 		func(key StateChangeColumnsKey) string { return key.AccountID },
@@ -123,5 +147,7 @@ func accountStateChangesByToIDLoader(models *data.Models) *dataloadgen.Loader[St
 		func(key StateChangeColumnsKey) int64 { return key.ToID },
 		func(key StateChangeColumnsKey) time.Time { return key.LedgerCreatedAt },
 		func(item *types.StateChange) int64 { return item.ToID },
+		"AccountStateChangesByToIDLoader",
+		m,
 	)
 }
