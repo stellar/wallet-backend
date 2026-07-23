@@ -9,6 +9,7 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -430,7 +431,12 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	}
 
 	for opID, participants := range r.OpParticipants {
+		// Invariant: every OpParticipants key must resolve to an operation in r.Operations.
 		operation := r.Operations[opID]
+		if operation == nil {
+			log.Errorf("operation %d missing from TransactionResult.Operations (tx %s); dropping its participants", opID, r.Transaction.Hash)
+			continue
+		}
 		for _, participant := range participants {
 			b.PushOperation(participant, operation, r.Transaction)
 		}

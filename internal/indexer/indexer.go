@@ -241,26 +241,28 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		return nil, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Count all unique participants for metrics. This transient set unions the participants
-	// processor's (thread-safe) sets, so it must be thread-safe too — deckarep's Union
-	// type-asserts its argument to the receiver's variant.
-	allParticipants := set.NewSet[string]()
-	allParticipants = allParticipants.Union(txParticipants)
+	// Counts unique participants across tx, ops, and state changes for metrics.
+	txParticipantsSlice := txParticipants.ToSlice()
+	allParticipants := make(map[string]struct{}, len(txParticipantsSlice))
+	for _, participant := range txParticipantsSlice {
+		allParticipants[participant] = struct{}{}
+	}
 	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
+		opParticipants.Participants.Each(func(participant string) bool {
+			allParticipants[participant] = struct{}{}
+			return false
+		})
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants.Add(string(stateChange.AccountID))
+		allParticipants[string(stateChange.AccountID)] = struct{}{}
 	}
 
 	result := &TransactionResult{
-		Transaction:           dataTx,
-		TxParticipants:        txParticipants.ToSlice(),
-		Operations:            make(map[int64]*types.Operation, len(opsParticipants)),
-		OpParticipants:        make(map[int64][]string, len(opsParticipants)),
-		ProtocolWasmBytecodes: make(map[string][]byte),
-		ContractEvents:        make(map[ContractEventKey][]xdr.ContractEvent),
-		ParticipantCount:      allParticipants.Cardinality(),
+		Transaction:      dataTx,
+		TxParticipants:   txParticipantsSlice,
+		Operations:       make(map[int64]*types.Operation, len(opsParticipants)),
+		OpParticipants:   make(map[int64][]string, len(opsParticipants)),
+		ParticipantCount: len(allParticipants),
 	}
 
 	// Get operation results for extracting result codes
@@ -321,6 +323,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		for _, wasm := range protocolWasms {
 			result.ProtocolWasms = append(result.ProtocolWasms, wasm.Record)
 			if len(wasm.Bytecode) > 0 {
+				if result.ProtocolWasmBytecodes == nil {
+					result.ProtocolWasmBytecodes = make(map[string][]byte)
+				}
 				result.ProtocolWasmBytecodes[string(wasm.Record.WasmHash)] = wasm.Bytecode
 			}
 		}
@@ -360,6 +365,9 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			}
 			if len(events) == 0 {
 				continue
+			}
+			if result.ContractEvents == nil {
+				result.ContractEvents = make(map[ContractEventKey][]xdr.ContractEvent)
 			}
 			result.ContractEvents[ContractEventKey{TxIdx: tx.Index, OpIdx: opWrapper.Index}] = events
 		}
