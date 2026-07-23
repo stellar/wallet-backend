@@ -421,6 +421,11 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // Operations is keyed by operation ID and is shared by OpParticipants (participant tracking) and
 // StateChanges (state-change → operation association). StateChanges is already filtered by the
 // worker: entries with an empty AccountID or an OperationID with no matching operation are dropped.
+//
+// Each change-family slice (TrustlineChanges, AccountChanges, SACBalanceChanges, LPShareChanges,
+// LPChanges) must be ordered ascending by its order value per key (CREATE before REMOVE):
+// pushWithTombstone's create+remove netting at the fold depends on it. processTransaction
+// guarantees this by walking operations in ascending opID order.
 type TransactionResult struct {
 	Transaction           *types.Transaction
 	TxParticipants        []string

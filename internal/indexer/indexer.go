@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/alitto/pond/v2"
@@ -278,8 +279,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		result.OpParticipants[opID] = opParticipants.Participants.ToSlice()
 	}
 
-	// Process trustline, account, and SAC balance changes from ledger changes
-	for _, opParticipants := range opsParticipants {
+	// Process trustline, account, SAC balance, and liquidity-pool changes from ledger changes,
+	// walking operations in ascending opID (chronological) order. pushWithTombstone's
+	// create+remove netting at the fold requires each change family to arrive in ascending
+	// order value per key — CREATE before REMOVE — and ranging over the opsParticipants map
+	// would emit them in random order (#653).
+	sortedOpIDs := make([]int64, 0, len(opsParticipants))
+	for opID := range opsParticipants {
+		sortedOpIDs = append(sortedOpIDs, opID)
+	}
+	slices.Sort(sortedOpIDs)
+	for _, opID := range sortedOpIDs {
+		opParticipants := opsParticipants[opID]
 		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if tlErr != nil {
 			return nil, fmt.Errorf("processing trustline changes: %w", tlErr)

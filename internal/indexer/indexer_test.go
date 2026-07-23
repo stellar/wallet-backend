@@ -1510,3 +1510,107 @@ func TestIndexer_ProcessLedgerTransactions_RealLedgerParallel(t *testing.T) {
 		})
 	}
 }
+
+// TestIndexer_ProcessTransaction_EmitsChangesInOpOrder is the regression test for issue #653:
+// pushWithTombstone's create+remove netting requires each change family to reach the fold in
+// ascending order-value per key (CREATE before REMOVE), so processTransaction must walk
+// operations in ascending opID order. Under map-order iteration this test fails with
+// overwhelming probability (12 ops → 1/12! chance of accidentally sorted output).
+func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
+	const numOps = 12
+	const asset = "USDC:GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"
+
+	mockParticipants := &MockParticipantsProcessor{}
+	mockTokenTransfer := &MockTokenTransferProcessor{}
+	mockEffects := &MockOperationProcessor{}
+	mockTrustlines := &MockTrustlinesProcessor{}
+	mockAccounts := &MockAccountsProcessor{}
+	mockSACBalances := &MockSACBalancesProcessor{}
+	mockLPShares := &MockLiquidityPoolSharesProcessor{}
+	mockLPPools := &MockLiquidityPoolsProcessor{}
+	mockSACInstances := &MockSACInstancesProcessor{}
+	mockProtocolWasms := &MockProtocolWasmsProcessor{}
+	mockProtocolContracts := &MockProtocolContractsProcessor{}
+
+	mockParticipants.On("GetTransactionParticipants", testTx).Return(set.NewSet("alice"), nil)
+
+	// Op 1 adds a trustline for the shared key and op 12 removes it again within the same
+	// transaction; every other op updates a distinct account's trustline on the same asset.
+	opsParticipants := make(map[int64]processors.OperationParticipants, numOps)
+	for i := 1; i <= numOps; i++ {
+		opID := int64(i)
+		wrapper := &processors.TransactionOperationWrapper{
+			Index:          uint32(i - 1),
+			Operation:      createAccountOp,
+			Network:        network.TestNetworkPassphrase,
+			LedgerSequence: 12345,
+		}
+		opsParticipants[opID] = processors.OperationParticipants{
+			OpWrapper:    wrapper,
+			Participants: set.NewSet("alice"),
+		}
+
+		change := types.TrustlineChange{
+			AccountID:   fmt.Sprintf("account-%02d", i),
+			Asset:       asset,
+			OperationID: opID,
+			Operation:   types.TrustlineOpUpdate,
+		}
+		switch i {
+		case 1:
+			change.AccountID = "shared"
+			change.Operation = types.TrustlineOpAdd
+		case numOps:
+			change.AccountID = "shared"
+			change.Operation = types.TrustlineOpRemove
+		}
+		mockTrustlines.On("ProcessOperation", mock.Anything, wrapper).Return([]types.TrustlineChange{change}, nil)
+	}
+	mockParticipants.On("GetOperationsParticipants", testTx).Return(opsParticipants, nil)
+
+	mockEffects.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.StateChange{}, nil)
+	mockTokenTransfer.On("ProcessTransaction", mock.Anything, testTx).Return([]types.StateChange{}, nil)
+	mockAccounts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+	mockAccounts.On("ProcessTransactionFees", mock.Anything, mock.Anything).Return([]types.AccountChange{}, nil)
+	mockSACBalances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.SACBalanceChange{}, nil)
+	mockLPShares.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolShareChange{}, nil)
+	mockLPPools.On("ProcessOperation", mock.Anything, mock.Anything).Return([]types.LiquidityPoolChange{}, nil)
+	mockSACInstances.On("ProcessOperation", mock.Anything, mock.Anything).Return([]*data.Contract{}, nil)
+	mockProtocolWasms.On("ProcessOperation", mock.Anything, mock.Anything).Return([]processors.ProtocolWasmObservation{}, nil)
+	mockProtocolContracts.On("ProcessOperation", mock.Anything, mock.Anything).Return([]data.ProtocolContracts{}, nil)
+
+	idx := &Indexer{
+		participantsProcessor:      mockParticipants,
+		tokenTransferProcessor:     mockTokenTransfer,
+		trustlinesProcessor:        mockTrustlines,
+		accountsProcessor:          mockAccounts,
+		sacBalancesProcessor:       mockSACBalances,
+		lpSharesProcessor:          mockLPShares,
+		lpProcessor:                mockLPPools,
+		sacInstancesProcessor:      mockSACInstances,
+		protocolWasmsProcessor:     mockProtocolWasms,
+		protocolContractsProcessor: mockProtocolContracts,
+		processors:                 []OperationProcessorInterface{mockEffects},
+		pool:                       pond.NewPool(runtime.NumCPU()),
+		networkPassphrase:          network.TestNetworkPassphrase,
+	}
+
+	result, err := idx.processTransaction(context.Background(), testTx)
+	require.NoError(t, err)
+
+	// Change families arrive in ascending op order...
+	require.Len(t, result.TrustlineChanges, numOps)
+	for i := 1; i < len(result.TrustlineChanges); i++ {
+		assert.Less(t, result.TrustlineChanges[i-1].OperationID, result.TrustlineChanges[i].OperationID,
+			"trustline changes must be emitted in ascending opID order")
+	}
+
+	// ...so the fold nets the same-tx ADD→REMOVE to nothing instead of keeping a spurious REMOVE.
+	buffer := NewIndexerBuffer()
+	buffer.IngestTransactionResult(result)
+	trustlines := buffer.GetTrustlineChanges()
+	assert.Len(t, trustlines, numOps-2, "shared-key ADD→REMOVE should net to nothing")
+	for _, change := range trustlines {
+		assert.NotEqual(t, "shared", change.AccountID, "spurious REMOVE for the netted key must not persist")
+	}
+}
