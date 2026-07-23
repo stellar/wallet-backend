@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/alitto/pond/v2"
@@ -22,11 +23,10 @@ import (
 )
 
 type IndexerBufferInterface interface {
-	PushTransaction(participant string, transaction types.Transaction)
-	PushOperation(participant string, operation types.Operation, transaction types.Transaction)
-	PushStateChange(transaction types.Transaction, operation types.Operation, stateChange types.StateChange)
-	GetTransactionsParticipants() map[int64]set.Set[string]
-	GetOperationsParticipants() map[int64]set.Set[string]
+	// IngestTransactionResult folds a worker's per-transaction result into the buffer.
+	IngestTransactionResult(result *TransactionResult)
+	GetTransactionsParticipants() map[int64]map[string]struct{}
+	GetOperationsParticipants() map[int64]map[string]struct{}
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
@@ -37,26 +37,15 @@ type IndexerBufferInterface interface {
 	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
 	GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
 	GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange
-	PushTrustlineChange(trustlineChange types.TrustlineChange)
-	PushAccountChange(accountChange types.AccountChange)
-	PushSACBalanceChange(sacBalanceChange types.SACBalanceChange)
-	PushLiquidityPoolShareChange(change types.LiquidityPoolShareChange)
-	PushLiquidityPoolChange(change types.LiquidityPoolChange)
-	PushSACContract(c *data.Contract)
-	PushProtocolWasm(wasm data.ProtocolWasms)
-	PushProtocolWasmBytecode(wasmHash string, bytecode []byte)
-	PushProtocolContracts(contract data.ProtocolContracts)
-	PushContractEvents(key ContractEventKey, events []xdr.ContractEvent)
 	GetUniqueTrustlineAssets() []data.TrustlineAsset
 	GetSACContracts() map[string]*data.Contract
 	GetProtocolWasms() map[string]data.ProtocolWasms
-	// GetProtocolWasmBytecodes returns a shallow clone of the wasmHash → bytecode
-	// map. The []byte values alias buffer-owned storage and MUST be treated as
-	// read-only; bytecode is content-addressed and immutable.
+	// GetProtocolWasmBytecodes returns the wasmHash → bytecode map. The []byte values alias
+	// buffer-owned storage and MUST be treated as read-only; bytecode is content-addressed
+	// and immutable.
 	GetProtocolWasmBytecodes() map[string][]byte
 	GetProtocolContracts() map[string]data.ProtocolContracts
 	GetContractEvents() map[ContractEventKey][]xdr.ContractEvent
-	Merge(other IndexerBufferInterface)
 	Clear()
 }
 
@@ -179,13 +168,14 @@ func validateStateChangeSubBases(procs []OperationProcessorInterface) error {
 }
 
 // ProcessLedgerTransactions processes all transactions in a ledger in parallel.
-// It collects transaction data (participants, operations, state changes) and populates the buffer in a single pass.
+// Each worker builds an independent TransactionResult (no shared buffer, no locks); the results
+// are then folded into the single ledger buffer serially. This avoids allocating a full
+// IndexerBuffer per transaction and the subsequent buffer-to-buffer merge.
 // Returns the total participant count for metrics.
 func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []ingest.LedgerTransaction, ledgerBuffer IndexerBufferInterface) (int, error) {
 	group := i.pool.NewGroupContext(ctx)
 
-	txnBuffers := make([]*IndexerBuffer, len(transactions))
-	participantCounts := make([]int, len(transactions))
+	results := make([]*TransactionResult, len(transactions))
 	var errs []error
 	errMu := sync.Mutex{}
 
@@ -193,16 +183,14 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 		index := idx
 		tx := tx
 		group.Submit(func() {
-			buffer := NewIndexerBuffer()
-			count, err := i.processTransaction(ctx, tx, buffer)
+			result, err := i.processTransaction(ctx, tx)
 			if err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("processing transaction at ledger=%d tx=%d: %w", tx.Ledger.LedgerSequence(), tx.Index, err))
 				errMu.Unlock()
 				return
 			}
-			txnBuffers[index] = buffer
-			participantCounts[index] = count
+			results[index] = result
 		})
 	}
 
@@ -213,142 +201,151 @@ func (i *Indexer) ProcessLedgerTransactions(ctx context.Context, transactions []
 		return 0, fmt.Errorf("processing transactions: %w", errors.Join(errs...))
 	}
 
-	// Merge buffers and count participants
+	// Fold per-transaction results into the ledger buffer serially (single-owner, no locks).
 	totalParticipants := 0
-	for idx, buffer := range txnBuffers {
-		ledgerBuffer.Merge(buffer)
-		totalParticipants += participantCounts[idx]
+	for _, result := range results {
+		if result == nil {
+			continue
+		}
+		ledgerBuffer.IngestTransactionResult(result)
+		totalParticipants += result.ParticipantCount
 	}
 
 	return totalParticipants, nil
 }
 
-// processTransaction processes a single transaction - collects data and populates buffer.
-// Returns participant count for metrics.
-func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransaction, buffer *IndexerBuffer) (int, error) {
+// processTransaction processes a single transaction and returns its result bundle for the caller
+// to fold into the ledger buffer. It performs no buffer writes itself, so workers can run fully in
+// parallel with no shared state.
+func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransaction) (*TransactionResult, error) {
 	// Get transaction participants
 	txParticipants, err := i.participantsProcessor.GetTransactionParticipants(tx)
 	if err != nil {
-		return 0, fmt.Errorf("getting transaction participants: %w", err)
+		return nil, fmt.Errorf("getting transaction participants: %w", err)
 	}
 
 	// Get operations participants
 	opsParticipants, err := i.participantsProcessor.GetOperationsParticipants(tx)
 	if err != nil {
-		return 0, fmt.Errorf("getting operations participants: %w", err)
+		return nil, fmt.Errorf("getting operations participants: %w", err)
 	}
 
 	// Get state changes
 	stateChanges, err := i.getTransactionStateChanges(ctx, tx, opsParticipants)
 	if err != nil {
-		return 0, fmt.Errorf("getting transaction state changes: %w", err)
+		return nil, fmt.Errorf("getting transaction state changes: %w", err)
 	}
 
 	// Convert transaction data
 	dataTx, err := processors.ConvertTransaction(&tx)
 	if err != nil {
-		return 0, fmt.Errorf("creating data transaction: %w", err)
+		return nil, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Count all unique participants for metrics
-	allParticipants := set.NewSet[string]()
-	allParticipants = allParticipants.Union(txParticipants)
+	// Counts unique participants across tx, ops, and state changes for metrics.
+	txParticipantsSlice := txParticipants.ToSlice()
+	allParticipants := make(map[string]struct{}, len(txParticipantsSlice))
+	for _, participant := range txParticipantsSlice {
+		allParticipants[participant] = struct{}{}
+	}
 	for _, opParticipants := range opsParticipants {
-		allParticipants = allParticipants.Union(opParticipants.Participants)
+		opParticipants.Participants.Each(func(participant string) bool {
+			allParticipants[participant] = struct{}{}
+			return false
+		})
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants.Add(string(stateChange.AccountID))
+		allParticipants[string(stateChange.AccountID)] = struct{}{}
 	}
 
-	// Insert transaction participants
-	for participant := range txParticipants.Iter() {
-		buffer.PushTransaction(participant, *dataTx)
+	result := &TransactionResult{
+		Transaction:      dataTx,
+		TxParticipants:   txParticipantsSlice,
+		Operations:       make(map[int64]*types.Operation, len(opsParticipants)),
+		OpParticipants:   make(map[int64][]string, len(opsParticipants)),
+		ParticipantCount: len(allParticipants),
 	}
 
 	// Get operation results for extracting result codes
 	opResults, _ := tx.Result.OperationResults()
 
-	// Insert operations participants
-	operationsMap := make(map[int64]*types.Operation)
+	// Build operations and their participants
 	for opID, opParticipants := range opsParticipants {
 		dataOp, opErr := processors.ConvertOperation(&tx, &opParticipants.OpWrapper.Operation, opID, opParticipants.OpWrapper.Index, opResults)
 		if opErr != nil {
-			return 0, fmt.Errorf("creating data operation: %w", opErr)
+			return nil, fmt.Errorf("creating data operation: %w", opErr)
 		}
-		operationsMap[opID] = dataOp
-		for participant := range opParticipants.Participants.Iter() {
-			buffer.PushOperation(participant, *dataOp, *dataTx)
-		}
+		result.Operations[opID] = dataOp
+		result.OpParticipants[opID] = opParticipants.Participants.ToSlice()
 	}
 
-	// Process trustline, account, and SAC balance changes from ledger changes
-	for _, opParticipants := range opsParticipants {
+	// Process trustline, account, SAC balance, and liquidity-pool changes from ledger changes,
+	// walking operations in ascending opID (chronological) order. pushWithTombstone's
+	// create+remove netting at the fold requires each change family to arrive in ascending
+	// order value per key — CREATE before REMOVE — and ranging over the opsParticipants map
+	// would emit them in random order (#653).
+	sortedOpIDs := make([]int64, 0, len(opsParticipants))
+	for opID := range opsParticipants {
+		sortedOpIDs = append(sortedOpIDs, opID)
+	}
+	slices.Sort(sortedOpIDs)
+	for _, opID := range sortedOpIDs {
+		opParticipants := opsParticipants[opID]
 		trustlineChanges, tlErr := i.trustlinesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if tlErr != nil {
-			return 0, fmt.Errorf("processing trustline changes: %w", tlErr)
+			return nil, fmt.Errorf("processing trustline changes: %w", tlErr)
 		}
-		for _, tlChange := range trustlineChanges {
-			buffer.PushTrustlineChange(tlChange)
-		}
+		result.TrustlineChanges = append(result.TrustlineChanges, trustlineChanges...)
 
 		accountChanges, accErr := i.accountsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if accErr != nil {
-			return 0, fmt.Errorf("processing account changes: %w", accErr)
+			return nil, fmt.Errorf("processing account changes: %w", accErr)
 		}
-		for _, accChange := range accountChanges {
-			buffer.PushAccountChange(accChange)
-		}
+		result.AccountChanges = append(result.AccountChanges, accountChanges...)
 
 		sacBalanceChanges, sacErr := i.sacBalancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacErr != nil {
-			return 0, fmt.Errorf("processing SAC balance changes: %w", sacErr)
+			return nil, fmt.Errorf("processing SAC balance changes: %w", sacErr)
 		}
-		for _, sacChange := range sacBalanceChanges {
-			buffer.PushSACBalanceChange(sacChange)
-		}
+		result.SACBalanceChanges = append(result.SACBalanceChanges, sacBalanceChanges...)
 
 		lpShareChanges, lpShareErr := i.lpSharesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if lpShareErr != nil {
-			return 0, fmt.Errorf("processing liquidity pool share changes: %w", lpShareErr)
+			return nil, fmt.Errorf("processing liquidity pool share changes: %w", lpShareErr)
 		}
-		for _, lpShareChange := range lpShareChanges {
-			buffer.PushLiquidityPoolShareChange(lpShareChange)
-		}
+		result.LPShareChanges = append(result.LPShareChanges, lpShareChanges...)
 
 		lpChanges, lpErr := i.lpProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if lpErr != nil {
-			return 0, fmt.Errorf("processing liquidity pool changes: %w", lpErr)
+			return nil, fmt.Errorf("processing liquidity pool changes: %w", lpErr)
 		}
-		for _, lpChange := range lpChanges {
-			buffer.PushLiquidityPoolChange(lpChange)
-		}
+		result.LPChanges = append(result.LPChanges, lpChanges...)
 
 		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacInstanceErr != nil {
-			return 0, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
+			return nil, fmt.Errorf("processing SAC instances: %w", sacInstanceErr)
 		}
-		for _, c := range sacContracts {
-			buffer.PushSACContract(c)
-		}
+		result.SACContracts = append(result.SACContracts, sacContracts...)
 
 		protocolWasms, pwErr := i.protocolWasmsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if pwErr != nil {
-			return 0, fmt.Errorf("processing protocol wasms: %w", pwErr)
+			return nil, fmt.Errorf("processing protocol wasms: %w", pwErr)
 		}
 		for _, wasm := range protocolWasms {
-			buffer.PushProtocolWasm(wasm.Record)
+			result.ProtocolWasms = append(result.ProtocolWasms, wasm.Record)
 			if len(wasm.Bytecode) > 0 {
-				buffer.PushProtocolWasmBytecode(string(wasm.Record.WasmHash), wasm.Bytecode)
+				if result.ProtocolWasmBytecodes == nil {
+					result.ProtocolWasmBytecodes = make(map[string][]byte)
+				}
+				result.ProtocolWasmBytecodes[string(wasm.Record.WasmHash)] = wasm.Bytecode
 			}
 		}
 
 		protocolContracts, pcErr := i.protocolContractsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if pcErr != nil {
-			return 0, fmt.Errorf("processing protocol contracts: %w", pcErr)
+			return nil, fmt.Errorf("processing protocol contracts: %w", pcErr)
 		}
-		for _, contract := range protocolContracts {
-			buffer.PushProtocolContracts(contract)
-		}
+		result.ProtocolContracts = append(result.ProtocolContracts, protocolContracts...)
 	}
 
 	// Fold transaction fee-phase changes (fee debits + Soroban fee refunds) into
@@ -357,19 +354,16 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	// those phases — e.g. a fee-bump fee source (issue #637).
 	feeAccountChanges, feeErr := i.accountsProcessor.ProcessTransactionFees(ctx, tx)
 	if feeErr != nil {
-		return 0, fmt.Errorf("processing transaction fee account changes: %w", feeErr)
+		return nil, fmt.Errorf("processing transaction fee account changes: %w", feeErr)
 	}
-	for _, accChange := range feeAccountChanges {
-		buffer.PushAccountChange(accChange)
-	}
+	result.AccountChanges = append(result.AccountChanges, feeAccountChanges...)
 
-	// Stash contract events into the buffer so protocol processors can consume
-	// them without re-decoding LedgerCloseMeta. Only successful transactions are
-	// indexed — protocol processors (e.g. SEP-41) only care about successful
-	// invocations, and emitting events from failed txs would force every consumer
-	// to re-filter. SACEventsProcessor still calls GetContractEventsForOperation
-	// itself (see TODO at processors/contracts/sac.go); that consolidation is a
-	// separate cleanup.
+	// Stash contract events so protocol processors can consume them without re-decoding
+	// LedgerCloseMeta. Only successful transactions are indexed — protocol processors
+	// (e.g. SEP-41) only care about successful invocations, and emitting events from failed
+	// txs would force every consumer to re-filter. SACEventsProcessor still calls
+	// GetContractEventsForOperation itself (see TODO at processors/contracts/sac.go); that
+	// consolidation is a separate cleanup.
 	if tx.Result.Successful() {
 		for _, opParticipants := range opsParticipants {
 			opWrapper := opParticipants.OpWrapper
@@ -378,33 +372,33 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			}
 			events, evErr := tx.GetContractEventsForOperation(opWrapper.Index)
 			if evErr != nil {
-				return 0, fmt.Errorf("extracting contract events for op %d: %w", opWrapper.Index, evErr)
+				return nil, fmt.Errorf("extracting contract events for op %d: %w", opWrapper.Index, evErr)
 			}
 			if len(events) == 0 {
 				continue
 			}
-			buffer.PushContractEvents(ContractEventKey{TxIdx: tx.Index, OpIdx: opWrapper.Index}, events)
-		}
-	}
-
-	// Insert state changes (already filtered and ID-assigned per processor
-	// stream by getTransactionStateChanges)
-	for _, stateChange := range stateChanges {
-		// Get the correct operation for this state change
-		var operation types.Operation
-		if stateChange.OperationID != 0 {
-			correctOp := operationsMap[stateChange.OperationID]
-			if correctOp == nil {
-				log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeCategory)
-				continue
+			if result.ContractEvents == nil {
+				result.ContractEvents = make(map[ContractEventKey][]xdr.ContractEvent)
 			}
-			operation = *correctOp
+			result.ContractEvents[ContractEventKey{TxIdx: tx.Index, OpIdx: opWrapper.Index}] = events
 		}
-		// For fee state changes (OperationID == 0), operation remains zero value
-		buffer.PushStateChange(*dataTx, operation, stateChange)
 	}
 
-	return allParticipants.Cardinality(), nil
+	// Collect state changes, dropping those whose operation is missing. Empty-AccountID entries
+	// are already filtered (and IDs assigned per processor stream) by getTransactionStateChanges.
+	// The fold resolves each change's operation from result.Operations by OperationID.
+	result.StateChanges = make([]types.StateChange, 0, len(stateChanges))
+	for _, stateChange := range stateChanges {
+		// Fee state changes (OperationID == 0) have no associated operation; the rest must
+		// resolve to a known operation.
+		if stateChange.OperationID != 0 && result.Operations[stateChange.OperationID] == nil {
+			log.Ctx(ctx).Errorf("operation ID %d not found in operations map for state change (to_id=%d, category=%s)", stateChange.OperationID, stateChange.ToID, stateChange.StateChangeCategory)
+			continue
+		}
+		result.StateChanges = append(result.StateChanges, stateChange)
+	}
+
+	return result, nil
 }
 
 // getTransactionStateChanges processes operations of a transaction and calculates all state
@@ -433,7 +427,11 @@ func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction in
 		return nil, fmt.Errorf("processing token transfer state changes: %w", err)
 	}
 
-	var stateChanges []types.StateChange
+	totalStateChanges := len(tokenTransferStateChanges)
+	for _, stream := range streams {
+		totalStateChanges += len(stream)
+	}
+	stateChanges := make([]types.StateChange, 0, totalStateChanges)
 	for procIdx, processor := range i.processors {
 		stateChanges = assignStateChangeStream(stateChanges, streams[procIdx], processor.StateChangeSubBase())
 	}

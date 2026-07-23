@@ -581,7 +581,7 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				return map[int64]OperationParticipants{
 					20929375637505: {
 						OpWrapper: opWrapper,
-						Participants: set.NewSet(
+						Participants: set.NewThreadUnsafeSet(
 							"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
 							"CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD",
 						),
