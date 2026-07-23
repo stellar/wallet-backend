@@ -452,3 +452,143 @@ func buildFieldList(fields []string, defaultFields string) string {
 
 	return strings.Join(fields, "\n\t\t\t\t")
 }
+
+// blendReserveFields is the full BlendReserve selection (pool-wide catalog row).
+const blendReserveFields = `
+	assetContractId
+	tokenName
+	tokenSymbol
+	tokenDecimals
+	enabled
+	utilization
+	supplyApy
+	borrowApy
+	emissionsSupplyApr
+	emissionsBorrowApr
+	suppliedTokens
+	borrowedTokens
+	suppliedUsd
+	borrowedUsd
+	cFactor
+	lFactor
+	priceUsd
+`
+
+// blendPoolFields is the full BlendPool selection, reserves included.
+const blendPoolFields = `
+	address
+	name
+	status
+	oracleContractId
+	backstopRate
+	maxPositions
+	suppliedUsd
+	borrowedUsd
+	backstopUsd
+	interestApy
+	netApy
+	admin
+	inRewardZone
+	reserves {
+		%s
+	}
+`
+
+// blendAccountPositionsFields is the full BlendAccountPositions selection.
+const blendAccountPositionsFields = `
+	pools {
+		poolAddress
+		poolName
+		usdValue
+		suppliedUsd
+		borrowedUsd
+		netApy
+		claimedBlnd
+		reserves {
+			assetContractId
+			tokenName
+			tokenSymbol
+			tokenDecimals
+			suppliedTokens
+			collateralTokens
+			borrowedTokens
+			suppliedUsd
+			borrowedUsd
+			supplyApy
+			borrowApy
+			emissionsSupplyApr
+			emissionsBorrowApr
+			interestEarned
+			interestPaid
+			emissionsEarnedBlnd
+			emissionsEarnedUsd
+			priceUsd
+		}
+	}
+	backstop {
+		poolAddress
+		poolName
+		shares
+		lpTokens
+		usdValue
+		q4w {
+			amount
+			expiration
+			lpTokens
+			usdValue
+		}
+		emissionsEarnedBlnd
+		emissionsEarnedUsd
+	}
+	backstopClaimedLp
+	activeAuctions {
+		poolAddress
+		poolName
+		auctionType
+		bid {
+			assetContractId
+			amount
+		}
+		lot {
+			assetContractId
+			amount
+		}
+		startBlock
+	}
+`
+
+// buildBlendPoolsQuery builds the GraphQL query for the pool-wide Blend catalog
+func buildBlendPoolsQuery() string {
+	return fmt.Sprintf(`
+		query BlendPools {
+			blendPools {
+				%s
+			}
+		}
+	`, fmt.Sprintf(blendPoolFields, blendReserveFields))
+}
+
+// buildBlendPoolQuery builds the GraphQL query for one Blend pool by address
+func buildBlendPoolQuery() string {
+	return fmt.Sprintf(`
+		query BlendPool($address: String!) {
+			blendPool(address: $address) {
+				%s
+			}
+		}
+	`, fmt.Sprintf(blendPoolFields, blendReserveFields))
+}
+
+// buildAccountBlendPositionsQuery builds the GraphQL query for an account's
+// Blend positions
+func buildAccountBlendPositionsQuery() string {
+	return fmt.Sprintf(`
+		query AccountBlendPositions($address: String!) {
+			accountByAddress(address: $address) {
+				blendPositions {
+					%s
+				}
+			}
+		}
+	`, blendAccountPositionsFields)
+}

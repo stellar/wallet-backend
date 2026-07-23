@@ -690,3 +690,63 @@ func (c *Client) logHTTPError(ctx context.Context, resp *http.Response) error {
 
 	return nil
 }
+
+type BlendPoolsData struct {
+	BlendPools []types.BlendPool `json:"blendPools"`
+}
+
+type BlendPoolData struct {
+	BlendPool *types.BlendPool `json:"blendPool"`
+}
+
+type AccountBlendPositionsData struct {
+	AccountByAddress *struct {
+		BlendPositions types.BlendAccountPositions `json:"blendPositions"`
+	} `json:"accountByAddress"`
+}
+
+// GetBlendPools fetches the pool-wide Blend v2 catalog (every pool, with
+// reserves), independent of any account. Always returns a non-nil slice on
+// success.
+func (c *Client) GetBlendPools(ctx context.Context) ([]types.BlendPool, error) {
+	data, err := executeGraphQL[BlendPoolsData](c, ctx, buildBlendPoolsQuery(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if data.BlendPools == nil {
+		return []types.BlendPool{}, nil
+	}
+	return data.BlendPools, nil
+}
+
+// GetBlendPool fetches one Blend pool by its contract address. Returns
+// (nil, nil) when the pool is unknown to the indexer.
+func (c *Client) GetBlendPool(ctx context.Context, address string) (*types.BlendPool, error) {
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	data, err := executeGraphQL[BlendPoolData](c, ctx, buildBlendPoolQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+	return data.BlendPool, nil
+}
+
+// GetAccountBlendPositions fetches an account's Blend v2 positions across
+// every pool it has touched. Returns ErrAccountNotFound when the account is
+// unknown to the indexer, matching the other account-scoped methods.
+func (c *Client) GetAccountBlendPositions(ctx context.Context, address string) (*types.BlendAccountPositions, error) {
+	variables := map[string]interface{}{
+		"address": address,
+	}
+
+	data, err := executeGraphQL[AccountBlendPositionsData](c, ctx, buildAccountBlendPositionsQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+	if data.AccountByAddress == nil {
+		return nil, ErrAccountNotFound
+	}
+	return &data.AccountByAddress.BlendPositions, nil
+}
