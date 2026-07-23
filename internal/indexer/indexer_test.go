@@ -305,8 +305,8 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 		// Verify transaction participants
 		txParticipantsMap := buffer.GetTransactionsParticipants()
 		toID := allTxs[0].ToID
-		assert.True(t, txParticipantsMap[toID].Contains("alice"), "alice should be in tx participants")
-		assert.True(t, txParticipantsMap[toID].Contains("bob"), "bob should be in tx participants")
+		assert.Contains(t, txParticipantsMap[toID], "alice", "alice should be in tx participants")
+		assert.Contains(t, txParticipantsMap[toID], "bob", "bob should be in tx participants")
 
 		// Verify operations
 		allOps := buffer.GetOperations()

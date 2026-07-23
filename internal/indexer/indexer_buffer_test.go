@@ -3,13 +3,20 @@ package indexer
 import (
 	"testing"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+func participantSet(addrs ...string) map[string]struct{} {
+	m := make(map[string]struct{}, len(addrs))
+	for _, a := range addrs {
+		m[a] = struct{}{}
+	}
+	return m
+}
 
 func buildStateChange(toID int64, reason types.StateChangeReason, accountID string, operationID int64) types.StateChange {
 	return types.StateChange{
@@ -35,8 +42,8 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 
 		// Assert participants by transaction
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, participantSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, participantSet("alice", "bob"), txParticipants[tx2.ToID])
 
 		// Assert GetNumberOfTransactions
 		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
@@ -62,13 +69,13 @@ func TestIndexerBuffer_PushOperation(t *testing.T) {
 
 		// Assert participants by operation
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob", "chuck"), opParticipants[int64(2)])
+		assert.Equal(t, participantSet("alice"), opParticipants[int64(1)])
+		assert.Equal(t, participantSet("bob", "chuck"), opParticipants[int64(2)])
 
 		// Assert transactions were also added
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("bob", "chuck"), txParticipants[tx2.ToID])
+		assert.Equal(t, participantSet("alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, participantSet("bob", "chuck"), txParticipants[tx2.ToID])
 	})
 }
 
@@ -120,14 +127,14 @@ func TestIndexerBuffer_PushStateChange(t *testing.T) {
 
 		// Assert transaction participants
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice", "eve", "bob"), txParticipants[tx2.ToID])
+		assert.Equal(t, participantSet("someone", "alice"), txParticipants[tx1.ToID])
+		assert.Equal(t, participantSet("someone", "alice", "eve", "bob"), txParticipants[tx2.ToID])
 
 		// Assert operation participants
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), opParticipants[int64(3)])
-		assert.Equal(t, set.NewThreadUnsafeSet("someone", "alice"), opParticipants[int64(4)])
-		assert.Equal(t, set.NewThreadUnsafeSet("eve"), opParticipants[int64(5)])
+		assert.Equal(t, participantSet("someone", "alice"), opParticipants[int64(3)])
+		assert.Equal(t, participantSet("someone", "alice"), opParticipants[int64(4)])
+		assert.Equal(t, participantSet("eve"), opParticipants[int64(5)])
 	})
 }
 
@@ -181,8 +188,8 @@ func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 		indexerBuffer.PushTransaction("alice", &tx2)
 
 		txParticipants := indexerBuffer.GetTransactionsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), txParticipants[tx1.ToID])
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), txParticipants[tx2.ToID])
+		assert.Equal(t, participantSet("alice", "bob"), txParticipants[tx1.ToID])
+		assert.Equal(t, participantSet("alice"), txParticipants[tx2.ToID])
 	})
 }
 
@@ -217,8 +224,8 @@ func TestIndexerBuffer_GetAllOperationsParticipants(t *testing.T) {
 		indexerBuffer.PushOperation("alice", &op2, &tx1)
 
 		opParticipants := indexerBuffer.GetOperationsParticipants()
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), opParticipants[int64(1)])
-		assert.Equal(t, set.NewThreadUnsafeSet("alice"), opParticipants[int64(2)])
+		assert.Equal(t, participantSet("alice", "bob"), opParticipants[int64(1)])
+		assert.Equal(t, participantSet("alice"), opParticipants[int64(2)])
 	})
 }
 
@@ -266,8 +273,8 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 
 		assert.Equal(t, 1, buffer.GetNumberOfTransactions())
 		assert.Equal(t, 1, buffer.GetNumberOfOperations())
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), buffer.GetOperationsParticipants()[10])
-		assert.Equal(t, set.NewThreadUnsafeSet("alice", "bob"), buffer.GetTransactionsParticipants()[1])
+		assert.Equal(t, participantSet("alice", "bob"), buffer.GetOperationsParticipants()[10])
+		assert.Equal(t, participantSet("alice", "bob"), buffer.GetTransactionsParticipants()[1])
 		assert.Len(t, buffer.GetStateChanges(), 1)
 		assert.Len(t, buffer.GetAccountChanges(), 1)
 		assert.Len(t, buffer.GetLiquidityPoolShareChanges(), 1)

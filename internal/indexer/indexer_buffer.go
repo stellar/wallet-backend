@@ -1,13 +1,12 @@
 // Package indexer provides high-performance data buffering for Stellar blockchain ingestion.
-// IndexerBuffer uses a canonical pointer + set-based architecture to minimize memory usage
-// and eliminate duplicate checks during transaction/operation processing.
+// IndexerBuffer uses a canonical pointer architecture to minimize memory usage and eliminate
+// duplicate checks during transaction/operation processing.
 package indexer
 
 import (
 	"fmt"
 	"strings"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
@@ -27,8 +26,8 @@ import (
 //   - This layer owns the actual data and ensures only ONE copy exists in memory
 //
 // 2. Transaction/Operation to Participants Mapping Layer:
-//   - participantsByToID: Maps each transaction ToID to a SET of participant IDs
-//   - participantsByOpID: Maps each operation ID to a SET of participant IDs
+//   - participantsByToID: Maps each transaction ToID to a set of participant IDs (a map used as a set)
+//   - participantsByOpID: Maps each operation ID to a set of participant IDs (a map used as a set)
 //   - Efficiently tracks which participants interacted with each tx/op
 //
 // MEMORY OPTIMIZATION:
@@ -38,8 +37,7 @@ import (
 // OWNERSHIP:
 // Not safe for concurrent use. Each buffer instance is owned by a single goroutine:
 // ProcessLedgerTransactions builds a per-transaction TransactionResult in parallel workers and
-// folds each into one ledger buffer serially (IngestTransactionResult). The participant sets are
-// thread-unsafe for the same reason.
+// folds each into one ledger buffer serially (IngestTransactionResult).
 
 type TrustlineChangeKey struct {
 	AccountID   string
@@ -70,9 +68,9 @@ type ContractEventKey struct {
 
 type IndexerBuffer struct {
 	txByHash                       map[string]*types.Transaction
-	participantsByToID             map[int64]set.Set[string]
+	participantsByToID             map[int64]map[string]struct{}
 	opByID                         map[int64]*types.Operation
-	participantsByOpID             map[int64]set.Set[string]
+	participantsByOpID             map[int64]map[string]struct{}
 	stateChanges                   []types.StateChange
 	trustlineChangesByTrustlineKey map[TrustlineChangeKey]types.TrustlineChange
 	accountChangesByAccountID      map[string]types.AccountChange
@@ -100,9 +98,9 @@ type IndexerBuffer struct {
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
 		txByHash:                       make(map[string]*types.Transaction),
-		participantsByToID:             make(map[int64]set.Set[string]),
+		participantsByToID:             make(map[int64]map[string]struct{}),
 		opByID:                         make(map[int64]*types.Operation),
-		participantsByOpID:             make(map[int64]set.Set[string]),
+		participantsByOpID:             make(map[int64]map[string]struct{}),
 		stateChanges:                   make([]types.StateChange, 0),
 		trustlineChangesByTrustlineKey: make(map[TrustlineChangeKey]types.TrustlineChange),
 		accountChangesByAccountID:      make(map[string]types.AccountChange),
@@ -144,12 +142,14 @@ func (b *IndexerBuffer) recordTransaction(participant string, transaction *types
 
 	// Track this participant by ToID
 	toID := transaction.ToID
-	if _, exists := b.participantsByToID[toID]; !exists {
-		b.participantsByToID[toID] = set.NewThreadUnsafeSet[string]()
+	participants, exists := b.participantsByToID[toID]
+	if !exists {
+		participants = make(map[string]struct{})
+		b.participantsByToID[toID] = participants
 	}
 
 	// Add participant - O(1) with automatic deduplication
-	b.participantsByToID[toID].Add(participant)
+	participants[participant] = struct{}{}
 }
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
@@ -173,8 +173,8 @@ func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 }
 
 // GetTransactionsParticipants returns the buffer's live map of transaction ToIDs to their
-// participants; callers must not modify it or the sets it holds.
-func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]set.Set[string] {
+// participants; callers must not modify it or the maps it holds.
+func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]map[string]struct{} {
 	return b.participantsByToID
 }
 
@@ -357,8 +357,8 @@ func (b *IndexerBuffer) GetOperations() []*types.Operation {
 }
 
 // GetOperationsParticipants returns the buffer's live map of operation IDs to their
-// participants; callers must not modify it or the sets it holds.
-func (b *IndexerBuffer) GetOperationsParticipants() map[int64]set.Set[string] {
+// participants; callers must not modify it or the maps it holds.
+func (b *IndexerBuffer) GetOperationsParticipants() map[int64]map[string]struct{} {
 	return b.participantsByOpID
 }
 
@@ -372,10 +372,12 @@ func (b *IndexerBuffer) recordOperation(participant string, operation *types.Ope
 	}
 
 	// Track this participant globally
-	if _, exists := b.participantsByOpID[opID]; !exists {
-		b.participantsByOpID[opID] = set.NewThreadUnsafeSet[string]()
+	participants, exists := b.participantsByOpID[opID]
+	if !exists {
+		participants = make(map[string]struct{})
+		b.participantsByOpID[opID] = participants
 	}
-	b.participantsByOpID[opID].Add(participant)
+	participants[participant] = struct{}{}
 }
 
 // PushStateChange adds a state change along with its associated transaction and operation.

@@ -24,8 +24,8 @@ import (
 type IndexerBufferInterface interface {
 	// IngestTransactionResult folds a worker's per-transaction result into the buffer.
 	IngestTransactionResult(result *TransactionResult)
-	GetTransactionsParticipants() map[int64]set.Set[string]
-	GetOperationsParticipants() map[int64]set.Set[string]
+	GetTransactionsParticipants() map[int64]map[string]struct{}
+	GetOperationsParticipants() map[int64]map[string]struct{}
 	GetNumberOfTransactions() int
 	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
