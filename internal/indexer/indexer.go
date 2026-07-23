@@ -376,6 +376,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	// Collect state changes, dropping those whose operation is missing. Empty-AccountID entries
 	// are already filtered (and IDs assigned per processor stream) by getTransactionStateChanges.
 	// The fold resolves each change's operation from result.Operations by OperationID.
+	result.StateChanges = make([]types.StateChange, 0, len(stateChanges))
 	for _, stateChange := range stateChanges {
 		// Fee state changes (OperationID == 0) have no associated operation; the rest must
 		// resolve to a known operation.
@@ -415,7 +416,11 @@ func (i *Indexer) getTransactionStateChanges(ctx context.Context, transaction in
 		return nil, fmt.Errorf("processing token transfer state changes: %w", err)
 	}
 
-	var stateChanges []types.StateChange
+	totalStateChanges := len(tokenTransferStateChanges)
+	for _, stream := range streams {
+		totalStateChanges += len(stream)
+	}
+	stateChanges := make([]types.StateChange, 0, totalStateChanges)
 	for procIdx, processor := range i.processors {
 		stateChanges = assignStateChangeStream(stateChanges, streams[procIdx], processor.StateChangeSubBase())
 	}
