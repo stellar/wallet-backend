@@ -460,7 +460,12 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
 
 	case EffectTrustlineUpdated:
+		// The GraphQL schema declares oldLimit non-null, so the trustline
+		// pre-image is required; an update effect without one is malformed.
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
+		if prevLedgerEntryState == nil {
+			return types.StateChange{}, fmt.Errorf("no previous trustline state for trustline update on account %s (opID %d)", effect.Address, effect.OperationID)
+		}
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
 		oldLimit := strconv.FormatInt(int64(prevTrustline.Limit), 10)
 		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
@@ -624,7 +629,11 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 	keyValueMap := map[string]any{}
 	switch key {
 	case "name":
-		keyName := string(effect.Details[key].(xdr.String64))
+		name, ok := effect.Details[key].(xdr.String64)
+		if !ok {
+			return nil, fmt.Errorf("data entry effect on account %s (opID %d) carries no name", effect.Address, effect.OperationID)
+		}
+		keyName := string(name)
 
 		//exhaustive:ignore
 		switch effectType {
@@ -794,21 +803,76 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 // getPrevLedgerEntryState gets the previous ledger entry state for the specified ledger entry type.
 func (p *EffectsProcessor) getPrevLedgerEntryState(effect *EffectOutput, ledgerEntryType xdr.LedgerEntryType, changes []ingest.Change) *xdr.LedgerEntry {
 	for _, change := range changes {
-		if change.Type != ledgerEntryType {
+		if change.Type != ledgerEntryType || change.Pre == nil {
 			continue
 		}
-		if change.Pre != nil {
-			beforeEntry := change.Pre
-			if beforeEntry != nil {
-				if ledgerEntryType == xdr.LedgerEntryTypeAccount {
-					beforeAccount := beforeEntry.Data.MustAccount()
-					if beforeAccount.AccountId.Address() == effect.Address {
-						return beforeEntry
-					}
-				}
-				return beforeEntry
+		pre := change.Pre
+		// Match the entry to the effect's entity: an operation's change set can
+		// carry several entries of the same type (merges and sponsorship revokes
+		// touch two accounts; an operation can touch several trustlines), and
+		// serving another entity's pre-image would fabricate old values.
+		//exhaustive:ignore
+		switch ledgerEntryType {
+		case xdr.LedgerEntryTypeAccount:
+			if pre.Data.MustAccount().AccountId.Address() != effect.Address {
+				continue
+			}
+		case xdr.LedgerEntryTypeTrustline:
+			if !trustlineEntryMatchesEffect(pre.Data.MustTrustLine(), effect) {
+				continue
+			}
+		case xdr.LedgerEntryTypeData:
+			name, ok := effect.Details["name"].(xdr.String64)
+			if !ok {
+				continue
+			}
+			data := pre.Data.MustData()
+			if data.AccountId.Address() != effect.Address || data.DataName != name {
+				continue
 			}
 		}
+		return pre
 	}
 	return nil
+}
+
+// trustlineEntryMatchesEffect reports whether the trustline entry belongs to the
+// effect's trustor and references the effect's asset (or its liquidity pool for
+// pool-share trustlines).
+func trustlineEntryMatchesEffect(trustline xdr.TrustLineEntry, effect *EffectOutput) bool {
+	if trustline.AccountId.Address() != effect.Address {
+		return false
+	}
+	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
+	if err != nil {
+		return false
+	}
+
+	if assetType == "liquidity_pool_shares" {
+		if trustline.Asset.Type != xdr.AssetTypeAssetTypePoolShare {
+			return false
+		}
+		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
+		if err != nil {
+			return false
+		}
+		return xdr.Hash(trustline.Asset.MustLiquidityPoolId()).HexString() == poolID
+	}
+
+	if trustline.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
+		return false
+	}
+	assetCode, err := safeStringFromDetails(effect.Details, "asset_code")
+	if err != nil {
+		return false
+	}
+	assetIssuer, err := safeStringFromDetails(effect.Details, "asset_issuer")
+	if err != nil {
+		return false
+	}
+	expected, err := xdr.NewCreditAsset(assetCode, assetIssuer)
+	if err != nil {
+		return false
+	}
+	return trustline.Asset.ToAsset().Equals(expected)
 }

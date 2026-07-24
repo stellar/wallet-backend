@@ -504,3 +504,90 @@ func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 		assert.Contains(t, err.Error(), "no previous account state")
 	})
 }
+
+// TestEffects_GetPrevLedgerEntryState_MatchesEntity pins the pre-image lookup to the
+// effect's entity rather than the first entry of the requested type: multi-account
+// operations (merges, sponsorship revokes) carry several account pre-images in one
+// change set, and an operation can touch several of one account's trustlines. Serving
+// another entity's pre-image would fabricate old values.
+func TestEffects_GetPrevLedgerEntryState_MatchesEntity(t *testing.T) {
+	p := NewEffectsProcessor(networkPassphrase, nil)
+	const target = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
+	const other = "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C"
+
+	accountEntry := func(addr string, lowThreshold byte) *xdr.LedgerEntry {
+		return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId:  xdr.MustAddress(addr),
+				Thresholds: xdr.Thresholds{1, lowThreshold, 0, 0},
+			},
+		}}
+	}
+	effect := &EffectOutput{Address: target, Details: map[string]interface{}{}}
+
+	t.Run("account pre-image is matched by address, not position", func(t *testing.T) {
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(other, 9)},
+			{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(target, 5)},
+		}
+		pre := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
+		require.NotNil(t, pre)
+		account := pre.Data.MustAccount()
+		assert.Equal(t, target, account.AccountId.Address())
+		assert.Equal(t, xdr.Thresholds{1, 5, 0, 0}, account.Thresholds)
+	})
+
+	t.Run("no matching account yields nil", func(t *testing.T) {
+		changes := []ingest.Change{{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(other, 9)}}
+		assert.Nil(t, p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes))
+	})
+
+	t.Run("trustline pre-image is matched by trustor and asset", func(t *testing.T) {
+		trustlineEntry := func(addr, code string, limit int64) *xdr.LedgerEntry {
+			asset := xdr.MustNewCreditAsset(code, other)
+			return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: xdr.MustAddress(addr),
+					Asset:     asset.ToTrustLineAsset(),
+					Limit:     xdr.Int64(limit),
+				},
+			}}
+		}
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(other, "USDC", 111)},
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(target, "EURC", 222)},
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(target, "USDC", 333)},
+		}
+		tlEffect := &EffectOutput{Address: target, Details: map[string]interface{}{
+			"asset_type": "credit_alphanum4", "asset_code": "USDC", "asset_issuer": other,
+		}}
+		pre := p.getPrevLedgerEntryState(tlEffect, xdr.LedgerEntryTypeTrustline, changes)
+		require.NotNil(t, pre)
+		assert.Equal(t, xdr.Int64(333), pre.Data.MustTrustLine().Limit)
+	})
+
+	t.Run("data pre-image is matched by owner and entry name", func(t *testing.T) {
+		dataEntry := func(addr, name, value string) *xdr.LedgerEntry {
+			return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeData,
+				Data: &xdr.DataEntry{
+					AccountId: xdr.MustAddress(addr),
+					DataName:  xdr.String64(name),
+					DataValue: xdr.DataValue(value),
+				},
+			}}
+		}
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeData, Pre: dataEntry(target, "config_a", "v1")},
+			{Type: xdr.LedgerEntryTypeData, Pre: dataEntry(target, "config_b", "v2")},
+		}
+		dataEffect := &EffectOutput{Address: target, Details: map[string]interface{}{
+			"name": xdr.String64("config_b"),
+		}}
+		pre := p.getPrevLedgerEntryState(dataEffect, xdr.LedgerEntryTypeData, changes)
+		require.NotNil(t, pre)
+		assert.Equal(t, xdr.DataValue("v2"), pre.Data.MustData().DataValue)
+	})
+}
