@@ -189,10 +189,10 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
 
-	// sorobanParticipants comes from contract_operations.go's thread-safe sets, so merge by
-	// element rather than Union, which type-asserts its argument to the receiver's variant.
-	for _, participant := range sorobanParticipants.ToSlice() {
+	// Merged element-wise rather than with Union, which would allocate a third set.
+	sorobanParticipants.Each(func(participant string) bool {
 		participants.Add(participant)
-	}
+		return false
+	})
 	return participants, nil
 }

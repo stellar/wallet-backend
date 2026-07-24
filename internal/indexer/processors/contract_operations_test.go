@@ -159,7 +159,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount),
+					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly/op.SourceAccount", prefix),
@@ -175,7 +175,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount),
+					wantParticipants: set.NewThreadUnsafeSet(opSourceAccount),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/ReadOnly&ReadWrite/tx.SourceAccount", prefix),
@@ -194,7 +194,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount),
+					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount),
 				},
 			)
 		}
@@ -237,7 +237,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 		{
 			name:             "🟢upload_wasm/tx.SourceAccount",
 			op:               uploadWasmOp(),
-			wantParticipants: set.NewSet(txSourceAccount),
+			wantParticipants: set.NewThreadUnsafeSet(txSourceAccount),
 		},
 		{
 			name: "🟢upload_wasm/tx.SourceAccount",
@@ -246,12 +246,12 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 				op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
 				return op
 			}(),
-			wantParticipants: set.NewSet(opSourceAccount),
+			wantParticipants: set.NewThreadUnsafeSet(opSourceAccount),
 		},
 		{
 			name:             "🟢feeBump(upload_wasm)/tx.SourceAccount",
 			op:               makeFeeBumpOp(txSourceAccount, uploadWasmOp()),
-			wantParticipants: set.NewSet(txSourceAccount),
+			wantParticipants: set.NewThreadUnsafeSet(txSourceAccount),
 		},
 	}
 
@@ -399,10 +399,10 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 		for _, feeBump := range []bool{false, true} {
 			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
 				prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
-				subInvocationsParticipants := set.NewSet[string]()
+				subInvocationsParticipants := set.NewThreadUnsafeSet[string]()
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
-					subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+					subInvocationsParticipants = set.NewThreadUnsafeSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 				}
 				if feeBump {
 					prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -422,7 +422,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
+						wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
@@ -439,7 +439,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
+						wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
 					},
 					TestCase{
 						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
@@ -455,7 +455,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 							}
 							return op
 						}(),
-						wantParticipants: set.NewSet(txSourceAccount, usdcSACContractID).Union(subInvocationsParticipants),
+						wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, usdcSACContractID).Union(subInvocationsParticipants),
 					},
 				)
 			}
@@ -472,7 +472,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 			}
 			return op
 		}(),
-		wantParticipants: set.NewSet(
+		wantParticipants: set.NewThreadUnsafeSet(
 			txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF",
 		),
 	})
@@ -536,10 +536,10 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	for _, withSubinvocations := range []bool{false, true} {
 		for _, feeBump := range []bool{false, true} {
 			prefix := ""
-			subInvocationsParticipants := set.NewSet[string]()
+			subInvocationsParticipants := set.NewThreadUnsafeSet[string]()
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
-				subInvocationsParticipants = set.NewSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
+				subInvocationsParticipants = set.NewThreadUnsafeSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
 			}
 			if feeBump {
 				prefix = fmt.Sprintf("feeBump(%s)", prefix)
@@ -558,7 +558,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(txSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, invokedContractID).Union(subInvocationsParticipants),
 				},
 				TestCase{
 					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
@@ -574,7 +574,7 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 						}
 						return op
 					}(),
-					wantParticipants: set.NewSet(opSourceAccount, invokedContractID).Union(subInvocationsParticipants),
+					wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, invokedContractID).Union(subInvocationsParticipants),
 				},
 			)
 		}
