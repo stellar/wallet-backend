@@ -73,11 +73,10 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -85,7 +84,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		default:
@@ -122,10 +121,8 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal("USDC", *b.Code)
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().Equal("USDC", b.Code)
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 			suite.Require().Equal("100.0000000", b.GetBalance())
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 
@@ -304,11 +301,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -316,7 +312,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC balance should be reduced to 50 after transfer")
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		case *types.SEP41Balance:
@@ -361,11 +357,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -373,7 +368,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Require().Equal("75.0000000", b.GetBalance(), "EURC balance should be 75 from payment")
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		case *types.SEP41Balance:

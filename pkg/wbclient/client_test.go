@@ -42,14 +42,14 @@ func TestGetAccountTransactions(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
 	})
 
-	t.Run("passes through null transactions connection on existing account", func(t *testing.T) {
+	t.Run("rejects null transactions connection on existing account", func(t *testing.T) {
 		srv := graphqlServer(t, `{"accountByAddress": {"transactions": null}}`)
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
 		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
-		require.NoError(t, err)
-		assert.Nil(t, conn, "schema permits null transactions on existing account")
+		require.Error(t, err, "the schema declares the transactions connection non-null")
+		assert.Nil(t, conn)
 	})
 
 	t.Run("returns connection with empty edges when account has no transactions", func(t *testing.T) {
@@ -103,14 +103,14 @@ func TestGetAccountOperations(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
 	})
 
-	t.Run("passes through null operations connection on existing account", func(t *testing.T) {
+	t.Run("rejects null operations connection on existing account", func(t *testing.T) {
 		srv := graphqlServer(t, `{"accountByAddress": {"operations": null}}`)
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
 		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil)
-		require.NoError(t, err)
-		assert.Nil(t, conn, "schema permits null operations on existing account")
+		require.Error(t, err, "the schema declares the operations connection non-null")
+		assert.Nil(t, conn)
 	})
 
 	t.Run("returns connection with empty edges when account has no operations", func(t *testing.T) {
@@ -164,14 +164,14 @@ func TestGetAccountStateChanges(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
 	})
 
-	t.Run("passes through null stateChanges connection on existing account", func(t *testing.T) {
+	t.Run("rejects null stateChanges connection on existing account", func(t *testing.T) {
 		srv := graphqlServer(t, `{"accountByAddress": {"stateChanges": null}}`)
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
 		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil)
-		require.NoError(t, err)
-		assert.Nil(t, conn, "schema permits null stateChanges on existing account")
+		require.Error(t, err, "the schema declares the stateChanges connection non-null")
+		assert.Nil(t, conn)
 	})
 
 	t.Run("returns connection with empty edges when account has no state changes", func(t *testing.T) {
@@ -252,14 +252,14 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategoryBalance, edge.StateChanges[0].GetCategory())
 	})
 
-	t.Run("passes through null transactions connection on existing account", func(t *testing.T) {
+	t.Run("rejects null transactions connection on existing account", func(t *testing.T) {
 		srv := graphqlServer(t, `{"accountByAddress":{"transactions":null}}`)
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
 		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
-		require.NoError(t, err)
-		assert.Nil(t, conn, "schema permits null transactions on existing account")
+		require.Error(t, err, "the schema declares the transactions connection non-null")
+		assert.Nil(t, conn)
 	})
 
 	t.Run("returns an error when edges list is null", func(t *testing.T) {

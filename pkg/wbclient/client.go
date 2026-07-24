@@ -323,6 +323,9 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, tim
 	if data.AccountByAddress == nil {
 		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
+	if data.AccountByAddress.Transactions == nil {
+		return nil, fmt.Errorf("account transactions response missing required transactions field for address %s", address)
+	}
 
 	return data.AccountByAddress.Transactions, nil
 }
@@ -351,6 +354,9 @@ func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Contex
 
 	if data.AccountByAddress == nil {
 		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+	if data.AccountByAddress.Transactions == nil {
+		return nil, fmt.Errorf("account transactions response missing required transactions field for address %s", address)
 	}
 
 	return data.AccountByAddress.Transactions, nil
@@ -385,6 +391,9 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, timeR
 	if data.AccountByAddress == nil {
 		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
+	if data.AccountByAddress.Operations == nil {
+		return nil, fmt.Errorf("account operations response missing required operations field for address %s", address)
+	}
 
 	return data.AccountByAddress.Operations, nil
 }
@@ -413,6 +422,9 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, fil
 
 	if data.AccountByAddress == nil {
 		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
+	}
+	if data.AccountByAddress.StateChanges == nil {
+		return nil, fmt.Errorf("account state changes response missing required stateChanges field for address %s", address)
 	}
 
 	return data.AccountByAddress.StateChanges, nil

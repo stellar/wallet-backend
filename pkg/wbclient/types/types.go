@@ -149,8 +149,8 @@ type TrustlineBalance struct {
 	BalanceValue                      string    `json:"balance"`
 	TokenID                           string    `json:"tokenId"`
 	TokenType                         TokenType `json:"tokenType"`
-	Code                              *string   `json:"code,omitempty"`
-	Issuer                            *string   `json:"issuer,omitempty"`
+	Code                              string    `json:"code"`
+	Issuer                            string    `json:"issuer"`
 	AssetType                         AssetType `json:"assetType"`
 	Limit                             string    `json:"limit"`
 	BuyingLiabilities                 string    `json:"buyingLiabilities"`
