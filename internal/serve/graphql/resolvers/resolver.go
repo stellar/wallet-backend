@@ -153,11 +153,18 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 		Columns:         strings.Join(dbColumns, ", "),
 		LedgerCreatedAt: ledgerCreatedAt,
 	}
-	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
+	operation, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeKey, err)
 	}
-	return operations, nil
+	// The schema declares operation non-null on every concrete type that uses
+	// this resolver (fee changes never call it), so a missing operations row is
+	// a data-integrity failure that must surface as a diagnosable error rather
+	// than a nil that gqlgen nullifies up-chain.
+	if operation == nil {
+		return nil, fmt.Errorf("operation %d not found for state change %s", operationID, stateChangeKey)
+	}
+	return operation, nil
 }
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
@@ -175,6 +182,11 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 	transaction, err := loaders.TransactionByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeKey, err)
+	}
+	// transaction is non-null on every concrete type; a missing transactions row
+	// is a data-integrity failure surfaced as a diagnosable error.
+	if transaction == nil {
+		return nil, fmt.Errorf("transaction not found for state change %s", stateChangeKey)
 	}
 	return transaction, nil
 }

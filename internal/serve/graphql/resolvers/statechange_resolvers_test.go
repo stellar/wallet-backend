@@ -607,7 +607,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		})
 	})
 
-	t.Run("non-existent operation returns nil, not error", func(t *testing.T) {
+	t.Run("non-existent operation is a data-integrity error", func(t *testing.T) {
 		nonExistent := &types.BalanceChangeModel{StateChange: types.StateChange{
 			ToID:                9999,
 			OperationID:         0,
@@ -618,7 +618,8 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		op, err := r.Operation(ctx, nonExistent)
-		require.NoError(t, err) // Dataloader returns nil, not error, for missing data
+		require.Error(t, err, "operation is non-null on every type using this resolver; a loader miss must surface, not nullify")
+		assert.Contains(t, err.Error(), "not found")
 		assert.Nil(t, op)
 	})
 }
@@ -657,7 +658,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		})
 	})
 
-	t.Run("non-existent transaction returns nil, not error", func(t *testing.T) {
+	t.Run("non-existent transaction is a data-integrity error", func(t *testing.T) {
 		nonExistent := &types.BalanceChangeModel{StateChange: types.StateChange{
 			ToID:                9999,
 			StateChangeID:       1,
@@ -667,7 +668,8 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		tx, err := r.Transaction(ctx, nonExistent)
-		require.NoError(t, err) // Dataloader returns nil, not error, for missing data
+		require.Error(t, err, "transaction is non-null on every concrete type; a loader miss must surface, not nullify")
+		assert.Contains(t, err.Error(), "not found")
 		assert.Nil(t, tx)
 	})
 }
