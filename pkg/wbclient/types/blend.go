@@ -28,6 +28,8 @@ func (s BlendPoolStatus) AcceptsSupply() bool {
 	switch s {
 	case BlendPoolStatusAdminActive, BlendPoolStatusActive, BlendPoolStatusAdminOnIce, BlendPoolStatusOnIce:
 		return true
+	case BlendPoolStatusAdminFrozen, BlendPoolStatusFrozen, BlendPoolStatusSetup:
+		return false
 	}
 	return false
 }
