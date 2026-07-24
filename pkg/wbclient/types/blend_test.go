@@ -236,3 +236,24 @@ func Test_BlendAccountPositions_DecodesBackstopAndQ4W(t *testing.T) {
 	assert.Equal(t, int64(1735689600), bp.Q4W[0].Expiration)
 	assert.Nil(t, bp.Q4W[0].UsdValue)
 }
+
+func Test_BlendPoolStatus_Permissions(t *testing.T) {
+	cases := []struct {
+		status        BlendPoolStatus
+		acceptsSupply bool
+		acceptsBorrow bool
+	}{
+		{BlendPoolStatusAdminActive, true, true},
+		{BlendPoolStatusActive, true, true},
+		{BlendPoolStatusAdminOnIce, true, false},
+		{BlendPoolStatusOnIce, true, false},
+		{BlendPoolStatusAdminFrozen, false, false},
+		{BlendPoolStatusFrozen, false, false},
+		{BlendPoolStatusSetup, false, false},
+		{BlendPoolStatus("UNRECOGNIZED"), false, false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.acceptsSupply, tc.status.AcceptsSupply(), "AcceptsSupply(%s)", tc.status)
+		assert.Equal(t, tc.acceptsBorrow, tc.status.AcceptsBorrow(), "AcceptsBorrow(%s)", tc.status)
+	}
+}
