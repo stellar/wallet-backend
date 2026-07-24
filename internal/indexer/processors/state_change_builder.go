@@ -116,6 +116,12 @@ func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
 	return b
 }
 
+// WithSpender sets the spender account ID, the account granted an allowance to spend on the owner's behalf.
+func (b *StateChangeBuilder) WithSpender(spender string) *StateChangeBuilder {
+	b.base.SpenderAccountID = utils.NullAddressBytea(spender)
+	return b
+}
+
 // WithKeyValue sets the key value JSONB field for truly variable data (data entries, home domain)
 func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
 	b.base.KeyValue = types.NullableJSONB(valueMap)

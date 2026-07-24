@@ -89,6 +89,25 @@ const (
 	TokenTypeLiquidityPool TokenType = "LIQUIDITY_POOL"
 )
 
+// AccountFlag represents a Stellar account authorization flag.
+type AccountFlag string
+
+const (
+	AccountFlagAuthRequired        AccountFlag = "AUTH_REQUIRED"
+	AccountFlagAuthRevocable       AccountFlag = "AUTH_REVOCABLE"
+	AccountFlagAuthImmutable       AccountFlag = "AUTH_IMMUTABLE"
+	AccountFlagAuthClawbackEnabled AccountFlag = "AUTH_CLAWBACK_ENABLED"
+)
+
+// TrustlineFlag represents a Stellar trustline authorization flag.
+type TrustlineFlag string
+
+const (
+	TrustlineFlagAuthorized                      TrustlineFlag = "AUTHORIZED"
+	TrustlineFlagAuthorizedToMaintainLiabilities TrustlineFlag = "AUTHORIZED_TO_MAINTAIN_LIABILITIES"
+	TrustlineFlagClawbackEnabled                 TrustlineFlag = "CLAWBACK_ENABLED"
+)
+
 // Balance is an interface representing different types of account balances
 type Balance interface {
 	GetBalance() string

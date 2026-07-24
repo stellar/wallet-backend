@@ -1,17 +1,18 @@
-# GraphQL Account type - represents a blockchain account
-# In GraphQL, types define the shape of data that can be queried
-type Account{
+"""A Stellar account or contract address whose activity is indexed."""
+type Account {
+  """The account's public key (G...) or contract address (C...)."""
   address: String!
 
-  # GraphQL Relationships - these fields use resolvers for data fetching
-  # Each relationship resolver will be called when the field is requested
-
-  # All balances associated with this account
-  # Returns native XLM, trustlines, SAC, and SEP-41 balances for the account address
+  """
+  All token balances held by this account: native XLM, classic trustlines,
+  SAC, SEP-41, and liquidity-pool shares.
+  """
   balances(first: Int, after: String, last: Int, before: String): BalanceConnection!
 
-  # All transactions associated with this account
-  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  """
+  Transactions this account participated in. Optional since/until bounds
+  enable TimescaleDB chunk pruning on ledger close time.
+  """
   transactions(
     since: Time
     until: Time
@@ -19,24 +20,28 @@ type Account{
     after: String
     last: Int
     before: String
-  ): AccountTransactionConnection
+  ): AccountTransactionConnection!
 
-  # All operations associated with this account
-  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
-  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String):     OperationConnection
+  """
+  Operations this account participated in. Optional since/until bounds enable
+  TimescaleDB chunk pruning on ledger close time.
+  """
+  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection!
 
-  # All state changes associated with this account
-  # Uses resolver to fetch related state changes
-  # Optional filter parameter allows filtering by transaction hash and/or operation ID
-  # Optional since/until params enable TimescaleDB chunk pruning on ledger_created_at
+  """
+  State changes affecting this account, optionally filtered. Optional
+  since/until bounds enable TimescaleDB chunk pruning on ledger close time.
+  """
   stateChanges(
     filter: AccountStateChangeFilterInput
     since: Time, until: Time
     first: Int, after: String, last: Int, before: String
-  ):   StateChangeConnection
+  ): StateChangeConnection!
 
-  # Active SEP-41 allowances granted by this account (as owner). Allowances whose
-  # expiration_ledger is below the latest ingested ledger are filtered out server-side.
-  # Relay-paginated with a max page size of 100.
+  """
+  Active SEP-41 allowances granted by this account (as token holder).
+  Allowances whose expiration ledger is below the latest ingested ledger are
+  filtered out server-side.
+  """
   sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
 }

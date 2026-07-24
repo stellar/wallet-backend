@@ -1,19 +1,14 @@
-# GraphQL Filter Input Types - used for filtering queries
-# Input types encapsulate filter parameters following GraphQL best practices
-
-"""
-Input type for filtering account state changes by transaction and/or operation
-"""
+"""Filters for an account's state changes; all conditions are ANDed."""
 input AccountStateChangeFilterInput {
-  """Filter by transaction hash - returns only state changes from this transaction"""
+  """Only state changes from the transaction with this hash."""
   transactionHash: String
 
-  """Filter by operation ID - returns only state changes from this operation"""
+  """Only state changes from the operation with this ID."""
   operationId: Int64
 
-  """Filter by state change category - returns only state changes with this category"""
-  category: String
-  
-  """Filter by state change reason - returns only state changes with this reason"""
-  reason: String
+  """Only state changes with this category."""
+  category: StateChangeCategory
+
+  """Only state changes with this reason."""
+  reason: StateChangeReason
 }

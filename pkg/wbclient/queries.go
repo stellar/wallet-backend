@@ -22,7 +22,7 @@ const (
 
 	defaultOperationFields = `
 		id
-		operationType
+		operationType: type
 		operationXdr
 		resultCode
 		successful
@@ -35,54 +35,106 @@ const (
 		address
 	`
 
-	// State change fragments for all concrete types
+	// State change fragments for all concrete types.
+	//
+	// Fields whose GraphQL type differs across concrete types that share a name are aliased to
+	// distinct response keys so the selection satisfies GraphQL's SameResponseShape rule:
+	//   - tokenId is String! on BalanceChange/FeeChange/AllowanceChange and String elsewhere, so
+	//     every occurrence is aliased per type;
+	//   - flags is [AccountFlag!]! on AccountFlagsChange and [TrustlineFlag!] on
+	//     BalanceAuthorizationChange, so both are aliased;
+	//   - signerAddress is String! on the signer types and String on SponsorshipChange, so the
+	//     SponsorshipChange occurrence is aliased.
+	// The JSON tags in pkg/wbclient/types/statechange.go match these aliases.
 	stateChangeFragments = `
 		__typename
-		type
+		category
 		reason
 		ingestedAt
 		ledgerCreatedAt
 		ledgerNumber
-		
-		... on StandardBalanceChange {
-			standardBalanceTokenId: tokenId
+
+		... on BalanceChange {
+			balanceTokenId: tokenId
+			amount
+			toMuxedId
+		}
+		... on FeeChange {
+			feeTokenId: tokenId
 			amount
 		}
-		... on AccountChange {
+		... on AccountCreated {
 			funderAddress
+		}
+		... on ContractDeployed {
 			deployerAddress
+		}
+		... on AccountMerged {
 			destinationAddress
 		}
-		... on SignerChange {
+		... on SignerAdded {
 			signerAddress
-			signerWeights
+			newWeight
 		}
-		... on SignerThresholdsChange {
-			thresholds
+		... on SignerUpdated {
+			signerAddress
+			oldWeight
+			newWeight
 		}
-		... on MetadataChange {
-			metadataKeyValue: keyValue
+		... on SignerRemoved {
+			signerAddress
+			oldWeight
 		}
-		... on FlagsChange {
-			flags
+		... on ThresholdChange {
+			oldThreshold
+			newThreshold
 		}
-		... on TrustlineChange {
-			trustlineTokenId: tokenId
+		... on AccountFlagsChange {
+			accountFlags: flags
+		}
+		... on HomeDomainChange {
+			oldHomeDomain
+			newHomeDomain
+		}
+		... on DataEntryChange {
+			name
+			oldValue
+			newValue
+		}
+		... on AllowanceChange {
+			allowanceTokenId: tokenId
+			spender
+			amount
+			expirationLedger
+		}
+		... on TrustlineAdded {
+			trustlineAddedTokenId: tokenId
+			liquidityPoolId
 			limit
-			trustlineLiquidityPoolId: liquidityPoolId
 		}
-		... on ReservesChange {
+		... on TrustlineUpdated {
+			trustlineUpdatedTokenId: tokenId
+			liquidityPoolId
+			oldLimit
+			newLimit
+		}
+		... on TrustlineRemoved {
+			trustlineRemovedTokenId: tokenId
+			liquidityPoolId
+		}
+		... on SponsorshipChange {
 			sponsoredAddress
 			sponsorAddress
-			sponsoredData
-			sponsoredTrustline
-			claimableBalanceId
+			sponsorshipTokenId: tokenId
 			liquidityPoolId
+			claimableBalanceId
+			dataName
+			sponsorshipSignerAddress: signerAddress
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId
-			balanceAuthLiquidityPoolId: liquidityPoolId
-			flags
+			liquidityPoolId
+			balanceAuthFlags: flags
 		}
 	`
 )

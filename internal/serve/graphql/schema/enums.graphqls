@@ -1,8 +1,7 @@
-# GraphQL Enums - provide type safety and restrict values to predefined options
-# These enums match Go constants and provide better GraphQL introspection
-
-# OperationType enum - defines all possible operation types
-# GraphQL enums are validated at query time, preventing invalid values
+"""
+Stellar operation type, one value per operation defined by the Stellar
+protocol (matching the XDR OperationType names).
+"""
 enum OperationType {
   CREATE_ACCOUNT
   PAYMENT
@@ -33,47 +32,115 @@ enum OperationType {
   RESTORE_FOOTPRINT
 }
 
-# StateChangeCategory enum - categorizes the type of state change
-# Used in GraphQL queries to filter state changes by category
+"""
+Category of account state affected by a state change. Each category maps to
+one or more concrete BaseStateChange types; every concrete type documents its
+exact (category, reason) pairs.
+"""
 enum StateChangeCategory {
+  """Token balance movements: BalanceChange (operation-sourced) and FeeChange (transaction fees)."""
   BALANCE
+  """Account lifecycle: AccountCreated, ContractDeployed, AccountMerged."""
   ACCOUNT
+  """Account signer set: SignerAdded, SignerUpdated, SignerRemoved."""
   SIGNER
+  """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
+  """Account metadata: HomeDomainChange, DataEntryChange, AllowanceChange."""
   METADATA
+  """Account authorization flags: AccountFlagsChange."""
   FLAGS
+  """Trustlines: TrustlineAdded, TrustlineUpdated, TrustlineRemoved."""
   TRUSTLINE
+  """Base-reserve sponsorships: SponsorshipChange."""
   RESERVES
+  """Asset authorization for a holder: BalanceAuthorizationChange."""
   BALANCE_AUTHORIZATION
 }
 
-# StateChangeReason enum - provides specific reason for the state change
-# Used in GraphQL queries to understand why a state change occurred
+"""
+Why a state change occurred. Each value applies only to the categories listed
+in its description.
+"""
 enum StateChangeReason {
+  """ACCOUNT: account created (classic) or contract deployed."""
   CREATE
+  """ACCOUNT: account merged into another account."""
   MERGE
+  """BALANCE: value left the account (payment sent, or a fee charge on FeeChange)."""
   DEBIT
+  """BALANCE: value entered the account (payment received, or a fee refund on FeeChange)."""
   CREDIT
+  """BALANCE: tokens minted to the account."""
   MINT
+  """BALANCE: tokens burned from the account (including clawbacks)."""
   BURN
+  """SIGNER or TRUSTLINE: entry added."""
   ADD
+  """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
+  """SIGNER or TRUSTLINE: entry updated; METADATA: SEP-41 allowance approved."""
   UPDATE
+  """SIGNATURE_THRESHOLD: low threshold changed."""
   LOW
+  """SIGNATURE_THRESHOLD: medium threshold changed."""
   MEDIUM
+  """SIGNATURE_THRESHOLD: high threshold changed."""
   HIGH
+  """METADATA: home domain changed."""
   HOME_DOMAIN
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned on."""
   SET
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned off."""
   CLEAR
+  """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY
+  """RESERVES: sponsorship established."""
   SPONSOR
+  """RESERVES: sponsorship released."""
   UNSPONSOR
 }
 
+"""Classification of a token as held in an account's balance."""
 enum TokenType {
+  """The native XLM asset."""
   NATIVE
+  """A classic Stellar asset held via a trustline."""
   CLASSIC
+  """A Stellar Asset Contract balance held by a contract address."""
   SAC
+  """A pure SEP-41 (non-SAC) contract token balance."""
   SEP41
+  """A liquidity-pool share position."""
   LIQUIDITY_POOL
+}
+
+"""Stellar account authorization flag."""
+enum AccountFlag {
+  """Holders of the account's assets must be authorized by the issuer."""
+  AUTH_REQUIRED
+  """The issuer can revoke a holder's authorization."""
+  AUTH_REVOCABLE
+  """The account's flags can never be changed again."""
+  AUTH_IMMUTABLE
+  """The issuer can claw back its assets from holders."""
+  AUTH_CLAWBACK_ENABLED
+}
+
+"""Stellar trustline authorization flag."""
+enum TrustlineFlag {
+  """The holder is fully authorized to transact the asset."""
+  AUTHORIZED
+  """The holder may only maintain existing liabilities on the asset."""
+  AUTHORIZED_TO_MAINTAIN_LIABILITIES
+  """The issuer can claw the asset back from this trustline."""
+  CLAWBACK_ENABLED
+}
+
+"""Classic Stellar asset type, determined by the asset code length."""
+enum AssetType {
+  """Asset code of 1-4 characters."""
+  CREDIT_ALPHANUM4
+  """Asset code of 5-12 characters."""
+  CREDIT_ALPHANUM12
 }

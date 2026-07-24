@@ -1,41 +1,71 @@
-# GraphQL StateChange type - represents changes to blockchain state
-interface BaseStateChange {           
-  type:                       StateChangeCategory! @goField(forceResolver: true)
+"""
+Common contract implemented by every state change. A state change records one
+modification to one account's ledger state, attributed to the transaction (and,
+except for transaction fees, the operation) that caused it.
+
+Each concrete type documents the exact (category, reason) pairs it represents
+and the nullability of every field, so the variant structure is fully encoded
+in the schema. Select concrete-type fields via inline fragments; `category` and
+`reason` carry the same discrimination for generic consumers.
+"""
+interface BaseStateChange {
+  """Category of account state this change affects."""
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
-
-  # GraphQL Relationships - these fields use resolvers
-  # Related account
+  """Account whose state changed."""
   account:                    Account! @goField(forceResolver: true)
-
-  # Related operation - nullable since fee state changes do not have operations associated with them
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  FeeChange, where it is always null (fees are charged per transaction, not per
+  operation).
+  """
   operation:                  Operation @goField(forceResolver: true)
-  
-  # Related transaction
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 }
 
-type StandardBalanceChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
+"""
+A movement of value on the account's token balance, caused by an operation.
+Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
+Clawbacks are recorded as BURN.
+"""
+type BalanceChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  tokenId:                    String!
-  amount:                     String!
-  # CAP-67 destination memo carried by SEP-41 transfer/mint events. Rendered as a
-  # decimal string so u64 values above 2^53-1 survive JSON number quantization.
+  """Contract ID of the token whose balance moved."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Amount moved, as a decimal string in the token's smallest unit."""
+  amount:                     String! @goField(forceResolver: true)
+  """
+  CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and
+  MINT only). Rendered as a decimal string so u64 values above 2^53-1 survive
+  JSON number quantization.
+  """
   toMuxedId:                  String @goField(forceResolver: true)
 }
 
-type AccountChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
+"""
+The transaction fee debited from (or refunded to) the fee-paying account.
+Pairs: (BALANCE, DEBIT) for a net fee charge, (BALANCE, CREDIT) for a net
+refund. The only state change with no associated operation; `operation` is
+always null.
+"""
+type FeeChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
@@ -44,108 +74,359 @@ type AccountChange implements BaseStateChange {
   operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  funderAddress:              String @goField(forceResolver: true)
-  deployerAddress:            String @goField(forceResolver: true)
-  destinationAddress:         String @goField(forceResolver: true)
+  """Contract ID of the fee token (the native XLM Stellar Asset Contract)."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Net fee amount, as a decimal string in stroops."""
+  amount:                     String! @goField(forceResolver: true)
 }
 
-type SignerChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
+"""
+A classic account creation. `account` is the newly created account.
+Pair: (ACCOUNT, CREATE).
+"""
+type AccountCreated implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
+  """Account that funded the new account's starting balance."""
+  funderAddress:              String! @goField(forceResolver: true)
+}
+
+"""
+A smart-contract deployment. `account` is the deployed contract address.
+Pair: (ACCOUNT, CREATE).
+"""
+type ContractDeployed implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Address that deployed the contract."""
+  deployerAddress:            String! @goField(forceResolver: true)
+}
+
+"""
+An account merge. `account` is the merged (removed) account.
+Pair: (ACCOUNT, MERGE).
+"""
+type AccountMerged implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Account that received the merged account's balance."""
+  destinationAddress:         String! @goField(forceResolver: true)
+}
+
+"""
+A signer added to the account.
+Pair: (SIGNER, ADD).
+"""
+type SignerAdded implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Address of the added signer."""
+  signerAddress:              String! @goField(forceResolver: true)
+  """Weight assigned to the new signer (0-255)."""
+  newWeight:                  Int! @goField(forceResolver: true)
+}
+
+"""
+An existing signer's weight changed.
+Pair: (SIGNER, UPDATE).
+"""
+type SignerUpdated implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Address of the updated signer."""
+  signerAddress:              String! @goField(forceResolver: true)
+  """Previous weight; null when the prior ledger entry state was unavailable."""
+  oldWeight:                  Int @goField(forceResolver: true)
+  """New weight (0-255)."""
+  newWeight:                  Int! @goField(forceResolver: true)
+}
+
+"""
+A signer removed from the account.
+Pair: (SIGNER, REMOVE).
+"""
+type SignerRemoved implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Address of the removed signer."""
+  signerAddress:              String! @goField(forceResolver: true)
+  """Weight the signer had before removal; null when the prior ledger entry state was unavailable."""
+  oldWeight:                  Int @goField(forceResolver: true)
+}
+
+"""
+A signature-threshold change. `reason` identifies which threshold changed.
+Pairs: (SIGNATURE_THRESHOLD, LOW), (SIGNATURE_THRESHOLD, MEDIUM),
+(SIGNATURE_THRESHOLD, HIGH). One state change is emitted per changed threshold.
+"""
+type ThresholdChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Previous threshold value; null when the prior ledger entry state was unavailable."""
+  oldThreshold:               Int @goField(forceResolver: true)
+  """New threshold value (0-255)."""
+  newThreshold:               Int! @goField(forceResolver: true)
+}
+
+"""
+Account authorization flags set or cleared in one operation.
+Pairs: (FLAGS, SET) lists flags that were turned on, (FLAGS, CLEAR) lists flags
+that were turned off.
+"""
+type AccountFlagsChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Flags that were set (reason SET) or cleared (reason CLEAR)."""
+  flags:                      [AccountFlag!]! @goField(forceResolver: true)
+}
+
+"""
+A home-domain change on the account.
+Pair: (METADATA, HOME_DOMAIN).
+"""
+type HomeDomainChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Previous home domain; null when the prior ledger entry state was unavailable."""
+  oldHomeDomain:              String @goField(forceResolver: true)
+  """New home domain; null when the change carried no new value."""
+  newHomeDomain:              String @goField(forceResolver: true)
+}
+
+"""
+A data entry created, updated, or removed on the account.
+Pair: (METADATA, DATA_ENTRY). A creation carries only newValue, a removal only
+oldValue, an update both.
+"""
+type DataEntryChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Name of the data entry."""
+  name:                       String! @goField(forceResolver: true)
+  """Previous value, base64-encoded; null on creation or when the prior ledger entry state was unavailable."""
+  oldValue:                   String @goField(forceResolver: true)
+  """New value, base64-encoded; null on removal."""
+  newValue:                   String @goField(forceResolver: true)
+}
+
+"""
+A SEP-41 allowance approval: `account` (the token holder) authorized `spender`
+to transfer up to `amount` of the token on its behalf.
+Pair: (METADATA, UPDATE).
+"""
+type AllowanceChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the token the allowance applies to."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Address authorized to spend from the holder's balance."""
+  spender:                    String! @goField(forceResolver: true)
+  """Approved allowance, as a decimal string in the token's smallest unit."""
+  amount:                     String! @goField(forceResolver: true)
+  """Last ledger sequence at which the allowance is live."""
+  expirationLedger:           UInt32! @goField(forceResolver: true)
+}
+
+"""
+A trustline created. Exactly one of tokenId / liquidityPoolId is set.
+Pair: (TRUSTLINE, ADD).
+"""
+type TrustlineAdded implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String @goField(forceResolver: true)
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+  """Initial trustline limit, as a decimal string in stroops."""
+  limit:                      String! @goField(forceResolver: true)
+}
+
+"""
+A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
+Pair: (TRUSTLINE, UPDATE).
+"""
+type TrustlineUpdated implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String @goField(forceResolver: true)
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+  """Previous trustline limit, as a decimal string in stroops."""
+  oldLimit:                   String! @goField(forceResolver: true)
+  """New trustline limit, as a decimal string in stroops."""
+  newLimit:                   String! @goField(forceResolver: true)
+}
+
+"""
+A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
+Pair: (TRUSTLINE, REMOVE).
+"""
+type TrustlineRemoved implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String @goField(forceResolver: true)
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+}
+
+"""
+A base-reserve sponsorship established or released. Each sponsorship event
+emits one state change per perspective: on the sponsoring account's change
+`sponsoredAddress` is set (account and trustline sponsorships only); on the
+sponsored account's change `sponsorAddress` is set. At most one of the entity
+fields (tokenId, liquidityPoolId, claimableBalanceId, dataName, signerAddress)
+identifies what is sponsored; all are null for whole-account sponsorships.
+Pairs: (RESERVES, SPONSOR), (RESERVES, UNSPONSOR).
+"""
+type SponsorshipChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """On a sponsoring account's change: the account whose reserves it sponsors."""
+  sponsoredAddress:           String @goField(forceResolver: true)
+  """On a sponsored account's change: the account paying its reserves."""
+  sponsorAddress:             String @goField(forceResolver: true)
+  """Contract ID of the asset, for sponsored asset trustlines."""
+  tokenId:                    String @goField(forceResolver: true)
+  """Liquidity pool ID, for sponsored pool-share trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+  """Claimable balance ID, for sponsored claimable balances."""
+  claimableBalanceId:         String @goField(forceResolver: true)
+  """Data entry name, for sponsored data entries."""
+  dataName:                   String @goField(forceResolver: true)
+  """Signer address, for sponsored signers."""
   signerAddress:              String @goField(forceResolver: true)
-  signerWeights:              String
 }
 
-type SignerThresholdsChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
+"""
+Authorization to hold or transact an asset granted or revoked for the account.
+Exactly one of tokenId / liquidityPoolId is set. For classic trustlines,
+`flags` lists the trustline flags that were set (reason SET) or cleared
+(reason CLEAR). For SAC authorization of contract holders, authorization is a
+plain boolean in the contract balance entry, so `flags` is null.
+Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
+"""
+type BalanceAuthorizationChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  thresholds:                 String!
-}
-
-type MetadataChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  keyValue:                   String!
-}
-
-type FlagsChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  flags:                      [String!]!
-}
-
-type TrustlineChange implements BaseStateChange {
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
+  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  limit:                      String @goField(forceResolver: true)
-  liquidityPoolId:            String
-}
-
-type ReservesChange implements BaseStateChange{
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  sponsoredAddress:         String @goField(forceResolver: true)
-  sponsorAddress:           String @goField(forceResolver: true)
-  liquidityPoolId:          String @goField(forceResolver: true)
-  claimableBalanceId:       String @goField(forceResolver: true)
-  sponsoredTrustline:       String
-  sponsoredData:            String
-}
-
-type BalanceAuthorizationChange implements BaseStateChange{
-  type:                       StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  tokenId:                    String @goField(forceResolver: true)
-  liquidityPoolId:            String
-  flags:                      [String!]!
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+  """Trustline flags that changed; null for SAC contract-holder authorization, which has no flags."""
+  flags:                      [TrustlineFlag!] @goField(forceResolver: true)
 }

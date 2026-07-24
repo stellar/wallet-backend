@@ -8,16 +8,16 @@
 //  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
 //     This allows efficient storage in a single database table with nullable fields.
 //
-//  2. GRAPHQL LAYER: A BaseStateChange interface with 8 concrete implementations (defined in
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 18 concrete implementations (defined in
 //     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
-//     specific state change category, providing strong typing and clean API contracts.
+//     specific state change, providing strong typing and clean API contracts.
 //
-//  3. ADAPTER LAYER: Separate "Model" structs (PaymentStateChangeModel, etc.) that embed the unified
+//  3. ADAPTER LAYER: Separate "Model" structs (BalanceChangeModel, etc.) that embed the unified
 //     StateChange struct. These act as adapters, allowing gqlgen to generate proper resolvers while
 //     maintaining the single-table database design.
 //
 // The conversion between layers happens in internal/serve/graphql/resolvers/utils.go:convertStateChangeTypes(),
-// which maps StateChangeCategory values to appropriate concrete GraphQL types.
+// which maps each StateChange to a concrete GraphQL type by its (category, reason) and discriminator fields.
 //
 // This design follows the adapter pattern, enabling:
 // - Efficient database storage (single table, unified queries)
@@ -503,7 +503,6 @@ const (
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
-	StateChangeCategoryAuthorization        StateChangeCategory = "AUTHORIZATION"
 )
 
 type StateChangeReason string
@@ -552,17 +551,6 @@ var flagNameToBit = map[string]int16{
 	"authorized_to_maintain_liabilities": FlagBitAuthorizedToMaintainLiabilities,
 }
 
-// flagBitToName maps bitmask values to flag names (for decoding)
-var flagBitToName = map[int16]string{
-	FlagBitAuthorized:                      "authorized",
-	FlagBitAuthRequired:                    "auth_required",
-	FlagBitAuthRevocable:                   "auth_revocable",
-	FlagBitAuthImmutable:                   "auth_immutable",
-	FlagBitAuthClawbackEnabled:             "auth_clawback_enabled",
-	FlagBitClawbackEnabled:                 "clawback_enabled",
-	FlagBitAuthorizedToMaintainLiabilities: "authorized_to_maintain_liabilities",
-}
-
 // EncodeFlagsToBitmask encodes a slice of flag names to a bitmask value
 func EncodeFlagsToBitmask(flags []string) int16 {
 	var bitmask int16
@@ -574,12 +562,67 @@ func EncodeFlagsToBitmask(flags []string) int16 {
 	return bitmask
 }
 
-// DecodeBitmaskToFlags decodes a bitmask value to a slice of flag names
-func DecodeBitmaskToFlags(bitmask int16) []string {
-	var flags []string
-	for bit, name := range flagBitToName {
-		if bitmask&bit != 0 {
-			flags = append(flags, name)
+// AccountFlag is a Stellar account authorization flag as exposed by the GraphQL AccountFlag enum.
+type AccountFlag string
+
+const (
+	AccountFlagAuthRequired        AccountFlag = "AUTH_REQUIRED"
+	AccountFlagAuthRevocable       AccountFlag = "AUTH_REVOCABLE"
+	AccountFlagAuthImmutable       AccountFlag = "AUTH_IMMUTABLE"
+	AccountFlagAuthClawbackEnabled AccountFlag = "AUTH_CLAWBACK_ENABLED"
+)
+
+// TrustlineFlag is a Stellar trustline authorization flag as exposed by the GraphQL TrustlineFlag enum.
+type TrustlineFlag string
+
+const (
+	TrustlineFlagAuthorized                      TrustlineFlag = "AUTHORIZED"
+	TrustlineFlagAuthorizedToMaintainLiabilities TrustlineFlag = "AUTHORIZED_TO_MAINTAIN_LIABILITIES"
+	TrustlineFlagClawbackEnabled                 TrustlineFlag = "CLAWBACK_ENABLED"
+)
+
+// accountFlagBits lists the account authorization bits in fixed decode order, so
+// DecodeAccountFlags returns a deterministic slice.
+var accountFlagBits = []struct {
+	bit  int16
+	flag AccountFlag
+}{
+	{FlagBitAuthRequired, AccountFlagAuthRequired},
+	{FlagBitAuthRevocable, AccountFlagAuthRevocable},
+	{FlagBitAuthImmutable, AccountFlagAuthImmutable},
+	{FlagBitAuthClawbackEnabled, AccountFlagAuthClawbackEnabled},
+}
+
+// trustlineFlagBits lists the trustline authorization bits in fixed decode order, so
+// DecodeTrustlineFlags returns a deterministic slice.
+var trustlineFlagBits = []struct {
+	bit  int16
+	flag TrustlineFlag
+}{
+	{FlagBitAuthorized, TrustlineFlagAuthorized},
+	{FlagBitAuthorizedToMaintainLiabilities, TrustlineFlagAuthorizedToMaintainLiabilities},
+	{FlagBitClawbackEnabled, TrustlineFlagClawbackEnabled},
+}
+
+// DecodeAccountFlags decodes only the account authorization bits of bitmask into
+// AccountFlag values, in fixed order. Returns nil when no account bits are set.
+func DecodeAccountFlags(bitmask int16) []AccountFlag {
+	var flags []AccountFlag
+	for _, fb := range accountFlagBits {
+		if bitmask&fb.bit != 0 {
+			flags = append(flags, fb.flag)
+		}
+	}
+	return flags
+}
+
+// DecodeTrustlineFlags decodes only the trustline authorization bits of bitmask into
+// TrustlineFlag values, in fixed order. Returns nil when no trustline bits are set.
+func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
+	var flags []TrustlineFlag
+	for _, fb := range trustlineFlagBits {
+		if bitmask&fb.bit != 0 {
+			flags = append(flags, fb.flag)
 		}
 	}
 	return flags
@@ -593,14 +636,15 @@ func DecodeBitmaskToFlags(bitmask int16) []string {
 // uses a subset of the available fields.
 //
 // FIELD USAGE BY CATEGORY:
-// - Payment changes (CREDIT/DEBIT/MINT/BURN): TokenID, Amount, ClaimableBalanceID, LiquidityPoolID
-// - Sponsorship changes: SponsoredAccountID, SponsorAccountID, ClaimableBalanceID, LiquidityPoolID, SponsoredData
-// - Signer changes: SignerAccountID, SignerWeightOld, SignerWeightNew
-// - Threshold changes: ThresholdOld, ThresholdNew
-// - Flag changes: Flags (bitmask)
-// - Metadata changes: KeyValue
-// - Allowance changes: SpenderAccountID
-// - Trustline changes: TrustlineLimitOld, TrustlineLimitNew, LiquidityPoolID
+// - BALANCE: TokenID, Amount, ToMuxedID (transaction-fee rows have OperationID=0)
+// - ACCOUNT: exactly one of FunderAccountID, DeployerAccountID, DestinationAccountID
+// - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
+// - SIGNATURE_THRESHOLD: ThresholdOld, ThresholdNew
+// - METADATA: KeyValue (SEP-41 allowance rows also TokenID, Amount, SpenderAccountID)
+// - FLAGS: Flags (bitmask)
+// - TRUSTLINE: TokenID xor LiquidityPoolID, TrustlineLimitOld, TrustlineLimitNew
+// - RESERVES: SponsoredAccountID, SponsorAccountID + one of TokenID, LiquidityPoolID, ClaimableBalanceID, SponsoredData, SignerAccountID
+// - BALANCE_AUTHORIZATION: TokenID xor LiquidityPoolID, Flags
 //
 // The StateChangeCategory field determines which subset of fields are populated and relevant.
 // This approach enables:
@@ -828,7 +872,7 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 // GQLGEN REQUIREMENT:
 // The IsBaseStateChange() method is required by gqlgen to identify types that implement
 // the BaseStateChange interface. This is used during GraphQL type resolution to determine
-// which concrete type to return (PaymentStateChange, LiabilityStateChange, etc.).
+// which concrete type to return (BalanceChange, SignerAdded, etc.).
 //
 // INTERFACE METHODS:
 // The remaining Get* methods correspond to the shared fields defined in the GraphQL
@@ -839,9 +883,9 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 // Required by gqlgen for interface type resolution.
 func (sc StateChange) IsBaseStateChange() {}
 
-// GetType returns the category of this state change for GraphQL 'type' field.
+// GetCategory returns the category of this state change for the GraphQL 'category' field.
 // This method satisfies the GraphQL BaseStateChange interface requirement.
-func (sc StateChange) GetType() StateChangeCategory {
+func (sc StateChange) GetCategory() StateChangeCategory {
 	return sc.StateChangeCategory
 }
 
@@ -897,18 +941,19 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 //
 // These structs act as type adapters between the unified database StateChange model
 // and the strongly-typed GraphQL interface system. Each represents a specific concrete
-// implementation of the BaseStateChange interface.
+// implementation of the BaseStateChange interface, selected by (category, reason) and,
+// where those alone are ambiguous, additional discriminator fields.
 //
 // WHY SEPARATE STRUCTS ARE NEEDED:
 //
 // 1. GQLGEN REQUIREMENT: gqlgen needs distinct Go types for each GraphQL type to generate
-//    proper resolvers. Without these, gqlgen cannot differentiate between PaymentStateChange
-//    and LiabilityStateChange in the generated code.
+//    proper resolvers. Without these, gqlgen cannot differentiate between BalanceChange
+//    and FeeChange in the generated code.
 //
 // 2. GRAPHQL INTERFACE PATTERN: GraphQL interfaces require concrete implementations with
 //    potentially different field sets. While our database uses one unified schema, GraphQL
-//    clients expect type-specific fields (e.g., only PaymentStateChange should expose
-//    claimableBalanceId, only SponsorshipStateChange should expose sponsorAccountId).
+//    clients expect type-specific fields (e.g., only BalanceChange should expose
+//    toMuxedId, only SponsorshipChange should expose sponsorAddress).
 //
 // 3. TYPE SAFETY: These distinct types enable compile-time type checking in resolvers
 //    and prevent field access errors at runtime.
@@ -918,63 +963,101 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 //
 // USAGE PATTERN:
 // - Database queries return StateChange structs
-// - convertStateChangeTypes() in resolvers/utils.go wraps them in appropriate model structs
+// - convertStateChangeTypes() in internal/serve/graphql/resolvers/utils.go wraps them in the
+//   appropriate model struct based on (category, reason) and discriminators
 // - GraphQL resolvers use the model struct's embedded StateChange for field access
 // - gqlgen generates type-specific response marshaling based on the wrapper type
 //
 // This approach maintains the single-table database efficiency while satisfying GraphQL's
-// strong typing requirements. See gqlgen.yml lines 170-196 for the GraphQL-to-Go type mappings.
+// strong typing requirements. See the models section of gqlgen.yml for the GraphQL-to-Go
+// type mappings.
 
-// StandardBalanceStateChangeModel represents payment-related state changes from classic/SAC/SEP41 balances(CREDIT/DEBIT/MINT/BURN).
-// Maps to BalanceStateChange in GraphQL schema. Exposes tokenId, amount.
-type StandardBalanceStateChangeModel struct {
+// BalanceChangeModel maps to GraphQL BalanceChange: BALANCE × DEBIT/CREDIT/MINT/BURN (operation-sourced).
+type BalanceChangeModel struct {
 	StateChange
 }
 
-// AccountStateChangeModel represents account state changes.
-// Maps to AccountStateChange in GraphQL schema. Exposes tokenId, amount.
-type AccountStateChangeModel struct {
+// FeeChangeModel maps to GraphQL FeeChange: BALANCE × DEBIT/CREDIT with no operation (transaction fee charge/refund).
+type FeeChangeModel struct {
 	StateChange
 }
 
-// SignerStateChangeModel represents account signer changes.
-// Maps to SignerStateChange in GraphQL schema. Exposes signerAccountId, signerWeights.
-type SignerStateChangeModel struct {
+// AccountCreatedModel maps to GraphQL AccountCreated: ACCOUNT × CREATE (classic account creation).
+type AccountCreatedModel struct {
 	StateChange
 }
 
-// SignerThresholdsStateChangeModel represents signature threshold changes.
-// Maps to SignerThresholdsStateChange in GraphQL schema. Exposes thresholds.
-type SignerThresholdsStateChangeModel struct {
+// ContractDeployedModel maps to GraphQL ContractDeployed: ACCOUNT × CREATE (contract deployment).
+type ContractDeployedModel struct {
 	StateChange
 }
 
-// MetadataStateChangeModel represents account data entry changes.
-// Maps to MetadataStateChange in GraphQL schema. Exposes keyValue.
-type MetadataStateChangeModel struct {
+// AccountMergedModel maps to GraphQL AccountMerged: ACCOUNT × MERGE.
+type AccountMergedModel struct {
 	StateChange
 }
 
-// FlagsStateChangeModel represents account and trustline flag changes.
-// Maps to FlagsStateChange in GraphQL schema. Exposes flags array.
-type FlagsStateChangeModel struct {
+// SignerAddedModel maps to GraphQL SignerAdded: SIGNER × ADD.
+type SignerAddedModel struct {
 	StateChange
 }
 
-// TrustlineStateChangeModel represents trustline changes.
-// Maps to TrustlineStateChange in GraphQL schema. Exposes limit.
-type TrustlineStateChangeModel struct {
+// SignerUpdatedModel maps to GraphQL SignerUpdated: SIGNER × UPDATE.
+type SignerUpdatedModel struct {
 	StateChange
 }
 
-// BalanceAuthorizationStateChangeModel represents balance authorization changes.
-// Maps to BalanceAuthorizationStateChange in GraphQL schema. Exposes flags array.
-type BalanceAuthorizationStateChangeModel struct {
+// SignerRemovedModel maps to GraphQL SignerRemoved: SIGNER × REMOVE.
+type SignerRemovedModel struct {
 	StateChange
 }
 
-// ReservesStateChangeModel represents account reserves sponsorship changes.
-// Maps to ReservesStateChange in GraphQL schema. Exposes sponsoredAccountId, sponsorAccountId.
-type ReservesStateChangeModel struct {
+// ThresholdChangeModel maps to GraphQL ThresholdChange: SIGNATURE_THRESHOLD × LOW/MEDIUM/HIGH.
+type ThresholdChangeModel struct {
+	StateChange
+}
+
+// AccountFlagsChangeModel maps to GraphQL AccountFlagsChange: FLAGS × SET/CLEAR.
+type AccountFlagsChangeModel struct {
+	StateChange
+}
+
+// HomeDomainChangeModel maps to GraphQL HomeDomainChange: METADATA × HOME_DOMAIN.
+type HomeDomainChangeModel struct {
+	StateChange
+}
+
+// DataEntryChangeModel maps to GraphQL DataEntryChange: METADATA × DATA_ENTRY.
+type DataEntryChangeModel struct {
+	StateChange
+}
+
+// AllowanceChangeModel maps to GraphQL AllowanceChange: METADATA × UPDATE (SEP-41 approve).
+type AllowanceChangeModel struct {
+	StateChange
+}
+
+// TrustlineAddedModel maps to GraphQL TrustlineAdded: TRUSTLINE × ADD.
+type TrustlineAddedModel struct {
+	StateChange
+}
+
+// TrustlineUpdatedModel maps to GraphQL TrustlineUpdated: TRUSTLINE × UPDATE.
+type TrustlineUpdatedModel struct {
+	StateChange
+}
+
+// TrustlineRemovedModel maps to GraphQL TrustlineRemoved: TRUSTLINE × REMOVE.
+type TrustlineRemovedModel struct {
+	StateChange
+}
+
+// SponsorshipChangeModel maps to GraphQL SponsorshipChange: RESERVES × SPONSOR/UNSPONSOR.
+type SponsorshipChangeModel struct {
+	StateChange
+}
+
+// BalanceAuthorizationChangeModel maps to GraphQL BalanceAuthorizationChange: BALANCE_AUTHORIZATION × SET/CLEAR.
+type BalanceAuthorizationChangeModel struct {
 	StateChange
 }

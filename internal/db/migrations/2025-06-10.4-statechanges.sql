@@ -10,7 +10,7 @@ CREATE TABLE state_changes (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
             'METADATA', 'FLAGS', 'TRUSTLINE', 'RESERVES',
-            'BALANCE_AUTHORIZATION', 'AUTHORIZATION'
+            'BALANCE_AUTHORIZATION'
         )
     ),
     state_change_reason TEXT NOT NULL CHECK (

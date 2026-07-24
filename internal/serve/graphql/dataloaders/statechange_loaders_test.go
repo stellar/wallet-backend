@@ -37,23 +37,27 @@ func TestStateChangesByToIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T) {
 	})
 
 	_, err := testDBConnectionPool.Exec(ctx, `
-		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
-		VALUES ($1, 1, 'BALANCE', 'CREDIT', $2, 1, $3, 0)
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id, amount)
+		VALUES ($1, 1, 'BALANCE', 'CREDIT', $2, 1, $3, 0, '42')
 	`, toID, now, types.AddressBytea(acct))
 	require.NoError(t, err)
 
+	// amount is the isolation probe: state_change_category/state_change_reason are forced into
+	// every SELECT by stateChangeMandatoryColumns (the GraphQL type dispatch needs them), so
+	// only a non-mandatory column can show that each key gets its own projection.
 	limit := int32Ptr(10)
 	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.StateChangesByToIDLoader.LoadAll(ctx, []StateChangeColumnsKey{
 		{ToID: toID, Columns: "state_change_category", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
-		{ToID: toID, Columns: "state_change_category, state_change_reason", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
+		{ToID: toID, Columns: "state_change_category, amount", Limit: limit, SortOrder: data.ASC, LedgerCreatedAt: now},
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	require.NotEmpty(t, results[0])
 	require.NotEmpty(t, results[1])
-	assert.Empty(t, results[0][0].StateChangeReason, "key selecting only the category receives no reason")
-	assert.Equal(t, types.StateChangeReasonCredit, results[1][0].StateChangeReason, "key selecting the reason must receive it, not the first key's narrower columns")
+	assert.False(t, results[0][0].Amount.Valid, "key not selecting amount receives no amount")
+	assert.Equal(t, "42", results[1][0].Amount.String, "key selecting amount must receive it, not the first key's narrower columns")
+	assert.Equal(t, types.StateChangeReasonCredit, results[1][0].StateChangeReason, "mandatory discriminator columns are present on every key")
 }
 
 // TestStateChangesByToIDLoader_MultiKeyBatchHonorsFullLimit is the state-changes equivalent of

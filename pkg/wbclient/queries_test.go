@@ -44,6 +44,61 @@ func TestBalanceFragmentRequestsAllFields(t *testing.T) {
 	}
 }
 
+// TestStateChangeFragmentRequestsAllFields is the state-change analogue of
+// TestBalanceFragmentRequestsAllFields: it guards against a field being added to a concrete
+// state-change struct (and the schema + resolver) without being added to the query fragment,
+// which would leave the SDK silently unmarshaling it to its zero value. For each concrete type
+// it asserts the inline fragment requests every JSON key the struct declares, skipping the
+// shared base fields that come from the fragment prefix. Aliased fields (e.g. balanceTokenId)
+// are matched by their alias, which is exactly the struct's JSON tag.
+func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
+	shared := map[string]bool{
+		"category": true, "reason": true, "ingestedAt": true,
+		"ledgerCreatedAt": true, "ledgerNumber": true,
+	}
+
+	variants := []struct {
+		typeName string
+		sample   any
+	}{
+		{"BalanceChange", types.BalanceChange{}},
+		{"FeeChange", types.FeeChange{}},
+		{"AccountCreated", types.AccountCreated{}},
+		{"ContractDeployed", types.ContractDeployed{}},
+		{"AccountMerged", types.AccountMerged{}},
+		{"SignerAdded", types.SignerAdded{}},
+		{"SignerUpdated", types.SignerUpdated{}},
+		{"SignerRemoved", types.SignerRemoved{}},
+		{"ThresholdChange", types.ThresholdChange{}},
+		{"AccountFlagsChange", types.AccountFlagsChange{}},
+		{"HomeDomainChange", types.HomeDomainChange{}},
+		{"DataEntryChange", types.DataEntryChange{}},
+		{"AllowanceChange", types.AllowanceChange{}},
+		{"TrustlineAdded", types.TrustlineAdded{}},
+		{"TrustlineUpdated", types.TrustlineUpdated{}},
+		{"TrustlineRemoved", types.TrustlineRemoved{}},
+		{"SponsorshipChange", types.SponsorshipChange{}},
+		{"BalanceAuthorizationChange", types.BalanceAuthorizationChange{}},
+	}
+
+	for _, v := range variants {
+		block := inlineFragmentBlock(t, stateChangeFragments, v.typeName)
+		rt := reflect.TypeOf(v.sample)
+		for i := 0; i < rt.NumField(); i++ {
+			field := rt.Field(i)
+			if field.Anonymous {
+				continue // BaseStateChangeFields; its fields are in the shared prefix.
+			}
+			name := strings.Split(field.Tag.Get("json"), ",")[0]
+			if name == "" || name == "-" || shared[name] {
+				continue
+			}
+			assert.Contains(t, block, name,
+				"stateChangeFragments '... on %s' must request %q, else the SDK never fetches it", v.typeName, name)
+		}
+	}
+}
+
 // inlineFragmentBlock returns the body of the `... on <typeName> { ... }` inline fragment,
 // matching braces so nested selection sets (e.g. reserves { ... }) don't terminate it early.
 func inlineFragmentBlock(t *testing.T, fragment, typeName string) string {

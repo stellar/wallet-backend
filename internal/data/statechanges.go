@@ -29,10 +29,16 @@ type StateChangeWriter interface {
 
 var _ StateChangeWriter = (*StateChangeModel)(nil)
 
+// stateChangeMandatoryColumns is always selected regardless of the GraphQL field
+// projection: the cursor/key columns, plus the discriminators (state_change_category,
+// state_change_reason, deployer_account_id) that convertStateChangeTypes in the
+// resolvers package needs to pick the concrete GraphQL type for each row.
+var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason", "deployer_account_id"}
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
@@ -266,7 +272,7 @@ func (m *StateChangeModel) BatchCopy(
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to
 // the parent transaction's ledger_created_at for partition-column chunk exclusion.
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
@@ -330,7 +336,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 
 	// The ORDER BY + LIMIT live inside the LATERAL (a per-transaction top-N), replacing the old
 	// ROW_NUMBER()-over-everything CTE with an equivalent per-to_id cap; a subquery containing
@@ -397,7 +403,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 // BatchGetByOperationID gets state changes for a single operation with pagination support,
 // pinned to the parent operation's ledger_created_at for partition-column chunk exclusion.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
@@ -484,7 +490,7 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 			hi = t
 		}
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM state_changes sc
@@ -516,7 +522,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	if len(operationIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 
 	// The ORDER BY + LIMIT live inside the LATERAL (a per-operation top-N), replacing the old
 	// ROW_NUMBER()-over-everything CTE with an equivalent per-operation cap; a subquery

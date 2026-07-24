@@ -204,7 +204,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 
 		c := NewClient(srv.URL, nil)
 		txHash := "deadbeef"
-		category := "CREDIT"
+		category := "BALANCE"
 		_, err := c.GetAccountStateChanges(ctx, "GABC", &txHash, nil, &category, nil, nil, nil, nil, nil, nil, nil)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 
@@ -214,7 +214,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 		filter, ok := received.Variables["filter"].(map[string]any)
 		require.True(t, ok, "expected filter to be encoded as a JSON object, got %T", received.Variables["filter"])
 		assert.Equal(t, "deadbeef", filter["transactionHash"])
-		assert.Equal(t, "CREDIT", filter["category"])
+		assert.Equal(t, "BALANCE", filter["category"])
 	})
 }
 
@@ -234,7 +234,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 	t.Run("deserializes edges with embedded operations and state changes", func(t *testing.T) {
 		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},` +
 			`"operations":[{"id":1,"operationType":"PAYMENT"}],` +
-			`"stateChanges":[{"__typename":"StandardBalanceChange","type":"BALANCE","amount":"10"}],` +
+			`"stateChanges":[{"__typename":"BalanceChange","category":"BALANCE","balanceTokenId":"native","amount":"10"}],` +
 			`"cursor":"c1"}],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
 		srv := graphqlServer(t, body)
 		defer srv.Close()
@@ -249,7 +249,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		require.Len(t, edge.Operations, 1)
 		assert.Equal(t, int64(1), edge.Operations[0].ID)
 		require.Len(t, edge.StateChanges, 1)
-		assert.Equal(t, types.StateChangeCategoryBalance, edge.StateChanges[0].GetType())
+		assert.Equal(t, types.StateChangeCategoryBalance, edge.StateChanges[0].GetCategory())
 	})
 
 	t.Run("passes through null transactions connection on existing account", func(t *testing.T) {

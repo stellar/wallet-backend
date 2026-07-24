@@ -639,13 +639,13 @@ func Test_StateChangeConnection_UnmarshalJSON(t *testing.T) {
 				{
 					"cursor": "sc-1",
 					"node": {
-						"__typename": "StandardBalanceChange",
-						"type": "CREDIT",
-						"reason": "PAYMENT",
+						"__typename": "BalanceChange",
+						"category": "BALANCE",
+						"reason": "CREDIT",
 						"ingestedAt": "2024-01-02T00:00:00Z",
 						"ledgerCreatedAt": "2024-01-01T00:00:00Z",
 						"ledgerNumber": 1,
-						"standardBalanceTokenId": "native",
+						"balanceTokenId": "native",
 						"amount": "100"
 					}
 				},
@@ -663,10 +663,11 @@ func Test_StateChangeConnection_UnmarshalJSON(t *testing.T) {
 		require.Len(t, conn.Edges, 2)
 
 		require.NotNil(t, conn.Edges[0].Node)
-		standard, ok := conn.Edges[0].Node.(*StandardBalanceChange)
-		require.True(t, ok, "expected first node to decode into *StandardBalanceChange, got %T", conn.Edges[0].Node)
-		assert.Equal(t, "100", standard.Amount)
-		assert.Equal(t, "native", standard.TokenID)
+		balance, ok := conn.Edges[0].Node.(*BalanceChange)
+		require.True(t, ok, "expected first node to decode into *BalanceChange, got %T", conn.Edges[0].Node)
+		assert.Equal(t, StateChangeCategoryBalance, balance.GetCategory())
+		assert.Equal(t, "100", balance.Amount)
+		assert.Equal(t, "native", balance.TokenID)
 
 		assert.Nil(t, conn.Edges[1].Node, "schema permits null node and StateChangeEdge must preserve that")
 		assert.Equal(t, "sc-2", conn.Edges[1].Cursor)
