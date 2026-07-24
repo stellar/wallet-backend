@@ -15,6 +15,25 @@ const (
 	BlendPoolStatusSetup       BlendPoolStatus = "SETUP"
 )
 
+// AcceptsSupply reports whether a pool in this status accepts deposits,
+// per the schema's status table: ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE
+// accept supply; ADMIN_FROZEN/FROZEN/SETUP reject it.
+func (s BlendPoolStatus) AcceptsSupply() bool {
+	switch s {
+	case BlendPoolStatusAdminActive, BlendPoolStatusActive, BlendPoolStatusAdminOnIce, BlendPoolStatusOnIce:
+		return true
+	case BlendPoolStatusAdminFrozen, BlendPoolStatusFrozen, BlendPoolStatusSetup:
+		return false
+	}
+	return false
+}
+
+// AcceptsBorrow reports whether a pool in this status allows borrowing:
+// only ADMIN_ACTIVE and ACTIVE do.
+func (s BlendPoolStatus) AcceptsBorrow() bool {
+	return s == BlendPoolStatusAdminActive || s == BlendPoolStatusActive
+}
+
 // BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of any account.
 type BlendPool struct {
 	Address          string           `json:"address"`
