@@ -423,10 +423,15 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // StateChanges (state-change → operation association). StateChanges is already filtered by the
 // worker: entries with an empty AccountID or an OperationID with no matching operation are dropped.
 //
-// Each change-family slice (TrustlineChanges, AccountChanges, SACBalanceChanges, LPShareChanges,
-// LPChanges) must be ordered ascending by its order value per key (CREATE before REMOVE):
-// pushWithTombstone's create+remove netting at the fold depends on it. processTransaction
-// guarantees this by walking operations in ascending opID order.
+// Netting at the fold (pushWithTombstone) requires only that a key's create/add precedes the remove
+// that cancels it — not that a change-family slice is globally sorted by order value.
+// processTransaction walks operations in ascending opID order, which gives that for every family
+// (TrustlineChanges, AccountChanges, SACBalanceChanges, LPShareChanges, LPChanges). AccountChanges is
+// the one slice that is not globally ascending: the fee-phase changes are appended after the operation
+// walk even though phaseFee sorts below every operation (see processors.accountSortKey). That is
+// harmless because a fee debit or Soroban refund always updates an account entry that already exists
+// — it never creates or removes one — so those changes pair with nothing to net, and the
+// highest-order-wins guard discards them whenever an operation already wrote a higher key.
 type TransactionResult struct {
 	Transaction           *types.Transaction
 	TxParticipants        []string
@@ -458,7 +463,7 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 		// Invariant: every OpParticipants key must resolve to an operation in r.Operations.
 		operation := r.Operations[opID]
 		if operation == nil {
-			log.Errorf("operation %d missing from TransactionResult.Operations (tx %s); dropping its participants", opID, r.Transaction.Hash)
+			log.Errorf("operation %d missing from TransactionResult.Operations (ledger %d, tx %s); dropping its participants", opID, r.Transaction.LedgerNumber, r.Transaction.Hash)
 			continue
 		}
 		for _, participant := range participants {
