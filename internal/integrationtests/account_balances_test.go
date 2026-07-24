@@ -542,7 +542,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) assertSEP41TokenBalance
 func assertLiquidityPoolBalance(r *require.Assertions, b *types.LiquidityPoolBalance, expectedPoolID, expectedShares, assetA, amountA, assetB, amountB string) {
 	r.Equal(types.TokenTypeLiquidityPool, b.GetTokenType())
 	r.Equal(expectedPoolID, b.GetTokenID(), "LP tokenId should be the pool id")
-	r.Equal(expectedPoolID, b.LiquidityPoolID, "LP liquidityPoolId should be the pool id")
 	r.Equal(expectedShares, b.GetBalance(), "LP share balance mismatch")
 	r.Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
 	r.Len(b.Reserves, 2, "LP should expose both reserve legs")

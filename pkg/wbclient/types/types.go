@@ -108,6 +108,14 @@ const (
 	TrustlineFlagClawbackEnabled                 TrustlineFlag = "CLAWBACK_ENABLED"
 )
 
+// AssetType represents the classic Stellar asset type, determined by the asset code length.
+type AssetType string
+
+const (
+	AssetTypeCreditAlphanum4  AssetType = "CREDIT_ALPHANUM4"
+	AssetTypeCreditAlphanum12 AssetType = "CREDIT_ALPHANUM12"
+)
+
 // Balance is an interface representing different types of account balances
 type Balance interface {
 	GetBalance() string
@@ -143,7 +151,7 @@ type TrustlineBalance struct {
 	TokenType                         TokenType `json:"tokenType"`
 	Code                              *string   `json:"code,omitempty"`
 	Issuer                            *string   `json:"issuer,omitempty"`
-	Type                              string    `json:"type"`
+	AssetType                         AssetType `json:"assetType"`
 	Limit                             string    `json:"limit"`
 	BuyingLiabilities                 string    `json:"buyingLiabilities"`
 	SellingLiabilities                string    `json:"sellingLiabilities"`
@@ -206,7 +214,6 @@ type LiquidityPoolBalance struct {
 	BalanceValue       string                 `json:"balance"`
 	TokenID            string                 `json:"tokenId"`
 	TokenType          TokenType              `json:"tokenType"`
-	LiquidityPoolID    string                 `json:"liquidityPoolId"`
 	Reserves           []LiquidityPoolReserve `json:"reserves"`
 	LastModifiedLedger uint32                 `json:"lastModifiedLedger"`
 }

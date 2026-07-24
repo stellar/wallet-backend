@@ -370,7 +370,7 @@ const balanceFragments = `
 		... on TrustlineBalance {
 			code
 			issuer
-			type
+			assetType
 			limit
 			buyingLiabilities
 			sellingLiabilities
@@ -392,7 +392,6 @@ const balanceFragments = `
 			lastModifiedLedger
 		}
 		... on LiquidityPoolBalance {
-			liquidityPoolId
 			reserves {
 				asset
 				amount

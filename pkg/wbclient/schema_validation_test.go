@@ -31,7 +31,16 @@ func TestClientQueriesValidateAgainstSchema(t *testing.T) {
 	schema, gerr := gqlparser.LoadSchema(sources...)
 	require.Nil(t, gerr, "schema load: %v", gerr)
 
+	// Every query builder in queries.go, invoked with its default field set (nil = defaults),
+	// exactly as the client methods do.
 	queries := map[string]string{
+		"TransactionByHash":                         buildTransactionByHashQuery(nil),
+		"AccountByAddress":                          buildAccountByAddressQuery(nil),
+		"OperationByID":                             buildOperationByIDQuery(nil),
+		"AccountTransactions":                       buildAccountTransactionsQuery(nil),
+		"AccountOperations":                         buildAccountOperationsQuery(nil),
+		"TransactionOperations":                     buildTransactionOperationsQuery(nil),
+		"AccountBalances":                           buildAccountBalancesQuery(),
 		"AccountStateChanges":                       buildAccountStateChangesQuery(),
 		"TransactionStateChanges":                   buildTransactionStateChangesQuery(),
 		"OperationStateChanges":                     buildOperationStateChangesQuery(),
