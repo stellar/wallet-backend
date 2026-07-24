@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -210,7 +211,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Fo
 
 	page1, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		&pageSize, nil, nil, nil,
+		&wbclient.Page{First: &pageSize},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(page1)
@@ -221,7 +222,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Fo
 
 	page2, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		&pageSize, nil, page1.PageInfo.EndCursor, nil,
+		&wbclient.Page{First: &pageSize, After: page1.PageInfo.EndCursor},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(page2)
@@ -241,7 +242,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ba
 
 	lastPage, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		nil, &pageSize, nil, nil,
+		&wbclient.Page{Last: &pageSize},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(lastPage)
@@ -252,7 +253,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ba
 
 	prevPage, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		nil, &pageSize, nil, lastPage.PageInfo.StartCursor,
+		&wbclient.Page{Last: &pageSize, Before: lastPage.PageInfo.StartCursor},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(prevPage)

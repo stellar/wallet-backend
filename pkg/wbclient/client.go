@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -23,102 +25,146 @@ import (
 // upstream failure. Use errors.Is(err, wbclient.ErrAccountNotFound).
 var ErrAccountNotFound = errors.New("account not found")
 
+// GraphQLRequest is the JSON body of a GraphQL POST: an operation document
+// and its variables.
 type GraphQLRequest struct {
-	Query     string                 `json:"query"`
-	Variables map[string]interface{} `json:"variables,omitempty"`
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables,omitempty"`
 }
 
+// GraphQLResponse is the top-level GraphQL response envelope. Data holds the
+// raw result object and Errors any errors the server reported for the operation.
 type GraphQLResponse struct {
 	Data   json.RawMessage `json:"data,omitempty"`
 	Errors []GraphQLError  `json:"errors,omitempty"`
 }
 
+// GraphQLError is a single error entry from a GraphQL response. Extensions
+// carries server-defined metadata; Extensions["code"] (e.g. "BAD_USER_INPUT")
+// classifies the error when present.
 type GraphQLError struct {
-	Message    string                 `json:"message"`
-	Extensions map[string]interface{} `json:"extensions,omitempty"`
+	Message    string         `json:"message"`
+	Extensions map[string]any `json:"extensions,omitempty"`
 }
 
+// GraphQLErrors is the non-empty set of errors returned in a GraphQL response
+// body. It implements error; callers can errors.As it and inspect each error's
+// Extensions["code"] (e.g. "BAD_USER_INPUT") for classification.
+type GraphQLErrors []GraphQLError
+
+// Error joins every error's message into one string, prefixing each with its
+// Extensions["code"] when present (e.g. "BAD_USER_INPUT: first must be...; ...").
+func (e GraphQLErrors) Error() string {
+	msgs := make([]string, len(e))
+	for i, ge := range e {
+		if code, ok := ge.Extensions["code"].(string); ok && code != "" {
+			msgs[i] = code + ": " + ge.Message
+		} else {
+			msgs[i] = ge.Message
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// TransactionByHashData is the result shape of the transactionByHash query.
 type TransactionByHashData struct {
 	TransactionByHash *types.GraphQLTransaction `json:"transactionByHash"`
 }
 
+// AccountByAddressData is the result shape of the accountByAddress query.
 type AccountByAddressData struct {
 	AccountByAddress *types.Account `json:"accountByAddress"`
 }
 
+// OperationByIDData is the result shape of the operationById query.
 type OperationByIDData struct {
 	OperationByID *types.Operation `json:"operationById"`
 }
 
+// AccountTransactionsData is the result shape of the accountByAddress.transactions query.
 type AccountTransactionsData struct {
 	AccountByAddress *struct {
 		Transactions *types.TransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
 }
 
+// AccountOperationsData is the result shape of the accountByAddress.operations query.
 type AccountOperationsData struct {
 	AccountByAddress *struct {
 		Operations *types.OperationConnection `json:"operations"`
 	} `json:"accountByAddress"`
 }
 
+// AccountStateChangesData is the result shape of the accountByAddress.stateChanges query.
 type AccountStateChangesData struct {
 	AccountByAddress *struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"accountByAddress"`
 }
 
+// TransactionOperationsData is the result shape of the transactionByHash.operations query.
 type TransactionOperationsData struct {
 	TransactionByHash struct {
 		Operations *types.OperationConnection `json:"operations"`
 	} `json:"transactionByHash"`
 }
 
+// TransactionStateChangesData is the result shape of the transactionByHash.stateChanges query.
 type TransactionStateChangesData struct {
 	TransactionByHash struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"transactionByHash"`
 }
 
+// OperationStateChangesData is the result shape of the operationById.stateChanges query.
 type OperationStateChangesData struct {
 	OperationByID struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"operationById"`
 }
 
+// AccountBalancesData is the result shape of the accountByAddress.balances query.
 type AccountBalancesData struct {
 	AccountByAddress *struct {
 		Balances *types.BalanceConnection `json:"balances"`
 	} `json:"accountByAddress"`
 }
 
+// AccountTransactionsWithOpsAndStateChangesData is the result shape of the
+// accountByAddress.transactions query that embeds per-transaction operations
+// and state changes.
 type AccountTransactionsWithOpsAndStateChangesData struct {
 	AccountByAddress *struct {
 		Transactions *types.AccountTransactionConnection `json:"transactions"`
 	} `json:"accountByAddress"`
 }
 
-// QueryOptions allows clients to specify which fields to fetch for each entity type
+// QueryOptions allows clients to specify which fields to fetch for each entity type.
 type QueryOptions struct {
-	// TransactionFields specifies which transaction fields to fetch
-	// If nil or empty, all default fields are fetched
+	// TransactionFields specifies which transaction fields to fetch.
+	// If nil or empty, all default fields are fetched.
 	TransactionFields []string
 
-	// OperationFields specifies which operation fields to fetch
-	// If nil or empty, all default fields are fetched
+	// OperationFields specifies which operation fields to fetch.
+	// If nil or empty, all default fields are fetched.
 	OperationFields []string
 
-	// AccountFields specifies which account fields to fetch
-	// If nil or empty, all default fields are fetched
+	// AccountFields specifies which account fields to fetch.
+	// If nil or empty, all default fields are fetched.
 	AccountFields []string
 }
 
+// Client is a GraphQL client for the wallet-backend API. It signs each request
+// with RequestSigner when one is set and targets the GraphQL endpoint at BaseURL.
 type Client struct {
 	HTTPClient    *http.Client
 	BaseURL       string
 	RequestSigner auth.HTTPRequestSigner
 }
 
+// NewClient returns a Client that talks to the wallet-backend GraphQL API at
+// baseURL, signing each request with requestSigner (may be nil for unauthenticated
+// use). It uses an HTTP client with a 30-second timeout.
 func NewClient(baseURL string, requestSigner auth.HTTPRequestSigner) *Client {
 	return &Client{
 		HTTPClient:    &http.Client{Timeout: 30 * time.Second},
@@ -143,8 +189,8 @@ func parseResponseBody[T any](ctx context.Context, respBody io.ReadCloser) (*T, 
 	return &response, nil
 }
 
-// executeGraphQL executes a GraphQL query and returns the unmarshaled response data
-func executeGraphQL[T any](c *Client, ctx context.Context, query string, variables map[string]interface{}) (*T, error) {
+// executeGraphQL executes a GraphQL query and returns the unmarshaled response data.
+func executeGraphQL[T any](c *Client, ctx context.Context, query string, variables map[string]any) (*T, error) {
 	gqlRequest := GraphQLRequest{
 		Query:     query,
 		Variables: variables,
@@ -165,7 +211,7 @@ func executeGraphQL[T any](c *Client, ctx context.Context, query string, variabl
 	}
 
 	if len(gqlResponse.Errors) > 0 {
-		return nil, fmt.Errorf("GraphQL error: %s", gqlResponse.Errors[0].Message)
+		return nil, fmt.Errorf("GraphQL request returned errors: %w", GraphQLErrors(gqlResponse.Errors))
 	}
 
 	var data T
@@ -176,74 +222,25 @@ func executeGraphQL[T any](c *Client, ctx context.Context, query string, variabl
 	return &data, nil
 }
 
-// buildPaginationVars builds a variables map from pagination parameters
-func buildPaginationVars(first, last *int32, after, before *string) (map[string]interface{}, error) {
-	vars := make(map[string]interface{})
-	err := validatePaginationParams(first, after, last, before)
-	if err != nil {
-		return nil, fmt.Errorf("validating pagination params: %w", err)
-	}
-	if first != nil {
-		vars["first"] = *first
-	}
-	if after != nil {
-		vars["after"] = *after
-	}
-	if last != nil {
-		vars["last"] = *last
-	}
-	if before != nil {
-		vars["before"] = *before
-	}
-	return vars, nil
-}
-
-func validatePaginationParams(first *int32, after *string, last *int32, before *string) error {
-	if first != nil && last != nil {
-		return fmt.Errorf("first and last cannot be used together")
-	}
-
-	if after != nil && before != nil {
-		return fmt.Errorf("after and before cannot be used together")
-	}
-
-	if first != nil && *first <= 0 {
-		return fmt.Errorf("first must be greater than 0")
-	}
-
-	if last != nil && *last <= 0 {
-		return fmt.Errorf("last must be greater than 0")
-	}
-
-	if first != nil && before != nil {
-		return fmt.Errorf("first and before cannot be used together")
-	}
-
-	if last != nil && after != nil {
-		return fmt.Errorf("last and after cannot be used together")
-	}
-
-	return nil
-}
-
-// mergeVariables merges multiple variable maps into one
-func mergeVariables(maps ...map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	for _, m := range maps {
-		for k, v := range m {
-			result[k] = v
-		}
+// mergeVariables merges multiple variable maps into one.
+func mergeVariables(sources ...map[string]any) map[string]any {
+	result := make(map[string]any)
+	for _, m := range sources {
+		maps.Copy(result, m)
 	}
 	return result
 }
 
+// GetTransactionByHash fetches a single transaction by its hash. Pass a
+// *QueryOptions to restrict the transaction fields fetched; omit it (or pass nil)
+// for the default field set.
 func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...*QueryOptions) (*types.GraphQLTransaction, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].TransactionFields
 	}
 
-	variables := map[string]interface{}{
+	variables := map[string]any{
 		"hash": hash,
 	}
 
@@ -255,13 +252,16 @@ func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...
 	return data.TransactionByHash, nil
 }
 
+// GetAccountByAddress fetches a single account by its address. Pass a
+// *QueryOptions to restrict the account fields fetched; omit it (or pass nil)
+// for the default field set.
 func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts ...*QueryOptions) (*types.Account, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].AccountFields
 	}
 
-	variables := map[string]interface{}{
+	variables := map[string]any{
 		"address": address,
 	}
 
@@ -273,13 +273,16 @@ func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts .
 	return data.AccountByAddress, nil
 }
 
+// GetOperationByID fetches a single operation by its ID. Pass a *QueryOptions
+// to restrict the operation fields fetched; omit it (or pass nil) for the default
+// field set.
 func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryOptions) (*types.Operation, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].OperationFields
 	}
 
-	variables := map[string]interface{}{
+	variables := map[string]any{
 		"id": id,
 	}
 
@@ -291,27 +294,26 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 	return data.OperationByID, nil
 }
 
-func (c *Client) GetAccountTransactions(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.TransactionConnection, error) {
+// GetAccountTransactions fetches a page of an account's transactions. A nil
+// timeRange applies no time bounds and a nil page requests the server's default
+// page. Pass a *QueryOptions to restrict the transaction fields fetched. Returns
+// ErrAccountNotFound if the account does not exist.
+func (c *Client) GetAccountTransactions(ctx context.Context, address string, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.TransactionConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].TransactionFields
 	}
 
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"address": address},
+		map[string]any{"address": address},
 		paginationVars,
+		buildTimeRangeVars(timeRange),
 	)
-	if since != nil {
-		variables["since"] = *since
-	}
-	if until != nil {
-		variables["until"] = *until
-	}
 
 	data, err := executeGraphQL[AccountTransactionsData](c, ctx, buildAccountTransactionsQuery(fields), variables)
 	if err != nil {
@@ -325,24 +327,22 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, sin
 	return data.AccountByAddress.Transactions, nil
 }
 
-// GetAccountTransactionsWithOpsAndStateChanges fetches an account's transactions with that account's
-// operations and state changes embedded per transaction, in a single GraphQL call.
-func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string) (*types.AccountTransactionConnection, error) {
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+// GetAccountTransactionsWithOpsAndStateChanges fetches a page of an account's
+// transactions with that account's operations and state changes embedded per
+// transaction, in a single GraphQL call. A nil timeRange applies no time bounds
+// and a nil page requests the server's default page. Returns ErrAccountNotFound
+// if the account does not exist.
+func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, timeRange *TimeRange, page *Page) (*types.AccountTransactionConnection, error) {
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"address": address},
+		map[string]any{"address": address},
 		paginationVars,
+		buildTimeRangeVars(timeRange),
 	)
-	if since != nil {
-		variables["since"] = *since
-	}
-	if until != nil {
-		variables["until"] = *until
-	}
 
 	data, err := executeGraphQL[AccountTransactionsWithOpsAndStateChangesData](c, ctx, buildAccountTransactionsWithOpsAndStateChangesQuery(), variables)
 	if err != nil {
@@ -356,27 +356,26 @@ func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Contex
 	return data.AccountByAddress.Transactions, nil
 }
 
-func (c *Client) GetAccountOperations(ctx context.Context, address string, since, until *time.Time, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
+// GetAccountOperations fetches a page of an account's operations. A nil timeRange
+// applies no time bounds and a nil page requests the server's default page. Pass
+// a *QueryOptions to restrict the operation fields fetched. Returns
+// ErrAccountNotFound if the account does not exist.
+func (c *Client) GetAccountOperations(ctx context.Context, address string, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.OperationConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].OperationFields
 	}
 
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"address": address},
+		map[string]any{"address": address},
 		paginationVars,
+		buildTimeRangeVars(timeRange),
 	)
-	if since != nil {
-		variables["since"] = *since
-	}
-	if until != nil {
-		variables["until"] = *until
-	}
 
 	data, err := executeGraphQL[AccountOperationsData](c, ctx, buildAccountOperationsQuery(fields), variables)
 	if err != nil {
@@ -390,42 +389,22 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, since
 	return data.AccountByAddress.Operations, nil
 }
 
-func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *types.StateChangeCategory, reason *types.StateChangeReason, since, until *time.Time, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+// GetAccountStateChanges fetches a page of an account's state changes. A nil
+// filter applies no filtering, a nil timeRange applies no time bounds, and a nil
+// page requests the server's default page. Returns ErrAccountNotFound if the
+// account does not exist.
+func (c *Client) GetAccountStateChanges(ctx context.Context, address string, filter *StateChangeFilter, timeRange *TimeRange, page *Page) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
-	variables := map[string]interface{}{
-		"address": address,
-	}
-
-	// Build filter object if any filter parameters are provided
-	if transactionHash != nil || operationID != nil || category != nil || reason != nil {
-		filter := make(map[string]interface{})
-		if transactionHash != nil {
-			filter["transactionHash"] = *transactionHash
-		}
-		if operationID != nil {
-			filter["operationId"] = *operationID
-		}
-		if category != nil {
-			filter["category"] = *category
-		}
-		if reason != nil {
-			filter["reason"] = *reason
-		}
-		variables["filter"] = filter
-	}
-
-	if since != nil {
-		variables["since"] = *since
-	}
-	if until != nil {
-		variables["until"] = *until
-	}
-
-	variables = mergeVariables(variables, paginationVars)
+	variables := mergeVariables(
+		map[string]any{"address": address},
+		buildStateChangeFilterVars(filter),
+		buildTimeRangeVars(timeRange),
+		paginationVars,
+	)
 
 	data, err := executeGraphQL[AccountStateChangesData](c, ctx, buildAccountStateChangesQuery(), variables)
 	if err != nil {
@@ -439,19 +418,22 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, tra
 	return data.AccountByAddress.StateChanges, nil
 }
 
-func (c *Client) GetTransactionOperations(ctx context.Context, hash string, first, last *int32, after, before *string, opts ...*QueryOptions) (*types.OperationConnection, error) {
+// GetTransactionOperations fetches a page of a transaction's operations. A nil
+// page requests the server's default page. Pass a *QueryOptions to restrict the
+// operation fields fetched.
+func (c *Client) GetTransactionOperations(ctx context.Context, hash string, page *Page, opts ...*QueryOptions) (*types.OperationConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].OperationFields
 	}
 
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"hash": hash},
+		map[string]any{"hash": hash},
 		paginationVars,
 	)
 
@@ -463,14 +445,16 @@ func (c *Client) GetTransactionOperations(ctx context.Context, hash string, firs
 	return data.TransactionByHash.Operations, nil
 }
 
-func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+// GetTransactionStateChanges fetches a page of a transaction's state changes. A
+// nil page requests the server's default page.
+func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, page *Page) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"hash": hash},
+		map[string]any{"hash": hash},
 		paginationVars,
 	)
 
@@ -482,14 +466,16 @@ func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, fi
 	return data.TransactionByHash.StateChanges, nil
 }
 
-func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+// GetOperationStateChanges fetches a page of an operation's state changes. A nil
+// page requests the server's default page.
+func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, page *Page) (*types.StateChangeConnection, error) {
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"id": id},
+		map[string]any{"id": id},
 		paginationVars,
 	)
 
@@ -501,14 +487,18 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, first, 
 	return data.OperationByID.StateChanges, nil
 }
 
-func (c *Client) GetAccountBalances(ctx context.Context, address string, first, last *int32, after, before *string) (*types.BalanceConnection, error) {
-	paginationVars, err := buildPaginationVars(first, last, after, before)
+// GetAccountBalances fetches a page of an account's balances. A nil page requests
+// the server's default page. Returns ErrAccountNotFound if the account does not
+// exist. Use GetAllAccountBalances to retrieve every balance without managing
+// pagination yourself.
+func (c *Client) GetAccountBalances(ctx context.Context, address string, page *Page) (*types.BalanceConnection, error) {
+	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
 	}
 
 	variables := mergeVariables(
-		map[string]interface{}{"address": address},
+		map[string]any{"address": address},
 		paginationVars,
 	)
 
@@ -545,7 +535,7 @@ func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]t
 	balances := make([]types.Balance, 0)
 
 	for {
-		connection, err := c.GetAccountBalances(ctx, address, &first, nil, after, nil)
+		connection, err := c.GetAccountBalances(ctx, address, &Page{First: &first, After: after})
 		if err != nil {
 			return nil, fmt.Errorf("getting account balances page: %w", err)
 		}

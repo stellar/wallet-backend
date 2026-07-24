@@ -36,7 +36,7 @@ func TestGetAccountTransactions(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
 		assert.Nil(t, conn)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
@@ -47,7 +47,7 @@ func TestGetAccountTransactions(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, conn, "schema permits null transactions on existing account")
 	})
@@ -57,7 +57,7 @@ func TestGetAccountTransactions(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		assert.Empty(t, conn.Edges)
@@ -81,7 +81,7 @@ func TestGetAccountTransactions(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		_, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		_, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 
 		assert.Contains(t, received.Query, "accountByAddress")
@@ -97,7 +97,7 @@ func TestGetAccountOperations(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil)
 		assert.Nil(t, conn)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
@@ -108,7 +108,7 @@ func TestGetAccountOperations(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, conn, "schema permits null operations on existing account")
 	})
@@ -118,7 +118,7 @@ func TestGetAccountOperations(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountOperations(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		assert.Empty(t, conn.Edges)
@@ -142,7 +142,7 @@ func TestGetAccountOperations(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		_, err := c.GetAccountOperations(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		_, err := c.GetAccountOperations(ctx, "GABC", nil, nil)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 
 		assert.Contains(t, received.Query, "accountByAddress")
@@ -158,7 +158,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil)
 		assert.Nil(t, conn)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
@@ -169,7 +169,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, conn, "schema permits null stateChanges on existing account")
 	})
@@ -179,7 +179,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountStateChanges(ctx, "GABC", nil, nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		assert.Empty(t, conn.Edges)
@@ -205,7 +205,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 		c := NewClient(srv.URL, nil)
 		txHash := "deadbeef"
 		category := types.StateChangeCategoryBalance
-		_, err := c.GetAccountStateChanges(ctx, "GABC", &txHash, nil, &category, nil, nil, nil, nil, nil, nil, nil)
+		_, err := c.GetAccountStateChanges(ctx, "GABC", &StateChangeFilter{TransactionHash: &txHash, Category: &category}, nil, nil)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 
 		assert.Contains(t, received.Query, "accountByAddress")
@@ -226,7 +226,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		assert.Nil(t, conn)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 	})
@@ -240,7 +240,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		require.NotNil(t, conn)
 		require.Len(t, conn.Edges, 1)
@@ -257,7 +257,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, conn, "schema permits null transactions on existing account")
 	})
@@ -267,7 +267,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -279,7 +279,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -291,7 +291,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
 	})
@@ -303,8 +303,54 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		defer srv.Close()
 
 		c := NewClient(srv.URL, nil)
-		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, nil, nil, nil, nil)
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
+	})
+}
+
+func TestGraphQLErrorsError(t *testing.T) {
+	t.Run("joins all messages, prefixing each with its code when present", func(t *testing.T) {
+		errs := GraphQLErrors{
+			{Message: "first must be greater than 0", Extensions: map[string]any{"code": "BAD_USER_INPUT"}},
+			{Message: "something else failed"},
+		}
+		assert.Equal(t, "BAD_USER_INPUT: first must be greater than 0; something else failed", errs.Error())
+	})
+}
+
+func TestExecuteGraphQLSurfacesTypedErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns a GraphQLErrors that carries every error and its extensions", func(t *testing.T) {
+		body := `{"errors":[` +
+			`{"message":"first must be greater than 0","extensions":{"code":"BAD_USER_INPUT"}},` +
+			`{"message":"downstream unavailable","extensions":{"code":"INTERNAL_SERVER_ERROR"}}` +
+			`]}`
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, err := io.Copy(io.Discard, r.Body)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(body))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetTransactionByHash(ctx, "deadbeef")
+		require.Error(t, err)
+
+		// Both messages (with codes) are present in the joined error string.
+		assert.Contains(t, err.Error(), "first must be greater than 0")
+		assert.Contains(t, err.Error(), "downstream unavailable")
+
+		// errors.As extracts the typed slice.
+		var gqlErrs GraphQLErrors
+		require.ErrorAs(t, err, &gqlErrs)
+		require.Len(t, gqlErrs, 2)
+
+		// The extensions code is accessible per error for classification.
+		assert.Equal(t, "BAD_USER_INPUT", gqlErrs[0].Extensions["code"])
+		assert.Equal(t, "INTERNAL_SERVER_ERROR", gqlErrs[1].Extensions["code"])
 	})
 }

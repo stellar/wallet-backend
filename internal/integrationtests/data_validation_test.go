@@ -18,6 +18,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -71,7 +72,15 @@ func (suite *DataValidationTestSuite) fetchStateChangesInParallel(
 		query := q // capture variable
 		group.Submit(func() {
 			sc, err := suite.testEnv.WBClient.GetAccountStateChanges(
-				ctx, query.account, query.txHash, nil, query.category, query.reason, nil, nil, first, nil, nil, nil)
+				ctx, query.account,
+				&wbclient.StateChangeFilter{
+					TransactionHash: query.txHash,
+					Category:        query.category,
+					Reason:          query.reason,
+				},
+				nil,
+				&wbclient.Page{First: first},
+			)
 			if err != nil {
 				errMu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", query.name, err))
@@ -328,7 +337,7 @@ func (suite *DataValidationTestSuite) TestPaymentOperationDataValidation() {
 
 func (suite *DataValidationTestSuite) validatePaymentOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -346,7 +355,7 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Only 2 state changes for this transaction
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
@@ -403,7 +412,7 @@ func (suite *DataValidationTestSuite) TestSponsoredAccountCreationDataValidation
 
 func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
@@ -434,7 +443,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
 
 	// Verify total count of state changes for this transaction
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 8 total state changes")
@@ -534,7 +543,7 @@ func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateCustomAssetsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 8, "should have exactly 8 operations")
@@ -577,7 +586,7 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	setReason := types.StateChangeReasonSet
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 26, "should have exactly 25 state changes")
@@ -728,7 +737,7 @@ func (suite *DataValidationTestSuite) TestAuthRequiredOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -745,7 +754,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupOperations(
 
 func (suite *DataValidationTestSuite) validateAuthRequiredAssetOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 6, "should have exactly 6 operations")
@@ -775,7 +784,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupStateChange
 	setReason := types.StateChangeReasonSet
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 1 state change")
@@ -833,7 +842,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	debitReason := types.StateChangeReasonDebit
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 10, "should have exactly 9 state changes")
@@ -963,7 +972,7 @@ func (suite *DataValidationTestSuite) TestAccountMergeOpDataValidation() {
 
 func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -987,7 +996,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
 
 	// Verify total count of state changes for this transaction
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 6, "should have exactly 5 state changes")
@@ -1083,7 +1092,7 @@ func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateInvokeContractOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -1108,7 +1117,7 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 	debitReason := types.StateChangeReasonDebit
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 11 state changes")
@@ -1160,7 +1169,7 @@ func (suite *DataValidationTestSuite) TestDeployContractOpsDataValidation() {
 
 	// The deploy change's account is the contract ID, not the deployer, so fetch by tx hash.
 	first := int32(15)
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
@@ -1193,7 +1202,7 @@ func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidatio
 
 func (suite *DataValidationTestSuite) validateCreateClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
@@ -1231,7 +1240,7 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	mintReason := types.StateChangeReasonMint
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
@@ -1319,7 +1328,7 @@ func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() 
 
 func (suite *DataValidationTestSuite) validateClaimClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -1344,7 +1353,7 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
@@ -1402,7 +1411,7 @@ func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation
 
 func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -1427,7 +1436,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state change")
@@ -1484,7 +1493,7 @@ func (suite *DataValidationTestSuite) TestClearAuthFlagsOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateClearAuthFlagsOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 1, "should have exactly 1 operation")
@@ -1510,7 +1519,7 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx con
 	clearReason := types.StateChangeReasonClear
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 1 state change")
@@ -1558,7 +1567,7 @@ func (suite *DataValidationTestSuite) TestLiquidityPoolOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateLiquidityPoolOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 4, "should have exactly 4 operations")
@@ -1586,7 +1595,7 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 7 state changes")
@@ -1700,7 +1709,7 @@ func (suite *DataValidationTestSuite) TestRevokeSponsorshipOpsDataValidation() {
 
 func (suite *DataValidationTestSuite) validateRevokeSponsorshipOperations(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &first, nil, nil, nil)
+	operations, err := suite.testEnv.WBClient.GetTransactionOperations(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction operations")
 	suite.Require().NotNil(operations, "operations should not be nil")
 	suite.Require().Len(operations.Edges, 5, "should have exactly 5 operations")
@@ -1733,7 +1742,7 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 	dataEntryReason := types.StateChangeReasonDataEntry
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
-	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
+	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 4 state changes")
