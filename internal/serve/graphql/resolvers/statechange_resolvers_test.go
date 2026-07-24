@@ -265,35 +265,41 @@ func TestSignerResolvers_WeightNullability(t *testing.T) {
 		assert.Contains(t, err.Error(), "newWeight")
 	})
 
-	t.Run("SignerRemovedChange exposes only oldWeight (nullable)", func(t *testing.T) {
+	t.Run("SignerRemovedChange requires oldWeight", func(t *testing.T) {
 		r := &signerRemovedChangeResolver{&Resolver{}}
 
 		obj := &types.SignerRemovedChangeModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Int16: 3, Valid: true}}}
 		w, err := r.OldWeight(ctx, obj)
 		require.NoError(t, err)
-		require.NotNil(t, w)
-		assert.Equal(t, int32(3), *w)
+		assert.Equal(t, int32(3), w)
 
 		missing := &types.SignerRemovedChangeModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Valid: false}}}
-		w, err = r.OldWeight(ctx, missing)
-		require.NoError(t, err)
-		assert.Nil(t, w)
+		_, err = r.OldWeight(ctx, missing)
+		require.Error(t, err, "a removed signer always had a prior weight; a null column is a data-integrity error")
+		assert.Contains(t, err.Error(), "oldWeight")
 	})
 
-	t.Run("SignerUpdatedChange has nullable oldWeight and required newWeight", func(t *testing.T) {
+	t.Run("SignerUpdatedChange requires oldWeight and newWeight", func(t *testing.T) {
 		r := &signerUpdatedChangeResolver{&Resolver{}}
 
 		obj := &types.SignerUpdatedChangeModel{StateChange: types.StateChange{
-			SignerWeightOld: sql.NullInt16{Valid: false},
+			SignerWeightOld: sql.NullInt16{Int16: 0, Valid: true},
 			SignerWeightNew: sql.NullInt16{Int16: 7, Valid: true},
 		}}
 		old, err := r.OldWeight(ctx, obj)
 		require.NoError(t, err)
-		assert.Nil(t, old, "an updated signer whose prior weight is unknown surfaces null oldWeight")
+		assert.Equal(t, int32(0), old, "a master key previously locked at weight 0 surfaces oldWeight 0")
 
 		newW, err := r.NewWeight(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, int32(7), newW)
+
+		missing := &types.SignerUpdatedChangeModel{StateChange: types.StateChange{
+			SignerWeightNew: sql.NullInt16{Int16: 7, Valid: true},
+		}}
+		_, err = r.OldWeight(ctx, missing)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "oldWeight")
 	})
 }
 
@@ -301,18 +307,23 @@ func TestThresholdChangeResolver(t *testing.T) {
 	ctx := context.Background()
 	r := &thresholdChangeResolver{&Resolver{}}
 
-	t.Run("oldThreshold is nil when absent, newThreshold required", func(t *testing.T) {
+	t.Run("oldThreshold and newThreshold are both required", func(t *testing.T) {
 		obj := &types.ThresholdChangeModel{StateChange: types.StateChange{
-			ThresholdOld: sql.NullInt16{Valid: false},
+			ThresholdOld: sql.NullInt16{Int16: 1, Valid: true},
 			ThresholdNew: sql.NullInt16{Int16: 2, Valid: true},
 		}}
 		old, err := r.OldThreshold(ctx, obj)
 		require.NoError(t, err)
-		assert.Nil(t, old)
+		assert.Equal(t, int32(1), old)
 
 		newT, err := r.NewThreshold(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, int32(2), newT)
+
+		missing := &types.ThresholdChangeModel{StateChange: types.StateChange{ThresholdNew: sql.NullInt16{Int16: 2, Valid: true}}}
+		_, err = r.OldThreshold(ctx, missing)
+		require.Error(t, err, "a threshold always had a prior value; a null column is a data-integrity error")
+		assert.Contains(t, err.Error(), "oldThreshold")
 	})
 
 	t.Run("newThreshold errors when null", func(t *testing.T) {
@@ -333,27 +344,29 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
 		require.NoError(t, err)
-		require.NotNil(t, old)
-		assert.Equal(t, "a.com", *old)
+		assert.Equal(t, "a.com", old)
 
 		newD, err := r.NewHomeDomain(ctx, obj)
 		require.NoError(t, err)
-		require.NotNil(t, newD)
-		assert.Equal(t, "b.com", *newD)
+		assert.Equal(t, "b.com", newD)
 	})
 
-	t.Run("old is nil when only new is present", func(t *testing.T) {
+	t.Run("previously unset domain is the empty string, not null", func(t *testing.T) {
 		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"new": "b.com"}},
+			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"old": "", "new": "b.com"}},
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
 		require.NoError(t, err)
-		assert.Nil(t, old)
+		assert.Equal(t, "", old)
+	})
 
-		newD, err := r.NewHomeDomain(ctx, obj)
-		require.NoError(t, err)
-		require.NotNil(t, newD)
-		assert.Equal(t, "b.com", *newD)
+	t.Run("missing old is a data-integrity error", func(t *testing.T) {
+		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"new": "b.com"}},
+		}}
+		_, err := r.OldHomeDomain(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "oldHomeDomain")
 	})
 }
 

@@ -108,16 +108,6 @@ func (r *Resolver) resolveRequiredAddress(field types.NullAddressBytea, fieldNam
 	return field.String(), nil
 }
 
-// resolveNullableInt16 resolves a nullable int16 field into a *int32.
-// Returns nil when the field is null.
-func (r *Resolver) resolveNullableInt16(field sql.NullInt16) *int32 {
-	if !field.Valid {
-		return nil
-	}
-	v := int32(field.Int16)
-	return &v
-}
-
 // resolveRequiredInt16 resolves a required int16 field into an int32.
 // Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
 func (r *Resolver) resolveRequiredInt16(field sql.NullInt16, fieldName string) (int32, error) {

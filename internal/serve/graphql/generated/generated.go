@@ -584,8 +584,8 @@ type HomeDomainChangeResolver interface {
 	Account(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Transaction, error)
-	OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (*string, error)
-	NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (*string, error)
+	OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error)
+	NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error)
 }
 type OperationResolver interface {
 	OperationXdr(ctx context.Context, obj *types.Operation) (string, error)
@@ -617,7 +617,7 @@ type SignerRemovedChangeResolver interface {
 	Operation(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Transaction, error)
 	SignerAddress(ctx context.Context, obj *types.SignerRemovedChangeModel) (string, error)
-	OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (*int32, error)
+	OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (int32, error)
 }
 type SignerUpdatedChangeResolver interface {
 	Category(ctx context.Context, obj *types.SignerUpdatedChangeModel) (types.StateChangeCategory, error)
@@ -627,7 +627,7 @@ type SignerUpdatedChangeResolver interface {
 	Operation(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Transaction, error)
 	SignerAddress(ctx context.Context, obj *types.SignerUpdatedChangeModel) (string, error)
-	OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*int32, error)
+	OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error)
 	NewWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error)
 }
 type SponsorshipChangeResolver interface {
@@ -652,7 +652,7 @@ type ThresholdChangeResolver interface {
 	Account(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Transaction, error)
-	OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (*int32, error)
+	OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error)
 	NewThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error)
 }
 type TransactionResolver interface {
@@ -3307,8 +3307,8 @@ type SignerUpdatedChange implements BaseStateChange {
 
   """Address of the updated signer."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Previous weight; null when the prior ledger entry state was unavailable."""
-  oldWeight:                  Int @goField(forceResolver: true)
+  """Previous weight (0-255). 0 when the updated signer is the master key previously locked at weight 0."""
+  oldWeight:                  Int! @goField(forceResolver: true)
   """New weight (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
 }
@@ -3329,8 +3329,8 @@ type SignerRemovedChange implements BaseStateChange {
 
   """Address of the removed signer."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Weight the signer had before removal; null when the prior ledger entry state was unavailable."""
-  oldWeight:                  Int @goField(forceResolver: true)
+  """Weight the signer had before removal (0-255)."""
+  oldWeight:                  Int! @goField(forceResolver: true)
 }
 
 """
@@ -3348,8 +3348,8 @@ type ThresholdChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous threshold value; null when the prior ledger entry state was unavailable."""
-  oldThreshold:               Int @goField(forceResolver: true)
+  """Previous threshold value (0-255)."""
+  oldThreshold:               Int! @goField(forceResolver: true)
   """New threshold value (0-255)."""
   newThreshold:               Int! @goField(forceResolver: true)
 }
@@ -3387,10 +3387,10 @@ type HomeDomainChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous home domain; null when the prior ledger entry state was unavailable."""
-  oldHomeDomain:              String @goField(forceResolver: true)
-  """New home domain; null when the change carried no new value."""
-  newHomeDomain:              String @goField(forceResolver: true)
+  """Previous home domain; empty when the account had no home domain set."""
+  oldHomeDomain:              String! @goField(forceResolver: true)
+  """New home domain; empty when the home domain was cleared."""
+  newHomeDomain:              String! @goField(forceResolver: true)
 }
 
 """
@@ -3410,7 +3410,7 @@ type DataEntryChange implements BaseStateChange {
 
   """Name of the data entry."""
   name:                       String! @goField(forceResolver: true)
-  """Previous value, base64-encoded; null on creation or when the prior ledger entry state was unavailable."""
+  """Previous value, base64-encoded; null exactly when the entry was created."""
   oldValue:                   String @goField(forceResolver: true)
   """New value, base64-encoded; null on removal."""
   newValue:                   String @goField(forceResolver: true)
@@ -8058,9 +8058,9 @@ func (ec *executionContext) _HomeDomainChange_oldHomeDomain(ctx context.Context,
 			return ec.Resolvers.HomeDomainChange().OldHomeDomain(ctx, obj)
 		},
 		nil,
-		ec.marshalOString2ᚖstring,
+		ec.marshalNString2string,
 		true,
-		false,
+		true,
 	)
 }
 
@@ -8087,9 +8087,9 @@ func (ec *executionContext) _HomeDomainChange_newHomeDomain(ctx context.Context,
 			return ec.Resolvers.HomeDomainChange().NewHomeDomain(ctx, obj)
 		},
 		nil,
-		ec.marshalOString2ᚖstring,
+		ec.marshalNString2string,
 		true,
-		false,
+		true,
 	)
 }
 
@@ -10919,9 +10919,9 @@ func (ec *executionContext) _SignerRemovedChange_oldWeight(ctx context.Context, 
 			return ec.Resolvers.SignerRemovedChange().OldWeight(ctx, obj)
 		},
 		nil,
-		ec.marshalOInt2ᚖint32,
+		ec.marshalNInt2int32,
 		true,
-		false,
+		true,
 	)
 }
 
@@ -11269,9 +11269,9 @@ func (ec *executionContext) _SignerUpdatedChange_oldWeight(ctx context.Context, 
 			return ec.Resolvers.SignerUpdatedChange().OldWeight(ctx, obj)
 		},
 		nil,
-		ec.marshalOInt2ᚖint32,
+		ec.marshalNInt2int32,
 		true,
-		false,
+		true,
 	)
 }
 
@@ -12246,9 +12246,9 @@ func (ec *executionContext) _ThresholdChange_oldThreshold(ctx context.Context, f
 			return ec.Resolvers.ThresholdChange().OldThreshold(ctx, obj)
 		},
 		nil,
-		ec.marshalOInt2ᚖint32,
+		ec.marshalNInt2int32,
 		true,
-		false,
+		true,
 	)
 }
 
@@ -19242,13 +19242,16 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 		case "oldHomeDomain":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._HomeDomainChange_oldHomeDomain(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -19275,13 +19278,16 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 		case "newHomeDomain":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._HomeDomainChange_newHomeDomain(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -20796,13 +20802,16 @@ func (ec *executionContext) _SignerRemovedChange(ctx context.Context, sel ast.Se
 		case "oldWeight":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._SignerRemovedChange_oldWeight(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -21094,13 +21103,16 @@ func (ec *executionContext) _SignerUpdatedChange(ctx context.Context, sel ast.Se
 		case "oldWeight":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._SignerUpdatedChange_oldWeight(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -21940,13 +21952,16 @@ func (ec *executionContext) _ThresholdChange(ctx context.Context, sel ast.Select
 		case "oldThreshold":
 			field := field
 
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
 				defer func() {
 					if r := recover(); r != nil {
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
 				res = ec._ThresholdChange_oldThreshold(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 

@@ -100,7 +100,7 @@ type SignerAddedChange struct {
 type SignerUpdatedChange struct {
 	BaseStateChangeFields
 	SignerAddress string `json:"signerAddress"`
-	OldWeight     *int32 `json:"oldWeight,omitempty"`
+	OldWeight     int32  `json:"oldWeight"`
 	NewWeight     int32  `json:"newWeight"`
 }
 
@@ -108,14 +108,14 @@ type SignerUpdatedChange struct {
 type SignerRemovedChange struct {
 	BaseStateChangeFields
 	SignerAddress string `json:"signerAddress"`
-	OldWeight     *int32 `json:"oldWeight,omitempty"`
+	OldWeight     int32  `json:"oldWeight"`
 }
 
 // ThresholdChange is a signature-threshold change; Reason identifies which threshold changed.
 type ThresholdChange struct {
 	BaseStateChangeFields
-	OldThreshold *int32 `json:"oldThreshold,omitempty"`
-	NewThreshold int32  `json:"newThreshold"`
+	OldThreshold int32 `json:"oldThreshold"`
+	NewThreshold int32 `json:"newThreshold"`
 }
 
 // AccountFlagsChange lists account authorization flags set or cleared in one operation.
@@ -127,8 +127,8 @@ type AccountFlagsChange struct {
 // HomeDomainChange is a home-domain change on the account.
 type HomeDomainChange struct {
 	BaseStateChangeFields
-	OldHomeDomain *string `json:"oldHomeDomain,omitempty"`
-	NewHomeDomain *string `json:"newHomeDomain,omitempty"`
+	OldHomeDomain string `json:"oldHomeDomain"`
+	NewHomeDomain string `json:"newHomeDomain"`
 }
 
 // DataEntryChange is a data entry created, updated, or removed on the account.

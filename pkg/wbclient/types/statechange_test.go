@@ -83,15 +83,15 @@ func Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed(t *testing.T
 	assert.Equal(t, "GDEPLOYER", cd.DeployerAddress)
 }
 
-// Test_UnmarshalStateChangeNode_SignerUpdatedNullOldWeight verifies a nullable Int (oldWeight)
-// decodes to a nil pointer while the required newWeight is populated.
-func Test_UnmarshalStateChangeNode_SignerUpdatedNullOldWeight(t *testing.T) {
+// Test_UnmarshalStateChangeNode_SignerUpdated verifies both required weights decode,
+// including the master-key case where the prior weight is 0 (a locked master key).
+func Test_UnmarshalStateChangeNode_SignerUpdated(t *testing.T) {
 	node, err := UnmarshalStateChangeNode([]byte(`{
 		"__typename": "SignerUpdatedChange",
 		"category": "SIGNER",
 		"reason": "UPDATE",
 		"signerAddress": "GSIGNER",
-		"oldWeight": null,
+		"oldWeight": 0,
 		"newWeight": 5
 	}`))
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func Test_UnmarshalStateChangeNode_SignerUpdatedNullOldWeight(t *testing.T) {
 	su, ok := node.(*SignerUpdatedChange)
 	require.True(t, ok, "expected *SignerUpdatedChange, got %T", node)
 	assert.Equal(t, "GSIGNER", su.SignerAddress)
-	assert.Nil(t, su.OldWeight, "null oldWeight must decode to a nil pointer")
+	assert.Equal(t, int32(0), su.OldWeight, "a master key previously locked at weight 0 carries oldWeight 0")
 	assert.Equal(t, int32(5), su.NewWeight)
 }
 

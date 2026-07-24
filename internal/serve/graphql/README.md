@@ -559,11 +559,11 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `ContractDeployedChange` | `(ACCOUNT, CREATE)` | `deployerAddress: String!` |
 | `AccountMergedChange` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
 | `SignerAddedChange` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
-| `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int`, `newWeight: Int!` |
-| `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int` |
-| `ThresholdChange` | `(SIGNATURE_THRESHOLD, LOW)`, `(SIGNATURE_THRESHOLD, MEDIUM)`, `(SIGNATURE_THRESHOLD, HIGH)` | `oldThreshold: Int`, `newThreshold: Int!` |
+| `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int!`, `newWeight: Int!` |
+| `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int!` |
+| `ThresholdChange` | `(SIGNATURE_THRESHOLD, LOW)`, `(SIGNATURE_THRESHOLD, MEDIUM)`, `(SIGNATURE_THRESHOLD, HIGH)` | `oldThreshold: Int!`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
-| `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String`, `newHomeDomain: String` |
+| `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
 | `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
 | `AllowanceChange` | `(METADATA, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
 | `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |

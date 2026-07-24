@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -459,24 +460,47 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 // changes: when a single SetOptions effect updates low, medium, and high thresholds together,
 // the resulting state changes must always come back in low -> medium -> high order so that
 // ordinals assigned within a (to_id, operation_id) group are reproducible across re-ingests.
+// It also covers the required old values, which come from the account pre-image.
 func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
+	const address = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
 	processor := NewEffectsProcessor(networkPassphrase, nil)
 	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
-		WithAccount("GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH").
+		WithAccount(address).
 		WithCategory(types.StateChangeCategorySignatureThreshold)
 	effect := &EffectOutput{
-		Address: "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH",
+		Address: address,
 		Details: map[string]interface{}{
 			"low_threshold":  xdr.Uint32(1),
 			"med_threshold":  xdr.Uint32(2),
 			"high_threshold": xdr.Uint32(3),
 		},
 	}
+	changes := []ingest.Change{{
+		Type: xdr.LedgerEntryTypeAccount,
+		Pre: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId: xdr.MustAddress(address),
+				// Thresholds are [master, low, medium, high].
+				Thresholds: xdr.Thresholds{1, 5, 6, 7},
+			},
+		}},
+	}}
 
-	thresholdChanges := processor.parseThresholds(changeBuilder, effect, nil)
+	thresholdChanges, err := processor.parseThresholds(changeBuilder, effect, changes)
+	require.NoError(t, err)
 
 	require.Len(t, thresholdChanges, 3)
 	assert.Equal(t, types.StateChangeReasonLow, thresholdChanges[0].StateChangeReason)
 	assert.Equal(t, types.StateChangeReasonMedium, thresholdChanges[1].StateChangeReason)
 	assert.Equal(t, types.StateChangeReasonHigh, thresholdChanges[2].StateChangeReason)
+	assert.Equal(t, int16(5), thresholdChanges[0].ThresholdOld.Int16)
+	assert.Equal(t, int16(6), thresholdChanges[1].ThresholdOld.Int16)
+	assert.Equal(t, int16(7), thresholdChanges[2].ThresholdOld.Int16)
+
+	t.Run("missing account pre-image is an error", func(t *testing.T) {
+		_, err := processor.parseThresholds(changeBuilder, effect, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no previous account state")
+	})
 }

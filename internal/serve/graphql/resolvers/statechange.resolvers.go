@@ -393,16 +393,24 @@ func (r *homeDomainChangeResolver) Transaction(ctx context.Context, obj *types.H
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// OldHomeDomain is the resolver for the oldHomeDomain field.
-func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (*string, error) {
+// OldHomeDomain is the resolver for the oldHomeDomain field. The emission
+// requires the account pre-image, so a missing old value is a data-integrity error.
+func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
 	oldVal, _ := keyValueOldNew(obj.KeyValue, "home_domain")
-	return oldVal, nil
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldHomeDomain")
+	}
+	return *oldVal, nil
 }
 
-// NewHomeDomain is the resolver for the newHomeDomain field.
-func (r *homeDomainChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (*string, error) {
+// NewHomeDomain is the resolver for the newHomeDomain field. The emission
+// requires the effect's new value, so a missing one is a data-integrity error.
+func (r *homeDomainChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
 	_, newVal := keyValueOldNew(obj.KeyValue, "home_domain")
-	return newVal, nil
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required newHomeDomain")
+	}
+	return *newVal, nil
 }
 
 // Category is the resolver for the category field.
@@ -471,8 +479,8 @@ func (r *signerRemovedChangeResolver) SignerAddress(ctx context.Context, obj *ty
 }
 
 // OldWeight is the resolver for the oldWeight field.
-func (r *signerRemovedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (*int32, error) {
-	return r.resolveNullableInt16(obj.SignerWeightOld), nil
+func (r *signerRemovedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightOld, "oldWeight")
 }
 
 // Category is the resolver for the category field.
@@ -506,8 +514,8 @@ func (r *signerUpdatedChangeResolver) SignerAddress(ctx context.Context, obj *ty
 }
 
 // OldWeight is the resolver for the oldWeight field.
-func (r *signerUpdatedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*int32, error) {
-	return r.resolveNullableInt16(obj.SignerWeightOld), nil
+func (r *signerUpdatedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightOld, "oldWeight")
 }
 
 // NewWeight is the resolver for the newWeight field.
@@ -601,8 +609,8 @@ func (r *thresholdChangeResolver) Transaction(ctx context.Context, obj *types.Th
 }
 
 // OldThreshold is the resolver for the oldThreshold field.
-func (r *thresholdChangeResolver) OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (*int32, error) {
-	return r.resolveNullableInt16(obj.ThresholdOld), nil
+func (r *thresholdChangeResolver) OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.ThresholdOld, "oldThreshold")
 }
 
 // NewThreshold is the resolver for the newThreshold field.

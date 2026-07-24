@@ -170,8 +170,8 @@ type SignerUpdatedChange implements BaseStateChange {
 
   """Address of the updated signer."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Previous weight; null when the prior ledger entry state was unavailable."""
-  oldWeight:                  Int @goField(forceResolver: true)
+  """Previous weight (0-255). 0 when the updated signer is the master key previously locked at weight 0."""
+  oldWeight:                  Int! @goField(forceResolver: true)
   """New weight (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
 }
@@ -192,8 +192,8 @@ type SignerRemovedChange implements BaseStateChange {
 
   """Address of the removed signer."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Weight the signer had before removal; null when the prior ledger entry state was unavailable."""
-  oldWeight:                  Int @goField(forceResolver: true)
+  """Weight the signer had before removal (0-255)."""
+  oldWeight:                  Int! @goField(forceResolver: true)
 }
 
 """
@@ -211,8 +211,8 @@ type ThresholdChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous threshold value; null when the prior ledger entry state was unavailable."""
-  oldThreshold:               Int @goField(forceResolver: true)
+  """Previous threshold value (0-255)."""
+  oldThreshold:               Int! @goField(forceResolver: true)
   """New threshold value (0-255)."""
   newThreshold:               Int! @goField(forceResolver: true)
 }
@@ -250,10 +250,10 @@ type HomeDomainChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous home domain; null when the prior ledger entry state was unavailable."""
-  oldHomeDomain:              String @goField(forceResolver: true)
-  """New home domain; null when the change carried no new value."""
-  newHomeDomain:              String @goField(forceResolver: true)
+  """Previous home domain; empty when the account had no home domain set."""
+  oldHomeDomain:              String! @goField(forceResolver: true)
+  """New home domain; empty when the home domain was cleared."""
+  newHomeDomain:              String! @goField(forceResolver: true)
 }
 
 """
@@ -273,7 +273,7 @@ type DataEntryChange implements BaseStateChange {
 
   """Name of the data entry."""
   name:                       String! @goField(forceResolver: true)
-  """Previous value, base64-encoded; null on creation or when the prior ledger entry state was unavailable."""
+  """Previous value, base64-encoded; null exactly when the entry was created."""
   oldValue:                   String @goField(forceResolver: true)
   """New value, base64-encoded; null on removal."""
   newValue:                   String @goField(forceResolver: true)

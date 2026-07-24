@@ -143,7 +143,12 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 		// Threshold effects: track changes to account signature thresholds (low/medium/high)
 		case EffectAccountThresholdsUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
-			stateChanges = append(stateChanges, p.parseThresholds(changeBuilder, &effect, changes)...)
+			thresholdChanges, err := p.parseThresholds(changeBuilder, &effect, changes)
+			if err != nil {
+				log.Debugf("processor: %s: failed to parse threshold effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
+			}
+			stateChanges = append(stateChanges, thresholdChanges...)
 
 		// Flag effects: track changes to account authorization flags
 		case EffectAccountFlagsUpdated:
@@ -152,7 +157,11 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 
 		// Home domain effects: track changes to account home domain metadata
 		case EffectAccountHomeDomainUpdated:
-			keyValueMap := p.parseKeyValue(&effect, effectType, changes, "home_domain")
+			keyValueMap, err := p.parseKeyValue(&effect, effectType, changes, "home_domain")
+			if err != nil {
+				log.Debugf("processor: %s: failed to parse home domain effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
+			}
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonHomeDomain).
@@ -200,7 +209,11 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case EffectDataCreated, EffectDataRemoved, EffectDataUpdated:
-			keyValueMap := p.parseKeyValue(&effect, effectType, changes, "name")
+			keyValueMap, err := p.parseKeyValue(&effect, effectType, changes, "name")
+			if err != nil {
+				log.Debugf("processor: %s: failed to parse data entry effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				continue
+			}
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryMetadata).
 				WithReason(types.StateChangeReasonDataEntry).
@@ -604,11 +617,13 @@ func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) 
 
 // parseKeyValue extracts specified key-value pairs from effect details.
 // This is used to capture metadata like home domain values or data entry names and values.
-func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType EffectType, changes []ingest.Change, key string) map[string]any {
+// Old values are recovered from the entry's pre-image; effects whose pre-image is required
+// but missing are malformed and rejected, so a null old value in the API is always semantic
+// (a data-entry creation) rather than a reconstruction miss.
+func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType EffectType, changes []ingest.Change, key string) (map[string]any, error) {
 	keyValueMap := map[string]any{}
 	switch key {
 	case "name":
-		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
 		keyName := string(effect.Details[key].(xdr.String64))
 
 		//exhaustive:ignore
@@ -620,10 +635,13 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 				}
 			}
 		case EffectDataUpdated, EffectDataRemoved:
-			innerMap := map[string]any{}
-			if prevLedgerEntryState != nil {
-				oldData := prevLedgerEntryState.Data.MustData().DataValue
-				innerMap["old"] = base64.StdEncoding.EncodeToString(oldData)
+			prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
+			if prevLedgerEntryState == nil {
+				return nil, fmt.Errorf("no previous data entry state for %s effect on account %s (opID %d)", effect.TypeString, effect.Address, effect.OperationID)
+			}
+			oldData := prevLedgerEntryState.Data.MustData().DataValue
+			innerMap := map[string]any{
+				"old": base64.StdEncoding.EncodeToString(oldData),
 			}
 			if effectType == EffectDataUpdated {
 				if value, ok := effect.Details["value"]; ok {
@@ -633,23 +651,28 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 			keyValueMap[keyName] = innerMap
 		}
 	case "home_domain":
+		// The GraphQL schema declares both oldHomeDomain and newHomeDomain
+		// non-null (an unset domain is the empty string), so both the account
+		// pre-image and the effect's new value are required.
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
-
-		innerMap := map[string]any{}
-		if prevLedgerEntryState != nil {
-			innerMap["old"] = string(prevLedgerEntryState.Data.MustAccount().HomeDomain)
+		if prevLedgerEntryState == nil {
+			return nil, fmt.Errorf("no previous account state for home domain effect on account %s (opID %d)", effect.Address, effect.OperationID)
 		}
-		if value, ok := effect.Details[key]; ok {
-			innerMap["new"] = value
+		value, ok := effect.Details[key]
+		if !ok {
+			return nil, fmt.Errorf("home domain effect on account %s (opID %d) carries no new value", effect.Address, effect.OperationID)
 		}
-		keyValueMap[key] = innerMap
+		keyValueMap[key] = map[string]any{
+			"old": string(prevLedgerEntryState.Data.MustAccount().HomeDomain),
+			"new": value,
+		}
 	default:
 		if value, ok := effect.Details[key]; ok {
 			keyValueMap[key] = value
 		}
 	}
 
-	return keyValueMap
+	return keyValueMap, nil
 }
 
 // parseFlags processes flag-related effects and creates separate state changes for set and cleared flags.
@@ -699,32 +722,45 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 	case EffectSignerCreated:
 		changeBuilder = changeBuilder.WithSigner(signerPublicKey, nil, &newWeight)
 	case EffectSignerUpdated, EffectSignerRemoved:
-		var oldWeight *int16
+		// The GraphQL schema declares oldWeight non-null on signer updates and
+		// removals, so the previous weight must be recovered from the account
+		// entry's pre-image; an effect without one is malformed.
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
-		if prevLedgerEntryState != nil {
-			prevAccount := prevLedgerEntryState.Data.MustAccount()
-			oldSignerSummary := prevAccount.SignerSummary()
-			if oldVal, ok := oldSignerSummary[signerPublicKey]; ok {
-				w := int16(oldVal)
-				oldWeight = &w
-			}
-		} else {
-			log.Debugf("no previous account state found for account: %s: opID: %d", effect.Address, effect.OperationID)
+		if prevLedgerEntryState == nil {
+			return nil, fmt.Errorf("no previous account state for signer %s effect on account %s (opID %d)", effect.TypeString, effect.Address, effect.OperationID)
 		}
+		prevAccount := prevLedgerEntryState.Data.MustAccount()
+		oldSignerSummary := prevAccount.SignerSummary()
+		oldVal, ok := oldSignerSummary[signerPublicKey]
+		if !ok {
+			// SignerSummary omits the master key when its weight is 0, so for the
+			// master key "absent from the summary" means a prior weight of 0. Any
+			// other signer must appear in the pre-image for an update/removal.
+			if signerPublicKey != effect.Address {
+				return nil, fmt.Errorf("signer %s missing from previous account state of %s (opID %d)", signerPublicKey, effect.Address, effect.OperationID)
+			}
+			oldVal = 0
+		}
+		oldWeight := int16(oldVal)
 		if effectType == EffectSignerUpdated {
-			changeBuilder = changeBuilder.WithSigner(signerPublicKey, oldWeight, &newWeight)
+			changeBuilder = changeBuilder.WithSigner(signerPublicKey, &oldWeight, &newWeight)
 		} else {
-			changeBuilder = changeBuilder.WithSigner(signerPublicKey, oldWeight, nil)
+			changeBuilder = changeBuilder.WithSigner(signerPublicKey, &oldWeight, nil)
 		}
 	}
 	return []types.StateChange{changeBuilder.Build()}, nil
 }
 
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.
-// It extracts both old and new threshold values from the ledger entry changes.
-func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) []types.StateChange {
+// It extracts both old and new threshold values from the ledger entry changes. The GraphQL schema
+// declares oldThreshold non-null, so a threshold effect without an account pre-image is malformed.
+func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
 	// Find the account entry change to get old threshold values
 	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
+	if prevLedgerEntryState == nil {
+		return nil, fmt.Errorf("no previous account state for threshold effect on account %s (opID %d)", effect.Address, effect.OperationID)
+	}
+	prevAccount := prevLedgerEntryState.Data.MustAccount()
 
 	// Create a separate state change for each threshold that was modified, in a fixed
 	// order so ordinal assignment is deterministic when multiple thresholds change together.
@@ -735,32 +771,24 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 			// Convert XDR threshold value to int16 for storage
 			newValue := int16(value.(xdr.Uint32))
 
-			// Get old threshold value if available
-			var oldValue *int16
-			if prevLedgerEntryState != nil {
-				prevAccount := prevLedgerEntryState.Data.MustAccount()
-				var oldVal int16
-				switch threshold {
-				case "low_threshold":
-					oldVal = int16(prevAccount.Thresholds[lowThresholdIndex])
-				case "med_threshold":
-					oldVal = int16(prevAccount.Thresholds[medThresholdIndex])
-				case "high_threshold":
-					oldVal = int16(prevAccount.Thresholds[highThresholdIndex])
-				}
-				oldValue = &oldVal
-			} else {
-				log.Debugf("no previous account state found for account: %s: opID: %d", effect.Address, effect.OperationID)
+			var oldVal int16
+			switch threshold {
+			case "low_threshold":
+				oldVal = int16(prevAccount.Thresholds[lowThresholdIndex])
+			case "med_threshold":
+				oldVal = int16(prevAccount.Thresholds[medThresholdIndex])
+			case "high_threshold":
+				oldVal = int16(prevAccount.Thresholds[highThresholdIndex])
 			}
 
 			thresholdChanges = append(thresholdChanges, changeBuilder.
 				Clone().
 				WithReason(reason).
-				WithThreshold(oldValue, &newValue).
+				WithThreshold(&oldVal, &newValue).
 				Build())
 		}
 	}
-	return thresholdChanges
+	return thresholdChanges, nil
 }
 
 // getPrevLedgerEntryState gets the previous ledger entry state for the specified ledger entry type.
