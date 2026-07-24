@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -365,7 +364,7 @@ func (m *OperationModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
-	stellarAddressesByOpID map[int64]set.Set[string],
+	stellarAddressesByOpID map[int64]map[string]struct{},
 ) (int, error) {
 	if len(operations) == 0 {
 		return 0, nil
@@ -422,7 +421,7 @@ func (m *OperationModel) BatchCopy(
 			ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
 			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 			opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-			for _, addr := range addresses.ToSlice() {
+			for addr := range addresses {
 				addrBytes, addrErr := types.AddressBytea(addr).Value()
 				if addrErr != nil {
 					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -22,9 +21,9 @@ import (
 
 // generateTestTransactions creates n test transactions for benchmarking.
 // Uses toid.New to generate realistic ToIDs based on ledger sequence and transaction index.
-func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, map[int64]set.Set[string]) {
+func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, map[int64]map[string]struct{}) {
 	txs := make([]*types.Transaction, n)
-	addressesByToID := make(map[int64]set.Set[string])
+	addressesByToID := make(map[int64]map[string]struct{})
 	now := time.Now()
 
 	for i := 0; i < n; i++ {
@@ -43,7 +42,7 @@ func generateTestTransactions(n int, startLedger int32) ([]*types.Transaction, m
 			LedgerCreatedAt: now,
 			IsFeeBump:       false,
 		}
-		addressesByToID[toID] = set.NewSet(address)
+		addressesByToID[toID] = map[string]struct{}{address: {}}
 	}
 
 	return txs, addressesByToID
@@ -93,32 +92,32 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	testCases := []struct {
 		name                   string
 		txs                    []*types.Transaction
-		stellarAddressesByToID map[int64]set.Set[string]
+		stellarAddressesByToID map[int64]map[string]struct{}
 		wantCount              int
 		wantErrContains        string
 	}{
 		{
 			name:                   "🟢successful_insert_multiple",
 			txs:                    []*types.Transaction{&txCopy1, &txCopy2},
-			stellarAddressesByToID: map[int64]set.Set[string]{txCopy1.ToID: set.NewSet(kp1.Address()), txCopy2.ToID: set.NewSet(kp2.Address())},
+			stellarAddressesByToID: map[int64]map[string]struct{}{txCopy1.ToID: {kp1.Address(): {}}, txCopy2.ToID: {kp2.Address(): {}}},
 			wantCount:              2,
 		},
 		{
 			name:                   "🟢empty_input",
 			txs:                    []*types.Transaction{},
-			stellarAddressesByToID: map[int64]set.Set[string]{},
+			stellarAddressesByToID: map[int64]map[string]struct{}{},
 			wantCount:              0,
 		},
 		{
 			name:                   "🟢single_transaction",
 			txs:                    []*types.Transaction{&txCopy3},
-			stellarAddressesByToID: map[int64]set.Set[string]{txCopy3.ToID: set.NewSet(kp1.Address())},
+			stellarAddressesByToID: map[int64]map[string]struct{}{txCopy3.ToID: {kp1.Address(): {}}},
 			wantCount:              1,
 		},
 		{
 			name:                   "🟢no_participants",
 			txs:                    []*types.Transaction{&txCopy1},
-			stellarAddressesByToID: map[int64]set.Set[string]{},
+			stellarAddressesByToID: map[int64]map[string]struct{}{},
 			wantCount:              1,
 		},
 	}
@@ -182,7 +181,11 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 				// Verify each expected transaction has its account links
 				for toID, expectedAddresses := range tc.stellarAddressesByToID {
 					actualAddresses := accountLinksMap[toID]
-					assert.ElementsMatch(t, expectedAddresses.ToSlice(), actualAddresses, "account links for tx %d don't match", toID)
+					expectedSlice := make([]string, 0, len(expectedAddresses))
+					for addr := range expectedAddresses {
+						expectedSlice = append(expectedSlice, addr)
+					}
+					assert.ElementsMatch(t, expectedSlice, actualAddresses, "account links for tx %d don't match", toID)
 				}
 			}
 		})

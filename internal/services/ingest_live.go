@@ -411,6 +411,12 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 	}()
 
+	// One buffer serves every ledger, cleared at the top of each iteration below. Reusing it keeps the
+	// asset-parse memo warm and the maps' backing arrays allocated across ledgers, the way backfill
+	// reuses its batch buffer. Nothing retains the buffer past an iteration — the persist retries run
+	// synchronously on this goroutine — so a single instance is safe.
+	buffer := indexer.NewIndexerBuffer()
+
 	for {
 		if probeErr := checkLockSession(ctx); probeErr != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
@@ -437,7 +443,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		totalStart := time.Now()
 		processStart := time.Now()
-		buffer := indexer.NewIndexerBuffer()
+		// Clearing here rather than after the persist keeps the reset unconditional: processLedger
+		// always starts from an empty buffer regardless of how the previous iteration ended.
+		buffer.Clear()
 		err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()

@@ -107,7 +107,7 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 	}
 
 	// 2. Push transaction and participants to data bundle
-	participantsSet := set.NewSet[string]()
+	participantsSet := set.NewThreadUnsafeSet[string]()
 	for _, xdrParticipant := range participants {
 		participantsSet.Add(xdrParticipant.Address())
 	}
@@ -168,7 +168,7 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 	if err != nil {
 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
 	}
-	participants := set.NewSet[string]()
+	participants := set.NewThreadUnsafeSet[string]()
 	for _, accountID := range participantsAccountIDs {
 		participants.Add(accountID.Address())
 	}
@@ -189,5 +189,10 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
 
-	return participants.Union(sorobanParticipants), nil
+	// Merged element-wise rather than with Union, which would allocate a third set.
+	sorobanParticipants.Each(func(participant string) bool {
+		participants.Add(participant)
+		return false
+	})
+	return participants, nil
 }

@@ -51,7 +51,7 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 // participantsFromInvocationAndSubInvocations recursively collects all ScAddresses from a SorobanAuthorizedInvocation
 // and its subinvocations.
 func participantsFromInvocationAndSubInvocations(networkPassphrase string, invocation xdr.SorobanAuthorizedInvocation) (set.Set[string], error) {
-	participants := set.NewSet[string]()
+	participants := set.NewThreadUnsafeSet[string]()
 	if utils.IsEmpty(invocation) {
 		return participants, nil
 	}
@@ -107,7 +107,7 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 
 // participantsForAuthEntries extracts all participant addresses from a []SorobanAuthorizationEntry.
 func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
-	participants := set.NewSet[string]()
+	participants := set.NewThreadUnsafeSet[string]()
 	for _, authEntry := range authEntries {
 		if authEntry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
 			participant, err := authEntry.Credentials.MustAddress().Address.String()
@@ -143,12 +143,17 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 //     applying the same extraction logic as above
 //
 // It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
+//
+// Every set on this path is thread-unsafe: they are built and consumed within a single indexer worker
+// goroutine (see Indexer.ProcessLedgerTransactions), so a thread-safe set's mutex would be pure
+// overhead on the hot path. Set.Union type-asserts its argument to the receiver's variant, so these
+// sets — and anything merged with them — must all stay thread-unsafe or the merge panics at runtime.
 func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
 
-	participants := set.NewSet(op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(op.SourceAccount().Address())
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
@@ -209,7 +214,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 		if err != nil {
 			return nil, fmt.Errorf("getting from address' string representation: %w", err)
 		}
-		return set.NewSet(contractID, fromAccountID), nil
+		return set.NewThreadUnsafeSet(contractID, fromAccountID), nil
 
 	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
 		fromAsset := preimage.MustFromAsset()
@@ -217,7 +222,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 		if err != nil {
 			return nil, fmt.Errorf("getting asset contract ID: %w", err)
 		}
-		return set.NewSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
+		return set.NewThreadUnsafeSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
 
 	default:
 		return nil, fmt.Errorf("invalid contract id preimage type")
@@ -248,7 +253,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
@@ -292,7 +297,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
@@ -336,7 +341,7 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
 
 	// Contract ID
 	contractID, err := invokeContractOp.ContractAddress.String()
