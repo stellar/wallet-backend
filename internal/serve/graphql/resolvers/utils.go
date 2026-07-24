@@ -133,10 +133,16 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseStateChange, error) {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
-		if stateChange.OperationID == 0 {
-			return &types.FeeChangeModel{StateChange: stateChange}, nil
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonDebit, types.StateChangeReasonCredit:
+			if stateChange.OperationID == 0 {
+				return &types.FeeChangeModel{StateChange: stateChange}, nil
+			}
+			return &types.BalanceChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonMint, types.StateChangeReasonBurn:
+			return &types.BalanceChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BALANCE; falls through to the error below
 		}
-		return &types.BalanceChangeModel{StateChange: stateChange}, nil
 	case types.StateChangeCategoryAccount:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonCreate:
@@ -159,9 +165,17 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		default: // invalid reason for SIGNER; falls through to the error below
 		}
 	case types.StateChangeCategorySignatureThreshold:
-		return &types.ThresholdChangeModel{StateChange: stateChange}, nil
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonLow, types.StateChangeReasonMedium, types.StateChangeReasonHigh:
+			return &types.ThresholdChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for SIGNATURE_THRESHOLD; falls through to the error below
+		}
 	case types.StateChangeCategoryFlags:
-		return &types.AccountFlagsChangeModel{StateChange: stateChange}, nil
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet, types.StateChangeReasonClear:
+			return &types.AccountFlagsChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for FLAGS; falls through to the error below
+		}
 	case types.StateChangeCategoryMetadata:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonHomeDomain:
@@ -183,9 +197,17 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		default: // invalid reason for TRUSTLINE; falls through to the error below
 		}
 	case types.StateChangeCategoryReserves:
-		return &types.SponsorshipChangeModel{StateChange: stateChange}, nil
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSponsor, types.StateChangeReasonUnsponsor:
+			return &types.SponsorshipChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for RESERVES; falls through to the error below
+		}
 	case types.StateChangeCategoryBalanceAuthorization:
-		return &types.BalanceAuthorizationChangeModel{StateChange: stateChange}, nil
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet, types.StateChangeReasonClear:
+			return &types.BalanceAuthorizationChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
+		}
 	}
 	return nil, fmt.Errorf("state change (toID=%d, opID=%d, stateChangeID=%d) has no GraphQL type for (category=%s, reason=%s)",
 		stateChange.ToID, stateChange.OperationID, stateChange.StateChangeID, stateChange.StateChangeCategory, stateChange.StateChangeReason)

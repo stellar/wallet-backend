@@ -145,7 +145,7 @@ func (r *allowanceChangeResolver) Spender(ctx context.Context, obj *types.Allowa
 
 // Amount is the resolver for the amount field.
 func (r *allowanceChangeResolver) Amount(ctx context.Context, obj *types.AllowanceChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
+	return r.resolveRequiredString(obj.Amount, "amount")
 }
 
 // ExpirationLedger is the resolver for the expirationLedger field. It reads the
@@ -242,7 +242,7 @@ func (r *balanceChangeResolver) TokenID(ctx context.Context, obj *types.BalanceC
 
 // Amount is the resolver for the amount field.
 func (r *balanceChangeResolver) Amount(ctx context.Context, obj *types.BalanceChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
+	return r.resolveRequiredString(obj.Amount, "amount")
 }
 
 // ToMuxedID is the resolver for the toMuxedId field.
@@ -365,7 +365,7 @@ func (r *feeChangeResolver) TokenID(ctx context.Context, obj *types.FeeChangeMod
 
 // Amount is the resolver for the amount field.
 func (r *feeChangeResolver) Amount(ctx context.Context, obj *types.FeeChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
+	return r.resolveRequiredString(obj.Amount, "amount")
 }
 
 // Category is the resolver for the category field.
@@ -647,7 +647,7 @@ func (r *trustlineAddedChangeResolver) LiquidityPoolID(ctx context.Context, obj 
 
 // Limit is the resolver for the limit field.
 func (r *trustlineAddedChangeResolver) Limit(ctx context.Context, obj *types.TrustlineAddedChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TrustlineLimitNew), nil
+	return r.resolveRequiredString(obj.TrustlineLimitNew, "limit")
 }
 
 // Category is the resolver for the category field.
@@ -722,12 +722,12 @@ func (r *trustlineUpdatedChangeResolver) LiquidityPoolID(ctx context.Context, ob
 
 // OldLimit is the resolver for the oldLimit field.
 func (r *trustlineUpdatedChangeResolver) OldLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TrustlineLimitOld), nil
+	return r.resolveRequiredString(obj.TrustlineLimitOld, "oldLimit")
 }
 
 // NewLimit is the resolver for the newLimit field.
 func (r *trustlineUpdatedChangeResolver) NewLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.TrustlineLimitNew), nil
+	return r.resolveRequiredString(obj.TrustlineLimitNew, "newLimit")
 }
 
 // AccountCreatedChange returns graphql1.AccountCreatedChangeResolver implementation.

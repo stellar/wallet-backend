@@ -90,13 +90,13 @@ func (r *Resolver) resolveNullableAddress(field types.NullAddressBytea) *string 
 	return nil
 }
 
-// resolveRequiredString resolves required string fields from the database
-// Returns empty string if null to satisfy non-nullable GraphQL fields
-func (r *Resolver) resolveRequiredString(field sql.NullString) string {
-	if field.Valid {
-		return field.String
+// resolveRequiredString resolves a required string field from the database.
+// Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
+func (r *Resolver) resolveRequiredString(field sql.NullString, fieldName string) (string, error) {
+	if !field.Valid {
+		return "", fmt.Errorf("state change is missing required %s", fieldName)
 	}
-	return ""
+	return field.String, nil
 }
 
 // resolveRequiredAddress resolves a required address field from the database.

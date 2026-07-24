@@ -390,7 +390,7 @@ func (c *Client) GetAccountOperations(ctx context.Context, address string, since
 	return data.AccountByAddress.Operations, nil
 }
 
-func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *string, reason *string, since, until *time.Time, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
+func (c *Client) GetAccountStateChanges(ctx context.Context, address string, transactionHash *string, operationID *int64, category *types.StateChangeCategory, reason *types.StateChangeReason, since, until *time.Time, first, last *int32, after, before *string) (*types.StateChangeConnection, error) {
 	paginationVars, err := buildPaginationVars(first, last, after, before)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)

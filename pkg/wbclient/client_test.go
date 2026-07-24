@@ -204,7 +204,7 @@ func TestGetAccountStateChanges(t *testing.T) {
 
 		c := NewClient(srv.URL, nil)
 		txHash := "deadbeef"
-		category := "BALANCE"
+		category := types.StateChangeCategoryBalance
 		_, err := c.GetAccountStateChanges(ctx, "GABC", &txHash, nil, &category, nil, nil, nil, nil, nil, nil, nil)
 		require.ErrorIs(t, err, ErrAccountNotFound)
 

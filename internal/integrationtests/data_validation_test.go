@@ -51,8 +51,8 @@ type stateChangeQuery struct {
 	name     string
 	account  string
 	txHash   *string
-	category *string
-	reason   *string
+	category *types.StateChangeCategory
+	reason   *types.StateChangeReason
 }
 
 // fetchStateChangesInParallel fetches multiple state changes in parallel using pond worker pool
@@ -340,7 +340,7 @@ func (suite *DataValidationTestSuite) validatePaymentOperations(ctx context.Cont
 
 func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	balanceCategory := "BALANCE"
+	balanceCategory := types.StateChangeCategoryBalance
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
@@ -422,13 +422,13 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationOperations
 
 func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(20)
-	balanceCategory := "BALANCE"
-	accountCategory := "ACCOUNT"
-	metadataCategory := "METADATA"
-	reservesCategory := "RESERVES"
-	sponsorReason := "SPONSOR"
-	signerCategory := "SIGNER"
-	addReason := "ADD"
+	balanceCategory := types.StateChangeCategoryBalance
+	accountCategory := types.StateChangeCategoryAccount
+	metadataCategory := types.StateChangeCategoryMetadata
+	reservesCategory := types.StateChangeCategoryReserves
+	sponsorReason := types.StateChangeReasonSponsor
+	signerCategory := types.StateChangeCategorySigner
+	addReason := types.StateChangeReasonAdd
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
@@ -567,14 +567,14 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	balanceCategory := "BALANCE"
-	trustlineCategory := "TRUSTLINE"
-	balanceAuthCategory := "BALANCE_AUTHORIZATION"
-	mintReason := string(types.StateChangeReasonMint)
-	burnReason := string(types.StateChangeReasonBurn)
-	creditReason := string(types.StateChangeReasonCredit)
-	debitReason := string(types.StateChangeReasonDebit)
-	setReason := string(types.StateChangeReasonSet)
+	balanceCategory := types.StateChangeCategoryBalance
+	trustlineCategory := types.StateChangeCategoryTrustline
+	balanceAuthCategory := types.StateChangeCategoryBalanceAuthorization
+	mintReason := types.StateChangeReasonMint
+	burnReason := types.StateChangeReasonBurn
+	creditReason := types.StateChangeReasonCredit
+	debitReason := types.StateChangeReasonDebit
+	setReason := types.StateChangeReasonSet
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -771,8 +771,8 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupStateChange
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
 	// Define filter constants
-	flagsCategory := "FLAGS"
-	setReason := string(types.StateChangeReasonSet)
+	flagsCategory := types.StateChangeCategoryFlags
+	setReason := types.StateChangeReasonSet
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -820,17 +820,17 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	balanceCategory := "BALANCE"
-	trustlineCategory := "TRUSTLINE"
-	balanceAuthCategory := "BALANCE_AUTHORIZATION"
-	setReason := string(types.StateChangeReasonSet)
-	clearReason := string(types.StateChangeReasonClear)
-	addReason := string(types.StateChangeReasonAdd)
-	removeReason := string(types.StateChangeReasonRemove)
-	mintReason := string(types.StateChangeReasonMint)
-	burnReason := string(types.StateChangeReasonBurn)
-	creditReason := string(types.StateChangeReasonCredit)
-	debitReason := string(types.StateChangeReasonDebit)
+	balanceCategory := types.StateChangeCategoryBalance
+	trustlineCategory := types.StateChangeCategoryTrustline
+	balanceAuthCategory := types.StateChangeCategoryBalanceAuthorization
+	setReason := types.StateChangeReasonSet
+	clearReason := types.StateChangeReasonClear
+	addReason := types.StateChangeReasonAdd
+	removeReason := types.StateChangeReasonRemove
+	mintReason := types.StateChangeReasonMint
+	burnReason := types.StateChangeReasonBurn
+	creditReason := types.StateChangeReasonCredit
+	debitReason := types.StateChangeReasonDebit
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -975,13 +975,13 @@ func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context
 
 func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
 	first := int32(10)
-	accountCategory := "ACCOUNT"
-	balanceCategory := "BALANCE"
-	reservesCategory := "RESERVES"
-	mergeReason := string(types.StateChangeReasonMerge)
-	creditReason := string(types.StateChangeReasonCredit)
-	debitReason := string(types.StateChangeReasonDebit)
-	unsponsorReason := string(types.StateChangeReasonUnsponsor)
+	accountCategory := types.StateChangeCategoryAccount
+	balanceCategory := types.StateChangeCategoryBalance
+	reservesCategory := types.StateChangeCategoryReserves
+	mergeReason := types.StateChangeReasonMerge
+	creditReason := types.StateChangeReasonCredit
+	debitReason := types.StateChangeReasonDebit
+	unsponsorReason := types.StateChangeReasonUnsponsor
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
@@ -1103,9 +1103,9 @@ func (suite *DataValidationTestSuite) validateInvokeContractStateChanges(ctx con
 
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
-	balanceCategory := "BALANCE"
-	creditReason := string(types.StateChangeReasonCredit)
-	debitReason := string(types.StateChangeReasonDebit)
+	balanceCategory := types.StateChangeCategoryBalance
+	creditReason := types.StateChangeReasonCredit
+	debitReason := types.StateChangeReasonDebit
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -1221,14 +1221,14 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	trustlineCategory := "TRUSTLINE"
-	balanceAuthCategory := "BALANCE_AUTHORIZATION"
-	balanceCategory := "BALANCE"
-	reservesCategory := "RESERVES"
-	sponsorReason := string(types.StateChangeReasonSponsor)
-	setReason := string(types.StateChangeReasonSet)
-	addReason := string(types.StateChangeReasonAdd)
-	mintReason := string(types.StateChangeReasonMint)
+	trustlineCategory := types.StateChangeCategoryTrustline
+	balanceAuthCategory := types.StateChangeCategoryBalanceAuthorization
+	balanceCategory := types.StateChangeCategoryBalance
+	reservesCategory := types.StateChangeCategoryReserves
+	sponsorReason := types.StateChangeReasonSponsor
+	setReason := types.StateChangeReasonSet
+	addReason := types.StateChangeReasonAdd
+	mintReason := types.StateChangeReasonMint
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -1338,10 +1338,10 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	balanceCategory := "BALANCE"
-	creditReason := string(types.StateChangeReasonCredit)
-	reservesCategory := "RESERVES"
-	unsponsorReason := string(types.StateChangeReasonUnsponsor)
+	balanceCategory := types.StateChangeCategoryBalance
+	creditReason := types.StateChangeReasonCredit
+	reservesCategory := types.StateChangeCategoryReserves
+	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -1421,10 +1421,10 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
 	// Define filter constants
-	balanceCategory := "BALANCE"
-	burnReason := string(types.StateChangeReasonBurn)
-	reservesCategory := "RESERVES"
-	unsponsorReason := string(types.StateChangeReasonUnsponsor)
+	balanceCategory := types.StateChangeCategoryBalance
+	burnReason := types.StateChangeReasonBurn
+	reservesCategory := types.StateChangeCategoryReserves
+	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -1506,8 +1506,8 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsStateChanges(ctx con
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 
 	// Define filter constants
-	flagsCategory := "FLAGS"
-	clearReason := string(types.StateChangeReasonClear)
+	flagsCategory := types.StateChangeCategoryFlags
+	clearReason := types.StateChangeReasonClear
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)
@@ -1603,16 +1603,16 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	fmt.Printf("xlm contract address: %s\n", xlmContractAddress)
 
 	// 2. VALIDATE PRESENCE OF KEY STATE CHANGE CATEGORIES
-	balanceCategory := "BALANCE"
-	trustlineCategory := "TRUSTLINE"
-	balanceAuthCategory := "BALANCE_AUTHORIZATION"
-	addReason := string(types.StateChangeReasonAdd)
-	removeReason := string(types.StateChangeReasonRemove)
-	setReason := string(types.StateChangeReasonSet)
-	debitReason := string(types.StateChangeReasonDebit)
-	creditReason := string(types.StateChangeReasonCredit)
-	mintReason := string(types.StateChangeReasonMint)
-	burnReason := string(types.StateChangeReasonBurn)
+	balanceCategory := types.StateChangeCategoryBalance
+	trustlineCategory := types.StateChangeCategoryTrustline
+	balanceAuthCategory := types.StateChangeCategoryBalanceAuthorization
+	addReason := types.StateChangeReasonAdd
+	removeReason := types.StateChangeReasonRemove
+	setReason := types.StateChangeReasonSet
+	debitReason := types.StateChangeReasonDebit
+	creditReason := types.StateChangeReasonCredit
+	mintReason := types.StateChangeReasonMint
+	burnReason := types.StateChangeReasonBurn
 
 	// Fetch state changes for validation
 	lpQueries := []stateChangeQuery{
@@ -1726,11 +1726,11 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	metadataCategory := "METADATA"
-	reservesCategory := "RESERVES"
-	sponsorReason := string(types.StateChangeReasonSponsor)
-	unsponsorReason := string(types.StateChangeReasonUnsponsor)
-	dataEntryReason := string(types.StateChangeReasonDataEntry)
+	metadataCategory := types.StateChangeCategoryMetadata
+	reservesCategory := types.StateChangeCategoryReserves
+	sponsorReason := types.StateChangeReasonSponsor
+	unsponsorReason := types.StateChangeReasonUnsponsor
+	dataEntryReason := types.StateChangeReasonDataEntry
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &first, nil, nil, nil)

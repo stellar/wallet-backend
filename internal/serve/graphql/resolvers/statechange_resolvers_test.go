@@ -176,6 +176,42 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "DEBIT",
 		},
 		{
+			name:     "BALANCE with an account reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonMerge, OperationID: 12345},
+			category: "BALANCE",
+			reason:   "MERGE",
+		},
+		{
+			name:     "BALANCE with an account reason and no operation is not a fee",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonMerge, OperationID: 0},
+			category: "BALANCE",
+			reason:   "MERGE",
+		},
+		{
+			name:     "SIGNATURE_THRESHOLD with a sponsor reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonSponsor},
+			category: "SIGNATURE_THRESHOLD",
+			reason:   "SPONSOR",
+		},
+		{
+			name:     "FLAGS with a threshold reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryFlags, StateChangeReason: types.StateChangeReasonLow},
+			category: "FLAGS",
+			reason:   "LOW",
+		},
+		{
+			name:     "RESERVES with a flags reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryReserves, StateChangeReason: types.StateChangeReasonSet},
+			category: "RESERVES",
+			reason:   "SET",
+		},
+		{
+			name:     "BALANCE_AUTHORIZATION with a sponsor reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonSponsor},
+			category: "BALANCE_AUTHORIZATION",
+			reason:   "SPONSOR",
+		},
+		{
 			name:     "SIGNER with a flags reason",
 			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonSet},
 			category: "SIGNER",
@@ -412,6 +448,45 @@ func TestBalanceChangeResolver_RequiredTokenID(t *testing.T) {
 		_, err := r.TokenID(ctx, obj)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "tokenId")
+	})
+}
+
+func TestRequiredStringResolvers_ErrorWhenNull(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("BalanceChange amount", func(t *testing.T) {
+		r := &balanceChangeResolver{&Resolver{}}
+		obj := &types.BalanceChangeModel{StateChange: types.StateChange{Amount: sql.NullString{Valid: false}}}
+		_, err := r.Amount(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "amount")
+	})
+
+	t.Run("TrustlineAddedChange limit", func(t *testing.T) {
+		r := &trustlineAddedChangeResolver{&Resolver{}}
+		obj := &types.TrustlineAddedChangeModel{StateChange: types.StateChange{TrustlineLimitNew: sql.NullString{Valid: false}}}
+		_, err := r.Limit(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "limit")
+	})
+
+	t.Run("TrustlineUpdatedChange oldLimit and newLimit", func(t *testing.T) {
+		r := &trustlineUpdatedChangeResolver{&Resolver{}}
+		obj := &types.TrustlineUpdatedChangeModel{StateChange: types.StateChange{}}
+		_, err := r.OldLimit(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "oldLimit")
+		_, err = r.NewLimit(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "newLimit")
+	})
+
+	t.Run("valid amount resolves", func(t *testing.T) {
+		r := &feeChangeResolver{&Resolver{}}
+		obj := &types.FeeChangeModel{StateChange: types.StateChange{Amount: sql.NullString{String: "100", Valid: true}}}
+		amount, err := r.Amount(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "100", amount)
 	})
 }
 
