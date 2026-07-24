@@ -145,7 +145,7 @@ query GetAccount {
             amount
             ledgerNumber
           }
-          ... on SignerAdded {
+          ... on SignerAddedChange {
             signerAddress
             newWeight
           }
@@ -555,25 +555,25 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 |------|----------------------------|------------|
 | `BalanceChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)`, `(BALANCE, MINT)`, `(BALANCE, BURN)` | `tokenId: String!`, `amount: String!`, `toMuxedId: String` |
 | `FeeChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)` | `tokenId: String!`, `amount: String!` — `operation` is always null |
-| `AccountCreated` | `(ACCOUNT, CREATE)` | `funderAddress: String!` |
-| `ContractDeployed` | `(ACCOUNT, CREATE)` | `deployerAddress: String!` |
-| `AccountMerged` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
-| `SignerAdded` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
-| `SignerUpdated` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int`, `newWeight: Int!` |
-| `SignerRemoved` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int` |
+| `AccountCreatedChange` | `(ACCOUNT, CREATE)` | `funderAddress: String!` |
+| `ContractDeployedChange` | `(ACCOUNT, CREATE)` | `deployerAddress: String!` |
+| `AccountMergedChange` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
+| `SignerAddedChange` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
+| `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int`, `newWeight: Int!` |
+| `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int` |
 | `ThresholdChange` | `(SIGNATURE_THRESHOLD, LOW)`, `(SIGNATURE_THRESHOLD, MEDIUM)`, `(SIGNATURE_THRESHOLD, HIGH)` | `oldThreshold: Int`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
 | `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String`, `newHomeDomain: String` |
 | `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
 | `AllowanceChange` | `(METADATA, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
-| `TrustlineAdded` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
-| `TrustlineUpdated` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
-| `TrustlineRemoved` | `(TRUSTLINE, REMOVE)` | `tokenId: String`, `liquidityPoolId: String` |
+| `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
+| `TrustlineUpdatedChange` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
+| `TrustlineRemovedChange` | `(TRUSTLINE, REMOVE)` | `tokenId: String`, `liquidityPoolId: String` |
 | `SponsorshipChange` | `(RESERVES, SPONSOR)`, `(RESERVES, UNSPONSOR)` | `sponsoredAddress: String`, `sponsorAddress: String`, `tokenId: String`, `liquidityPoolId: String`, `claimableBalanceId: String`, `dataName: String`, `signerAddress: String` |
 | `BalanceAuthorizationChange` | `(BALANCE_AUTHORIZATION, SET)`, `(BALANCE_AUTHORIZATION, CLEAR)` | `tokenId: String`, `liquidityPoolId: String`, `flags: [TrustlineFlag!]` |
 
 Notes on the polymorphic fields:
-- On `TrustlineAdded`/`TrustlineUpdated`/`TrustlineRemoved`/`BalanceAuthorizationChange`, exactly one of `tokenId` / `liquidityPoolId` is set (asset trustline vs. pool-share trustline).
+- On `TrustlineAddedChange`/`TrustlineUpdatedChange`/`TrustlineRemovedChange`/`BalanceAuthorizationChange`, exactly one of `tokenId` / `liquidityPoolId` is set (asset trustline vs. pool-share trustline).
 - On `SponsorshipChange`, `sponsoredAddress` is set on the sponsoring account's change and `sponsorAddress` on the sponsored account's; at most one of the entity fields (`tokenId`, `liquidityPoolId`, `claimableBalanceId`, `dataName`, `signerAddress`) identifies what is sponsored, all null for whole-account sponsorships.
 - On `BalanceAuthorizationChange`, `flags` is null for SAC contract-holder authorization (a plain boolean in the contract balance entry, so there are no trustline flags).
 
@@ -582,12 +582,12 @@ Notes on the polymorphic fields:
 | Category | Types |
 |----------|-------|
 | `BALANCE` | `BalanceChange` (operation-sourced), `FeeChange` (transaction fees) |
-| `ACCOUNT` | `AccountCreated`, `ContractDeployed`, `AccountMerged` |
-| `SIGNER` | `SignerAdded`, `SignerUpdated`, `SignerRemoved` |
+| `ACCOUNT` | `AccountCreatedChange`, `ContractDeployedChange`, `AccountMergedChange` |
+| `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
 | `METADATA` | `HomeDomainChange`, `DataEntryChange`, `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
-| `TRUSTLINE` | `TrustlineAdded`, `TrustlineUpdated`, `TrustlineRemoved` |
+| `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
 | `RESERVES` | `SponsorshipChange` |
 | `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` |
 
@@ -678,13 +678,13 @@ query GetAccountStateChanges {
             amount
           }
 
-          ... on SignerUpdated {
+          ... on SignerUpdatedChange {
             signerAddress
             oldWeight
             newWeight
           }
 
-          ... on TrustlineAdded {
+          ... on TrustlineAddedChange {
             tokenId
             liquidityPoolId
             limit

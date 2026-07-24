@@ -40,9 +40,9 @@ exact (category, reason) pairs.
 enum StateChangeCategory {
   """Token balance movements: BalanceChange (operation-sourced) and FeeChange (transaction fees)."""
   BALANCE
-  """Account lifecycle: AccountCreated, ContractDeployed, AccountMerged."""
+  """Account lifecycle: AccountCreatedChange, ContractDeployedChange, AccountMergedChange."""
   ACCOUNT
-  """Account signer set: SignerAdded, SignerUpdated, SignerRemoved."""
+  """Account signer set: SignerAddedChange, SignerUpdatedChange, SignerRemovedChange."""
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
@@ -50,7 +50,7 @@ enum StateChangeCategory {
   METADATA
   """Account authorization flags: AccountFlagsChange."""
   FLAGS
-  """Trustlines: TrustlineAdded, TrustlineUpdated, TrustlineRemoved."""
+  """Trustlines: TrustlineAddedChange, TrustlineUpdatedChange, TrustlineRemovedChange."""
   TRUSTLINE
   """Base-reserve sponsorships: SponsorshipChange."""
   RESERVES

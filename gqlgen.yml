@@ -179,24 +179,24 @@ models:
   FeeChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.FeeChangeModel
-  AccountCreated:
+  AccountCreatedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.AccountCreatedModel
-  ContractDeployed:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountCreatedChangeModel
+  ContractDeployedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.ContractDeployedModel
-  AccountMerged:
+      - github.com/stellar/wallet-backend/internal/indexer/types.ContractDeployedChangeModel
+  AccountMergedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.AccountMergedModel
-  SignerAdded:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountMergedChangeModel
+  SignerAddedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SignerAddedModel
-  SignerUpdated:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerAddedChangeModel
+  SignerUpdatedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SignerUpdatedModel
-  SignerRemoved:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerUpdatedChangeModel
+  SignerRemovedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SignerRemovedModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerRemovedChangeModel
   ThresholdChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.ThresholdChangeModel
@@ -212,15 +212,15 @@ models:
   AllowanceChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AllowanceChangeModel
-  TrustlineAdded:
+  TrustlineAddedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineAddedModel
-  TrustlineUpdated:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineAddedChangeModel
+  TrustlineUpdatedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineUpdatedModel
-  TrustlineRemoved:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineUpdatedChangeModel
+  TrustlineRemovedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineRemovedModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineRemovedChangeModel
   SponsorshipChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipChangeModel

@@ -71,41 +71,41 @@ type FeeChange struct {
 	Amount  string `json:"amount"`
 }
 
-// AccountCreated is a classic account creation.
-type AccountCreated struct {
+// AccountCreatedChange is a classic account creation.
+type AccountCreatedChange struct {
 	BaseStateChangeFields
 	FunderAddress string `json:"funderAddress"`
 }
 
-// ContractDeployed is a smart-contract deployment.
-type ContractDeployed struct {
+// ContractDeployedChange is a smart-contract deployment.
+type ContractDeployedChange struct {
 	BaseStateChangeFields
 	DeployerAddress string `json:"deployerAddress"`
 }
 
-// AccountMerged is an account merge.
-type AccountMerged struct {
+// AccountMergedChange is an account merge.
+type AccountMergedChange struct {
 	BaseStateChangeFields
 	DestinationAddress string `json:"destinationAddress"`
 }
 
-// SignerAdded is a signer added to the account.
-type SignerAdded struct {
+// SignerAddedChange is a signer added to the account.
+type SignerAddedChange struct {
 	BaseStateChangeFields
 	SignerAddress string `json:"signerAddress"`
 	NewWeight     int32  `json:"newWeight"`
 }
 
-// SignerUpdated is an existing signer's weight change.
-type SignerUpdated struct {
+// SignerUpdatedChange is an existing signer's weight change.
+type SignerUpdatedChange struct {
 	BaseStateChangeFields
 	SignerAddress string `json:"signerAddress"`
 	OldWeight     *int32 `json:"oldWeight,omitempty"`
 	NewWeight     int32  `json:"newWeight"`
 }
 
-// SignerRemoved is a signer removed from the account.
-type SignerRemoved struct {
+// SignerRemovedChange is a signer removed from the account.
+type SignerRemovedChange struct {
 	BaseStateChangeFields
 	SignerAddress string `json:"signerAddress"`
 	OldWeight     *int32 `json:"oldWeight,omitempty"`
@@ -148,16 +148,16 @@ type AllowanceChange struct {
 	ExpirationLedger uint32 `json:"expirationLedger"`
 }
 
-// TrustlineAdded is a trustline created. Exactly one of TokenID / LiquidityPoolID is set.
-type TrustlineAdded struct {
+// TrustlineAddedChange is a trustline created. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineAddedChange struct {
 	BaseStateChangeFields
 	TokenID         *string `json:"trustlineAddedTokenId,omitempty"`
 	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
 	Limit           string  `json:"limit"`
 }
 
-// TrustlineUpdated is a trustline limit update. Exactly one of TokenID / LiquidityPoolID is set.
-type TrustlineUpdated struct {
+// TrustlineUpdatedChange is a trustline limit update. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineUpdatedChange struct {
 	BaseStateChangeFields
 	TokenID         *string `json:"trustlineUpdatedTokenId,omitempty"`
 	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
@@ -165,8 +165,8 @@ type TrustlineUpdated struct {
 	NewLimit        string  `json:"newLimit"`
 }
 
-// TrustlineRemoved is a trustline removed. Exactly one of TokenID / LiquidityPoolID is set.
-type TrustlineRemoved struct {
+// TrustlineRemovedChange is a trustline removed. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineRemovedChange struct {
 	BaseStateChangeFields
 	TokenID         *string `json:"trustlineRemovedTokenId,omitempty"`
 	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
@@ -214,18 +214,18 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[BalanceChange](data)
 	case "FeeChange":
 		return unmarshalStateChange[FeeChange](data)
-	case "AccountCreated":
-		return unmarshalStateChange[AccountCreated](data)
-	case "ContractDeployed":
-		return unmarshalStateChange[ContractDeployed](data)
-	case "AccountMerged":
-		return unmarshalStateChange[AccountMerged](data)
-	case "SignerAdded":
-		return unmarshalStateChange[SignerAdded](data)
-	case "SignerUpdated":
-		return unmarshalStateChange[SignerUpdated](data)
-	case "SignerRemoved":
-		return unmarshalStateChange[SignerRemoved](data)
+	case "AccountCreatedChange":
+		return unmarshalStateChange[AccountCreatedChange](data)
+	case "ContractDeployedChange":
+		return unmarshalStateChange[ContractDeployedChange](data)
+	case "AccountMergedChange":
+		return unmarshalStateChange[AccountMergedChange](data)
+	case "SignerAddedChange":
+		return unmarshalStateChange[SignerAddedChange](data)
+	case "SignerUpdatedChange":
+		return unmarshalStateChange[SignerUpdatedChange](data)
+	case "SignerRemovedChange":
+		return unmarshalStateChange[SignerRemovedChange](data)
 	case "ThresholdChange":
 		return unmarshalStateChange[ThresholdChange](data)
 	case "AccountFlagsChange":
@@ -236,12 +236,12 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[DataEntryChange](data)
 	case "AllowanceChange":
 		return unmarshalStateChange[AllowanceChange](data)
-	case "TrustlineAdded":
-		return unmarshalStateChange[TrustlineAdded](data)
-	case "TrustlineUpdated":
-		return unmarshalStateChange[TrustlineUpdated](data)
-	case "TrustlineRemoved":
-		return unmarshalStateChange[TrustlineRemoved](data)
+	case "TrustlineAddedChange":
+		return unmarshalStateChange[TrustlineAddedChange](data)
+	case "TrustlineUpdatedChange":
+		return unmarshalStateChange[TrustlineUpdatedChange](data)
+	case "TrustlineRemovedChange":
+		return unmarshalStateChange[TrustlineRemovedChange](data)
 	case "SponsorshipChange":
 		return unmarshalStateChange[SponsorshipChange](data)
 	case "BalanceAuthorizationChange":

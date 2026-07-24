@@ -54,33 +54,33 @@ func TestConvertStateChangeTypes(t *testing.T) {
 		{
 			name: "ACCOUNT create with a deployer is a contract deployment",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonCreate, DeployerAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true}},
-			want: &types.ContractDeployedModel{},
+			want: &types.ContractDeployedChangeModel{},
 		},
 		{
 			name: "ACCOUNT create without a deployer is an account creation",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonCreate},
-			want: &types.AccountCreatedModel{},
+			want: &types.AccountCreatedChangeModel{},
 		},
 		{
 			name: "ACCOUNT merge",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonMerge},
-			want: &types.AccountMergedModel{},
+			want: &types.AccountMergedChangeModel{},
 		},
 		// SIGNER: one model per reason.
 		{
 			name: "SIGNER add",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonAdd},
-			want: &types.SignerAddedModel{},
+			want: &types.SignerAddedChangeModel{},
 		},
 		{
 			name: "SIGNER update",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonUpdate},
-			want: &types.SignerUpdatedModel{},
+			want: &types.SignerUpdatedChangeModel{},
 		},
 		{
 			name: "SIGNER remove",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonRemove},
-			want: &types.SignerRemovedModel{},
+			want: &types.SignerRemovedChangeModel{},
 		},
 		// SIGNATURE_THRESHOLD / FLAGS / RESERVES / BALANCE_AUTHORIZATION: any reason maps to one model.
 		{
@@ -123,17 +123,17 @@ func TestConvertStateChangeTypes(t *testing.T) {
 		{
 			name: "TRUSTLINE add",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryTrustline, StateChangeReason: types.StateChangeReasonAdd},
-			want: &types.TrustlineAddedModel{},
+			want: &types.TrustlineAddedChangeModel{},
 		},
 		{
 			name: "TRUSTLINE update",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryTrustline, StateChangeReason: types.StateChangeReasonUpdate},
-			want: &types.TrustlineUpdatedModel{},
+			want: &types.TrustlineUpdatedChangeModel{},
 		},
 		{
 			name: "TRUSTLINE remove",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryTrustline, StateChangeReason: types.StateChangeReasonRemove},
-			want: &types.TrustlineRemovedModel{},
+			want: &types.TrustlineRemovedChangeModel{},
 		},
 		{
 			name: "RESERVES sponsor",
@@ -215,39 +215,39 @@ func TestConvertStateChangeTypes(t *testing.T) {
 func TestSignerResolvers_WeightNullability(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("SignerAdded exposes only newWeight (required)", func(t *testing.T) {
-		r := &signerAddedResolver{&Resolver{}}
+	t.Run("SignerAddedChange exposes only newWeight (required)", func(t *testing.T) {
+		r := &signerAddedChangeResolver{&Resolver{}}
 
-		obj := &types.SignerAddedModel{StateChange: types.StateChange{SignerWeightNew: sql.NullInt16{Int16: 5, Valid: true}}}
+		obj := &types.SignerAddedChangeModel{StateChange: types.StateChange{SignerWeightNew: sql.NullInt16{Int16: 5, Valid: true}}}
 		w, err := r.NewWeight(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, int32(5), w)
 
-		missing := &types.SignerAddedModel{StateChange: types.StateChange{SignerWeightNew: sql.NullInt16{Valid: false}}}
+		missing := &types.SignerAddedChangeModel{StateChange: types.StateChange{SignerWeightNew: sql.NullInt16{Valid: false}}}
 		_, err = r.NewWeight(ctx, missing)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "newWeight")
 	})
 
-	t.Run("SignerRemoved exposes only oldWeight (nullable)", func(t *testing.T) {
-		r := &signerRemovedResolver{&Resolver{}}
+	t.Run("SignerRemovedChange exposes only oldWeight (nullable)", func(t *testing.T) {
+		r := &signerRemovedChangeResolver{&Resolver{}}
 
-		obj := &types.SignerRemovedModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Int16: 3, Valid: true}}}
+		obj := &types.SignerRemovedChangeModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Int16: 3, Valid: true}}}
 		w, err := r.OldWeight(ctx, obj)
 		require.NoError(t, err)
 		require.NotNil(t, w)
 		assert.Equal(t, int32(3), *w)
 
-		missing := &types.SignerRemovedModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Valid: false}}}
+		missing := &types.SignerRemovedChangeModel{StateChange: types.StateChange{SignerWeightOld: sql.NullInt16{Valid: false}}}
 		w, err = r.OldWeight(ctx, missing)
 		require.NoError(t, err)
 		assert.Nil(t, w)
 	})
 
-	t.Run("SignerUpdated has nullable oldWeight and required newWeight", func(t *testing.T) {
-		r := &signerUpdatedResolver{&Resolver{}}
+	t.Run("SignerUpdatedChange has nullable oldWeight and required newWeight", func(t *testing.T) {
+		r := &signerUpdatedChangeResolver{&Resolver{}}
 
-		obj := &types.SignerUpdatedModel{StateChange: types.StateChange{
+		obj := &types.SignerUpdatedChangeModel{StateChange: types.StateChange{
 			SignerWeightOld: sql.NullInt16{Valid: false},
 			SignerWeightNew: sql.NullInt16{Int16: 7, Valid: true},
 		}}

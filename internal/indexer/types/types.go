@@ -872,7 +872,7 @@ func (n NullableJSONB) Value() (driver.Value, error) {
 // GQLGEN REQUIREMENT:
 // The IsBaseStateChange() method is required by gqlgen to identify types that implement
 // the BaseStateChange interface. This is used during GraphQL type resolution to determine
-// which concrete type to return (BalanceChange, SignerAdded, etc.).
+// which concrete type to return (BalanceChange, SignerAddedChange, etc.).
 //
 // INTERFACE METHODS:
 // The remaining Get* methods correspond to the shared fields defined in the GraphQL
@@ -982,33 +982,33 @@ type FeeChangeModel struct {
 	StateChange
 }
 
-// AccountCreatedModel maps to GraphQL AccountCreated: ACCOUNT × CREATE (classic account creation).
-type AccountCreatedModel struct {
+// AccountCreatedChangeModel maps to GraphQL AccountCreatedChange: ACCOUNT × CREATE (classic account creation).
+type AccountCreatedChangeModel struct {
 	StateChange
 }
 
-// ContractDeployedModel maps to GraphQL ContractDeployed: ACCOUNT × CREATE (contract deployment).
-type ContractDeployedModel struct {
+// ContractDeployedChangeModel maps to GraphQL ContractDeployedChange: ACCOUNT × CREATE (contract deployment).
+type ContractDeployedChangeModel struct {
 	StateChange
 }
 
-// AccountMergedModel maps to GraphQL AccountMerged: ACCOUNT × MERGE.
-type AccountMergedModel struct {
+// AccountMergedChangeModel maps to GraphQL AccountMergedChange: ACCOUNT × MERGE.
+type AccountMergedChangeModel struct {
 	StateChange
 }
 
-// SignerAddedModel maps to GraphQL SignerAdded: SIGNER × ADD.
-type SignerAddedModel struct {
+// SignerAddedChangeModel maps to GraphQL SignerAddedChange: SIGNER × ADD.
+type SignerAddedChangeModel struct {
 	StateChange
 }
 
-// SignerUpdatedModel maps to GraphQL SignerUpdated: SIGNER × UPDATE.
-type SignerUpdatedModel struct {
+// SignerUpdatedChangeModel maps to GraphQL SignerUpdatedChange: SIGNER × UPDATE.
+type SignerUpdatedChangeModel struct {
 	StateChange
 }
 
-// SignerRemovedModel maps to GraphQL SignerRemoved: SIGNER × REMOVE.
-type SignerRemovedModel struct {
+// SignerRemovedChangeModel maps to GraphQL SignerRemovedChange: SIGNER × REMOVE.
+type SignerRemovedChangeModel struct {
 	StateChange
 }
 
@@ -1037,18 +1037,18 @@ type AllowanceChangeModel struct {
 	StateChange
 }
 
-// TrustlineAddedModel maps to GraphQL TrustlineAdded: TRUSTLINE × ADD.
-type TrustlineAddedModel struct {
+// TrustlineAddedChangeModel maps to GraphQL TrustlineAddedChange: TRUSTLINE × ADD.
+type TrustlineAddedChangeModel struct {
 	StateChange
 }
 
-// TrustlineUpdatedModel maps to GraphQL TrustlineUpdated: TRUSTLINE × UPDATE.
-type TrustlineUpdatedModel struct {
+// TrustlineUpdatedChangeModel maps to GraphQL TrustlineUpdatedChange: TRUSTLINE × UPDATE.
+type TrustlineUpdatedChangeModel struct {
 	StateChange
 }
 
-// TrustlineRemovedModel maps to GraphQL TrustlineRemoved: TRUSTLINE × REMOVE.
-type TrustlineRemovedModel struct {
+// TrustlineRemovedChangeModel maps to GraphQL TrustlineRemovedChange: TRUSTLINE × REMOVE.
+type TrustlineRemovedChangeModel struct {
 	StateChange
 }
 

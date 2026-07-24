@@ -63,25 +63,25 @@ const (
 			feeTokenId: tokenId
 			amount
 		}
-		... on AccountCreated {
+		... on AccountCreatedChange {
 			funderAddress
 		}
-		... on ContractDeployed {
+		... on ContractDeployedChange {
 			deployerAddress
 		}
-		... on AccountMerged {
+		... on AccountMergedChange {
 			destinationAddress
 		}
-		... on SignerAdded {
+		... on SignerAddedChange {
 			signerAddress
 			newWeight
 		}
-		... on SignerUpdated {
+		... on SignerUpdatedChange {
 			signerAddress
 			oldWeight
 			newWeight
 		}
-		... on SignerRemoved {
+		... on SignerRemovedChange {
 			signerAddress
 			oldWeight
 		}
@@ -107,18 +107,18 @@ const (
 			amount
 			expirationLedger
 		}
-		... on TrustlineAdded {
+		... on TrustlineAddedChange {
 			trustlineAddedTokenId: tokenId
 			liquidityPoolId
 			limit
 		}
-		... on TrustlineUpdated {
+		... on TrustlineUpdatedChange {
 			trustlineUpdatedTokenId: tokenId
 			liquidityPoolId
 			oldLimit
 			newLimit
 		}
-		... on TrustlineRemoved {
+		... on TrustlineRemovedChange {
 			trustlineRemovedTokenId: tokenId
 			liquidityPoolId
 		}

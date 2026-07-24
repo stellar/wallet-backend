@@ -61,25 +61,25 @@ func Test_UnmarshalStateChangeNode_FeeChange(t *testing.T) {
 // variants that share the same (category, reason) pair but different __typename and payload.
 func Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed(t *testing.T) {
 	created, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "AccountCreated",
+		"__typename": "AccountCreatedChange",
 		"category": "ACCOUNT",
 		"reason": "CREATE",
 		"funderAddress": "GFUNDER"
 	}`))
 	require.NoError(t, err)
-	ac, ok := created.(*AccountCreated)
-	require.True(t, ok, "expected *AccountCreated, got %T", created)
+	ac, ok := created.(*AccountCreatedChange)
+	require.True(t, ok, "expected *AccountCreatedChange, got %T", created)
 	assert.Equal(t, "GFUNDER", ac.FunderAddress)
 
 	deployed, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "ContractDeployed",
+		"__typename": "ContractDeployedChange",
 		"category": "ACCOUNT",
 		"reason": "CREATE",
 		"deployerAddress": "GDEPLOYER"
 	}`))
 	require.NoError(t, err)
-	cd, ok := deployed.(*ContractDeployed)
-	require.True(t, ok, "expected *ContractDeployed, got %T", deployed)
+	cd, ok := deployed.(*ContractDeployedChange)
+	require.True(t, ok, "expected *ContractDeployedChange, got %T", deployed)
 	assert.Equal(t, "GDEPLOYER", cd.DeployerAddress)
 }
 
@@ -87,7 +87,7 @@ func Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed(t *testing.T
 // decodes to a nil pointer while the required newWeight is populated.
 func Test_UnmarshalStateChangeNode_SignerUpdatedNullOldWeight(t *testing.T) {
 	node, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "SignerUpdated",
+		"__typename": "SignerUpdatedChange",
 		"category": "SIGNER",
 		"reason": "UPDATE",
 		"signerAddress": "GSIGNER",
@@ -96,8 +96,8 @@ func Test_UnmarshalStateChangeNode_SignerUpdatedNullOldWeight(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 
-	su, ok := node.(*SignerUpdated)
-	require.True(t, ok, "expected *SignerUpdated, got %T", node)
+	su, ok := node.(*SignerUpdatedChange)
+	require.True(t, ok, "expected *SignerUpdatedChange, got %T", node)
 	assert.Equal(t, "GSIGNER", su.SignerAddress)
 	assert.Nil(t, su.OldWeight, "null oldWeight must decode to a nil pointer")
 	assert.Equal(t, int32(5), su.NewWeight)
@@ -177,7 +177,7 @@ func Test_UnmarshalStateChangeNode_BalanceAuthorizationWithFlags(t *testing.T) {
 // liquidityPoolId pair: an asset trustline sets tokenId and leaves liquidityPoolId nil.
 func Test_UnmarshalStateChangeNode_TrustlineAdded(t *testing.T) {
 	node, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "TrustlineAdded",
+		"__typename": "TrustlineAddedChange",
 		"category": "TRUSTLINE",
 		"reason": "ADD",
 		"trustlineAddedTokenId": "CTOKEN",
@@ -186,8 +186,8 @@ func Test_UnmarshalStateChangeNode_TrustlineAdded(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 
-	ta, ok := node.(*TrustlineAdded)
-	require.True(t, ok, "expected *TrustlineAdded, got %T", node)
+	ta, ok := node.(*TrustlineAddedChange)
+	require.True(t, ok, "expected *TrustlineAddedChange, got %T", node)
 	require.NotNil(t, ta.TokenID)
 	assert.Equal(t, "CTOKEN", *ta.TokenID)
 	assert.Nil(t, ta.LiquidityPoolID)

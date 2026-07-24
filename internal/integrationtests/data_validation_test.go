@@ -144,9 +144,9 @@ func validateBalanceChange(suite *DataValidationTestSuite, bc *types.BalanceChan
 	suite.Require().Equal(expectedAmount, bc.Amount, "amount mismatch")
 }
 
-// validateAccountCreated validates a classic account-creation state change (ACCOUNT/CREATE),
+// validateAccountCreatedChange validates a classic account-creation state change (ACCOUNT/CREATE),
 // which carries the funder's address.
-func validateAccountCreated(suite *DataValidationTestSuite, ac *types.AccountCreated, expectedFunderAddress string) {
+func validateAccountCreatedChange(suite *DataValidationTestSuite, ac *types.AccountCreatedChange, expectedFunderAddress string) {
 	suite.Require().NotNil(ac, "account created change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryAccount, ac.GetCategory(), "should be ACCOUNT category")
 	suite.Require().Equal(types.StateChangeReasonCreate, ac.GetReason(), "reason mismatch")
@@ -154,9 +154,9 @@ func validateAccountCreated(suite *DataValidationTestSuite, ac *types.AccountCre
 	suite.Require().Equal(expectedFunderAddress, ac.FunderAddress, "funder address mismatch")
 }
 
-// validateContractDeployed validates a contract-deploy state change (ACCOUNT/CREATE),
+// validateContractDeployedChange validates a contract-deploy state change (ACCOUNT/CREATE),
 // which carries the deployer's address.
-func validateContractDeployed(suite *DataValidationTestSuite, cd *types.ContractDeployed, expectedDeployerAddress string) {
+func validateContractDeployedChange(suite *DataValidationTestSuite, cd *types.ContractDeployedChange, expectedDeployerAddress string) {
 	suite.Require().NotNil(cd, "contract deployed change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryAccount, cd.GetCategory(), "should be ACCOUNT category")
 	suite.Require().Equal(types.StateChangeReasonCreate, cd.GetReason(), "reason mismatch")
@@ -164,9 +164,9 @@ func validateContractDeployed(suite *DataValidationTestSuite, cd *types.Contract
 	suite.Require().Equal(expectedDeployerAddress, cd.DeployerAddress, "deployer address mismatch")
 }
 
-// validateSignerAdded validates a signer-added state change (SIGNER/ADD). The signer weight is now
+// validateSignerAddedChange validates a signer-added state change (SIGNER/ADD). The signer weight is now
 // a typed field, so it is asserted directly rather than decoded from a JSON blob.
-func validateSignerAdded(suite *DataValidationTestSuite, sc *types.SignerAdded, expectedSignerAddress string, expectedWeight int32) {
+func validateSignerAddedChange(suite *DataValidationTestSuite, sc *types.SignerAddedChange, expectedSignerAddress string, expectedWeight int32) {
 	suite.Require().NotNil(sc, "signer added change should not be nil")
 	suite.Require().Equal(types.StateChangeCategorySigner, sc.GetCategory(), "should be SIGNER category")
 	suite.Require().Equal(types.StateChangeReasonAdd, sc.GetReason(), "reason mismatch")
@@ -246,9 +246,9 @@ func sumAmounts(suite *DataValidationTestSuite, sc *types.StateChangeConnection,
 	return total
 }
 
-// validateTrustlineAdded validates a trustline-added state change (TRUSTLINE/ADD). Exactly one of
+// validateTrustlineAddedChange validates a trustline-added state change (TRUSTLINE/ADD). Exactly one of
 // the asset token id / liquidity-pool id identifies the trustline, and the limit is set on ADD.
-func validateTrustlineAdded(suite *DataValidationTestSuite, ta *types.TrustlineAdded, expectedTokenID, expectedLiquidityPoolID string) {
+func validateTrustlineAddedChange(suite *DataValidationTestSuite, ta *types.TrustlineAddedChange, expectedTokenID, expectedLiquidityPoolID string) {
 	suite.Require().NotNil(ta, "trustline added change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryTrustline, ta.GetCategory(), "should be TRUSTLINE category")
 	suite.Require().Equal(types.StateChangeReasonAdd, ta.GetReason(), "reason mismatch")
@@ -263,9 +263,9 @@ func validateTrustlineAdded(suite *DataValidationTestSuite, ta *types.TrustlineA
 	suite.Require().NotEmpty(ta.Limit, "limit should not be empty for ADD")
 }
 
-// validateTrustlineRemoved validates a trustline-removed state change (TRUSTLINE/REMOVE). Exactly
+// validateTrustlineRemovedChange validates a trustline-removed state change (TRUSTLINE/REMOVE). Exactly
 // one of the asset token id / liquidity-pool id identifies the trustline.
-func validateTrustlineRemoved(suite *DataValidationTestSuite, tr *types.TrustlineRemoved, expectedTokenID, expectedLiquidityPoolID string) {
+func validateTrustlineRemovedChange(suite *DataValidationTestSuite, tr *types.TrustlineRemovedChange, expectedTokenID, expectedLiquidityPoolID string) {
 	suite.Require().NotNil(tr, "trustline removed change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryTrustline, tr.GetCategory(), "should be TRUSTLINE category")
 	suite.Require().Equal(types.StateChangeReasonRemove, tr.GetReason(), "reason mismatch")
@@ -493,8 +493,8 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 
 	// 1 ACCOUNT/CREATE account change for sponsored account
 	suite.Require().Len(sponsoredAccountChanges.Edges, 1, "should have exactly 1 ACCOUNT/CREATE account change")
-	accountChange := sponsoredAccountChanges.Edges[0].Node.(*types.AccountCreated)
-	validateAccountCreated(suite, accountChange, primaryAccount)
+	accountChange := sponsoredAccountChanges.Edges[0].Node.(*types.AccountCreatedChange)
+	validateAccountCreatedChange(suite, accountChange, primaryAccount)
 
 	// 1 METADATA/DATA_ENTRY metadata change for primary account
 	suite.Require().Len(primaryMetadataChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
@@ -513,8 +513,8 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 
 	// 1 SIGNER/ADD change for sponsored account with default signer weight = 1
 	suite.Require().Len(sponsoredSignerChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
-	signerChange := sponsoredSignerChanges.Edges[0].Node.(*types.SignerAdded)
-	validateSignerAdded(suite, signerChange, sponsoredNewAccount, 1)
+	signerChange := sponsoredSignerChanges.Edges[0].Node.(*types.SignerAddedChange)
+	validateSignerAddedChange(suite, signerChange, sponsoredNewAccount, 1)
 }
 
 func (suite *DataValidationTestSuite) TestCustomAssetsOpsDataValidation() {
@@ -651,10 +651,10 @@ func (suite *DataValidationTestSuite) validateCustomAssetsStateChanges(ctx conte
 	for _, edge := range trustlineChanges.Edges {
 		switch edge.Node.GetReason() {
 		case types.StateChangeReasonAdd:
-			validateTrustlineAdded(suite, edge.Node.(*types.TrustlineAdded), test2ContractAddress, "")
+			validateTrustlineAddedChange(suite, edge.Node.(*types.TrustlineAddedChange), test2ContractAddress, "")
 			foundAdd = true
 		case types.StateChangeReasonRemove:
-			validateTrustlineRemoved(suite, edge.Node.(*types.TrustlineRemoved), test2ContractAddress, "")
+			validateTrustlineRemovedChange(suite, edge.Node.(*types.TrustlineRemovedChange), test2ContractAddress, "")
 			foundRemove = true
 		default:
 			suite.Require().Failf("unexpected trustline change reason", "reason %s", edge.Node.GetReason())
@@ -905,11 +905,11 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetStateChanges(ctx 
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE")
 
-	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAdded)
-	validateTrustlineAdded(suite, trustlineAddChange, test1ContractAddress, "")
+	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAddedChange)
+	validateTrustlineAddedChange(suite, trustlineAddChange, test1ContractAddress, "")
 
-	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineRemoved)
-	validateTrustlineRemoved(suite, trustlineRemoveChange, test1ContractAddress, "")
+	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineRemovedChange)
+	validateTrustlineRemovedChange(suite, trustlineRemoveChange, test1ContractAddress, "")
 
 	// 6. BALANCE STATE CHANGES VALIDATION
 	// Validate counts
@@ -1028,7 +1028,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 
 	// Validate ACCOUNT/MERGE change
 	suite.Require().Len(accountMergeChanges.Edges, 1, "should have exactly 1 ACCOUNT/MERGE change")
-	accountChange := accountMergeChanges.Edges[0].Node.(*types.AccountMerged)
+	accountChange := accountMergeChanges.Edges[0].Node.(*types.AccountMergedChange)
 	suite.Require().Equal(types.StateChangeCategoryAccount, accountChange.GetCategory(), "should be ACCOUNT category")
 	suite.Require().Equal(types.StateChangeReasonMerge, accountChange.GetReason(), "reason should be MERGE")
 	suite.Require().NotEmpty(accountChange.DestinationAddress, "destination address should not be empty")
@@ -1165,15 +1165,15 @@ func (suite *DataValidationTestSuite) TestDeployContractOpsDataValidation() {
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
 	// Validate base fields on every change and locate the ACCOUNT/CREATE deploy change in one pass.
-	var deployChange *types.ContractDeployed
+	var deployChange *types.ContractDeployedChange
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, int64(tx.LedgerNumber))
-		if cd, ok := edge.Node.(*types.ContractDeployed); ok {
+		if cd, ok := edge.Node.(*types.ContractDeployedChange); ok {
 			deployChange = cd
 		}
 	}
 	suite.Require().NotNil(deployChange, "expected an ACCOUNT/CREATE contract-deploy state change")
-	validateContractDeployed(suite, deployChange, suite.testEnv.PrimaryAccountKP.Address())
+	validateContractDeployedChange(suite, deployChange, suite.testEnv.PrimaryAccountKP.Address())
 }
 
 func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {
@@ -1269,8 +1269,8 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 
 	// 3. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
-	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAdded)
-	validateTrustlineAdded(suite, trustlineAddChange, test3ContractAddress, "")
+	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAddedChange)
+	validateTrustlineAddedChange(suite, trustlineAddChange, test3ContractAddress, "")
 
 	// 4. BALANCE_AUTHORIZATION STATE CHANGES VALIDATION
 	// Secondary account should have 2 BALANCE_AUTHORIZATION/SET changes:
@@ -1654,12 +1654,12 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolStateChanges(ctx cont
 	// 4. TRUSTLINE VALIDATION
 	// LP trustlines should have null tokenId and pool ID in liquidityPoolId
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD for liquidity pool")
-	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAdded)
-	validateTrustlineAdded(suite, trustlineAddChange, "", suite.testEnv.LiquidityPoolID)
+	trustlineAddChange := trustlineAdd.Edges[0].Node.(*types.TrustlineAddedChange)
+	validateTrustlineAddedChange(suite, trustlineAddChange, "", suite.testEnv.LiquidityPoolID)
 
 	suite.Require().Len(trustlineRemove.Edges, 1, "should have exactly 1 TRUSTLINE/REMOVE for liquidity pool")
-	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineRemoved)
-	validateTrustlineRemoved(suite, trustlineRemoveChange, "", suite.testEnv.LiquidityPoolID)
+	trustlineRemoveChange := trustlineRemove.Edges[0].Node.(*types.TrustlineRemovedChange)
+	validateTrustlineRemovedChange(suite, trustlineRemoveChange, "", suite.testEnv.LiquidityPoolID)
 
 	// 5. BALANCE CHANGES VALIDATION
 	// DEBIT: XLM deposited into pool (amount = 1000000000)

@@ -31,28 +31,28 @@ type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
 	Account() AccountResolver
-	AccountCreated() AccountCreatedResolver
+	AccountCreatedChange() AccountCreatedChangeResolver
 	AccountFlagsChange() AccountFlagsChangeResolver
-	AccountMerged() AccountMergedResolver
+	AccountMergedChange() AccountMergedChangeResolver
 	AccountTransactionEdge() AccountTransactionEdgeResolver
 	AllowanceChange() AllowanceChangeResolver
 	BalanceAuthorizationChange() BalanceAuthorizationChangeResolver
 	BalanceChange() BalanceChangeResolver
-	ContractDeployed() ContractDeployedResolver
+	ContractDeployedChange() ContractDeployedChangeResolver
 	DataEntryChange() DataEntryChangeResolver
 	FeeChange() FeeChangeResolver
 	HomeDomainChange() HomeDomainChangeResolver
 	Operation() OperationResolver
 	Query() QueryResolver
-	SignerAdded() SignerAddedResolver
-	SignerRemoved() SignerRemovedResolver
-	SignerUpdated() SignerUpdatedResolver
+	SignerAddedChange() SignerAddedChangeResolver
+	SignerRemovedChange() SignerRemovedChangeResolver
+	SignerUpdatedChange() SignerUpdatedChangeResolver
 	SponsorshipChange() SponsorshipChangeResolver
 	ThresholdChange() ThresholdChangeResolver
 	Transaction() TransactionResolver
-	TrustlineAdded() TrustlineAddedResolver
-	TrustlineRemoved() TrustlineRemovedResolver
-	TrustlineUpdated() TrustlineUpdatedResolver
+	TrustlineAddedChange() TrustlineAddedChangeResolver
+	TrustlineRemovedChange() TrustlineRemovedChangeResolver
+	TrustlineUpdatedChange() TrustlineUpdatedChangeResolver
 }
 
 type DirectiveRoot struct {
@@ -68,7 +68,7 @@ type ComplexityRoot struct {
 		Transactions    func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 	}
 
-	AccountCreated struct {
+	AccountCreatedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		FunderAddress   func(childComplexity int) int
@@ -92,7 +92,7 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
-	AccountMerged struct {
+	AccountMergedChange struct {
 		Account            func(childComplexity int) int
 		Category           func(childComplexity int) int
 		DestinationAddress func(childComplexity int) int
@@ -169,7 +169,7 @@ type ComplexityRoot struct {
 		Node   func(childComplexity int) int
 	}
 
-	ContractDeployed struct {
+	ContractDeployedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		DeployerAddress func(childComplexity int) int
@@ -322,7 +322,7 @@ type ComplexityRoot struct {
 		TokenType          func(childComplexity int) int
 	}
 
-	SignerAdded struct {
+	SignerAddedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -335,7 +335,7 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
-	SignerRemoved struct {
+	SignerRemovedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -348,7 +348,7 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
-	SignerUpdated struct {
+	SignerUpdatedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -416,7 +416,7 @@ type ComplexityRoot struct {
 		StateChanges    func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 	}
 
-	TrustlineAdded struct {
+	TrustlineAddedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -445,7 +445,7 @@ type ComplexityRoot struct {
 		TokenType                         func(childComplexity int) int
 	}
 
-	TrustlineRemoved struct {
+	TrustlineRemovedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -458,7 +458,7 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
-	TrustlineUpdated struct {
+	TrustlineUpdatedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -482,14 +482,14 @@ type AccountResolver interface {
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*SEP41AllowanceConnection, error)
 }
-type AccountCreatedResolver interface {
-	Category(ctx context.Context, obj *types.AccountCreatedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.AccountCreatedModel) (types.StateChangeReason, error)
+type AccountCreatedChangeResolver interface {
+	Category(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.AccountCreatedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.AccountCreatedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.AccountCreatedModel) (*types.Transaction, error)
-	FunderAddress(ctx context.Context, obj *types.AccountCreatedModel) (string, error)
+	Account(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Transaction, error)
+	FunderAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error)
 }
 type AccountFlagsChangeResolver interface {
 	Category(ctx context.Context, obj *types.AccountFlagsChangeModel) (types.StateChangeCategory, error)
@@ -500,14 +500,14 @@ type AccountFlagsChangeResolver interface {
 	Transaction(ctx context.Context, obj *types.AccountFlagsChangeModel) (*types.Transaction, error)
 	Flags(ctx context.Context, obj *types.AccountFlagsChangeModel) ([]types.AccountFlag, error)
 }
-type AccountMergedResolver interface {
-	Category(ctx context.Context, obj *types.AccountMergedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.AccountMergedModel) (types.StateChangeReason, error)
+type AccountMergedChangeResolver interface {
+	Category(ctx context.Context, obj *types.AccountMergedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.AccountMergedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.AccountMergedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.AccountMergedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.AccountMergedModel) (*types.Transaction, error)
-	DestinationAddress(ctx context.Context, obj *types.AccountMergedModel) (string, error)
+	Account(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Transaction, error)
+	DestinationAddress(ctx context.Context, obj *types.AccountMergedChangeModel) (string, error)
 }
 type AccountTransactionEdgeResolver interface {
 	Operations(ctx context.Context, obj *types.AccountTransactionEdge) ([]*types.Operation, error)
@@ -547,14 +547,14 @@ type BalanceChangeResolver interface {
 	Amount(ctx context.Context, obj *types.BalanceChangeModel) (string, error)
 	ToMuxedID(ctx context.Context, obj *types.BalanceChangeModel) (*string, error)
 }
-type ContractDeployedResolver interface {
-	Category(ctx context.Context, obj *types.ContractDeployedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.ContractDeployedModel) (types.StateChangeReason, error)
+type ContractDeployedChangeResolver interface {
+	Category(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.ContractDeployedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.ContractDeployedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.ContractDeployedModel) (*types.Transaction, error)
-	DeployerAddress(ctx context.Context, obj *types.ContractDeployedModel) (string, error)
+	Account(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Transaction, error)
+	DeployerAddress(ctx context.Context, obj *types.ContractDeployedChangeModel) (string, error)
 }
 type DataEntryChangeResolver interface {
 	Category(ctx context.Context, obj *types.DataEntryChangeModel) (types.StateChangeCategory, error)
@@ -599,36 +599,36 @@ type QueryResolver interface {
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
 }
-type SignerAddedResolver interface {
-	Category(ctx context.Context, obj *types.SignerAddedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.SignerAddedModel) (types.StateChangeReason, error)
+type SignerAddedChangeResolver interface {
+	Category(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.SignerAddedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.SignerAddedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.SignerAddedModel) (*types.Transaction, error)
-	SignerAddress(ctx context.Context, obj *types.SignerAddedModel) (string, error)
-	NewWeight(ctx context.Context, obj *types.SignerAddedModel) (int32, error)
+	Account(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Transaction, error)
+	SignerAddress(ctx context.Context, obj *types.SignerAddedChangeModel) (string, error)
+	NewWeight(ctx context.Context, obj *types.SignerAddedChangeModel) (int32, error)
 }
-type SignerRemovedResolver interface {
-	Category(ctx context.Context, obj *types.SignerRemovedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.SignerRemovedModel) (types.StateChangeReason, error)
+type SignerRemovedChangeResolver interface {
+	Category(ctx context.Context, obj *types.SignerRemovedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.SignerRemovedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.SignerRemovedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.SignerRemovedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.SignerRemovedModel) (*types.Transaction, error)
-	SignerAddress(ctx context.Context, obj *types.SignerRemovedModel) (string, error)
-	OldWeight(ctx context.Context, obj *types.SignerRemovedModel) (*int32, error)
+	Account(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Transaction, error)
+	SignerAddress(ctx context.Context, obj *types.SignerRemovedChangeModel) (string, error)
+	OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (*int32, error)
 }
-type SignerUpdatedResolver interface {
-	Category(ctx context.Context, obj *types.SignerUpdatedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.SignerUpdatedModel) (types.StateChangeReason, error)
+type SignerUpdatedChangeResolver interface {
+	Category(ctx context.Context, obj *types.SignerUpdatedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.SignerUpdatedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.SignerUpdatedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.SignerUpdatedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.SignerUpdatedModel) (*types.Transaction, error)
-	SignerAddress(ctx context.Context, obj *types.SignerUpdatedModel) (string, error)
-	OldWeight(ctx context.Context, obj *types.SignerUpdatedModel) (*int32, error)
-	NewWeight(ctx context.Context, obj *types.SignerUpdatedModel) (int32, error)
+	Account(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Transaction, error)
+	SignerAddress(ctx context.Context, obj *types.SignerUpdatedChangeModel) (string, error)
+	OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*int32, error)
+	NewWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error)
 }
 type SponsorshipChangeResolver interface {
 	Category(ctx context.Context, obj *types.SponsorshipChangeModel) (types.StateChangeCategory, error)
@@ -662,38 +662,38 @@ type TransactionResolver interface {
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 }
-type TrustlineAddedResolver interface {
-	Category(ctx context.Context, obj *types.TrustlineAddedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.TrustlineAddedModel) (types.StateChangeReason, error)
+type TrustlineAddedChangeResolver interface {
+	Category(ctx context.Context, obj *types.TrustlineAddedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.TrustlineAddedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.TrustlineAddedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.TrustlineAddedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.TrustlineAddedModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.TrustlineAddedModel) (*string, error)
-	LiquidityPoolID(ctx context.Context, obj *types.TrustlineAddedModel) (*string, error)
-	Limit(ctx context.Context, obj *types.TrustlineAddedModel) (string, error)
+	Account(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*string, error)
+	LiquidityPoolID(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*string, error)
+	Limit(ctx context.Context, obj *types.TrustlineAddedChangeModel) (string, error)
 }
-type TrustlineRemovedResolver interface {
-	Category(ctx context.Context, obj *types.TrustlineRemovedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.TrustlineRemovedModel) (types.StateChangeReason, error)
+type TrustlineRemovedChangeResolver interface {
+	Category(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.TrustlineRemovedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.TrustlineRemovedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.TrustlineRemovedModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.TrustlineRemovedModel) (*string, error)
-	LiquidityPoolID(ctx context.Context, obj *types.TrustlineRemovedModel) (*string, error)
+	Account(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*string, error)
+	LiquidityPoolID(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*string, error)
 }
-type TrustlineUpdatedResolver interface {
-	Category(ctx context.Context, obj *types.TrustlineUpdatedModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.TrustlineUpdatedModel) (types.StateChangeReason, error)
+type TrustlineUpdatedChangeResolver interface {
+	Category(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.TrustlineUpdatedModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.TrustlineUpdatedModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.TrustlineUpdatedModel) (*types.Transaction, error)
-	TokenID(ctx context.Context, obj *types.TrustlineUpdatedModel) (*string, error)
-	LiquidityPoolID(ctx context.Context, obj *types.TrustlineUpdatedModel) (*string, error)
-	OldLimit(ctx context.Context, obj *types.TrustlineUpdatedModel) (string, error)
-	NewLimit(ctx context.Context, obj *types.TrustlineUpdatedModel) (string, error)
+	Account(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*string, error)
+	LiquidityPoolID(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*string, error)
+	OldLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error)
+	NewLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error)
 }
 
 type executableSchema graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot]
@@ -772,60 +772,60 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Account.Transactions(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
-	case "AccountCreated.account":
-		if e.ComplexityRoot.AccountCreated.Account == nil {
+	case "AccountCreatedChange.account":
+		if e.ComplexityRoot.AccountCreatedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.Account(childComplexity), true
-	case "AccountCreated.category":
-		if e.ComplexityRoot.AccountCreated.Category == nil {
+		return e.ComplexityRoot.AccountCreatedChange.Account(childComplexity), true
+	case "AccountCreatedChange.category":
+		if e.ComplexityRoot.AccountCreatedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.Category(childComplexity), true
-	case "AccountCreated.funderAddress":
-		if e.ComplexityRoot.AccountCreated.FunderAddress == nil {
+		return e.ComplexityRoot.AccountCreatedChange.Category(childComplexity), true
+	case "AccountCreatedChange.funderAddress":
+		if e.ComplexityRoot.AccountCreatedChange.FunderAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.FunderAddress(childComplexity), true
-	case "AccountCreated.ingestedAt":
-		if e.ComplexityRoot.AccountCreated.IngestedAt == nil {
+		return e.ComplexityRoot.AccountCreatedChange.FunderAddress(childComplexity), true
+	case "AccountCreatedChange.ingestedAt":
+		if e.ComplexityRoot.AccountCreatedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.IngestedAt(childComplexity), true
-	case "AccountCreated.ledgerCreatedAt":
-		if e.ComplexityRoot.AccountCreated.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.AccountCreatedChange.IngestedAt(childComplexity), true
+	case "AccountCreatedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.AccountCreatedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.LedgerCreatedAt(childComplexity), true
-	case "AccountCreated.ledgerNumber":
-		if e.ComplexityRoot.AccountCreated.LedgerNumber == nil {
+		return e.ComplexityRoot.AccountCreatedChange.LedgerCreatedAt(childComplexity), true
+	case "AccountCreatedChange.ledgerNumber":
+		if e.ComplexityRoot.AccountCreatedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.LedgerNumber(childComplexity), true
-	case "AccountCreated.operation":
-		if e.ComplexityRoot.AccountCreated.Operation == nil {
+		return e.ComplexityRoot.AccountCreatedChange.LedgerNumber(childComplexity), true
+	case "AccountCreatedChange.operation":
+		if e.ComplexityRoot.AccountCreatedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.Operation(childComplexity), true
-	case "AccountCreated.reason":
-		if e.ComplexityRoot.AccountCreated.Reason == nil {
+		return e.ComplexityRoot.AccountCreatedChange.Operation(childComplexity), true
+	case "AccountCreatedChange.reason":
+		if e.ComplexityRoot.AccountCreatedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.Reason(childComplexity), true
-	case "AccountCreated.transaction":
-		if e.ComplexityRoot.AccountCreated.Transaction == nil {
+		return e.ComplexityRoot.AccountCreatedChange.Reason(childComplexity), true
+	case "AccountCreatedChange.transaction":
+		if e.ComplexityRoot.AccountCreatedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreated.Transaction(childComplexity), true
+		return e.ComplexityRoot.AccountCreatedChange.Transaction(childComplexity), true
 
 	case "AccountFlagsChange.account":
 		if e.ComplexityRoot.AccountFlagsChange.Account == nil {
@@ -882,60 +882,60 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.AccountFlagsChange.Transaction(childComplexity), true
 
-	case "AccountMerged.account":
-		if e.ComplexityRoot.AccountMerged.Account == nil {
+	case "AccountMergedChange.account":
+		if e.ComplexityRoot.AccountMergedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.Account(childComplexity), true
-	case "AccountMerged.category":
-		if e.ComplexityRoot.AccountMerged.Category == nil {
+		return e.ComplexityRoot.AccountMergedChange.Account(childComplexity), true
+	case "AccountMergedChange.category":
+		if e.ComplexityRoot.AccountMergedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.Category(childComplexity), true
-	case "AccountMerged.destinationAddress":
-		if e.ComplexityRoot.AccountMerged.DestinationAddress == nil {
+		return e.ComplexityRoot.AccountMergedChange.Category(childComplexity), true
+	case "AccountMergedChange.destinationAddress":
+		if e.ComplexityRoot.AccountMergedChange.DestinationAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.DestinationAddress(childComplexity), true
-	case "AccountMerged.ingestedAt":
-		if e.ComplexityRoot.AccountMerged.IngestedAt == nil {
+		return e.ComplexityRoot.AccountMergedChange.DestinationAddress(childComplexity), true
+	case "AccountMergedChange.ingestedAt":
+		if e.ComplexityRoot.AccountMergedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.IngestedAt(childComplexity), true
-	case "AccountMerged.ledgerCreatedAt":
-		if e.ComplexityRoot.AccountMerged.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.AccountMergedChange.IngestedAt(childComplexity), true
+	case "AccountMergedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.AccountMergedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.LedgerCreatedAt(childComplexity), true
-	case "AccountMerged.ledgerNumber":
-		if e.ComplexityRoot.AccountMerged.LedgerNumber == nil {
+		return e.ComplexityRoot.AccountMergedChange.LedgerCreatedAt(childComplexity), true
+	case "AccountMergedChange.ledgerNumber":
+		if e.ComplexityRoot.AccountMergedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.LedgerNumber(childComplexity), true
-	case "AccountMerged.operation":
-		if e.ComplexityRoot.AccountMerged.Operation == nil {
+		return e.ComplexityRoot.AccountMergedChange.LedgerNumber(childComplexity), true
+	case "AccountMergedChange.operation":
+		if e.ComplexityRoot.AccountMergedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.Operation(childComplexity), true
-	case "AccountMerged.reason":
-		if e.ComplexityRoot.AccountMerged.Reason == nil {
+		return e.ComplexityRoot.AccountMergedChange.Operation(childComplexity), true
+	case "AccountMergedChange.reason":
+		if e.ComplexityRoot.AccountMergedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.Reason(childComplexity), true
-	case "AccountMerged.transaction":
-		if e.ComplexityRoot.AccountMerged.Transaction == nil {
+		return e.ComplexityRoot.AccountMergedChange.Reason(childComplexity), true
+	case "AccountMergedChange.transaction":
+		if e.ComplexityRoot.AccountMergedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountMerged.Transaction(childComplexity), true
+		return e.ComplexityRoot.AccountMergedChange.Transaction(childComplexity), true
 
 	case "AccountTransactionConnection.edges":
 		if e.ComplexityRoot.AccountTransactionConnection.Edges == nil {
@@ -1208,60 +1208,60 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
 
-	case "ContractDeployed.account":
-		if e.ComplexityRoot.ContractDeployed.Account == nil {
+	case "ContractDeployedChange.account":
+		if e.ComplexityRoot.ContractDeployedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.Account(childComplexity), true
-	case "ContractDeployed.category":
-		if e.ComplexityRoot.ContractDeployed.Category == nil {
+		return e.ComplexityRoot.ContractDeployedChange.Account(childComplexity), true
+	case "ContractDeployedChange.category":
+		if e.ComplexityRoot.ContractDeployedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.Category(childComplexity), true
-	case "ContractDeployed.deployerAddress":
-		if e.ComplexityRoot.ContractDeployed.DeployerAddress == nil {
+		return e.ComplexityRoot.ContractDeployedChange.Category(childComplexity), true
+	case "ContractDeployedChange.deployerAddress":
+		if e.ComplexityRoot.ContractDeployedChange.DeployerAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.DeployerAddress(childComplexity), true
-	case "ContractDeployed.ingestedAt":
-		if e.ComplexityRoot.ContractDeployed.IngestedAt == nil {
+		return e.ComplexityRoot.ContractDeployedChange.DeployerAddress(childComplexity), true
+	case "ContractDeployedChange.ingestedAt":
+		if e.ComplexityRoot.ContractDeployedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.IngestedAt(childComplexity), true
-	case "ContractDeployed.ledgerCreatedAt":
-		if e.ComplexityRoot.ContractDeployed.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.ContractDeployedChange.IngestedAt(childComplexity), true
+	case "ContractDeployedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.ContractDeployedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.LedgerCreatedAt(childComplexity), true
-	case "ContractDeployed.ledgerNumber":
-		if e.ComplexityRoot.ContractDeployed.LedgerNumber == nil {
+		return e.ComplexityRoot.ContractDeployedChange.LedgerCreatedAt(childComplexity), true
+	case "ContractDeployedChange.ledgerNumber":
+		if e.ComplexityRoot.ContractDeployedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.LedgerNumber(childComplexity), true
-	case "ContractDeployed.operation":
-		if e.ComplexityRoot.ContractDeployed.Operation == nil {
+		return e.ComplexityRoot.ContractDeployedChange.LedgerNumber(childComplexity), true
+	case "ContractDeployedChange.operation":
+		if e.ComplexityRoot.ContractDeployedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.Operation(childComplexity), true
-	case "ContractDeployed.reason":
-		if e.ComplexityRoot.ContractDeployed.Reason == nil {
+		return e.ComplexityRoot.ContractDeployedChange.Operation(childComplexity), true
+	case "ContractDeployedChange.reason":
+		if e.ComplexityRoot.ContractDeployedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.Reason(childComplexity), true
-	case "ContractDeployed.transaction":
-		if e.ComplexityRoot.ContractDeployed.Transaction == nil {
+		return e.ComplexityRoot.ContractDeployedChange.Reason(childComplexity), true
+	case "ContractDeployedChange.transaction":
+		if e.ComplexityRoot.ContractDeployedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.ContractDeployed.Transaction(childComplexity), true
+		return e.ComplexityRoot.ContractDeployedChange.Transaction(childComplexity), true
 
 	case "DataEntryChange.account":
 		if e.ComplexityRoot.DataEntryChange.Account == nil {
@@ -1858,194 +1858,194 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SEP41Balance.TokenType(childComplexity), true
 
-	case "SignerAdded.account":
-		if e.ComplexityRoot.SignerAdded.Account == nil {
+	case "SignerAddedChange.account":
+		if e.ComplexityRoot.SignerAddedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.Account(childComplexity), true
-	case "SignerAdded.category":
-		if e.ComplexityRoot.SignerAdded.Category == nil {
+		return e.ComplexityRoot.SignerAddedChange.Account(childComplexity), true
+	case "SignerAddedChange.category":
+		if e.ComplexityRoot.SignerAddedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.Category(childComplexity), true
-	case "SignerAdded.ingestedAt":
-		if e.ComplexityRoot.SignerAdded.IngestedAt == nil {
+		return e.ComplexityRoot.SignerAddedChange.Category(childComplexity), true
+	case "SignerAddedChange.ingestedAt":
+		if e.ComplexityRoot.SignerAddedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.IngestedAt(childComplexity), true
-	case "SignerAdded.ledgerCreatedAt":
-		if e.ComplexityRoot.SignerAdded.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.SignerAddedChange.IngestedAt(childComplexity), true
+	case "SignerAddedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.SignerAddedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.LedgerCreatedAt(childComplexity), true
-	case "SignerAdded.ledgerNumber":
-		if e.ComplexityRoot.SignerAdded.LedgerNumber == nil {
+		return e.ComplexityRoot.SignerAddedChange.LedgerCreatedAt(childComplexity), true
+	case "SignerAddedChange.ledgerNumber":
+		if e.ComplexityRoot.SignerAddedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.LedgerNumber(childComplexity), true
-	case "SignerAdded.newWeight":
-		if e.ComplexityRoot.SignerAdded.NewWeight == nil {
+		return e.ComplexityRoot.SignerAddedChange.LedgerNumber(childComplexity), true
+	case "SignerAddedChange.newWeight":
+		if e.ComplexityRoot.SignerAddedChange.NewWeight == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.NewWeight(childComplexity), true
-	case "SignerAdded.operation":
-		if e.ComplexityRoot.SignerAdded.Operation == nil {
+		return e.ComplexityRoot.SignerAddedChange.NewWeight(childComplexity), true
+	case "SignerAddedChange.operation":
+		if e.ComplexityRoot.SignerAddedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.Operation(childComplexity), true
-	case "SignerAdded.reason":
-		if e.ComplexityRoot.SignerAdded.Reason == nil {
+		return e.ComplexityRoot.SignerAddedChange.Operation(childComplexity), true
+	case "SignerAddedChange.reason":
+		if e.ComplexityRoot.SignerAddedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.Reason(childComplexity), true
-	case "SignerAdded.signerAddress":
-		if e.ComplexityRoot.SignerAdded.SignerAddress == nil {
+		return e.ComplexityRoot.SignerAddedChange.Reason(childComplexity), true
+	case "SignerAddedChange.signerAddress":
+		if e.ComplexityRoot.SignerAddedChange.SignerAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.SignerAddress(childComplexity), true
-	case "SignerAdded.transaction":
-		if e.ComplexityRoot.SignerAdded.Transaction == nil {
+		return e.ComplexityRoot.SignerAddedChange.SignerAddress(childComplexity), true
+	case "SignerAddedChange.transaction":
+		if e.ComplexityRoot.SignerAddedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerAdded.Transaction(childComplexity), true
+		return e.ComplexityRoot.SignerAddedChange.Transaction(childComplexity), true
 
-	case "SignerRemoved.account":
-		if e.ComplexityRoot.SignerRemoved.Account == nil {
+	case "SignerRemovedChange.account":
+		if e.ComplexityRoot.SignerRemovedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.Account(childComplexity), true
-	case "SignerRemoved.category":
-		if e.ComplexityRoot.SignerRemoved.Category == nil {
+		return e.ComplexityRoot.SignerRemovedChange.Account(childComplexity), true
+	case "SignerRemovedChange.category":
+		if e.ComplexityRoot.SignerRemovedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.Category(childComplexity), true
-	case "SignerRemoved.ingestedAt":
-		if e.ComplexityRoot.SignerRemoved.IngestedAt == nil {
+		return e.ComplexityRoot.SignerRemovedChange.Category(childComplexity), true
+	case "SignerRemovedChange.ingestedAt":
+		if e.ComplexityRoot.SignerRemovedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.IngestedAt(childComplexity), true
-	case "SignerRemoved.ledgerCreatedAt":
-		if e.ComplexityRoot.SignerRemoved.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.SignerRemovedChange.IngestedAt(childComplexity), true
+	case "SignerRemovedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.SignerRemovedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.LedgerCreatedAt(childComplexity), true
-	case "SignerRemoved.ledgerNumber":
-		if e.ComplexityRoot.SignerRemoved.LedgerNumber == nil {
+		return e.ComplexityRoot.SignerRemovedChange.LedgerCreatedAt(childComplexity), true
+	case "SignerRemovedChange.ledgerNumber":
+		if e.ComplexityRoot.SignerRemovedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.LedgerNumber(childComplexity), true
-	case "SignerRemoved.oldWeight":
-		if e.ComplexityRoot.SignerRemoved.OldWeight == nil {
+		return e.ComplexityRoot.SignerRemovedChange.LedgerNumber(childComplexity), true
+	case "SignerRemovedChange.oldWeight":
+		if e.ComplexityRoot.SignerRemovedChange.OldWeight == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.OldWeight(childComplexity), true
-	case "SignerRemoved.operation":
-		if e.ComplexityRoot.SignerRemoved.Operation == nil {
+		return e.ComplexityRoot.SignerRemovedChange.OldWeight(childComplexity), true
+	case "SignerRemovedChange.operation":
+		if e.ComplexityRoot.SignerRemovedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.Operation(childComplexity), true
-	case "SignerRemoved.reason":
-		if e.ComplexityRoot.SignerRemoved.Reason == nil {
+		return e.ComplexityRoot.SignerRemovedChange.Operation(childComplexity), true
+	case "SignerRemovedChange.reason":
+		if e.ComplexityRoot.SignerRemovedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.Reason(childComplexity), true
-	case "SignerRemoved.signerAddress":
-		if e.ComplexityRoot.SignerRemoved.SignerAddress == nil {
+		return e.ComplexityRoot.SignerRemovedChange.Reason(childComplexity), true
+	case "SignerRemovedChange.signerAddress":
+		if e.ComplexityRoot.SignerRemovedChange.SignerAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.SignerAddress(childComplexity), true
-	case "SignerRemoved.transaction":
-		if e.ComplexityRoot.SignerRemoved.Transaction == nil {
+		return e.ComplexityRoot.SignerRemovedChange.SignerAddress(childComplexity), true
+	case "SignerRemovedChange.transaction":
+		if e.ComplexityRoot.SignerRemovedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerRemoved.Transaction(childComplexity), true
+		return e.ComplexityRoot.SignerRemovedChange.Transaction(childComplexity), true
 
-	case "SignerUpdated.account":
-		if e.ComplexityRoot.SignerUpdated.Account == nil {
+	case "SignerUpdatedChange.account":
+		if e.ComplexityRoot.SignerUpdatedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.Account(childComplexity), true
-	case "SignerUpdated.category":
-		if e.ComplexityRoot.SignerUpdated.Category == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.Account(childComplexity), true
+	case "SignerUpdatedChange.category":
+		if e.ComplexityRoot.SignerUpdatedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.Category(childComplexity), true
-	case "SignerUpdated.ingestedAt":
-		if e.ComplexityRoot.SignerUpdated.IngestedAt == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.Category(childComplexity), true
+	case "SignerUpdatedChange.ingestedAt":
+		if e.ComplexityRoot.SignerUpdatedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.IngestedAt(childComplexity), true
-	case "SignerUpdated.ledgerCreatedAt":
-		if e.ComplexityRoot.SignerUpdated.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.IngestedAt(childComplexity), true
+	case "SignerUpdatedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.SignerUpdatedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.LedgerCreatedAt(childComplexity), true
-	case "SignerUpdated.ledgerNumber":
-		if e.ComplexityRoot.SignerUpdated.LedgerNumber == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.LedgerCreatedAt(childComplexity), true
+	case "SignerUpdatedChange.ledgerNumber":
+		if e.ComplexityRoot.SignerUpdatedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.LedgerNumber(childComplexity), true
-	case "SignerUpdated.newWeight":
-		if e.ComplexityRoot.SignerUpdated.NewWeight == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.LedgerNumber(childComplexity), true
+	case "SignerUpdatedChange.newWeight":
+		if e.ComplexityRoot.SignerUpdatedChange.NewWeight == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.NewWeight(childComplexity), true
-	case "SignerUpdated.oldWeight":
-		if e.ComplexityRoot.SignerUpdated.OldWeight == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.NewWeight(childComplexity), true
+	case "SignerUpdatedChange.oldWeight":
+		if e.ComplexityRoot.SignerUpdatedChange.OldWeight == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.OldWeight(childComplexity), true
-	case "SignerUpdated.operation":
-		if e.ComplexityRoot.SignerUpdated.Operation == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.OldWeight(childComplexity), true
+	case "SignerUpdatedChange.operation":
+		if e.ComplexityRoot.SignerUpdatedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.Operation(childComplexity), true
-	case "SignerUpdated.reason":
-		if e.ComplexityRoot.SignerUpdated.Reason == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.Operation(childComplexity), true
+	case "SignerUpdatedChange.reason":
+		if e.ComplexityRoot.SignerUpdatedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.Reason(childComplexity), true
-	case "SignerUpdated.signerAddress":
-		if e.ComplexityRoot.SignerUpdated.SignerAddress == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.Reason(childComplexity), true
+	case "SignerUpdatedChange.signerAddress":
+		if e.ComplexityRoot.SignerUpdatedChange.SignerAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.SignerAddress(childComplexity), true
-	case "SignerUpdated.transaction":
-		if e.ComplexityRoot.SignerUpdated.Transaction == nil {
+		return e.ComplexityRoot.SignerUpdatedChange.SignerAddress(childComplexity), true
+	case "SignerUpdatedChange.transaction":
+		if e.ComplexityRoot.SignerUpdatedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SignerUpdated.Transaction(childComplexity), true
+		return e.ComplexityRoot.SignerUpdatedChange.Transaction(childComplexity), true
 
 	case "SponsorshipChange.account":
 		if e.ComplexityRoot.SponsorshipChange.Account == nil {
@@ -2296,72 +2296,72 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Transaction.StateChanges(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
-	case "TrustlineAdded.account":
-		if e.ComplexityRoot.TrustlineAdded.Account == nil {
+	case "TrustlineAddedChange.account":
+		if e.ComplexityRoot.TrustlineAddedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Account(childComplexity), true
-	case "TrustlineAdded.category":
-		if e.ComplexityRoot.TrustlineAdded.Category == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.Account(childComplexity), true
+	case "TrustlineAddedChange.category":
+		if e.ComplexityRoot.TrustlineAddedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Category(childComplexity), true
-	case "TrustlineAdded.ingestedAt":
-		if e.ComplexityRoot.TrustlineAdded.IngestedAt == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.Category(childComplexity), true
+	case "TrustlineAddedChange.ingestedAt":
+		if e.ComplexityRoot.TrustlineAddedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.IngestedAt(childComplexity), true
-	case "TrustlineAdded.ledgerCreatedAt":
-		if e.ComplexityRoot.TrustlineAdded.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.IngestedAt(childComplexity), true
+	case "TrustlineAddedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.TrustlineAddedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.LedgerCreatedAt(childComplexity), true
-	case "TrustlineAdded.ledgerNumber":
-		if e.ComplexityRoot.TrustlineAdded.LedgerNumber == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.LedgerCreatedAt(childComplexity), true
+	case "TrustlineAddedChange.ledgerNumber":
+		if e.ComplexityRoot.TrustlineAddedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.LedgerNumber(childComplexity), true
-	case "TrustlineAdded.limit":
-		if e.ComplexityRoot.TrustlineAdded.Limit == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.LedgerNumber(childComplexity), true
+	case "TrustlineAddedChange.limit":
+		if e.ComplexityRoot.TrustlineAddedChange.Limit == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Limit(childComplexity), true
-	case "TrustlineAdded.liquidityPoolId":
-		if e.ComplexityRoot.TrustlineAdded.LiquidityPoolID == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.Limit(childComplexity), true
+	case "TrustlineAddedChange.liquidityPoolId":
+		if e.ComplexityRoot.TrustlineAddedChange.LiquidityPoolID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.LiquidityPoolID(childComplexity), true
-	case "TrustlineAdded.operation":
-		if e.ComplexityRoot.TrustlineAdded.Operation == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.LiquidityPoolID(childComplexity), true
+	case "TrustlineAddedChange.operation":
+		if e.ComplexityRoot.TrustlineAddedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Operation(childComplexity), true
-	case "TrustlineAdded.reason":
-		if e.ComplexityRoot.TrustlineAdded.Reason == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.Operation(childComplexity), true
+	case "TrustlineAddedChange.reason":
+		if e.ComplexityRoot.TrustlineAddedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Reason(childComplexity), true
-	case "TrustlineAdded.tokenId":
-		if e.ComplexityRoot.TrustlineAdded.TokenID == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.Reason(childComplexity), true
+	case "TrustlineAddedChange.tokenId":
+		if e.ComplexityRoot.TrustlineAddedChange.TokenID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.TokenID(childComplexity), true
-	case "TrustlineAdded.transaction":
-		if e.ComplexityRoot.TrustlineAdded.Transaction == nil {
+		return e.ComplexityRoot.TrustlineAddedChange.TokenID(childComplexity), true
+	case "TrustlineAddedChange.transaction":
+		if e.ComplexityRoot.TrustlineAddedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineAdded.Transaction(childComplexity), true
+		return e.ComplexityRoot.TrustlineAddedChange.Transaction(childComplexity), true
 
 	case "TrustlineBalance.assetType":
 		if e.ComplexityRoot.TrustlineBalance.AssetType == nil {
@@ -2436,139 +2436,139 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.TrustlineBalance.TokenType(childComplexity), true
 
-	case "TrustlineRemoved.account":
-		if e.ComplexityRoot.TrustlineRemoved.Account == nil {
+	case "TrustlineRemovedChange.account":
+		if e.ComplexityRoot.TrustlineRemovedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.Account(childComplexity), true
-	case "TrustlineRemoved.category":
-		if e.ComplexityRoot.TrustlineRemoved.Category == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.Account(childComplexity), true
+	case "TrustlineRemovedChange.category":
+		if e.ComplexityRoot.TrustlineRemovedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.Category(childComplexity), true
-	case "TrustlineRemoved.ingestedAt":
-		if e.ComplexityRoot.TrustlineRemoved.IngestedAt == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.Category(childComplexity), true
+	case "TrustlineRemovedChange.ingestedAt":
+		if e.ComplexityRoot.TrustlineRemovedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.IngestedAt(childComplexity), true
-	case "TrustlineRemoved.ledgerCreatedAt":
-		if e.ComplexityRoot.TrustlineRemoved.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.IngestedAt(childComplexity), true
+	case "TrustlineRemovedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.TrustlineRemovedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.LedgerCreatedAt(childComplexity), true
-	case "TrustlineRemoved.ledgerNumber":
-		if e.ComplexityRoot.TrustlineRemoved.LedgerNumber == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.LedgerCreatedAt(childComplexity), true
+	case "TrustlineRemovedChange.ledgerNumber":
+		if e.ComplexityRoot.TrustlineRemovedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.LedgerNumber(childComplexity), true
-	case "TrustlineRemoved.liquidityPoolId":
-		if e.ComplexityRoot.TrustlineRemoved.LiquidityPoolID == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.LedgerNumber(childComplexity), true
+	case "TrustlineRemovedChange.liquidityPoolId":
+		if e.ComplexityRoot.TrustlineRemovedChange.LiquidityPoolID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.LiquidityPoolID(childComplexity), true
-	case "TrustlineRemoved.operation":
-		if e.ComplexityRoot.TrustlineRemoved.Operation == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.LiquidityPoolID(childComplexity), true
+	case "TrustlineRemovedChange.operation":
+		if e.ComplexityRoot.TrustlineRemovedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.Operation(childComplexity), true
-	case "TrustlineRemoved.reason":
-		if e.ComplexityRoot.TrustlineRemoved.Reason == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.Operation(childComplexity), true
+	case "TrustlineRemovedChange.reason":
+		if e.ComplexityRoot.TrustlineRemovedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.Reason(childComplexity), true
-	case "TrustlineRemoved.tokenId":
-		if e.ComplexityRoot.TrustlineRemoved.TokenID == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.Reason(childComplexity), true
+	case "TrustlineRemovedChange.tokenId":
+		if e.ComplexityRoot.TrustlineRemovedChange.TokenID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.TokenID(childComplexity), true
-	case "TrustlineRemoved.transaction":
-		if e.ComplexityRoot.TrustlineRemoved.Transaction == nil {
+		return e.ComplexityRoot.TrustlineRemovedChange.TokenID(childComplexity), true
+	case "TrustlineRemovedChange.transaction":
+		if e.ComplexityRoot.TrustlineRemovedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineRemoved.Transaction(childComplexity), true
+		return e.ComplexityRoot.TrustlineRemovedChange.Transaction(childComplexity), true
 
-	case "TrustlineUpdated.account":
-		if e.ComplexityRoot.TrustlineUpdated.Account == nil {
+	case "TrustlineUpdatedChange.account":
+		if e.ComplexityRoot.TrustlineUpdatedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.Account(childComplexity), true
-	case "TrustlineUpdated.category":
-		if e.ComplexityRoot.TrustlineUpdated.Category == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.Account(childComplexity), true
+	case "TrustlineUpdatedChange.category":
+		if e.ComplexityRoot.TrustlineUpdatedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.Category(childComplexity), true
-	case "TrustlineUpdated.ingestedAt":
-		if e.ComplexityRoot.TrustlineUpdated.IngestedAt == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.Category(childComplexity), true
+	case "TrustlineUpdatedChange.ingestedAt":
+		if e.ComplexityRoot.TrustlineUpdatedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.IngestedAt(childComplexity), true
-	case "TrustlineUpdated.ledgerCreatedAt":
-		if e.ComplexityRoot.TrustlineUpdated.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.IngestedAt(childComplexity), true
+	case "TrustlineUpdatedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.TrustlineUpdatedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.LedgerCreatedAt(childComplexity), true
-	case "TrustlineUpdated.ledgerNumber":
-		if e.ComplexityRoot.TrustlineUpdated.LedgerNumber == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.LedgerCreatedAt(childComplexity), true
+	case "TrustlineUpdatedChange.ledgerNumber":
+		if e.ComplexityRoot.TrustlineUpdatedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.LedgerNumber(childComplexity), true
-	case "TrustlineUpdated.liquidityPoolId":
-		if e.ComplexityRoot.TrustlineUpdated.LiquidityPoolID == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.LedgerNumber(childComplexity), true
+	case "TrustlineUpdatedChange.liquidityPoolId":
+		if e.ComplexityRoot.TrustlineUpdatedChange.LiquidityPoolID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.LiquidityPoolID(childComplexity), true
-	case "TrustlineUpdated.newLimit":
-		if e.ComplexityRoot.TrustlineUpdated.NewLimit == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.LiquidityPoolID(childComplexity), true
+	case "TrustlineUpdatedChange.newLimit":
+		if e.ComplexityRoot.TrustlineUpdatedChange.NewLimit == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.NewLimit(childComplexity), true
-	case "TrustlineUpdated.oldLimit":
-		if e.ComplexityRoot.TrustlineUpdated.OldLimit == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.NewLimit(childComplexity), true
+	case "TrustlineUpdatedChange.oldLimit":
+		if e.ComplexityRoot.TrustlineUpdatedChange.OldLimit == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.OldLimit(childComplexity), true
-	case "TrustlineUpdated.operation":
-		if e.ComplexityRoot.TrustlineUpdated.Operation == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.OldLimit(childComplexity), true
+	case "TrustlineUpdatedChange.operation":
+		if e.ComplexityRoot.TrustlineUpdatedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.Operation(childComplexity), true
-	case "TrustlineUpdated.reason":
-		if e.ComplexityRoot.TrustlineUpdated.Reason == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.Operation(childComplexity), true
+	case "TrustlineUpdatedChange.reason":
+		if e.ComplexityRoot.TrustlineUpdatedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.Reason(childComplexity), true
-	case "TrustlineUpdated.tokenId":
-		if e.ComplexityRoot.TrustlineUpdated.TokenID == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.Reason(childComplexity), true
+	case "TrustlineUpdatedChange.tokenId":
+		if e.ComplexityRoot.TrustlineUpdatedChange.TokenID == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.TokenID(childComplexity), true
-	case "TrustlineUpdated.transaction":
-		if e.ComplexityRoot.TrustlineUpdated.Transaction == nil {
+		return e.ComplexityRoot.TrustlineUpdatedChange.TokenID(childComplexity), true
+	case "TrustlineUpdatedChange.transaction":
+		if e.ComplexityRoot.TrustlineUpdatedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.TrustlineUpdated.Transaction(childComplexity), true
+		return e.ComplexityRoot.TrustlineUpdatedChange.Transaction(childComplexity), true
 
 	}
 	return 0, false
@@ -2885,9 +2885,9 @@ exact (category, reason) pairs.
 enum StateChangeCategory {
   """Token balance movements: BalanceChange (operation-sourced) and FeeChange (transaction fees)."""
   BALANCE
-  """Account lifecycle: AccountCreated, ContractDeployed, AccountMerged."""
+  """Account lifecycle: AccountCreatedChange, ContractDeployedChange, AccountMergedChange."""
   ACCOUNT
-  """Account signer set: SignerAdded, SignerUpdated, SignerRemoved."""
+  """Account signer set: SignerAddedChange, SignerUpdatedChange, SignerRemovedChange."""
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
@@ -2895,7 +2895,7 @@ enum StateChangeCategory {
   METADATA
   """Account authorization flags: AccountFlagsChange."""
   FLAGS
-  """Trustlines: TrustlineAdded, TrustlineUpdated, TrustlineRemoved."""
+  """Trustlines: TrustlineAddedChange, TrustlineUpdatedChange, TrustlineRemovedChange."""
   TRUSTLINE
   """Base-reserve sponsorships: SponsorshipChange."""
   RESERVES
@@ -3221,7 +3221,7 @@ type FeeChange implements BaseStateChange {
 A classic account creation. ` + "`" + `account` + "`" + ` is the newly created account.
 Pair: (ACCOUNT, CREATE).
 """
-type AccountCreated implements BaseStateChange {
+type AccountCreatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3239,7 +3239,7 @@ type AccountCreated implements BaseStateChange {
 A smart-contract deployment. ` + "`" + `account` + "`" + ` is the deployed contract address.
 Pair: (ACCOUNT, CREATE).
 """
-type ContractDeployed implements BaseStateChange {
+type ContractDeployedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3257,7 +3257,7 @@ type ContractDeployed implements BaseStateChange {
 An account merge. ` + "`" + `account` + "`" + ` is the merged (removed) account.
 Pair: (ACCOUNT, MERGE).
 """
-type AccountMerged implements BaseStateChange {
+type AccountMergedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3275,7 +3275,7 @@ type AccountMerged implements BaseStateChange {
 A signer added to the account.
 Pair: (SIGNER, ADD).
 """
-type SignerAdded implements BaseStateChange {
+type SignerAddedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3295,7 +3295,7 @@ type SignerAdded implements BaseStateChange {
 An existing signer's weight changed.
 Pair: (SIGNER, UPDATE).
 """
-type SignerUpdated implements BaseStateChange {
+type SignerUpdatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3317,7 +3317,7 @@ type SignerUpdated implements BaseStateChange {
 A signer removed from the account.
 Pair: (SIGNER, REMOVE).
 """
-type SignerRemoved implements BaseStateChange {
+type SignerRemovedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3445,7 +3445,7 @@ type AllowanceChange implements BaseStateChange {
 A trustline created. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, ADD).
 """
-type TrustlineAdded implements BaseStateChange {
+type TrustlineAddedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3467,7 +3467,7 @@ type TrustlineAdded implements BaseStateChange {
 A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, UPDATE).
 """
-type TrustlineUpdated implements BaseStateChange {
+type TrustlineUpdatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3491,7 +3491,7 @@ type TrustlineUpdated implements BaseStateChange {
 A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, REMOVE).
 """
-type TrustlineRemoved implements BaseStateChange {
+type TrustlineRemovedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -4205,14 +4205,14 @@ func (ec *executionContext) fieldContext_Account_sep41Allowances(ctx context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_category,
+		ec.fieldContext_AccountCreatedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().Category(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -4221,9 +4221,9 @@ func (ec *executionContext) _AccountCreated_category(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4234,14 +4234,14 @@ func (ec *executionContext) fieldContext_AccountCreated_category(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_reason,
+		ec.fieldContext_AccountCreatedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().Reason(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -4250,9 +4250,9 @@ func (ec *executionContext) _AccountCreated_reason(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4263,12 +4263,12 @@ func (ec *executionContext) fieldContext_AccountCreated_reason(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_ingestedAt,
+		ec.fieldContext_AccountCreatedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -4279,9 +4279,9 @@ func (ec *executionContext) _AccountCreated_ingestedAt(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4292,12 +4292,12 @@ func (ec *executionContext) fieldContext_AccountCreated_ingestedAt(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_ledgerCreatedAt,
+		ec.fieldContext_AccountCreatedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -4308,9 +4308,9 @@ func (ec *executionContext) _AccountCreated_ledgerCreatedAt(ctx context.Context,
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4321,12 +4321,12 @@ func (ec *executionContext) fieldContext_AccountCreated_ledgerCreatedAt(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_ledgerNumber,
+		ec.fieldContext_AccountCreatedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -4337,9 +4337,9 @@ func (ec *executionContext) _AccountCreated_ledgerNumber(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4350,14 +4350,14 @@ func (ec *executionContext) fieldContext_AccountCreated_ledgerNumber(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_account,
+		ec.fieldContext_AccountCreatedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().Account(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -4366,9 +4366,9 @@ func (ec *executionContext) _AccountCreated_account(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4393,14 +4393,14 @@ func (ec *executionContext) fieldContext_AccountCreated_account(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_operation,
+		ec.fieldContext_AccountCreatedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().Operation(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -4409,9 +4409,9 @@ func (ec *executionContext) _AccountCreated_operation(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4446,14 +4446,14 @@ func (ec *executionContext) fieldContext_AccountCreated_operation(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_transaction,
+		ec.fieldContext_AccountCreatedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().Transaction(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -4462,9 +4462,9 @@ func (ec *executionContext) _AccountCreated_transaction(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4497,14 +4497,14 @@ func (ec *executionContext) fieldContext_AccountCreated_transaction(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreated_funderAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_funderAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreated_funderAddress,
+		ec.fieldContext_AccountCreatedChange_funderAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreated().FunderAddress(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().FunderAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -4513,9 +4513,9 @@ func (ec *executionContext) _AccountCreated_funderAddress(ctx context.Context, f
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreated_funderAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_funderAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountCreated",
+		Object:     "AccountCreatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4847,14 +4847,14 @@ func (ec *executionContext) fieldContext_AccountFlagsChange_flags(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_category,
+		ec.fieldContext_AccountMergedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().Category(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -4863,9 +4863,9 @@ func (ec *executionContext) _AccountMerged_category(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4876,14 +4876,14 @@ func (ec *executionContext) fieldContext_AccountMerged_category(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_reason,
+		ec.fieldContext_AccountMergedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().Reason(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -4892,9 +4892,9 @@ func (ec *executionContext) _AccountMerged_reason(ctx context.Context, field gra
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -4905,12 +4905,12 @@ func (ec *executionContext) fieldContext_AccountMerged_reason(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_ingestedAt,
+		ec.fieldContext_AccountMergedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -4921,9 +4921,9 @@ func (ec *executionContext) _AccountMerged_ingestedAt(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4934,12 +4934,12 @@ func (ec *executionContext) fieldContext_AccountMerged_ingestedAt(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_ledgerCreatedAt,
+		ec.fieldContext_AccountMergedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -4950,9 +4950,9 @@ func (ec *executionContext) _AccountMerged_ledgerCreatedAt(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4963,12 +4963,12 @@ func (ec *executionContext) fieldContext_AccountMerged_ledgerCreatedAt(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_ledgerNumber,
+		ec.fieldContext_AccountMergedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -4979,9 +4979,9 @@ func (ec *executionContext) _AccountMerged_ledgerNumber(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -4992,14 +4992,14 @@ func (ec *executionContext) fieldContext_AccountMerged_ledgerNumber(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_account,
+		ec.fieldContext_AccountMergedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().Account(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -5008,9 +5008,9 @@ func (ec *executionContext) _AccountMerged_account(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5035,14 +5035,14 @@ func (ec *executionContext) fieldContext_AccountMerged_account(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_operation,
+		ec.fieldContext_AccountMergedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().Operation(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -5051,9 +5051,9 @@ func (ec *executionContext) _AccountMerged_operation(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5088,14 +5088,14 @@ func (ec *executionContext) fieldContext_AccountMerged_operation(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_transaction,
+		ec.fieldContext_AccountMergedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().Transaction(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -5104,9 +5104,9 @@ func (ec *executionContext) _AccountMerged_transaction(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -5139,14 +5139,14 @@ func (ec *executionContext) fieldContext_AccountMerged_transaction(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountMerged_destinationAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountMergedChange_destinationAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountMergedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountMerged_destinationAddress,
+		ec.fieldContext_AccountMergedChange_destinationAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountMerged().DestinationAddress(ctx, obj)
+			return ec.Resolvers.AccountMergedChange().DestinationAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -5155,9 +5155,9 @@ func (ec *executionContext) _AccountMerged_destinationAddress(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountMerged_destinationAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountMergedChange_destinationAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "AccountMerged",
+		Object:     "AccountMergedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6706,14 +6706,14 @@ func (ec *executionContext) fieldContext_BalanceEdge_cursor(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_category(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_category,
+		ec.fieldContext_ContractDeployedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().Category(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -6722,9 +6722,9 @@ func (ec *executionContext) _ContractDeployed_category(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6735,14 +6735,14 @@ func (ec *executionContext) fieldContext_ContractDeployed_category(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_reason(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_reason,
+		ec.fieldContext_ContractDeployedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().Reason(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -6751,9 +6751,9 @@ func (ec *executionContext) _ContractDeployed_reason(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6764,12 +6764,12 @@ func (ec *executionContext) fieldContext_ContractDeployed_reason(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_ingestedAt,
+		ec.fieldContext_ContractDeployedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -6780,9 +6780,9 @@ func (ec *executionContext) _ContractDeployed_ingestedAt(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -6793,12 +6793,12 @@ func (ec *executionContext) fieldContext_ContractDeployed_ingestedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_ledgerCreatedAt,
+		ec.fieldContext_ContractDeployedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -6809,9 +6809,9 @@ func (ec *executionContext) _ContractDeployed_ledgerCreatedAt(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -6822,12 +6822,12 @@ func (ec *executionContext) fieldContext_ContractDeployed_ledgerCreatedAt(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_ledgerNumber,
+		ec.fieldContext_ContractDeployedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -6838,9 +6838,9 @@ func (ec *executionContext) _ContractDeployed_ledgerNumber(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -6851,14 +6851,14 @@ func (ec *executionContext) fieldContext_ContractDeployed_ledgerNumber(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_account(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_account,
+		ec.fieldContext_ContractDeployedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().Account(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -6867,9 +6867,9 @@ func (ec *executionContext) _ContractDeployed_account(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6894,14 +6894,14 @@ func (ec *executionContext) fieldContext_ContractDeployed_account(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_operation(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_operation,
+		ec.fieldContext_ContractDeployedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().Operation(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -6910,9 +6910,9 @@ func (ec *executionContext) _ContractDeployed_operation(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6947,14 +6947,14 @@ func (ec *executionContext) fieldContext_ContractDeployed_operation(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_transaction(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_transaction,
+		ec.fieldContext_ContractDeployedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().Transaction(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -6963,9 +6963,9 @@ func (ec *executionContext) _ContractDeployed_transaction(ctx context.Context, f
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -6998,14 +6998,14 @@ func (ec *executionContext) fieldContext_ContractDeployed_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractDeployed_deployerAddress(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractDeployedChange_deployerAddress(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_ContractDeployed_deployerAddress,
+		ec.fieldContext_ContractDeployedChange_deployerAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployed().DeployerAddress(ctx, obj)
+			return ec.Resolvers.ContractDeployedChange().DeployerAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -7014,9 +7014,9 @@ func (ec *executionContext) _ContractDeployed_deployerAddress(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_ContractDeployed_deployerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_ContractDeployedChange_deployerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "ContractDeployed",
+		Object:     "ContractDeployedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10238,14 +10238,14 @@ func (ec *executionContext) fieldContext_SEP41Balance_lastModifiedLedger(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_category,
+		ec.fieldContext_SignerAddedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().Category(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -10254,9 +10254,9 @@ func (ec *executionContext) _SignerAdded_category(ctx context.Context, field gra
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10267,14 +10267,14 @@ func (ec *executionContext) fieldContext_SignerAdded_category(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_reason,
+		ec.fieldContext_SignerAddedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().Reason(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -10283,9 +10283,9 @@ func (ec *executionContext) _SignerAdded_reason(ctx context.Context, field graph
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10296,12 +10296,12 @@ func (ec *executionContext) fieldContext_SignerAdded_reason(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_ingestedAt,
+		ec.fieldContext_SignerAddedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -10312,9 +10312,9 @@ func (ec *executionContext) _SignerAdded_ingestedAt(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10325,12 +10325,12 @@ func (ec *executionContext) fieldContext_SignerAdded_ingestedAt(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_ledgerCreatedAt,
+		ec.fieldContext_SignerAddedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -10341,9 +10341,9 @@ func (ec *executionContext) _SignerAdded_ledgerCreatedAt(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10354,12 +10354,12 @@ func (ec *executionContext) fieldContext_SignerAdded_ledgerCreatedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_ledgerNumber,
+		ec.fieldContext_SignerAddedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -10370,9 +10370,9 @@ func (ec *executionContext) _SignerAdded_ledgerNumber(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10383,14 +10383,14 @@ func (ec *executionContext) fieldContext_SignerAdded_ledgerNumber(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_account,
+		ec.fieldContext_SignerAddedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().Account(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -10399,9 +10399,9 @@ func (ec *executionContext) _SignerAdded_account(ctx context.Context, field grap
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10426,14 +10426,14 @@ func (ec *executionContext) fieldContext_SignerAdded_account(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_operation,
+		ec.fieldContext_SignerAddedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().Operation(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -10442,9 +10442,9 @@ func (ec *executionContext) _SignerAdded_operation(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10479,14 +10479,14 @@ func (ec *executionContext) fieldContext_SignerAdded_operation(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_transaction,
+		ec.fieldContext_SignerAddedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().Transaction(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -10495,9 +10495,9 @@ func (ec *executionContext) _SignerAdded_transaction(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10530,14 +10530,14 @@ func (ec *executionContext) fieldContext_SignerAdded_transaction(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_signerAddress,
+		ec.fieldContext_SignerAddedChange_signerAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().SignerAddress(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().SignerAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -10546,9 +10546,9 @@ func (ec *executionContext) _SignerAdded_signerAddress(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10559,14 +10559,14 @@ func (ec *executionContext) fieldContext_SignerAdded_signerAddress(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerAdded_newWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerAddedChange_newWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerAdded_newWeight,
+		ec.fieldContext_SignerAddedChange_newWeight,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerAdded().NewWeight(ctx, obj)
+			return ec.Resolvers.SignerAddedChange().NewWeight(ctx, obj)
 		},
 		nil,
 		ec.marshalNInt2int32,
@@ -10575,9 +10575,9 @@ func (ec *executionContext) _SignerAdded_newWeight(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerAdded_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerAddedChange_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerAdded",
+		Object:     "SignerAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10588,14 +10588,14 @@ func (ec *executionContext) fieldContext_SignerAdded_newWeight(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_category,
+		ec.fieldContext_SignerRemovedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().Category(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -10604,9 +10604,9 @@ func (ec *executionContext) _SignerRemoved_category(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10617,14 +10617,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_category(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_reason,
+		ec.fieldContext_SignerRemovedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().Reason(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -10633,9 +10633,9 @@ func (ec *executionContext) _SignerRemoved_reason(ctx context.Context, field gra
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10646,12 +10646,12 @@ func (ec *executionContext) fieldContext_SignerRemoved_reason(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_ingestedAt,
+		ec.fieldContext_SignerRemovedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -10662,9 +10662,9 @@ func (ec *executionContext) _SignerRemoved_ingestedAt(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10675,12 +10675,12 @@ func (ec *executionContext) fieldContext_SignerRemoved_ingestedAt(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_ledgerCreatedAt,
+		ec.fieldContext_SignerRemovedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -10691,9 +10691,9 @@ func (ec *executionContext) _SignerRemoved_ledgerCreatedAt(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10704,12 +10704,12 @@ func (ec *executionContext) fieldContext_SignerRemoved_ledgerCreatedAt(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_ledgerNumber,
+		ec.fieldContext_SignerRemovedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -10720,9 +10720,9 @@ func (ec *executionContext) _SignerRemoved_ledgerNumber(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -10733,14 +10733,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_ledgerNumber(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_account,
+		ec.fieldContext_SignerRemovedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().Account(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -10749,9 +10749,9 @@ func (ec *executionContext) _SignerRemoved_account(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10776,14 +10776,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_account(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_operation,
+		ec.fieldContext_SignerRemovedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().Operation(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -10792,9 +10792,9 @@ func (ec *executionContext) _SignerRemoved_operation(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10829,14 +10829,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_operation(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_transaction,
+		ec.fieldContext_SignerRemovedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().Transaction(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -10845,9 +10845,9 @@ func (ec *executionContext) _SignerRemoved_transaction(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10880,14 +10880,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_transaction(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_signerAddress,
+		ec.fieldContext_SignerRemovedChange_signerAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().SignerAddress(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().SignerAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -10896,9 +10896,9 @@ func (ec *executionContext) _SignerRemoved_signerAddress(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10909,14 +10909,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_signerAddress(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerRemoved_oldWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerRemovedChange_oldWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerRemoved_oldWeight,
+		ec.fieldContext_SignerRemovedChange_oldWeight,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerRemoved().OldWeight(ctx, obj)
+			return ec.Resolvers.SignerRemovedChange().OldWeight(ctx, obj)
 		},
 		nil,
 		ec.marshalOInt2ᚖint32,
@@ -10925,9 +10925,9 @@ func (ec *executionContext) _SignerRemoved_oldWeight(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerRemoved_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerRemovedChange_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerRemoved",
+		Object:     "SignerRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10938,14 +10938,14 @@ func (ec *executionContext) fieldContext_SignerRemoved_oldWeight(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_category,
+		ec.fieldContext_SignerUpdatedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().Category(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -10954,9 +10954,9 @@ func (ec *executionContext) _SignerUpdated_category(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10967,14 +10967,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_category(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_reason,
+		ec.fieldContext_SignerUpdatedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().Reason(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -10983,9 +10983,9 @@ func (ec *executionContext) _SignerUpdated_reason(ctx context.Context, field gra
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -10996,12 +10996,12 @@ func (ec *executionContext) fieldContext_SignerUpdated_reason(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_ingestedAt,
+		ec.fieldContext_SignerUpdatedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -11012,9 +11012,9 @@ func (ec *executionContext) _SignerUpdated_ingestedAt(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -11025,12 +11025,12 @@ func (ec *executionContext) fieldContext_SignerUpdated_ingestedAt(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_ledgerCreatedAt,
+		ec.fieldContext_SignerUpdatedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -11041,9 +11041,9 @@ func (ec *executionContext) _SignerUpdated_ledgerCreatedAt(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -11054,12 +11054,12 @@ func (ec *executionContext) fieldContext_SignerUpdated_ledgerCreatedAt(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_ledgerNumber,
+		ec.fieldContext_SignerUpdatedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -11070,9 +11070,9 @@ func (ec *executionContext) _SignerUpdated_ledgerNumber(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -11083,14 +11083,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_ledgerNumber(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_account,
+		ec.fieldContext_SignerUpdatedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().Account(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -11099,9 +11099,9 @@ func (ec *executionContext) _SignerUpdated_account(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11126,14 +11126,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_account(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_operation,
+		ec.fieldContext_SignerUpdatedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().Operation(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -11142,9 +11142,9 @@ func (ec *executionContext) _SignerUpdated_operation(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11179,14 +11179,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_operation(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_transaction,
+		ec.fieldContext_SignerUpdatedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().Transaction(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -11195,9 +11195,9 @@ func (ec *executionContext) _SignerUpdated_transaction(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11230,14 +11230,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_transaction(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_signerAddress,
+		ec.fieldContext_SignerUpdatedChange_signerAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().SignerAddress(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().SignerAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -11246,9 +11246,9 @@ func (ec *executionContext) _SignerUpdated_signerAddress(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11259,14 +11259,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_signerAddress(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_oldWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_oldWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_oldWeight,
+		ec.fieldContext_SignerUpdatedChange_oldWeight,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().OldWeight(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().OldWeight(ctx, obj)
 		},
 		nil,
 		ec.marshalOInt2ᚖint32,
@@ -11275,9 +11275,9 @@ func (ec *executionContext) _SignerUpdated_oldWeight(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -11288,14 +11288,14 @@ func (ec *executionContext) fieldContext_SignerUpdated_oldWeight(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _SignerUpdated_newWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _SignerUpdatedChange_newWeight(ctx context.Context, field graphql.CollectedField, obj *types.SignerUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SignerUpdated_newWeight,
+		ec.fieldContext_SignerUpdatedChange_newWeight,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SignerUpdated().NewWeight(ctx, obj)
+			return ec.Resolvers.SignerUpdatedChange().NewWeight(ctx, obj)
 		},
 		nil,
 		ec.marshalNInt2int32,
@@ -11304,9 +11304,9 @@ func (ec *executionContext) _SignerUpdated_newWeight(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_SignerUpdated_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SignerUpdatedChange_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "SignerUpdated",
+		Object:     "SignerUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12634,14 +12634,14 @@ func (ec *executionContext) fieldContext_Transaction_stateChanges(ctx context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_category,
+		ec.fieldContext_TrustlineAddedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Category(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -12650,9 +12650,9 @@ func (ec *executionContext) _TrustlineAdded_category(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12663,14 +12663,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_category(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_reason,
+		ec.fieldContext_TrustlineAddedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Reason(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -12679,9 +12679,9 @@ func (ec *executionContext) _TrustlineAdded_reason(ctx context.Context, field gr
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12692,12 +12692,12 @@ func (ec *executionContext) fieldContext_TrustlineAdded_reason(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_ingestedAt,
+		ec.fieldContext_TrustlineAddedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -12708,9 +12708,9 @@ func (ec *executionContext) _TrustlineAdded_ingestedAt(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -12721,12 +12721,12 @@ func (ec *executionContext) fieldContext_TrustlineAdded_ingestedAt(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_ledgerCreatedAt,
+		ec.fieldContext_TrustlineAddedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -12737,9 +12737,9 @@ func (ec *executionContext) _TrustlineAdded_ledgerCreatedAt(ctx context.Context,
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -12750,12 +12750,12 @@ func (ec *executionContext) fieldContext_TrustlineAdded_ledgerCreatedAt(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_ledgerNumber,
+		ec.fieldContext_TrustlineAddedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -12766,9 +12766,9 @@ func (ec *executionContext) _TrustlineAdded_ledgerNumber(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -12779,14 +12779,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_ledgerNumber(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_account,
+		ec.fieldContext_TrustlineAddedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Account(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -12795,9 +12795,9 @@ func (ec *executionContext) _TrustlineAdded_account(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12822,14 +12822,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_account(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_operation,
+		ec.fieldContext_TrustlineAddedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Operation(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -12838,9 +12838,9 @@ func (ec *executionContext) _TrustlineAdded_operation(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12875,14 +12875,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_operation(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_transaction,
+		ec.fieldContext_TrustlineAddedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Transaction(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -12891,9 +12891,9 @@ func (ec *executionContext) _TrustlineAdded_transaction(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12926,14 +12926,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_transaction(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_tokenId,
+		ec.fieldContext_TrustlineAddedChange_tokenId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().TokenID(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().TokenID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -12942,9 +12942,9 @@ func (ec *executionContext) _TrustlineAdded_tokenId(ctx context.Context, field g
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12955,14 +12955,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_tokenId(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_liquidityPoolId,
+		ec.fieldContext_TrustlineAddedChange_liquidityPoolId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().LiquidityPoolID(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().LiquidityPoolID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -12971,9 +12971,9 @@ func (ec *executionContext) _TrustlineAdded_liquidityPoolId(ctx context.Context,
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -12984,14 +12984,14 @@ func (ec *executionContext) fieldContext_TrustlineAdded_liquidityPoolId(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineAdded_limit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineAddedChange_limit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineAdded_limit,
+		ec.fieldContext_TrustlineAddedChange_limit,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineAdded().Limit(ctx, obj)
+			return ec.Resolvers.TrustlineAddedChange().Limit(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -13000,9 +13000,9 @@ func (ec *executionContext) _TrustlineAdded_limit(ctx context.Context, field gra
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineAdded_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineAddedChange_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineAdded",
+		Object:     "TrustlineAddedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13361,14 +13361,14 @@ func (ec *executionContext) fieldContext_TrustlineBalance_isAuthorizedToMaintain
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_category,
+		ec.fieldContext_TrustlineRemovedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().Category(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -13377,9 +13377,9 @@ func (ec *executionContext) _TrustlineRemoved_category(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13390,14 +13390,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_category(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_reason,
+		ec.fieldContext_TrustlineRemovedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().Reason(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -13406,9 +13406,9 @@ func (ec *executionContext) _TrustlineRemoved_reason(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13419,12 +13419,12 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_reason(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_ingestedAt,
+		ec.fieldContext_TrustlineRemovedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -13435,9 +13435,9 @@ func (ec *executionContext) _TrustlineRemoved_ingestedAt(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13448,12 +13448,12 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_ingestedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_ledgerCreatedAt,
+		ec.fieldContext_TrustlineRemovedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -13464,9 +13464,9 @@ func (ec *executionContext) _TrustlineRemoved_ledgerCreatedAt(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13477,12 +13477,12 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_ledgerCreatedAt(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_ledgerNumber,
+		ec.fieldContext_TrustlineRemovedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -13493,9 +13493,9 @@ func (ec *executionContext) _TrustlineRemoved_ledgerNumber(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13506,14 +13506,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_ledgerNumber(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_account,
+		ec.fieldContext_TrustlineRemovedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().Account(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -13522,9 +13522,9 @@ func (ec *executionContext) _TrustlineRemoved_account(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13549,14 +13549,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_account(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_operation,
+		ec.fieldContext_TrustlineRemovedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().Operation(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -13565,9 +13565,9 @@ func (ec *executionContext) _TrustlineRemoved_operation(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13602,14 +13602,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_operation(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_transaction,
+		ec.fieldContext_TrustlineRemovedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().Transaction(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -13618,9 +13618,9 @@ func (ec *executionContext) _TrustlineRemoved_transaction(ctx context.Context, f
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13653,14 +13653,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_tokenId,
+		ec.fieldContext_TrustlineRemovedChange_tokenId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().TokenID(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().TokenID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -13669,9 +13669,9 @@ func (ec *executionContext) _TrustlineRemoved_tokenId(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13682,14 +13682,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_tokenId(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineRemoved_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineRemovedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineRemovedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineRemoved_liquidityPoolId,
+		ec.fieldContext_TrustlineRemovedChange_liquidityPoolId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineRemoved().LiquidityPoolID(ctx, obj)
+			return ec.Resolvers.TrustlineRemovedChange().LiquidityPoolID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -13698,9 +13698,9 @@ func (ec *executionContext) _TrustlineRemoved_liquidityPoolId(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineRemoved_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineRemovedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineRemoved",
+		Object:     "TrustlineRemovedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13711,14 +13711,14 @@ func (ec *executionContext) fieldContext_TrustlineRemoved_liquidityPoolId(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_category,
+		ec.fieldContext_TrustlineUpdatedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().Category(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -13727,9 +13727,9 @@ func (ec *executionContext) _TrustlineUpdated_category(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13740,14 +13740,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_category(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_reason,
+		ec.fieldContext_TrustlineUpdatedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().Reason(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -13756,9 +13756,9 @@ func (ec *executionContext) _TrustlineUpdated_reason(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13769,12 +13769,12 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_reason(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_ingestedAt,
+		ec.fieldContext_TrustlineUpdatedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -13785,9 +13785,9 @@ func (ec *executionContext) _TrustlineUpdated_ingestedAt(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13798,12 +13798,12 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_ingestedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_ledgerCreatedAt,
+		ec.fieldContext_TrustlineUpdatedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -13814,9 +13814,9 @@ func (ec *executionContext) _TrustlineUpdated_ledgerCreatedAt(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13827,12 +13827,12 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_ledgerCreatedAt(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_ledgerNumber,
+		ec.fieldContext_TrustlineUpdatedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -13843,9 +13843,9 @@ func (ec *executionContext) _TrustlineUpdated_ledgerNumber(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -13856,14 +13856,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_ledgerNumber(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_account,
+		ec.fieldContext_TrustlineUpdatedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().Account(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -13872,9 +13872,9 @@ func (ec *executionContext) _TrustlineUpdated_account(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13899,14 +13899,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_account(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_operation,
+		ec.fieldContext_TrustlineUpdatedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().Operation(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -13915,9 +13915,9 @@ func (ec *executionContext) _TrustlineUpdated_operation(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -13952,14 +13952,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_operation(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_transaction,
+		ec.fieldContext_TrustlineUpdatedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().Transaction(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -13968,9 +13968,9 @@ func (ec *executionContext) _TrustlineUpdated_transaction(ctx context.Context, f
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -14003,14 +14003,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_tokenId,
+		ec.fieldContext_TrustlineUpdatedChange_tokenId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().TokenID(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().TokenID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -14019,9 +14019,9 @@ func (ec *executionContext) _TrustlineUpdated_tokenId(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -14032,14 +14032,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_tokenId(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_liquidityPoolId,
+		ec.fieldContext_TrustlineUpdatedChange_liquidityPoolId,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().LiquidityPoolID(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().LiquidityPoolID(ctx, obj)
 		},
 		nil,
 		ec.marshalOString2ᚖstring,
@@ -14048,9 +14048,9 @@ func (ec *executionContext) _TrustlineUpdated_liquidityPoolId(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -14061,14 +14061,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_liquidityPoolId(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_oldLimit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_oldLimit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_oldLimit,
+		ec.fieldContext_TrustlineUpdatedChange_oldLimit,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().OldLimit(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().OldLimit(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -14077,9 +14077,9 @@ func (ec *executionContext) _TrustlineUpdated_oldLimit(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_oldLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_oldLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -14090,14 +14090,14 @@ func (ec *executionContext) fieldContext_TrustlineUpdated_oldLimit(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _TrustlineUpdated_newLimit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _TrustlineUpdatedChange_newLimit(ctx context.Context, field graphql.CollectedField, obj *types.TrustlineUpdatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_TrustlineUpdated_newLimit,
+		ec.fieldContext_TrustlineUpdatedChange_newLimit,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.TrustlineUpdated().NewLimit(ctx, obj)
+			return ec.Resolvers.TrustlineUpdatedChange().NewLimit(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -14106,9 +14106,9 @@ func (ec *executionContext) _TrustlineUpdated_newLimit(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_TrustlineUpdated_newLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_TrustlineUpdatedChange_newLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "TrustlineUpdated",
+		Object:     "TrustlineUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -15672,27 +15672,27 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 	switch obj := (obj).(type) {
 	case nil:
 		return graphql.Null
-	case types.TrustlineUpdatedModel:
-		return ec._TrustlineUpdated(ctx, sel, &obj)
-	case *types.TrustlineUpdatedModel:
+	case types.TrustlineUpdatedChangeModel:
+		return ec._TrustlineUpdatedChange(ctx, sel, &obj)
+	case *types.TrustlineUpdatedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._TrustlineUpdated(ctx, sel, obj)
-	case types.TrustlineRemovedModel:
-		return ec._TrustlineRemoved(ctx, sel, &obj)
-	case *types.TrustlineRemovedModel:
+		return ec._TrustlineUpdatedChange(ctx, sel, obj)
+	case types.TrustlineRemovedChangeModel:
+		return ec._TrustlineRemovedChange(ctx, sel, &obj)
+	case *types.TrustlineRemovedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._TrustlineRemoved(ctx, sel, obj)
-	case types.TrustlineAddedModel:
-		return ec._TrustlineAdded(ctx, sel, &obj)
-	case *types.TrustlineAddedModel:
+		return ec._TrustlineRemovedChange(ctx, sel, obj)
+	case types.TrustlineAddedChangeModel:
+		return ec._TrustlineAddedChange(ctx, sel, &obj)
+	case *types.TrustlineAddedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._TrustlineAdded(ctx, sel, obj)
+		return ec._TrustlineAddedChange(ctx, sel, obj)
 	case types.ThresholdChangeModel:
 		return ec._ThresholdChange(ctx, sel, &obj)
 	case *types.ThresholdChangeModel:
@@ -15707,27 +15707,27 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._SponsorshipChange(ctx, sel, obj)
-	case types.SignerUpdatedModel:
-		return ec._SignerUpdated(ctx, sel, &obj)
-	case *types.SignerUpdatedModel:
+	case types.SignerUpdatedChangeModel:
+		return ec._SignerUpdatedChange(ctx, sel, &obj)
+	case *types.SignerUpdatedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._SignerUpdated(ctx, sel, obj)
-	case types.SignerRemovedModel:
-		return ec._SignerRemoved(ctx, sel, &obj)
-	case *types.SignerRemovedModel:
+		return ec._SignerUpdatedChange(ctx, sel, obj)
+	case types.SignerRemovedChangeModel:
+		return ec._SignerRemovedChange(ctx, sel, &obj)
+	case *types.SignerRemovedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._SignerRemoved(ctx, sel, obj)
-	case types.SignerAddedModel:
-		return ec._SignerAdded(ctx, sel, &obj)
-	case *types.SignerAddedModel:
+		return ec._SignerRemovedChange(ctx, sel, obj)
+	case types.SignerAddedChangeModel:
+		return ec._SignerAddedChange(ctx, sel, &obj)
+	case *types.SignerAddedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._SignerAdded(ctx, sel, obj)
+		return ec._SignerAddedChange(ctx, sel, obj)
 	case types.HomeDomainChangeModel:
 		return ec._HomeDomainChange(ctx, sel, &obj)
 	case *types.HomeDomainChangeModel:
@@ -15749,13 +15749,13 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._DataEntryChange(ctx, sel, obj)
-	case types.ContractDeployedModel:
-		return ec._ContractDeployed(ctx, sel, &obj)
-	case *types.ContractDeployedModel:
+	case types.ContractDeployedChangeModel:
+		return ec._ContractDeployedChange(ctx, sel, &obj)
+	case *types.ContractDeployedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._ContractDeployed(ctx, sel, obj)
+		return ec._ContractDeployedChange(ctx, sel, obj)
 	case types.BalanceChangeModel:
 		return ec._BalanceChange(ctx, sel, &obj)
 	case *types.BalanceChangeModel:
@@ -15777,13 +15777,13 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._AllowanceChange(ctx, sel, obj)
-	case types.AccountMergedModel:
-		return ec._AccountMerged(ctx, sel, &obj)
-	case *types.AccountMergedModel:
+	case types.AccountMergedChangeModel:
+		return ec._AccountMergedChange(ctx, sel, &obj)
+	case *types.AccountMergedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._AccountMerged(ctx, sel, obj)
+		return ec._AccountMergedChange(ctx, sel, obj)
 	case types.AccountFlagsChangeModel:
 		return ec._AccountFlagsChange(ctx, sel, &obj)
 	case *types.AccountFlagsChangeModel:
@@ -15791,13 +15791,13 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._AccountFlagsChange(ctx, sel, obj)
-	case types.AccountCreatedModel:
-		return ec._AccountCreated(ctx, sel, &obj)
-	case *types.AccountCreatedModel:
+	case types.AccountCreatedChangeModel:
+		return ec._AccountCreatedChange(ctx, sel, &obj)
+	case *types.AccountCreatedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._AccountCreated(ctx, sel, obj)
+		return ec._AccountCreatedChange(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -16061,17 +16061,17 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 	return out
 }
 
-var accountCreatedImplementors = []string{"AccountCreated", "BaseStateChange"}
+var accountCreatedChangeImplementors = []string{"AccountCreatedChange", "BaseStateChange"}
 
-func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.SelectionSet, obj *types.AccountCreatedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, accountCreatedImplementors)
+func (ec *executionContext) _AccountCreatedChange(ctx context.Context, sel ast.SelectionSet, obj *types.AccountCreatedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accountCreatedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("AccountCreated")
+			out.Values[i] = graphql.MarshalString("AccountCreatedChange")
 		case "category":
 			field := field
 
@@ -16081,7 +16081,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_category(ctx, field, obj)
+				res = ec._AccountCreatedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16117,7 +16117,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_reason(ctx, field, obj)
+				res = ec._AccountCreatedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16145,17 +16145,17 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._AccountCreated_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountCreatedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._AccountCreated_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountCreatedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._AccountCreated_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._AccountCreatedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -16168,7 +16168,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_account(ctx, field, obj)
+				res = ec._AccountCreatedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16204,7 +16204,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_operation(ctx, field, obj)
+				res = ec._AccountCreatedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16240,7 +16240,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_transaction(ctx, field, obj)
+				res = ec._AccountCreatedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16276,7 +16276,7 @@ func (ec *executionContext) _AccountCreated(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreated_funderAddress(ctx, field, obj)
+				res = ec._AccountCreatedChange_funderAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16591,17 +16591,17 @@ func (ec *executionContext) _AccountFlagsChange(ctx context.Context, sel ast.Sel
 	return out
 }
 
-var accountMergedImplementors = []string{"AccountMerged", "BaseStateChange"}
+var accountMergedChangeImplementors = []string{"AccountMergedChange", "BaseStateChange"}
 
-func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.SelectionSet, obj *types.AccountMergedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, accountMergedImplementors)
+func (ec *executionContext) _AccountMergedChange(ctx context.Context, sel ast.SelectionSet, obj *types.AccountMergedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, accountMergedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("AccountMerged")
+			out.Values[i] = graphql.MarshalString("AccountMergedChange")
 		case "category":
 			field := field
 
@@ -16611,7 +16611,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_category(ctx, field, obj)
+				res = ec._AccountMergedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16647,7 +16647,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_reason(ctx, field, obj)
+				res = ec._AccountMergedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16675,17 +16675,17 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._AccountMerged_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountMergedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._AccountMerged_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._AccountMergedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._AccountMerged_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._AccountMergedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -16698,7 +16698,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_account(ctx, field, obj)
+				res = ec._AccountMergedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16734,7 +16734,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_operation(ctx, field, obj)
+				res = ec._AccountMergedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16770,7 +16770,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_transaction(ctx, field, obj)
+				res = ec._AccountMergedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16806,7 +16806,7 @@ func (ec *executionContext) _AccountMerged(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountMerged_destinationAddress(ctx, field, obj)
+				res = ec._AccountMergedChange_destinationAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18139,17 +18139,17 @@ func (ec *executionContext) _BalanceEdge(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
-var contractDeployedImplementors = []string{"ContractDeployed", "BaseStateChange"}
+var contractDeployedChangeImplementors = []string{"ContractDeployedChange", "BaseStateChange"}
 
-func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.SelectionSet, obj *types.ContractDeployedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, contractDeployedImplementors)
+func (ec *executionContext) _ContractDeployedChange(ctx context.Context, sel ast.SelectionSet, obj *types.ContractDeployedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, contractDeployedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("ContractDeployed")
+			out.Values[i] = graphql.MarshalString("ContractDeployedChange")
 		case "category":
 			field := field
 
@@ -18159,7 +18159,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_category(ctx, field, obj)
+				res = ec._ContractDeployedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18195,7 +18195,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_reason(ctx, field, obj)
+				res = ec._ContractDeployedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18223,17 +18223,17 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._ContractDeployed_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._ContractDeployedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._ContractDeployed_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._ContractDeployedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._ContractDeployed_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._ContractDeployedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -18246,7 +18246,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_account(ctx, field, obj)
+				res = ec._ContractDeployedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18282,7 +18282,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_operation(ctx, field, obj)
+				res = ec._ContractDeployedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18318,7 +18318,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_transaction(ctx, field, obj)
+				res = ec._ContractDeployedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18354,7 +18354,7 @@ func (ec *executionContext) _ContractDeployed(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._ContractDeployed_deployerAddress(ctx, field, obj)
+				res = ec._ContractDeployedChange_deployerAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20250,17 +20250,17 @@ func (ec *executionContext) _SEP41Balance(ctx context.Context, sel ast.Selection
 	return out
 }
 
-var signerAddedImplementors = []string{"SignerAdded", "BaseStateChange"}
+var signerAddedChangeImplementors = []string{"SignerAddedChange", "BaseStateChange"}
 
-func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionSet, obj *types.SignerAddedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, signerAddedImplementors)
+func (ec *executionContext) _SignerAddedChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerAddedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, signerAddedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SignerAdded")
+			out.Values[i] = graphql.MarshalString("SignerAddedChange")
 		case "category":
 			field := field
 
@@ -20270,7 +20270,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_category(ctx, field, obj)
+				res = ec._SignerAddedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20306,7 +20306,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_reason(ctx, field, obj)
+				res = ec._SignerAddedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20334,17 +20334,17 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._SignerAdded_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerAddedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._SignerAdded_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerAddedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._SignerAdded_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._SignerAddedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -20357,7 +20357,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_account(ctx, field, obj)
+				res = ec._SignerAddedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20393,7 +20393,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_operation(ctx, field, obj)
+				res = ec._SignerAddedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20429,7 +20429,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_transaction(ctx, field, obj)
+				res = ec._SignerAddedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20465,7 +20465,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_signerAddress(ctx, field, obj)
+				res = ec._SignerAddedChange_signerAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20501,7 +20501,7 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerAdded_newWeight(ctx, field, obj)
+				res = ec._SignerAddedChange_newWeight(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20551,17 +20551,17 @@ func (ec *executionContext) _SignerAdded(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
-var signerRemovedImplementors = []string{"SignerRemoved", "BaseStateChange"}
+var signerRemovedChangeImplementors = []string{"SignerRemovedChange", "BaseStateChange"}
 
-func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.SelectionSet, obj *types.SignerRemovedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, signerRemovedImplementors)
+func (ec *executionContext) _SignerRemovedChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerRemovedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, signerRemovedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SignerRemoved")
+			out.Values[i] = graphql.MarshalString("SignerRemovedChange")
 		case "category":
 			field := field
 
@@ -20571,7 +20571,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_category(ctx, field, obj)
+				res = ec._SignerRemovedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20607,7 +20607,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_reason(ctx, field, obj)
+				res = ec._SignerRemovedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20635,17 +20635,17 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._SignerRemoved_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerRemovedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._SignerRemoved_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerRemovedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._SignerRemoved_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._SignerRemovedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -20658,7 +20658,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_account(ctx, field, obj)
+				res = ec._SignerRemovedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20694,7 +20694,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_operation(ctx, field, obj)
+				res = ec._SignerRemovedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20730,7 +20730,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_transaction(ctx, field, obj)
+				res = ec._SignerRemovedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20766,7 +20766,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_signerAddress(ctx, field, obj)
+				res = ec._SignerRemovedChange_signerAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20802,7 +20802,7 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerRemoved_oldWeight(ctx, field, obj)
+				res = ec._SignerRemovedChange_oldWeight(ctx, field, obj)
 				return res
 			}
 
@@ -20849,17 +20849,17 @@ func (ec *executionContext) _SignerRemoved(ctx context.Context, sel ast.Selectio
 	return out
 }
 
-var signerUpdatedImplementors = []string{"SignerUpdated", "BaseStateChange"}
+var signerUpdatedChangeImplementors = []string{"SignerUpdatedChange", "BaseStateChange"}
 
-func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.SelectionSet, obj *types.SignerUpdatedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, signerUpdatedImplementors)
+func (ec *executionContext) _SignerUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *types.SignerUpdatedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, signerUpdatedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SignerUpdated")
+			out.Values[i] = graphql.MarshalString("SignerUpdatedChange")
 		case "category":
 			field := field
 
@@ -20869,7 +20869,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_category(ctx, field, obj)
+				res = ec._SignerUpdatedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20905,7 +20905,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_reason(ctx, field, obj)
+				res = ec._SignerUpdatedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20933,17 +20933,17 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._SignerUpdated_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerUpdatedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._SignerUpdated_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._SignerUpdatedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._SignerUpdated_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._SignerUpdatedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -20956,7 +20956,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_account(ctx, field, obj)
+				res = ec._SignerUpdatedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -20992,7 +20992,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_operation(ctx, field, obj)
+				res = ec._SignerUpdatedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -21028,7 +21028,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_transaction(ctx, field, obj)
+				res = ec._SignerUpdatedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -21064,7 +21064,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_signerAddress(ctx, field, obj)
+				res = ec._SignerUpdatedChange_signerAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -21100,7 +21100,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_oldWeight(ctx, field, obj)
+				res = ec._SignerUpdatedChange_oldWeight(ctx, field, obj)
 				return res
 			}
 
@@ -21133,7 +21133,7 @@ func (ec *executionContext) _SignerUpdated(ctx context.Context, sel ast.Selectio
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._SignerUpdated_newWeight(ctx, field, obj)
+				res = ec._SignerUpdatedChange_newWeight(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22237,17 +22237,17 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
-var trustlineAddedImplementors = []string{"TrustlineAdded", "BaseStateChange"}
+var trustlineAddedChangeImplementors = []string{"TrustlineAddedChange", "BaseStateChange"}
 
-func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineAddedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineAddedImplementors)
+func (ec *executionContext) _TrustlineAddedChange(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineAddedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineAddedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("TrustlineAdded")
+			out.Values[i] = graphql.MarshalString("TrustlineAddedChange")
 		case "category":
 			field := field
 
@@ -22257,7 +22257,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_category(ctx, field, obj)
+				res = ec._TrustlineAddedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22293,7 +22293,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_reason(ctx, field, obj)
+				res = ec._TrustlineAddedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22321,17 +22321,17 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._TrustlineAdded_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineAddedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._TrustlineAdded_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineAddedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._TrustlineAdded_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._TrustlineAddedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -22344,7 +22344,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_account(ctx, field, obj)
+				res = ec._TrustlineAddedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22380,7 +22380,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_operation(ctx, field, obj)
+				res = ec._TrustlineAddedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22416,7 +22416,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_transaction(ctx, field, obj)
+				res = ec._TrustlineAddedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22452,7 +22452,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_tokenId(ctx, field, obj)
+				res = ec._TrustlineAddedChange_tokenId(ctx, field, obj)
 				return res
 			}
 
@@ -22485,7 +22485,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_liquidityPoolId(ctx, field, obj)
+				res = ec._TrustlineAddedChange_liquidityPoolId(ctx, field, obj)
 				return res
 			}
 
@@ -22518,7 +22518,7 @@ func (ec *executionContext) _TrustlineAdded(ctx context.Context, sel ast.Selecti
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineAdded_limit(ctx, field, obj)
+				res = ec._TrustlineAddedChange_limit(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22662,17 +22662,17 @@ func (ec *executionContext) _TrustlineBalance(ctx context.Context, sel ast.Selec
 	return out
 }
 
-var trustlineRemovedImplementors = []string{"TrustlineRemoved", "BaseStateChange"}
+var trustlineRemovedChangeImplementors = []string{"TrustlineRemovedChange", "BaseStateChange"}
 
-func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineRemovedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineRemovedImplementors)
+func (ec *executionContext) _TrustlineRemovedChange(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineRemovedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineRemovedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("TrustlineRemoved")
+			out.Values[i] = graphql.MarshalString("TrustlineRemovedChange")
 		case "category":
 			field := field
 
@@ -22682,7 +22682,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_category(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22718,7 +22718,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_reason(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22746,17 +22746,17 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._TrustlineRemoved_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineRemovedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._TrustlineRemoved_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineRemovedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._TrustlineRemoved_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._TrustlineRemovedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -22769,7 +22769,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_account(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22805,7 +22805,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_operation(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22841,7 +22841,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_transaction(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22877,7 +22877,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_tokenId(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_tokenId(ctx, field, obj)
 				return res
 			}
 
@@ -22910,7 +22910,7 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineRemoved_liquidityPoolId(ctx, field, obj)
+				res = ec._TrustlineRemovedChange_liquidityPoolId(ctx, field, obj)
 				return res
 			}
 
@@ -22957,17 +22957,17 @@ func (ec *executionContext) _TrustlineRemoved(ctx context.Context, sel ast.Selec
 	return out
 }
 
-var trustlineUpdatedImplementors = []string{"TrustlineUpdated", "BaseStateChange"}
+var trustlineUpdatedChangeImplementors = []string{"TrustlineUpdatedChange", "BaseStateChange"}
 
-func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineUpdatedModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineUpdatedImplementors)
+func (ec *executionContext) _TrustlineUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *types.TrustlineUpdatedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, trustlineUpdatedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("TrustlineUpdated")
+			out.Values[i] = graphql.MarshalString("TrustlineUpdatedChange")
 		case "category":
 			field := field
 
@@ -22977,7 +22977,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_category(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23013,7 +23013,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_reason(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23041,17 +23041,17 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._TrustlineUpdated_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineUpdatedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._TrustlineUpdated_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._TrustlineUpdatedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._TrustlineUpdated_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._TrustlineUpdatedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -23064,7 +23064,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_account(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23100,7 +23100,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_operation(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23136,7 +23136,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_transaction(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23172,7 +23172,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_tokenId(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_tokenId(ctx, field, obj)
 				return res
 			}
 
@@ -23205,7 +23205,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_liquidityPoolId(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_liquidityPoolId(ctx, field, obj)
 				return res
 			}
 
@@ -23238,7 +23238,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_oldLimit(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_oldLimit(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -23274,7 +23274,7 @@ func (ec *executionContext) _TrustlineUpdated(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._TrustlineUpdated_newLimit(ctx, field, obj)
+				res = ec._TrustlineUpdatedChange_newLimit(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

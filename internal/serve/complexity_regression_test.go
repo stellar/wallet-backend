@@ -119,25 +119,25 @@ const freighterAccountTransactionsQuery = `
 							feeTokenId: tokenId
 							feeAmount: amount
 						}
-						... on AccountCreated {
+						... on AccountCreatedChange {
 							funderAddress
 						}
-						... on ContractDeployed {
+						... on ContractDeployedChange {
 							deployerAddress
 						}
-						... on AccountMerged {
+						... on AccountMergedChange {
 							destinationAddress
 						}
-						... on SignerAdded {
+						... on SignerAddedChange {
 							signerAddedAddress: signerAddress
 							signerAddedNewWeight: newWeight
 						}
-						... on SignerUpdated {
+						... on SignerUpdatedChange {
 							signerUpdatedAddress: signerAddress
 							signerUpdatedOldWeight: oldWeight
 							signerUpdatedNewWeight: newWeight
 						}
-						... on SignerRemoved {
+						... on SignerRemovedChange {
 							signerRemovedAddress: signerAddress
 							signerRemovedOldWeight: oldWeight
 						}
@@ -163,18 +163,18 @@ const freighterAccountTransactionsQuery = `
 							allowanceAmount: amount
 							expirationLedger
 						}
-						... on TrustlineAdded {
+						... on TrustlineAddedChange {
 							trustlineAddedTokenId: tokenId
 							trustlineAddedLiquidityPoolId: liquidityPoolId
 							trustlineAddedLimit: limit
 						}
-						... on TrustlineUpdated {
+						... on TrustlineUpdatedChange {
 							trustlineUpdatedTokenId: tokenId
 							trustlineUpdatedLiquidityPoolId: liquidityPoolId
 							oldLimit
 							newLimit
 						}
-						... on TrustlineRemoved {
+						... on TrustlineRemovedChange {
 							trustlineRemovedTokenId: tokenId
 							trustlineRemovedLiquidityPoolId: liquidityPoolId
 						}

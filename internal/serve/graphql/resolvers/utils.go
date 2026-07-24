@@ -127,7 +127,7 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 // convertStateChangeTypes resolves the concrete GraphQL type for a state change row.
 // Dispatch is on (category, reason) plus two column discriminators: BALANCE rows with
 // no operation are transaction fees (FeeChange), and ACCOUNT/CREATE rows with a
-// deployer are contract deployments (ContractDeployed). A row matching no arm is a
+// deployer are contract deployments (ContractDeployedChange). A row matching no arm is a
 // data-integrity failure and surfaces as an error rather than a nil node, which would
 // violate the non-null StateChangeEdge.node contract.
 func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseStateChange, error) {
@@ -141,21 +141,21 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonCreate:
 			if stateChange.DeployerAccountID.Valid {
-				return &types.ContractDeployedModel{StateChange: stateChange}, nil
+				return &types.ContractDeployedChangeModel{StateChange: stateChange}, nil
 			}
-			return &types.AccountCreatedModel{StateChange: stateChange}, nil
+			return &types.AccountCreatedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonMerge:
-			return &types.AccountMergedModel{StateChange: stateChange}, nil
+			return &types.AccountMergedChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for ACCOUNT; falls through to the error below
 		}
 	case types.StateChangeCategorySigner:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonAdd:
-			return &types.SignerAddedModel{StateChange: stateChange}, nil
+			return &types.SignerAddedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonUpdate:
-			return &types.SignerUpdatedModel{StateChange: stateChange}, nil
+			return &types.SignerUpdatedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonRemove:
-			return &types.SignerRemovedModel{StateChange: stateChange}, nil
+			return &types.SignerRemovedChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for SIGNER; falls through to the error below
 		}
 	case types.StateChangeCategorySignatureThreshold:
@@ -175,11 +175,11 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 	case types.StateChangeCategoryTrustline:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonAdd:
-			return &types.TrustlineAddedModel{StateChange: stateChange}, nil
+			return &types.TrustlineAddedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonUpdate:
-			return &types.TrustlineUpdatedModel{StateChange: stateChange}, nil
+			return &types.TrustlineUpdatedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonRemove:
-			return &types.TrustlineRemovedModel{StateChange: stateChange}, nil
+			return &types.TrustlineRemovedChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for TRUSTLINE; falls through to the error below
 		}
 	case types.StateChangeCategoryReserves:

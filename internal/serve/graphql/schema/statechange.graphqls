@@ -84,7 +84,7 @@ type FeeChange implements BaseStateChange {
 A classic account creation. `account` is the newly created account.
 Pair: (ACCOUNT, CREATE).
 """
-type AccountCreated implements BaseStateChange {
+type AccountCreatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -102,7 +102,7 @@ type AccountCreated implements BaseStateChange {
 A smart-contract deployment. `account` is the deployed contract address.
 Pair: (ACCOUNT, CREATE).
 """
-type ContractDeployed implements BaseStateChange {
+type ContractDeployedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -120,7 +120,7 @@ type ContractDeployed implements BaseStateChange {
 An account merge. `account` is the merged (removed) account.
 Pair: (ACCOUNT, MERGE).
 """
-type AccountMerged implements BaseStateChange {
+type AccountMergedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -138,7 +138,7 @@ type AccountMerged implements BaseStateChange {
 A signer added to the account.
 Pair: (SIGNER, ADD).
 """
-type SignerAdded implements BaseStateChange {
+type SignerAddedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -158,7 +158,7 @@ type SignerAdded implements BaseStateChange {
 An existing signer's weight changed.
 Pair: (SIGNER, UPDATE).
 """
-type SignerUpdated implements BaseStateChange {
+type SignerUpdatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -180,7 +180,7 @@ type SignerUpdated implements BaseStateChange {
 A signer removed from the account.
 Pair: (SIGNER, REMOVE).
 """
-type SignerRemoved implements BaseStateChange {
+type SignerRemovedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -308,7 +308,7 @@ type AllowanceChange implements BaseStateChange {
 A trustline created. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, ADD).
 """
-type TrustlineAdded implements BaseStateChange {
+type TrustlineAddedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -330,7 +330,7 @@ type TrustlineAdded implements BaseStateChange {
 A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, UPDATE).
 """
-type TrustlineUpdated implements BaseStateChange {
+type TrustlineUpdatedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -354,7 +354,7 @@ type TrustlineUpdated implements BaseStateChange {
 A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, REMOVE).
 """
-type TrustlineRemoved implements BaseStateChange {
+type TrustlineRemovedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
