@@ -746,6 +746,26 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, int64(700), changes[accountChangeAddr].Balance)
 		assert.Equal(t, types.AccountOpCreate, changes[accountChangeAddr].Operation)
 	})
+
+	t.Run("🟢 Clear drops tombstones so the next ledger's lower-key change is not suppressed", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		// Ledger N: created then merged within the ledger's operations → nets to nothing, leaving a
+		// tombstone at the remove's key.
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
+		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
+		require.Empty(t, buffer.GetAccountChanges())
+
+		buffer.Clear()
+
+		// Ledger N+1 through the same reused buffer (both ingestion paths do this — see Clear). Sort
+		// keys carry no ledger term, so this fee change ranks BELOW the previous ledger's remove; it
+		// must still land. A tombstone surviving Clear would silently drop a real balance.
+		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
+
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, int64(999), changes[accountChangeAddr].Balance)
+	})
 }
 
 func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {

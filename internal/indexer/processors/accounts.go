@@ -48,11 +48,11 @@ const (
 // (≤1 fee and ≤1 refund per account per tx; operations are unique per (tx, op)). That
 // makes the dedup independent of push/merge order.
 //
-// The ledger is intentionally omitted. Only the live path persists native balances, and it uses a
-// fresh buffer per ledger, so every key that reaches the database shares one ledger. (The backfill
-// buffer spans many ledgers and does deduplicate account changes in memory, but never persists
-// them.) If balances are ever persisted from a buffer that spans multiple ledgers, prepend the
-// ledger as the top term.
+// The ledger is intentionally omitted. Only the live path persists native balances, and it clears its
+// buffer before every ledger (see IndexerBuffer.Clear), so every key that reaches the database shares
+// one ledger. (The backfill buffer spans many ledgers and does deduplicate account changes in memory,
+// but never persists them.) If balances are ever persisted from a buffer that spans multiple ledgers,
+// prepend the ledger as the top term.
 func accountSortKey(phase uint8, txIndex, opIndex uint32) int64 {
 	return int64(phase)<<37 | int64(txIndex)<<13 | int64(opIndex)
 }

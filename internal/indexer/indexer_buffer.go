@@ -88,8 +88,9 @@ type IndexerBuffer struct {
 	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
 	// parsedAssetsByString memoizes the parse + deterministic-ID derivation per unique asset
 	// string (nil value = string is known-invalid). It is content-derived — the same string always
-	// yields the same result — so it is never cleared in Clear() and is bounded by the number of
-	// unique asset strings ever seen.
+	// yields the same result — so it is never cleared in Clear(). Both ingestion paths reuse one
+	// buffer across ledgers, so the memo warms for the life of the process and is bounded by the
+	// number of unique asset strings that process has seen.
 	parsedAssetsByString  map[string]*data.TrustlineAsset
 	sacContractsByID      map[string]*data.Contract         // SAC contract metadata extracted from instance entries
 	protocolWasmsByHash   map[string]data.ProtocolWasms     // wasmHash → ProtocolWasms (protocol_id stamped post-classification)
@@ -506,8 +507,13 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	}
 }
 
-// Clear resets the buffer to its initial empty state while preserving allocated capacity.
-// Use this to reuse the buffer after flushing data to the database during backfill.
+// Clear resets the buffer to its initial empty state while preserving allocated capacity. Both
+// ingestion paths reuse a single buffer and clear it around each unit of work: live before every
+// ledger, backfill after every flushed batch.
+//
+// Clearing the balance-change maps and their tombstones is load-bearing for the live path, the only
+// one that persists native balances: processors.accountSortKey deliberately omits the ledger from its
+// key, so changes from two different ledgers must never coexist in those maps.
 func (b *IndexerBuffer) Clear() {
 	// Clear maps (keep allocated backing arrays)
 	clear(b.txByHash)
@@ -516,8 +522,7 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.participantsByOpID)
 	clear(b.uniqueTrustlineAssets)
 	// parsedAssetsByString is intentionally NOT cleared: it is content-derived (same string always
-	// yields the same parse result), so it stays valid across flushes and is bounded by the number
-	// of unique asset strings ever seen.
+	// yields the same parse result), so it stays valid across every ledger and flush.
 	clear(b.trustlineChangesByTrustlineKey)
 	clear(b.sacContractsByID)
 	clear(b.protocolWasmsByHash)
