@@ -544,7 +544,7 @@ State changes represent modifications to an account's state. The API uses an **i
 | `ledgerCreatedAt` | `Time!` | Close time of the producing ledger |
 | `ledgerNumber` | `UInt32!` | Sequence number of the producing ledger |
 | `account` | `Account!` | Account whose state changed |
-| `operation` | `Operation` | Producing operation; **non-null on every type except `FeeChange`** (fees are per-transaction, not per-operation) |
+| `operation` | `Operation` | Producing operation; **non-null on every type except `BalanceChange`**, where it is null on transaction-fee rows (fees are per-transaction, not per-operation) |
 | `transaction` | `Transaction!` | Producing transaction |
 
 **Concrete Types:**
@@ -554,7 +554,6 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | Type | `(category, reason)` pairs | Own fields |
 |------|----------------------------|------------|
 | `BalanceChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)`, `(BALANCE, MINT)`, `(BALANCE, BURN)` | `tokenId: String!`, `amount: String!`, `toMuxedId: String` |
-| `FeeChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)` | `tokenId: String!`, `amount: String!` — `operation` is always null |
 | `AccountCreatedChange` | `(ACCOUNT, CREATE)` | `funderAddress: String!` |
 | `ContractDeployedChange` | `(ACCOUNT, CREATE)` | `deployerAddress: String!` |
 | `AccountMergedChange` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
@@ -581,7 +580,7 @@ Notes on the polymorphic fields:
 
 | Category | Types |
 |----------|-------|
-| `BALANCE` | `BalanceChange` (operation-sourced), `FeeChange` (transaction fees) |
+| `BALANCE` | `BalanceChange` (operation-sourced movements and transaction fees) |
 | `ACCOUNT` | `AccountCreatedChange`, `ContractDeployedChange`, `AccountMergedChange` |
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
@@ -597,8 +596,8 @@ Notes on the polymorphic fields:
 |--------|-----------|
 | `CREATE` | ACCOUNT: account created or contract deployed |
 | `MERGE` | ACCOUNT: account merged into another |
-| `DEBIT` | BALANCE: value left the account (or a fee charge on `FeeChange`) |
-| `CREDIT` | BALANCE: value entered the account (or a fee refund on `FeeChange`) |
+| `DEBIT` | BALANCE: value left the account (or a transaction-fee charge, which has a null `operation`) |
+| `CREDIT` | BALANCE: value entered the account |
 | `MINT` | BALANCE: tokens minted to the account |
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
 | `ADD` | SIGNER or TRUSTLINE: entry added |
@@ -639,6 +638,8 @@ query GetBalanceChanges {
             id
           }
 
+          # BalanceChange covers both operation-sourced movements and transaction
+          # fees; on a fee row the `operation` selected above is null.
           ... on BalanceChange {
             tokenId
             amount
@@ -648,11 +649,6 @@ query GetBalanceChanges {
             transaction {
               hash
             }
-          }
-          # FeeChange also has category BALANCE; its `operation` is null.
-          ... on FeeChange {
-            tokenId
-            amount
           }
         }
       }

@@ -64,13 +64,6 @@ type BalanceChange struct {
 	ToMuxedID *string `json:"toMuxedId,omitempty"`
 }
 
-// FeeChange is the transaction fee debited from (or refunded to) the fee-paying account.
-type FeeChange struct {
-	BaseStateChangeFields
-	TokenID string `json:"feeTokenId"`
-	Amount  string `json:"amount"`
-}
-
 // AccountCreatedChange is a classic account creation.
 type AccountCreatedChange struct {
 	BaseStateChangeFields
@@ -212,8 +205,6 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 	switch wrapper.TypeName {
 	case "BalanceChange":
 		return unmarshalStateChange[BalanceChange](data)
-	case "FeeChange":
-		return unmarshalStateChange[FeeChange](data)
 	case "AccountCreatedChange":
 		return unmarshalStateChange[AccountCreatedChange](data)
 	case "ContractDeployedChange":

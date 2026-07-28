@@ -176,9 +176,6 @@ models:
   BalanceChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.BalanceChangeModel
-  FeeChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.FeeChangeModel
   AccountCreatedChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AccountCreatedChangeModel

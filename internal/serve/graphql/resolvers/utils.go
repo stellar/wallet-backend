@@ -125,21 +125,15 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 }
 
 // convertStateChangeTypes resolves the concrete GraphQL type for a state change row.
-// Dispatch is on (category, reason) plus two column discriminators: BALANCE rows with
-// no operation are transaction fees (FeeChange), and ACCOUNT/CREATE rows with a
-// deployer are contract deployments (ContractDeployedChange). A row matching no arm is a
-// data-integrity failure and surfaces as an error rather than a nil node, which would
-// violate the non-null StateChangeEdge.node contract.
+// Dispatch is on (category, reason) plus one column discriminator: ACCOUNT/CREATE rows
+// with a deployer are contract deployments (ContractDeployedChange). A row matching no
+// arm is a data-integrity failure and surfaces as an error rather than a nil node, which
+// would violate the non-null StateChangeEdge.node contract.
 func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseStateChange, error) {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
 		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonDebit, types.StateChangeReasonCredit:
-			if stateChange.OperationID == 0 {
-				return &types.FeeChangeModel{StateChange: stateChange}, nil
-			}
-			return &types.BalanceChangeModel{StateChange: stateChange}, nil
-		case types.StateChangeReasonMint, types.StateChangeReasonBurn:
+		case types.StateChangeReasonDebit, types.StateChangeReasonCredit, types.StateChangeReasonMint, types.StateChangeReasonBurn:
 			return &types.BalanceChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for BALANCE; falls through to the error below
 		}

@@ -225,8 +225,13 @@ func (r *balanceChangeResolver) Account(ctx context.Context, obj *types.BalanceC
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
-// Operation is the resolver for the operation field.
+// Operation is the resolver for the operation field. Transaction-fee rows have
+// no operation (OperationID 0), and the schema declares BalanceChange.operation
+// nullable for exactly that case.
 func (r *balanceChangeResolver) Operation(ctx context.Context, obj *types.BalanceChangeModel) (*types.Operation, error) {
+	if obj.OperationID == 0 {
+		return nil, nil
+	}
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
@@ -330,42 +335,6 @@ func (r *dataEntryChangeResolver) NewValue(ctx context.Context, obj *types.DataE
 		return newVal, nil
 	}
 	return nil, nil
-}
-
-// Category is the resolver for the category field.
-func (r *feeChangeResolver) Category(ctx context.Context, obj *types.FeeChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *feeChangeResolver) Reason(ctx context.Context, obj *types.FeeChangeModel) (types.StateChangeReason, error) {
-	return obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *feeChangeResolver) Account(ctx context.Context, obj *types.FeeChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(obj.AccountID)
-}
-
-// Operation is the resolver for the operation field. Fee state changes have no
-// associated operation, so the schema declares FeeChange.operation always null.
-func (r *feeChangeResolver) Operation(ctx context.Context, obj *types.FeeChangeModel) (*types.Operation, error) {
-	return nil, nil
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *feeChangeResolver) Transaction(ctx context.Context, obj *types.FeeChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// TokenID is the resolver for the tokenId field.
-func (r *feeChangeResolver) TokenID(ctx context.Context, obj *types.FeeChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
-}
-
-// Amount is the resolver for the amount field.
-func (r *feeChangeResolver) Amount(ctx context.Context, obj *types.FeeChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount, "amount")
 }
 
 // Category is the resolver for the category field.
@@ -776,9 +745,6 @@ func (r *Resolver) DataEntryChange() graphql1.DataEntryChangeResolver {
 	return &dataEntryChangeResolver{r}
 }
 
-// FeeChange returns graphql1.FeeChangeResolver implementation.
-func (r *Resolver) FeeChange() graphql1.FeeChangeResolver { return &feeChangeResolver{r} }
-
 // HomeDomainChange returns graphql1.HomeDomainChangeResolver implementation.
 func (r *Resolver) HomeDomainChange() graphql1.HomeDomainChangeResolver {
 	return &homeDomainChangeResolver{r}
@@ -833,7 +799,6 @@ type (
 	balanceChangeResolver              struct{ *Resolver }
 	contractDeployedChangeResolver     struct{ *Resolver }
 	dataEntryChangeResolver            struct{ *Resolver }
-	feeChangeResolver                  struct{ *Resolver }
 	homeDomainChangeResolver           struct{ *Resolver }
 	signerAddedChangeResolver          struct{ *Resolver }
 	signerRemovedChangeResolver        struct{ *Resolver }

@@ -38,7 +38,7 @@ one or more concrete BaseStateChange types; every concrete type documents its
 exact (category, reason) pairs.
 """
 enum StateChangeCategory {
-  """Token balance movements: BalanceChange (operation-sourced) and FeeChange (transaction fees)."""
+  """Token balance movements: BalanceChange (operation-sourced, or a transaction-fee row with null operation)."""
   BALANCE
   """Account lifecycle: AccountCreatedChange, ContractDeployedChange, AccountMergedChange."""
   ACCOUNT
@@ -67,9 +67,9 @@ enum StateChangeReason {
   CREATE
   """ACCOUNT: account merged into another account."""
   MERGE
-  """BALANCE: value left the account (payment sent, or a fee charge on FeeChange)."""
+  """BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation)."""
   DEBIT
-  """BALANCE: value entered the account (payment received, or a fee refund on FeeChange)."""
+  """BALANCE: value entered the account (payment received)."""
   CREDIT
   """BALANCE: tokens minted to the account."""
   MINT

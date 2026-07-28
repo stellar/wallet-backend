@@ -147,10 +147,10 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 	if err != nil {
 		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeKey, err)
 	}
-	// The schema declares operation non-null on every concrete type that uses
-	// this resolver (fee changes never call it), so a missing operations row is
-	// a data-integrity failure that must surface as a diagnosable error rather
-	// than a nil that gqlgen nullifies up-chain.
+	// Every caller passes a non-zero operationID (BalanceChange short-circuits
+	// its operation-less transaction-fee rows before calling), so a missing
+	// operations row is a data-integrity failure that must surface as a
+	// diagnosable error rather than a nil that gqlgen nullifies up-chain.
 	if operation == nil {
 		return nil, fmt.Errorf("operation %d not found for state change %s", operationID, stateChangeKey)
 	}

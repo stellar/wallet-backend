@@ -115,10 +115,6 @@ const freighterAccountTransactionsQuery = `
 							balanceAmount: amount
 							toMuxedId
 						}
-						... on FeeChange {
-							feeTokenId: tokenId
-							feeAmount: amount
-						}
 						... on AccountCreatedChange {
 							funderAddress
 						}
@@ -224,7 +220,7 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 		query string
 		// computed complexity on record at time of writing, for both cases under the
 		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7601.
-		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 18-fragment
+		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 17-fragment
 		// state-change selection over-counts relative to what any one row resolves.
 		floor int
 	}{

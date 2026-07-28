@@ -39,7 +39,7 @@ const (
 	//
 	// Fields whose GraphQL type differs across concrete types that share a name are aliased to
 	// distinct response keys so the selection satisfies GraphQL's SameResponseShape rule:
-	//   - tokenId is String! on BalanceChange/FeeChange/AllowanceChange and String elsewhere, so
+	//   - tokenId is String! on BalanceChange/AllowanceChange and String elsewhere, so
 	//     every occurrence is aliased per type;
 	//   - flags is [AccountFlag!]! on AccountFlagsChange and [TrustlineFlag!] on
 	//     BalanceAuthorizationChange, so both are aliased;
@@ -58,10 +58,6 @@ const (
 			balanceTokenId: tokenId
 			amount
 			toMuxedId
-		}
-		... on FeeChange {
-			feeTokenId: tokenId
-			amount
 		}
 		... on AccountCreatedChange {
 			funderAddress

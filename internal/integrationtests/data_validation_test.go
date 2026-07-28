@@ -144,7 +144,7 @@ func validateStateChangeBase(suite *DataValidationTestSuite, sc types.StateChang
 }
 
 // validateBalanceChange validates a balance state change (BALANCE category, one of
-// DEBIT/CREDIT/MINT/BURN). Fee rows are a distinct FeeChange type and are not asserted here.
+// DEBIT/CREDIT/MINT/BURN). Transaction-fee rows are BalanceChange too and are not asserted here.
 func validateBalanceChange(suite *DataValidationTestSuite, bc *types.BalanceChange, expectedTokenID, expectedAmount string, expectedReason types.StateChangeReason) {
 	suite.Require().NotNil(bc, "balance change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryBalance, bc.GetCategory(), "should be BALANCE category")

@@ -917,7 +917,7 @@ func (sc StateChange) GetAccount() *Account {
 }
 
 // GetOperation returns the operation that caused this state change.
-// May be nil for fee-related state changes that don't have associated operations.
+// Nil for transaction-fee rows (no operation).
 func (sc StateChange) GetOperation() *Operation {
 	return sc.Operation
 }
@@ -948,7 +948,7 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 //
 // 1. GQLGEN REQUIREMENT: gqlgen needs distinct Go types for each GraphQL type to generate
 //    proper resolvers. Without these, gqlgen cannot differentiate between BalanceChange
-//    and FeeChange in the generated code.
+//    and AllowanceChange in the generated code.
 //
 // 2. GRAPHQL INTERFACE PATTERN: GraphQL interfaces require concrete implementations with
 //    potentially different field sets. While our database uses one unified schema, GraphQL
@@ -972,13 +972,9 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 // strong typing requirements. See the models section of gqlgen.yml for the GraphQL-to-Go
 // type mappings.
 
-// BalanceChangeModel maps to GraphQL BalanceChange: BALANCE × DEBIT/CREDIT/MINT/BURN (operation-sourced).
+// BalanceChangeModel maps to GraphQL BalanceChange: BALANCE × DEBIT/CREDIT/MINT/BURN.
+// Covers operation-sourced movements and transaction-fee rows (OperationID=0).
 type BalanceChangeModel struct {
-	StateChange
-}
-
-// FeeChangeModel maps to GraphQL FeeChange: BALANCE × DEBIT/CREDIT with no operation (transaction fee charge/refund).
-type FeeChangeModel struct {
 	StateChange
 }
 

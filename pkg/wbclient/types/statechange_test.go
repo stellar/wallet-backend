@@ -37,26 +37,6 @@ func Test_UnmarshalStateChangeNode_BalanceChange(t *testing.T) {
 	assert.Equal(t, muxed, *bc.ToMuxedID)
 }
 
-// Test_UnmarshalStateChangeNode_FeeChange covers the only concrete type with no associated
-// operation: it decodes from its own tokenId alias and carries no toMuxedId.
-func Test_UnmarshalStateChangeNode_FeeChange(t *testing.T) {
-	node, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "FeeChange",
-		"category": "BALANCE",
-		"reason": "DEBIT",
-		"feeTokenId": "native",
-		"amount": "100"
-	}`))
-	require.NoError(t, err)
-
-	fc, ok := node.(*FeeChange)
-	require.True(t, ok, "expected *FeeChange, got %T", node)
-	assert.Equal(t, StateChangeCategoryBalance, fc.GetCategory())
-	assert.Equal(t, StateChangeReasonDebit, fc.GetReason())
-	assert.Equal(t, "native", fc.TokenID)
-	assert.Equal(t, "100", fc.Amount)
-}
-
 // Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed guards the two ACCOUNT/CREATE
 // variants that share the same (category, reason) pair but different __typename and payload.
 func Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed(t *testing.T) {

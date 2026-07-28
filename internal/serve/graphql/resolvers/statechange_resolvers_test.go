@@ -19,26 +19,27 @@ import (
 )
 
 // TestConvertStateChangeTypes is the dispatch matrix: every valid (category, reason)
-// pair — plus the two column discriminators (BALANCE operation-vs-fee, ACCOUNT/CREATE
-// deployer-vs-funder) — must resolve to exactly one concrete GraphQL model, and every
-// invalid (category, reason) pair must surface an error naming the pair rather than a
-// nil node (which would violate the non-null StateChangeEdge.node contract).
+// pair — plus the ACCOUNT/CREATE deployer-vs-funder column discriminator — must resolve
+// to exactly one concrete GraphQL model, and every invalid (category, reason) pair must
+// surface an error naming the pair rather than a nil node (which would violate the
+// non-null StateChangeEdge.node contract).
 func TestConvertStateChangeTypes(t *testing.T) {
 	validCases := []struct {
 		name string
 		sc   types.StateChange
 		want any
 	}{
-		// BALANCE: the OperationID discriminator splits fee rows (op 0) from balance rows.
+		// BALANCE: one model regardless of OperationID — transaction-fee rows (op 0) and
+		// operation-sourced movements both dispatch to BalanceChange.
 		{
-			name: "BALANCE debit with no operation is a fee",
+			name: "BALANCE debit with no operation (transaction fee) is a balance change",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonDebit, OperationID: 0},
-			want: &types.FeeChangeModel{},
+			want: &types.BalanceChangeModel{},
 		},
 		{
-			name: "BALANCE credit with no operation is a fee",
+			name: "BALANCE credit with no operation is a balance change",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonCredit, OperationID: 0},
-			want: &types.FeeChangeModel{},
+			want: &types.BalanceChangeModel{},
 		},
 		{
 			name: "BALANCE debit with an operation is a balance change",
@@ -182,7 +183,7 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "MERGE",
 		},
 		{
-			name:     "BALANCE with an account reason and no operation is not a fee",
+			name:     "BALANCE with an account reason and no operation",
 			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonMerge, OperationID: 0},
 			category: "BALANCE",
 			reason:   "MERGE",
@@ -430,13 +431,14 @@ func TestAllowanceChangeResolver_ExpirationLedger(t *testing.T) {
 	})
 }
 
-func TestFeeChangeResolver_OperationAlwaysNil(t *testing.T) {
-	// Fees are charged per transaction, not per operation, so the schema declares
-	// FeeChange.operation non-existent; the resolver must return (nil, nil) unconditionally,
-	// even when the row happens to carry an operation id.
+func TestBalanceChangeResolver_OperationNilOnFeeRow(t *testing.T) {
+	// Fees are charged per transaction, not per operation, so a fee row carries
+	// OperationID 0 and resolves operation to null. The resolver short-circuits before
+	// touching the dataloaders, so a bare context (no dataloaders installed) suffices —
+	// reaching the loader would panic.
 	ctx := context.Background()
-	r := &feeChangeResolver{&Resolver{}}
-	obj := &types.FeeChangeModel{StateChange: types.StateChange{OperationID: 999}}
+	r := &balanceChangeResolver{&Resolver{}}
+	obj := &types.BalanceChangeModel{StateChange: types.StateChange{OperationID: 0}}
 
 	op, err := r.Operation(ctx, obj)
 	require.NoError(t, err)
@@ -495,8 +497,8 @@ func TestRequiredStringResolvers_ErrorWhenNull(t *testing.T) {
 	})
 
 	t.Run("valid amount resolves", func(t *testing.T) {
-		r := &feeChangeResolver{&Resolver{}}
-		obj := &types.FeeChangeModel{StateChange: types.StateChange{Amount: sql.NullString{String: "100", Valid: true}}}
+		r := &balanceChangeResolver{&Resolver{}}
+		obj := &types.BalanceChangeModel{StateChange: types.StateChange{Amount: sql.NullString{String: "100", Valid: true}}}
 		amount, err := r.Amount(ctx, obj)
 		require.NoError(t, err)
 		assert.Equal(t, "100", amount)
@@ -623,7 +625,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 	t.Run("non-existent operation is a data-integrity error", func(t *testing.T) {
 		nonExistent := &types.BalanceChangeModel{StateChange: types.StateChange{
 			ToID:                9999,
-			OperationID:         0,
+			OperationID:         toid.New(9999, 1, 1).ToInt64(),
 			StateChangeID:       1,
 			StateChangeCategory: types.StateChangeCategoryBalance,
 		}}
@@ -631,7 +633,7 @@ func TestStateChangeResolver_Operation(t *testing.T) {
 		ctx := context.WithValue(getTestCtx("operations", []string{"id"}), middleware.LoadersKey, loaders)
 
 		op, err := r.Operation(ctx, nonExistent)
-		require.Error(t, err, "operation is non-null on every type using this resolver; a loader miss must surface, not nullify")
+		require.Error(t, err, "a row claiming an operation id must resolve it; a loader miss must surface, not nullify")
 		assert.Contains(t, err.Error(), "not found")
 		assert.Nil(t, op)
 	})
@@ -690,8 +692,7 @@ func TestStateChangeResolver_Transaction(t *testing.T) {
 func TestAccountResolver_SEP41TransferSurfacesAsBalanceChange(t *testing.T) {
 	// A SEP-41 transfer becomes a state_changes row with category=BALANCE, reason=CREDIT, a
 	// token id, an amount, a non-zero operation id, and a to_muxed_id. Through Account.stateChanges
-	// it must come back as the concrete BalanceChangeModel (operation-sourced, so not a FeeChange)
-	// with those fields intact.
+	// it must come back as the concrete BalanceChangeModel with those fields intact.
 	acct := keypair.MustRandom().Address()
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(acct)}
 

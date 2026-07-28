@@ -23,8 +23,8 @@ interface BaseStateChange {
   account:                    Account! @goField(forceResolver: true)
   """
   Operation that caused this change. Non-null on every concrete type except
-  FeeChange, where it is always null (fees are charged per transaction, not per
-  operation).
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
   """
   operation:                  Operation @goField(forceResolver: true)
   """Transaction that caused this change."""
@@ -32,9 +32,12 @@ interface BaseStateChange {
 }
 
 """
-A movement of value on the account's token balance, caused by an operation.
+A movement of value on the account's token balance. Covers operation-sourced
+movements and the per-transaction net fee charged to the fee-paying account.
 Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
-Clawbacks are recorded as BURN.
+Clawbacks are recorded as BURN. Transaction-fee rows are (BALANCE, DEBIT) with
+`operation` null (fees are charged per transaction, not per operation) and
+`toMuxedId` null; refunds are netted into the fee charge, never a separate row.
 """
 type BalanceChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
@@ -43,7 +46,8 @@ type BalanceChange implements BaseStateChange {
   ledgerCreatedAt:            Time!
   ledgerNumber:               UInt32!
   account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation! @goField(forceResolver: true)
+  """Operation that caused this change; null on transaction-fee rows."""
+  operation:                  Operation @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Contract ID of the token whose balance moved."""
@@ -56,28 +60,6 @@ type BalanceChange implements BaseStateChange {
   JSON number quantization.
   """
   toMuxedId:                  String @goField(forceResolver: true)
-}
-
-"""
-The transaction fee debited from (or refunded to) the fee-paying account.
-Pairs: (BALANCE, DEBIT) for a net fee charge, (BALANCE, CREDIT) for a net
-refund. The only state change with no associated operation; `operation` is
-always null.
-"""
-type FeeChange implements BaseStateChange {
-  category:                   StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  """Contract ID of the fee token (the native XLM Stellar Asset Contract)."""
-  tokenId:                    String! @goField(forceResolver: true)
-  """Net fee amount, as a decimal string in stroops."""
-  amount:                     String! @goField(forceResolver: true)
 }
 
 """

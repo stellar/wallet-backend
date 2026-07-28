@@ -46,8 +46,8 @@ type BaseStateChange interface {
 	// Account whose state changed.
 	GetAccount() *types.Account
 	// Operation that caused this change. Non-null on every concrete type except
-	// FeeChange, where it is always null (fees are charged per transaction, not per
-	// operation).
+	// BalanceChange, where it is null on transaction-fee rows (fees are charged per
+	// transaction, not per operation).
 	GetOperation() *types.Operation
 	// Transaction that caused this change.
 	GetTransaction() *types.Transaction
