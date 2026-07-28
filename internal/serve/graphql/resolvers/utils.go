@@ -176,9 +176,13 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 			return &types.HomeDomainChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonDataEntry:
 			return &types.DataEntryChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for METADATA; falls through to the error below
+		}
+	case types.StateChangeCategoryAllowance:
+		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonUpdate:
 			return &types.AllowanceChangeModel{StateChange: stateChange}, nil
-		default: // invalid reason for METADATA; falls through to the error below
+		default: // invalid reason for ALLOWANCE; falls through to the error below
 		}
 	case types.StateChangeCategoryTrustline:
 		switch stateChange.StateChangeReason {

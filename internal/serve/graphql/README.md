@@ -564,7 +564,7 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
 | `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
 | `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
-| `AllowanceChange` | `(METADATA, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
+| `AllowanceChange` | `(ALLOWANCE, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
 | `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
 | `TrustlineUpdatedChange` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
 | `TrustlineRemovedChange` | `(TRUSTLINE, REMOVE)` | `tokenId: String`, `liquidityPoolId: String` |
@@ -584,7 +584,8 @@ Notes on the polymorphic fields:
 | `ACCOUNT` | `AccountCreatedChange`, `ContractDeployedChange`, `AccountMergedChange` |
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
-| `METADATA` | `HomeDomainChange`, `DataEntryChange`, `AllowanceChange` |
+| `METADATA` | `HomeDomainChange`, `DataEntryChange` |
+| `ALLOWANCE` | `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
 | `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
 | `RESERVES` | `SponsorshipChange` |
@@ -602,7 +603,7 @@ Notes on the polymorphic fields:
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
 | `ADD` | SIGNER or TRUSTLINE: entry added |
 | `REMOVE` | SIGNER or TRUSTLINE: entry removed |
-| `UPDATE` | SIGNER or TRUSTLINE: entry updated; METADATA: SEP-41 allowance approved |
+| `UPDATE` | SIGNER or TRUSTLINE: entry updated; ALLOWANCE: SEP-41 allowance approved |
 | `LOW` / `MEDIUM` / `HIGH` | SIGNATURE_THRESHOLD: which threshold changed |
 | `HOME_DOMAIN` | METADATA: home domain changed |
 | `DATA_ENTRY` | METADATA: data entry created, updated, or removed |

@@ -116,8 +116,8 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			want: &types.DataEntryChangeModel{},
 		},
 		{
-			name: "METADATA update is a SEP-41 allowance",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonUpdate},
+			name: "ALLOWANCE update is a SEP-41 allowance",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAllowance, StateChangeReason: types.StateChangeReasonUpdate},
 			want: &types.AllowanceChangeModel{},
 		},
 		// TRUSTLINE: one model per reason.
@@ -223,6 +223,18 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonCreate},
 			category: "METADATA",
 			reason:   "CREATE",
+		},
+		{
+			name:     "METADATA with an update reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonUpdate},
+			category: "METADATA",
+			reason:   "UPDATE",
+		},
+		{
+			name:     "ALLOWANCE with a flags reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryAllowance, StateChangeReason: types.StateChangeReasonSet},
+			category: "ALLOWANCE",
+			reason:   "SET",
 		},
 		{
 			name:     "TRUSTLINE with a merge reason",

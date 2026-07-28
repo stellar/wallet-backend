@@ -88,7 +88,7 @@ func Test_UnmarshalStateChangeNode_SignerUpdated(t *testing.T) {
 func Test_UnmarshalStateChangeNode_AllowanceChange(t *testing.T) {
 	node, err := UnmarshalStateChangeNode([]byte(`{
 		"__typename": "AllowanceChange",
-		"category": "METADATA",
+		"category": "ALLOWANCE",
 		"reason": "UPDATE",
 		"allowanceTokenId": "CTOKEN",
 		"spender": "GSPENDER",

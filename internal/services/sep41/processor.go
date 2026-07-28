@@ -248,13 +248,13 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			}
 		}
 		if mode.NeedsHistory() {
-			// Approve lives under Metadata and surfaces through GraphQL as an AllowanceChange,
+			// Approve surfaces through GraphQL as an AllowanceChange (ALLOWANCE, UPDATE),
 			// exposing tokenId, spender, amount, and expirationLedger. The spender is a typed
 			// column (spender_account_id) and amount flows through WithAmount; key_value carries
 			// only live_until_ledger, which expirationLedger is read from.
 			p.stagedStateChanges = append(p.stagedStateChanges,
 				scBuilder.Clone().
-					WithCategory(types.StateChangeCategoryMetadata).
+					WithCategory(types.StateChangeCategoryAllowance).
 					WithReason(types.StateChangeReasonUpdate).
 					WithAccount(decoded.From).
 					WithSpender(decoded.Spender).

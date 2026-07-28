@@ -204,7 +204,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 		assert.Len(t, p.stagedBalanceDelta, 2)
 	})
 
-	t.Run("records an approve as a single metadata-category state change", func(t *testing.T) {
+	t.Run("records an approve as a single allowance-category state change", func(t *testing.T) {
 		p := newTestProcessor()
 		p.Reset()
 
@@ -229,7 +229,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 		require.Len(t, p.stagedStateChanges, 1)
 		sc := p.stagedStateChanges[0]
-		assert.Equal(t, types.StateChangeCategoryMetadata, sc.StateChangeCategory)
+		assert.Equal(t, types.StateChangeCategoryAllowance, sc.StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUpdate, sc.StateChangeReason)
 		assert.Equal(t, types.AddressBytea(testAccountB), sc.SpenderAccountID.AddressBytea)
 		assert.True(t, sc.SpenderAccountID.Valid)

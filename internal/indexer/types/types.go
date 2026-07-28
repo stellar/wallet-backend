@@ -499,6 +499,7 @@ const (
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
@@ -640,7 +641,8 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 // - ACCOUNT: exactly one of FunderAccountID, DeployerAccountID, DestinationAccountID
 // - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - SIGNATURE_THRESHOLD: ThresholdOld, ThresholdNew
-// - METADATA: KeyValue (SEP-41 allowance rows also TokenID, Amount, SpenderAccountID)
+// - METADATA: KeyValue
+// - ALLOWANCE: TokenID, Amount, SpenderAccountID, KeyValue (live_until_ledger)
 // - FLAGS: Flags (bitmask)
 // - TRUSTLINE: TokenID xor LiquidityPoolID, TrustlineLimitOld, TrustlineLimitNew
 // - RESERVES: SponsoredAccountID, SponsorAccountID + one of TokenID, LiquidityPoolID, ClaimableBalanceID, SponsoredData, SignerAccountID
@@ -1028,7 +1030,7 @@ type DataEntryChangeModel struct {
 	StateChange
 }
 
-// AllowanceChangeModel maps to GraphQL AllowanceChange: METADATA × UPDATE (SEP-41 approve).
+// AllowanceChangeModel maps to GraphQL AllowanceChange: ALLOWANCE × UPDATE (SEP-41 approve).
 type AllowanceChangeModel struct {
 	StateChange
 }

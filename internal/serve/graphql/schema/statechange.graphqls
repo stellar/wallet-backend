@@ -264,7 +264,7 @@ type DataEntryChange implements BaseStateChange {
 """
 A SEP-41 allowance approval: `account` (the token holder) authorized `spender`
 to transfer up to `amount` of the token on its behalf.
-Pair: (METADATA, UPDATE).
+Pair: (ALLOWANCE, UPDATE).
 """
 type AllowanceChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)

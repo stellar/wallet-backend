@@ -48,6 +48,7 @@ const (
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"

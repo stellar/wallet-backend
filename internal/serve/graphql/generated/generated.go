@@ -2806,8 +2806,10 @@ enum StateChangeCategory {
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
-  """Account metadata: HomeDomainChange, DataEntryChange, AllowanceChange."""
+  """Account metadata: HomeDomainChange, DataEntryChange."""
   METADATA
+  """SEP-41 token allowances: AllowanceChange."""
+  ALLOWANCE
   """Account authorization flags: AccountFlagsChange."""
   FLAGS
   """Trustlines: TrustlineAddedChange, TrustlineUpdatedChange, TrustlineRemovedChange."""
@@ -2839,7 +2841,7 @@ enum StateChangeReason {
   ADD
   """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; METADATA: SEP-41 allowance approved."""
+  """SIGNER or TRUSTLINE: entry updated; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
   """SIGNATURE_THRESHOLD: low threshold changed."""
   LOW
@@ -3316,7 +3318,7 @@ type DataEntryChange implements BaseStateChange {
 """
 A SEP-41 allowance approval: ` + "`" + `account` + "`" + ` (the token holder) authorized ` + "`" + `spender` + "`" + `
 to transfer up to ` + "`" + `amount` + "`" + ` of the token on its behalf.
-Pair: (METADATA, UPDATE).
+Pair: (ALLOWANCE, UPDATE).
 """
 type AllowanceChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
