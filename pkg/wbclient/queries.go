@@ -58,10 +58,7 @@ const (
 			toMuxedId
 		}
 		... on AccountCreatedChange {
-			funderAddress
-		}
-		... on ContractDeployedChange {
-			deployerAddress
+			creatorAddress
 		}
 		... on AccountMergedChange {
 			destinationAddress

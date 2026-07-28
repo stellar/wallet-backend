@@ -39,9 +39,9 @@ func (r *accountCreatedChangeResolver) Transaction(ctx context.Context, obj *typ
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// FunderAddress is the resolver for the funderAddress field.
-func (r *accountCreatedChangeResolver) FunderAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.FunderAccountID, "funderAddress")
+// CreatorAddress is the resolver for the creatorAddress field.
+func (r *accountCreatedChangeResolver) CreatorAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.CreatorAccountID, "creatorAddress")
 }
 
 // Category is the resolver for the category field.
@@ -254,36 +254,6 @@ func (r *balanceChangeResolver) Amount(ctx context.Context, obj *types.BalanceCh
 // ToMuxedID is the resolver for the toMuxedId field.
 func (r *balanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.BalanceChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.ToMuxedID), nil
-}
-
-// Category is the resolver for the category field.
-func (r *contractDeployedChangeResolver) Category(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *contractDeployedChangeResolver) Reason(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeReason, error) {
-	return obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *contractDeployedChangeResolver) Account(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(obj.AccountID)
-}
-
-// Operation is the resolver for the operation field.
-func (r *contractDeployedChangeResolver) Operation(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *contractDeployedChangeResolver) Transaction(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// DeployerAddress is the resolver for the deployerAddress field.
-func (r *contractDeployedChangeResolver) DeployerAddress(ctx context.Context, obj *types.ContractDeployedChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.DeployerAccountID, "deployerAddress")
 }
 
 // Category is the resolver for the category field.
@@ -676,11 +646,6 @@ func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationCha
 // BalanceChange returns graphql1.BalanceChangeResolver implementation.
 func (r *Resolver) BalanceChange() graphql1.BalanceChangeResolver { return &balanceChangeResolver{r} }
 
-// ContractDeployedChange returns graphql1.ContractDeployedChangeResolver implementation.
-func (r *Resolver) ContractDeployedChange() graphql1.ContractDeployedChangeResolver {
-	return &contractDeployedChangeResolver{r}
-}
-
 // DataEntryChange returns graphql1.DataEntryChangeResolver implementation.
 func (r *Resolver) DataEntryChange() graphql1.DataEntryChangeResolver {
 	return &dataEntryChangeResolver{r}
@@ -733,7 +698,6 @@ type (
 	allowanceChangeResolver            struct{ *Resolver }
 	balanceAuthorizationChangeResolver struct{ *Resolver }
 	balanceChangeResolver              struct{ *Resolver }
-	contractDeployedChangeResolver     struct{ *Resolver }
 	dataEntryChangeResolver            struct{ *Resolver }
 	homeDomainChangeResolver           struct{ *Resolver }
 	signerAddedChangeResolver          struct{ *Resolver }

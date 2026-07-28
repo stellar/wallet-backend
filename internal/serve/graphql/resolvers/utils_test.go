@@ -31,8 +31,7 @@ func TestGetDBColumns(t *testing.T) {
 			{"category", "state_change_category"},
 			{"reason", "state_change_reason"},
 			{"signerAddress", "signer_account_id"},
-			{"funderAddress", "funder_account_id"},
-			{"deployerAddress", "deployer_account_id"},
+			{"creatorAddress", "creator_account_id"},
 			{"destinationAddress", "destination_account_id"},
 			{"spender", "spender_account_id"},
 			// Fields derived from a flattened old/new column pair.

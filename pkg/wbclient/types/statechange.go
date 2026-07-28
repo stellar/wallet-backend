@@ -64,16 +64,12 @@ type BalanceChange struct {
 	ToMuxedID *string `json:"toMuxedId,omitempty"`
 }
 
-// AccountCreatedChange is a classic account creation.
+// AccountCreatedChange is a classic account creation or a smart-contract deployment.
+// Account holds the created G-address or the deployed C-address; CreatorAddress is the
+// funding account or the deploying address respectively.
 type AccountCreatedChange struct {
 	BaseStateChangeFields
-	FunderAddress string `json:"funderAddress"`
-}
-
-// ContractDeployedChange is a smart-contract deployment.
-type ContractDeployedChange struct {
-	BaseStateChangeFields
-	DeployerAddress string `json:"deployerAddress"`
+	CreatorAddress string `json:"creatorAddress"`
 }
 
 // AccountMergedChange is an account merge.
@@ -193,8 +189,6 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[BalanceChange](data)
 	case "AccountCreatedChange":
 		return unmarshalStateChange[AccountCreatedChange](data)
-	case "ContractDeployedChange":
-		return unmarshalStateChange[ContractDeployedChange](data)
 	case "AccountMergedChange":
 		return unmarshalStateChange[AccountMergedChange](data)
 	case "SignerAddedChange":

@@ -290,7 +290,7 @@ func (p *TokenTransferProcessor) handleTransfer(transfer *ttp.Transfer, contract
 		switch *operationType {
 		case xdr.OperationTypeCreateAccount:
 			funder := transfer.GetFrom()
-			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), "", "", nil, builder.Clone().WithFunder(funder)))
+			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonCreate, transfer.GetTo(), "", "", nil, builder.Clone().WithCreator(funder)))
 		case xdr.OperationTypeAccountMerge:
 			stateChanges = append(stateChanges, p.createStateChange(types.StateChangeCategoryAccount, types.StateChangeReasonMerge, transfer.GetFrom(), "", "", nil, builder.Clone().WithDestination(transfer.GetTo())))
 		}

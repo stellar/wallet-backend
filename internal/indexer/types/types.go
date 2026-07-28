@@ -8,7 +8,7 @@
 //  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
 //     This allows efficient storage in a single database table with nullable fields.
 //
-//  2. GRAPHQL LAYER: A BaseStateChange interface with 16 concrete implementations (defined in
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 15 concrete implementations (defined in
 //     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
 //     specific state change, providing strong typing and clean API contracts.
 //
@@ -17,7 +17,7 @@
 //     maintaining the single-table database design.
 //
 // The conversion between layers happens in internal/serve/graphql/resolvers/utils.go:convertStateChangeTypes(),
-// which maps each StateChange to a concrete GraphQL type by its (category, reason) and discriminator fields.
+// which maps each StateChange to a concrete GraphQL type by its (category, reason) pair.
 //
 // This design follows the adapter pattern, enabling:
 // - Efficient database storage (single table, unified queries)
@@ -635,7 +635,7 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 //
 // FIELD USAGE BY CATEGORY:
 // - BALANCE: TokenID, Amount, ToMuxedID (transaction-fee rows have OperationID=0)
-// - ACCOUNT: exactly one of FunderAccountID, DeployerAccountID, DestinationAccountID
+// - ACCOUNT: CreatorAccountID (CREATE), DestinationAccountID (MERGE)
 // - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - SIGNATURE_THRESHOLD: ThresholdOld, ThresholdNew
 // - METADATA: KeyValue
@@ -673,8 +673,7 @@ type StateChange struct {
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID      NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID     NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	DeployerAccountID    NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
-	FunderAccountID      NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
+	CreatorAccountID     NullAddressBytea `json:"creatorAccountId,omitempty" db:"creator_account_id"`
 	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
@@ -959,7 +958,7 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 // USAGE PATTERN:
 // - Database queries return StateChange structs
 // - convertStateChangeTypes() in internal/serve/graphql/resolvers/utils.go wraps them in the
-//   appropriate model struct based on (category, reason) and discriminators
+//   appropriate model struct based on (category, reason)
 // - GraphQL resolvers use the model struct's embedded StateChange for field access
 // - gqlgen generates type-specific response marshaling based on the wrapper type
 //
@@ -973,13 +972,11 @@ type BalanceChangeModel struct {
 	StateChange
 }
 
-// AccountCreatedChangeModel maps to GraphQL AccountCreatedChange: ACCOUNT × CREATE (classic account creation).
+// AccountCreatedChangeModel maps to GraphQL AccountCreatedChange: ACCOUNT × CREATE.
+// Covers both classic account creation (Account holds the created G-address) and
+// contract deployment (Account holds the deployed C-address); CreatorAccountID is the
+// funding account or the deploying address respectively.
 type AccountCreatedChangeModel struct {
-	StateChange
-}
-
-// ContractDeployedChangeModel maps to GraphQL ContractDeployedChange: ACCOUNT × CREATE (contract deployment).
-type ContractDeployedChangeModel struct {
 	StateChange
 }
 

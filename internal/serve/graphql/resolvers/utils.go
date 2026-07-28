@@ -125,10 +125,9 @@ func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCu
 }
 
 // convertStateChangeTypes resolves the concrete GraphQL type for a state change row.
-// Dispatch is on (category, reason) plus one column discriminator: ACCOUNT/CREATE rows
-// with a deployer are contract deployments (ContractDeployedChange). A row matching no
-// arm is a data-integrity failure and surfaces as an error rather than a nil node, which
-// would violate the non-null StateChangeEdge.node contract.
+// Dispatch is on (category, reason). A row matching no arm is a data-integrity failure
+// and surfaces as an error rather than a nil node, which would violate the non-null
+// StateChangeEdge.node contract.
 func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseStateChange, error) {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
@@ -140,9 +139,6 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 	case types.StateChangeCategoryAccount:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonCreate:
-			if stateChange.DeployerAccountID.Valid {
-				return &types.ContractDeployedChangeModel{StateChange: stateChange}, nil
-			}
 			return &types.AccountCreatedChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonMerge:
 			return &types.AccountMergedChangeModel{StateChange: stateChange}, nil
@@ -286,10 +282,8 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "stateChangeReason"
 		case "signerAddress":
 			fieldName = "signerAccountId"
-		case "funderAddress":
-			fieldName = "funderAccountId"
-		case "deployerAddress":
-			fieldName = "deployerAccountId"
+		case "creatorAddress":
+			fieldName = "creatorAccountId"
 		case "destinationAddress":
 			fieldName = "destinationAccountId"
 		case "spender":

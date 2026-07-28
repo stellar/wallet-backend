@@ -63,7 +63,8 @@ type BalanceChange implements BaseStateChange {
 }
 
 """
-A classic account creation. `account` is the newly created account.
+An account came into existence. `account` is the new account: a G-address for
+a classic account creation, a C-address for a smart-contract deployment.
 Pair: (ACCOUNT, CREATE).
 """
 type AccountCreatedChange implements BaseStateChange {
@@ -76,26 +77,11 @@ type AccountCreatedChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Account that funded the new account's starting balance."""
-  funderAddress:              String! @goField(forceResolver: true)
-}
-
-"""
-A smart-contract deployment. `account` is the deployed contract address.
-Pair: (ACCOUNT, CREATE).
-"""
-type ContractDeployedChange implements BaseStateChange {
-  category:                   StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation! @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  """Address that deployed the contract."""
-  deployerAddress:            String! @goField(forceResolver: true)
+  """
+  Account that created this one: the funder of a classic account's starting
+  balance, or the deployer of a contract.
+  """
+  creatorAddress:             String! @goField(forceResolver: true)
 }
 
 """

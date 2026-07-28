@@ -554,8 +554,7 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | Type | `(category, reason)` pairs | Own fields |
 |------|----------------------------|------------|
 | `BalanceChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)`, `(BALANCE, MINT)`, `(BALANCE, BURN)` | `tokenId: String!`, `amount: String!`, `toMuxedId: String` |
-| `AccountCreatedChange` | `(ACCOUNT, CREATE)` | `funderAddress: String!` |
-| `ContractDeployedChange` | `(ACCOUNT, CREATE)` | `deployerAddress: String!` |
+| `AccountCreatedChange` | `(ACCOUNT, CREATE)` | `creatorAddress: String!` |
 | `AccountMergedChange` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
 | `SignerAddedChange` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
 | `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int!`, `newWeight: Int!` |
@@ -571,6 +570,7 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `BalanceAuthorizationChange` | `(BALANCE_AUTHORIZATION, SET)`, `(BALANCE_AUTHORIZATION, CLEAR)` | `tokenId: String`, `liquidityPoolId: String`, `flags: [TrustlineFlag!]` |
 
 Notes on the polymorphic fields:
+- `AccountCreatedChange` serves both classic account creation and contract deployment: `account` is the created G-address or the deployed C-address, and `creatorAddress` is the funder or the deployer respectively.
 - On `TrustlineAddedChange`/`TrustlineUpdatedChange`/`TrustlineRemovedChange`/`BalanceAuthorizationChange`, exactly one of `tokenId` / `liquidityPoolId` is set (asset trustline vs. pool-share trustline).
 - On `BalanceAuthorizationChange`, `flags` is null for SAC contract-holder authorization (a plain boolean in the contract balance entry, so there are no trustline flags).
 
@@ -579,7 +579,7 @@ Notes on the polymorphic fields:
 | Category | Types |
 |----------|-------|
 | `BALANCE` | `BalanceChange` (operation-sourced movements and transaction fees) |
-| `ACCOUNT` | `AccountCreatedChange`, `ContractDeployedChange`, `AccountMergedChange` |
+| `ACCOUNT` | `AccountCreatedChange`, `AccountMergedChange` |
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
 | `METADATA` | `HomeDomainChange`, `DataEntryChange` |

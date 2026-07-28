@@ -153,24 +153,15 @@ func validateBalanceChange(suite *DataValidationTestSuite, bc *types.BalanceChan
 	suite.Require().Equal(expectedAmount, bc.Amount, "amount mismatch")
 }
 
-// validateAccountCreatedChange validates a classic account-creation state change (ACCOUNT/CREATE),
-// which carries the funder's address.
-func validateAccountCreatedChange(suite *DataValidationTestSuite, ac *types.AccountCreatedChange, expectedFunderAddress string) {
+// validateAccountCreatedChange validates an account-creation state change (ACCOUNT/CREATE),
+// which carries the creator's address: the funder for a classic account, the deployer for a
+// contract.
+func validateAccountCreatedChange(suite *DataValidationTestSuite, ac *types.AccountCreatedChange, expectedCreatorAddress string) {
 	suite.Require().NotNil(ac, "account created change should not be nil")
 	suite.Require().Equal(types.StateChangeCategoryAccount, ac.GetCategory(), "should be ACCOUNT category")
 	suite.Require().Equal(types.StateChangeReasonCreate, ac.GetReason(), "reason mismatch")
-	suite.Require().NotEmpty(ac.FunderAddress, "funder address should not be empty")
-	suite.Require().Equal(expectedFunderAddress, ac.FunderAddress, "funder address mismatch")
-}
-
-// validateContractDeployedChange validates a contract-deploy state change (ACCOUNT/CREATE),
-// which carries the deployer's address.
-func validateContractDeployedChange(suite *DataValidationTestSuite, cd *types.ContractDeployedChange, expectedDeployerAddress string) {
-	suite.Require().NotNil(cd, "contract deployed change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryAccount, cd.GetCategory(), "should be ACCOUNT category")
-	suite.Require().Equal(types.StateChangeReasonCreate, cd.GetReason(), "reason mismatch")
-	suite.Require().NotEmpty(cd.DeployerAddress, "deployer address should not be empty")
-	suite.Require().Equal(expectedDeployerAddress, cd.DeployerAddress, "deployer address mismatch")
+	suite.Require().NotEmpty(ac.CreatorAddress, "creator address should not be empty")
+	suite.Require().Equal(expectedCreatorAddress, ac.CreatorAddress, "creator address mismatch")
 }
 
 // validateSignerAddedChange validates a signer-added state change (SIGNER/ADD). The signer weight is now
@@ -1107,15 +1098,15 @@ func (suite *DataValidationTestSuite) TestDeployContractOpsDataValidation() {
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
 
 	// Validate base fields on every change and locate the ACCOUNT/CREATE deploy change in one pass.
-	var deployChange *types.ContractDeployedChange
+	var deployChange *types.AccountCreatedChange
 	for _, edge := range stateChanges.Edges {
 		validateStateChangeBase(suite, edge.Node, int64(tx.LedgerNumber))
-		if cd, ok := edge.Node.(*types.ContractDeployedChange); ok {
+		if cd, ok := edge.Node.(*types.AccountCreatedChange); ok {
 			deployChange = cd
 		}
 	}
 	suite.Require().NotNil(deployChange, "expected an ACCOUNT/CREATE contract-deploy state change")
-	validateContractDeployedChange(suite, deployChange, suite.testEnv.PrimaryAccountKP.Address())
+	validateAccountCreatedChange(suite, deployChange, suite.testEnv.PrimaryAccountKP.Address())
 }
 
 func (suite *DataValidationTestSuite) TestCreateClaimableBalanceOpsDataValidation() {

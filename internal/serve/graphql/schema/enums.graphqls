@@ -40,7 +40,7 @@ exact (category, reason) pairs.
 enum StateChangeCategory {
   """Token balance movements: BalanceChange (operation-sourced, or a transaction-fee row with null operation)."""
   BALANCE
-  """Account lifecycle: AccountCreatedChange, ContractDeployedChange, AccountMergedChange."""
+  """Account lifecycle: AccountCreatedChange, AccountMergedChange."""
   ACCOUNT
   """Account signer set: SignerAddedChange, SignerUpdatedChange, SignerRemovedChange."""
   SIGNER

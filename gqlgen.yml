@@ -179,9 +179,6 @@ models:
   AccountCreatedChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AccountCreatedChangeModel
-  ContractDeployedChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.ContractDeployedChangeModel
   AccountMergedChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AccountMergedChangeModel

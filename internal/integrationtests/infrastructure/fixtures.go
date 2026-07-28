@@ -897,7 +897,8 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 }
 
 // prepareDeployContractOp creates a from-address CreateContractV2 deploy of the holder WASM with the
-// PrimaryAccount as deployer, producing an ACCOUNT/CREATE state change that carries deployerAddress.
+// PrimaryAccount as deployer, producing an ACCOUNT/CREATE state change whose creatorAddress is
+// that deployer.
 func (f *Fixtures) prepareDeployContractOp(ctx context.Context) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	deployerSCAddress, err := SCAccountID(f.PrimaryAccountKP.Address())
 	if err != nil {
@@ -1510,7 +1511,7 @@ func (f *Fixtures) appendSorobanUseCases(ctx context.Context, useCases []*UseCas
 	useCases = append(useCases, useCase)
 
 	// Contract deployment (from-address) — produces an ACCOUNT/CREATE deploy state change whose
-	// deployerAddress is the PrimaryAccount.
+	// creatorAddress is the PrimaryAccount.
 	deployOpXDR, deploySigners, simulationResponse, err := f.prepareDeployContractOp(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("preparing deploy contract operation: %w", err)

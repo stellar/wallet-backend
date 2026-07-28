@@ -38,7 +38,6 @@ type ResolverRoot interface {
 	AllowanceChange() AllowanceChangeResolver
 	BalanceAuthorizationChange() BalanceAuthorizationChangeResolver
 	BalanceChange() BalanceChangeResolver
-	ContractDeployedChange() ContractDeployedChangeResolver
 	DataEntryChange() DataEntryChangeResolver
 	HomeDomainChange() HomeDomainChangeResolver
 	Operation() OperationResolver
@@ -69,7 +68,7 @@ type ComplexityRoot struct {
 	AccountCreatedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
-		FunderAddress   func(childComplexity int) int
+		CreatorAddress  func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
@@ -165,18 +164,6 @@ type ComplexityRoot struct {
 	BalanceEdge struct {
 		Cursor func(childComplexity int) int
 		Node   func(childComplexity int) int
-	}
-
-	ContractDeployedChange struct {
-		Account         func(childComplexity int) int
-		Category        func(childComplexity int) int
-		DeployerAddress func(childComplexity int) int
-		IngestedAt      func(childComplexity int) int
-		LedgerCreatedAt func(childComplexity int) int
-		LedgerNumber    func(childComplexity int) int
-		Operation       func(childComplexity int) int
-		Reason          func(childComplexity int) int
-		Transaction     func(childComplexity int) int
 	}
 
 	DataEntryChange struct {
@@ -456,7 +443,7 @@ type AccountCreatedChangeResolver interface {
 	Account(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Transaction, error)
-	FunderAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error)
+	CreatorAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error)
 }
 type AccountFlagsChangeResolver interface {
 	Category(ctx context.Context, obj *types.AccountFlagsChangeModel) (types.StateChangeCategory, error)
@@ -513,15 +500,6 @@ type BalanceChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.BalanceChangeModel) (string, error)
 	Amount(ctx context.Context, obj *types.BalanceChangeModel) (string, error)
 	ToMuxedID(ctx context.Context, obj *types.BalanceChangeModel) (*string, error)
-}
-type ContractDeployedChangeResolver interface {
-	Category(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.ContractDeployedChangeModel) (types.StateChangeReason, error)
-
-	Account(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.ContractDeployedChangeModel) (*types.Transaction, error)
-	DeployerAddress(ctx context.Context, obj *types.ContractDeployedChangeModel) (string, error)
 }
 type DataEntryChangeResolver interface {
 	Category(ctx context.Context, obj *types.DataEntryChangeModel) (types.StateChangeCategory, error)
@@ -726,12 +704,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.AccountCreatedChange.Category(childComplexity), true
-	case "AccountCreatedChange.funderAddress":
-		if e.ComplexityRoot.AccountCreatedChange.FunderAddress == nil {
+	case "AccountCreatedChange.creatorAddress":
+		if e.ComplexityRoot.AccountCreatedChange.CreatorAddress == nil {
 			break
 		}
 
-		return e.ComplexityRoot.AccountCreatedChange.FunderAddress(childComplexity), true
+		return e.ComplexityRoot.AccountCreatedChange.CreatorAddress(childComplexity), true
 	case "AccountCreatedChange.ingestedAt":
 		if e.ComplexityRoot.AccountCreatedChange.IngestedAt == nil {
 			break
@@ -1149,61 +1127,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
-
-	case "ContractDeployedChange.account":
-		if e.ComplexityRoot.ContractDeployedChange.Account == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.Account(childComplexity), true
-	case "ContractDeployedChange.category":
-		if e.ComplexityRoot.ContractDeployedChange.Category == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.Category(childComplexity), true
-	case "ContractDeployedChange.deployerAddress":
-		if e.ComplexityRoot.ContractDeployedChange.DeployerAddress == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.DeployerAddress(childComplexity), true
-	case "ContractDeployedChange.ingestedAt":
-		if e.ComplexityRoot.ContractDeployedChange.IngestedAt == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.IngestedAt(childComplexity), true
-	case "ContractDeployedChange.ledgerCreatedAt":
-		if e.ComplexityRoot.ContractDeployedChange.LedgerCreatedAt == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.LedgerCreatedAt(childComplexity), true
-	case "ContractDeployedChange.ledgerNumber":
-		if e.ComplexityRoot.ContractDeployedChange.LedgerNumber == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.LedgerNumber(childComplexity), true
-	case "ContractDeployedChange.operation":
-		if e.ComplexityRoot.ContractDeployedChange.Operation == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.Operation(childComplexity), true
-	case "ContractDeployedChange.reason":
-		if e.ComplexityRoot.ContractDeployedChange.Reason == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.Reason(childComplexity), true
-	case "ContractDeployedChange.transaction":
-		if e.ComplexityRoot.ContractDeployedChange.Transaction == nil {
-			break
-		}
-
-		return e.ComplexityRoot.ContractDeployedChange.Transaction(childComplexity), true
 
 	case "DataEntryChange.account":
 		if e.ComplexityRoot.DataEntryChange.Account == nil {
@@ -2675,7 +2598,7 @@ exact (category, reason) pairs.
 enum StateChangeCategory {
   """Token balance movements: BalanceChange (operation-sourced, or a transaction-fee row with null operation)."""
   BALANCE
-  """Account lifecycle: AccountCreatedChange, ContractDeployedChange, AccountMergedChange."""
+  """Account lifecycle: AccountCreatedChange, AccountMergedChange."""
   ACCOUNT
   """Account signer set: SignerAddedChange, SignerUpdatedChange, SignerRemovedChange."""
   SIGNER
@@ -2986,7 +2909,8 @@ type BalanceChange implements BaseStateChange {
 }
 
 """
-A classic account creation. ` + "`" + `account` + "`" + ` is the newly created account.
+An account came into existence. ` + "`" + `account` + "`" + ` is the new account: a G-address for
+a classic account creation, a C-address for a smart-contract deployment.
 Pair: (ACCOUNT, CREATE).
 """
 type AccountCreatedChange implements BaseStateChange {
@@ -2999,26 +2923,11 @@ type AccountCreatedChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Account that funded the new account's starting balance."""
-  funderAddress:              String! @goField(forceResolver: true)
-}
-
-"""
-A smart-contract deployment. ` + "`" + `account` + "`" + ` is the deployed contract address.
-Pair: (ACCOUNT, CREATE).
-"""
-type ContractDeployedChange implements BaseStateChange {
-  category:                   StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation! @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  """Address that deployed the contract."""
-  deployerAddress:            String! @goField(forceResolver: true)
+  """
+  Account that created this one: the funder of a classic account's starting
+  balance, or the deployer of a contract.
+  """
+  creatorAddress:             String! @goField(forceResolver: true)
 }
 
 """
@@ -4230,14 +4139,14 @@ func (ec *executionContext) fieldContext_AccountCreatedChange_transaction(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _AccountCreatedChange_funderAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _AccountCreatedChange_creatorAddress(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_AccountCreatedChange_funderAddress,
+		ec.fieldContext_AccountCreatedChange_creatorAddress,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.AccountCreatedChange().FunderAddress(ctx, obj)
+			return ec.Resolvers.AccountCreatedChange().CreatorAddress(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -4246,7 +4155,7 @@ func (ec *executionContext) _AccountCreatedChange_funderAddress(ctx context.Cont
 	)
 }
 
-func (ec *executionContext) fieldContext_AccountCreatedChange_funderAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_AccountCreatedChange_creatorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "AccountCreatedChange",
 		Field:      field,
@@ -6432,327 +6341,6 @@ func (ec *executionContext) fieldContext_BalanceEdge_cursor(_ context.Context, f
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_category,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().Category(ctx, obj)
-		},
-		nil,
-		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type StateChangeCategory does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_reason,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().Reason(ctx, obj)
-		},
-		nil,
-		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type StateChangeReason does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_ingestedAt,
-		func(ctx context.Context) (any, error) {
-			return obj.IngestedAt, nil
-		},
-		nil,
-		ec.marshalNTime2timeᚐTime,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_ledgerCreatedAt,
-		func(ctx context.Context) (any, error) {
-			return obj.LedgerCreatedAt, nil
-		},
-		nil,
-		ec.marshalNTime2timeᚐTime,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Time does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_ledgerNumber,
-		func(ctx context.Context) (any, error) {
-			return obj.LedgerNumber, nil
-		},
-		nil,
-		ec.marshalNUInt322uint32,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type UInt32 does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_account,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().Account(ctx, obj)
-		},
-		nil,
-		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "address":
-				return ec.fieldContext_Account_address(ctx, field)
-			case "balances":
-				return ec.fieldContext_Account_balances(ctx, field)
-			case "transactions":
-				return ec.fieldContext_Account_transactions(ctx, field)
-			case "operations":
-				return ec.fieldContext_Account_operations(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Account_stateChanges(ctx, field)
-			case "sep41Allowances":
-				return ec.fieldContext_Account_sep41Allowances(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_operation,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().Operation(ctx, obj)
-		},
-		nil,
-		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_Operation_id(ctx, field)
-			case "type":
-				return ec.fieldContext_Operation_type(ctx, field)
-			case "operationXdr":
-				return ec.fieldContext_Operation_operationXdr(ctx, field)
-			case "resultCode":
-				return ec.fieldContext_Operation_resultCode(ctx, field)
-			case "successful":
-				return ec.fieldContext_Operation_successful(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Operation_ingestedAt(ctx, field)
-			case "transaction":
-				return ec.fieldContext_Operation_transaction(ctx, field)
-			case "accounts":
-				return ec.fieldContext_Operation_accounts(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Operation_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_transaction,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().Transaction(ctx, obj)
-		},
-		nil,
-		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "hash":
-				return ec.fieldContext_Transaction_hash(ctx, field)
-			case "feeCharged":
-				return ec.fieldContext_Transaction_feeCharged(ctx, field)
-			case "resultCode":
-				return ec.fieldContext_Transaction_resultCode(ctx, field)
-			case "ledgerNumber":
-				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
-			case "ledgerCreatedAt":
-				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
-			case "isFeeBump":
-				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
-			case "ingestedAt":
-				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
-			case "operations":
-				return ec.fieldContext_Transaction_operations(ctx, field)
-			case "accounts":
-				return ec.fieldContext_Transaction_accounts(ctx, field)
-			case "stateChanges":
-				return ec.fieldContext_Transaction_stateChanges(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _ContractDeployedChange_deployerAddress(ctx context.Context, field graphql.CollectedField, obj *types.ContractDeployedChangeModel) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_ContractDeployedChange_deployerAddress,
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ContractDeployedChange().DeployerAddress(ctx, obj)
-		},
-		nil,
-		ec.marshalNString2string,
-		true,
-		true,
-	)
-}
-
-func (ec *executionContext) fieldContext_ContractDeployedChange_deployerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "ContractDeployedChange",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -14623,13 +14211,6 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._DataEntryChange(ctx, sel, obj)
-	case types.ContractDeployedChangeModel:
-		return ec._ContractDeployedChange(ctx, sel, &obj)
-	case *types.ContractDeployedChangeModel:
-		if obj == nil {
-			return graphql.Null
-		}
-		return ec._ContractDeployedChange(ctx, sel, obj)
 	case types.BalanceChangeModel:
 		return ec._BalanceChange(ctx, sel, &obj)
 	case *types.BalanceChangeModel:
@@ -15141,7 +14722,7 @@ func (ec *executionContext) _AccountCreatedChange(ctx context.Context, sel ast.S
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "funderAddress":
+		case "creatorAddress":
 			field := field
 
 			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
@@ -15150,7 +14731,7 @@ func (ec *executionContext) _AccountCreatedChange(ctx context.Context, sel ast.S
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._AccountCreatedChange_funderAddress(ctx, field, obj)
+				res = ec._AccountCreatedChange_creatorAddress(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -16987,271 +16568,6 @@ func (ec *executionContext) _BalanceEdge(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
-
-	for label, dfs := range deferred {
-		ec.ProcessDeferredGroup(graphql.DeferredGroup{
-			Label:    label,
-			Path:     graphql.GetPath(ctx),
-			FieldSet: dfs,
-			Context:  ctx,
-		})
-	}
-
-	return out
-}
-
-var contractDeployedChangeImplementors = []string{"ContractDeployedChange", "BaseStateChange"}
-
-func (ec *executionContext) _ContractDeployedChange(ctx context.Context, sel ast.SelectionSet, obj *types.ContractDeployedChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, contractDeployedChangeImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferred := make(map[string]*graphql.FieldSet)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("ContractDeployedChange")
-		case "category":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_category(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "reason":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_reason(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "ingestedAt":
-			out.Values[i] = ec._ContractDeployedChange_ingestedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerCreatedAt":
-			out.Values[i] = ec._ContractDeployedChange_ledgerCreatedAt(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "ledgerNumber":
-			out.Values[i] = ec._ContractDeployedChange_ledgerNumber(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
-			}
-		case "account":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_account(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "operation":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_operation(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "transaction":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_transaction(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-		case "deployerAddress":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ContractDeployedChange_deployerAddress(ctx, field, obj)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

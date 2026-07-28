@@ -31,9 +31,9 @@ var _ StateChangeWriter = (*StateChangeModel)(nil)
 
 // stateChangeMandatoryColumns is always selected regardless of the GraphQL field
 // projection: the cursor/key columns, plus the discriminators (state_change_category,
-// state_change_reason, deployer_account_id) that convertStateChangeTypes in the
-// resolvers package needs to pick the concrete GraphQL type for each row.
-var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason", "deployer_account_id"}
+// state_change_reason) that convertStateChangeTypes in the resolvers package needs
+// to pick the concrete GraphQL type for each row.
+var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason"}
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
@@ -162,7 +162,7 @@ func (m *StateChangeModel) BatchCopy(
 			"to_id", "state_change_id", "state_change_category", "state_change_reason",
 			"ledger_created_at", "ledger_number", "account_id", "operation_id",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
-			"deployer_account_id", "funder_account_id", "destination_account_id",
+			"creator_account_id", "destination_account_id",
 			"claimable_balance_id", "liquidity_pool_id",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
@@ -186,13 +186,9 @@ func (m *StateChangeModel) BatchCopy(
 			if err != nil {
 				return nil, fmt.Errorf("converting spender_account_id: %w", err)
 			}
-			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
+			creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
 			if err != nil {
-				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
-			}
-			funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting funder_account_id: %w", err)
+				return nil, fmt.Errorf("converting creator_account_id: %w", err)
 			}
 			destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
 			if err != nil {
@@ -216,8 +212,7 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.Amount),
 				signerBytes,
 				spenderBytes,
-				deployerBytes,
-				funderBytes,
+				creatorBytes,
 				destinationBytes,
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),

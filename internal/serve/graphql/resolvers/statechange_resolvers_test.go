@@ -18,11 +18,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
-// TestConvertStateChangeTypes is the dispatch matrix: every valid (category, reason)
-// pair — plus the ACCOUNT/CREATE deployer-vs-funder column discriminator — must resolve
-// to exactly one concrete GraphQL model, and every invalid (category, reason) pair must
-// surface an error naming the pair rather than a nil node (which would violate the
-// non-null StateChangeEdge.node contract).
+// TestConvertStateChangeTypes is the dispatch matrix: dispatch is purely on the
+// (category, reason) pair, so every valid pair must resolve to exactly one concrete
+// GraphQL model, and every invalid pair must surface an error naming the pair rather
+// than a nil node (which would violate the non-null StateChangeEdge.node contract).
 func TestConvertStateChangeTypes(t *testing.T) {
 	validCases := []struct {
 		name string
@@ -51,15 +50,21 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonMint, OperationID: 12345},
 			want: &types.BalanceChangeModel{},
 		},
-		// ACCOUNT/CREATE: the DeployerAccountID discriminator splits contract deploys from account creation.
+		// ACCOUNT/CREATE: one model for both classic account creation and contract
+		// deployment — the account being a G- or C-address does not change dispatch.
 		{
-			name: "ACCOUNT create with a deployer is a contract deployment",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonCreate, DeployerAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true}},
-			want: &types.ContractDeployedChangeModel{},
+			name: "ACCOUNT create is an account creation",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonCreate},
+			want: &types.AccountCreatedChangeModel{},
 		},
 		{
-			name: "ACCOUNT create without a deployer is an account creation",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryAccount, StateChangeReason: types.StateChangeReasonCreate},
+			name: "ACCOUNT create of a contract address is an account creation",
+			sc: types.StateChange{
+				StateChangeCategory: types.StateChangeCategoryAccount,
+				StateChangeReason:   types.StateChangeReasonCreate,
+				AccountID:           types.AddressBytea(MainnetNativeContractAddress),
+				CreatorAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(sharedTestAccountAddress), Valid: true},
+			},
 			want: &types.AccountCreatedChangeModel{},
 		},
 		{

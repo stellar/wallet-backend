@@ -37,30 +37,31 @@ func Test_UnmarshalStateChangeNode_BalanceChange(t *testing.T) {
 	assert.Equal(t, muxed, *bc.ToMuxedID)
 }
 
-// Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed guards the two ACCOUNT/CREATE
-// variants that share the same (category, reason) pair but different __typename and payload.
-func Test_UnmarshalStateChangeNode_AccountCreatedVsContractDeployed(t *testing.T) {
+// Test_UnmarshalStateChangeNode_AccountCreated covers both ACCOUNT/CREATE shapes that
+// AccountCreatedChange serves: a classic account funded by a G-address, and a contract
+// deployment whose account is the deployed C-address.
+func Test_UnmarshalStateChangeNode_AccountCreated(t *testing.T) {
 	created, err := UnmarshalStateChangeNode([]byte(`{
 		"__typename": "AccountCreatedChange",
 		"category": "ACCOUNT",
 		"reason": "CREATE",
-		"funderAddress": "GFUNDER"
+		"creatorAddress": "GFUNDER"
 	}`))
 	require.NoError(t, err)
 	ac, ok := created.(*AccountCreatedChange)
 	require.True(t, ok, "expected *AccountCreatedChange, got %T", created)
-	assert.Equal(t, "GFUNDER", ac.FunderAddress)
+	assert.Equal(t, "GFUNDER", ac.CreatorAddress)
 
 	deployed, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "ContractDeployedChange",
+		"__typename": "AccountCreatedChange",
 		"category": "ACCOUNT",
 		"reason": "CREATE",
-		"deployerAddress": "GDEPLOYER"
+		"creatorAddress": "GDEPLOYER"
 	}`))
 	require.NoError(t, err)
-	cd, ok := deployed.(*ContractDeployedChange)
-	require.True(t, ok, "expected *ContractDeployedChange, got %T", deployed)
-	assert.Equal(t, "GDEPLOYER", cd.DeployerAddress)
+	cd, ok := deployed.(*AccountCreatedChange)
+	require.True(t, ok, "expected *AccountCreatedChange, got %T", deployed)
+	assert.Equal(t, "GDEPLOYER", cd.CreatorAddress)
 }
 
 // Test_UnmarshalStateChangeNode_SignerUpdated verifies both required weights decode,

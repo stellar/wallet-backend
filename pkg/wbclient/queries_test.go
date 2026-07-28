@@ -63,7 +63,6 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 	}{
 		{"BalanceChange", types.BalanceChange{}},
 		{"AccountCreatedChange", types.AccountCreatedChange{}},
-		{"ContractDeployedChange", types.ContractDeployedChange{}},
 		{"AccountMergedChange", types.AccountMergedChange{}},
 		{"SignerAddedChange", types.SignerAddedChange{}},
 		{"SignerUpdatedChange", types.SignerUpdatedChange{}},

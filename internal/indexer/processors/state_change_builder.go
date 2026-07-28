@@ -92,15 +92,10 @@ func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int
 	return b
 }
 
-// WithDeployer sets the deployer account ID, usually associated with a contract deployment.
-func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
-	b.base.DeployerAccountID = utils.NullAddressBytea(deployer)
-	return b
-}
-
-// WithFunder sets the funder account ID
-func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
-	b.base.FunderAccountID = utils.NullAddressBytea(funder)
+// WithCreator sets the creator account ID: the account that funded a classic
+// account creation, or the address that deployed a contract.
+func (b *StateChangeBuilder) WithCreator(creator string) *StateChangeBuilder {
+	b.base.CreatorAccountID = utils.NullAddressBytea(creator)
 	return b
 }
 

@@ -43,10 +43,9 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			TokenID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+6)%len(auxAddresses)]), Valid: true},
 			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
 			// NullAddressBytea fields
-			SignerAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
-			SpenderAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
-			DeployerAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
-			FunderAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+5)%len(auxAddresses)]), Valid: true},
+			SignerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
+			SpenderAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
+			CreatorAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
 			// Typed fields (previously JSONB)
 			SignerWeightOld:   sql.NullInt16{Int16: int16(i % 256), Valid: true},
 			SignerWeightNew:   sql.NullInt16{Int16: int16((i + 1) % 256), Valid: true},
