@@ -210,7 +210,7 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 		name  string
 		query string
 		// computed complexity on record at time of writing, for both cases under the
-		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7601.
+		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=6701.
 		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 16-fragment
 		// state-change selection over-counts relative to what any one row resolves.
 		floor int
