@@ -114,7 +114,7 @@ type AccountFlagsChange struct {
 	Flags []AccountFlag `json:"accountFlags"`
 }
 
-// HomeDomainChange is a home-domain change on the account.
+// HomeDomainChange is a home domain set, cleared, or updated on the account.
 type HomeDomainChange struct {
 	BaseStateChangeFields
 	OldHomeDomain string `json:"oldHomeDomain"`

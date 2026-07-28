@@ -9,15 +9,14 @@ CREATE TABLE state_changes (
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
-            'METADATA', 'ALLOWANCE', 'FLAGS', 'TRUSTLINE',
+            'METADATA', 'HOME_DOMAIN', 'ALLOWANCE', 'FLAGS', 'TRUSTLINE',
             'BALANCE_AUTHORIZATION'
         )
     ),
     state_change_reason TEXT NOT NULL CHECK (
         state_change_reason IN (
             'CREATE', 'MERGE', 'DEBIT', 'CREDIT', 'MINT', 'BURN',
-            'ADD', 'REMOVE', 'UPDATE',
-            'HOME_DOMAIN', 'SET', 'CLEAR', 'DATA_ENTRY'
+            'ADD', 'REMOVE', 'UPDATE', 'SET', 'CLEAR', 'DATA_ENTRY'
         )
     ),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

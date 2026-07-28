@@ -2612,8 +2612,10 @@ enum StateChangeCategory {
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
-  """Account metadata: HomeDomainChange, DataEntryChange."""
+  """Account metadata: DataEntryChange."""
   METADATA
+  """The account's home domain: HomeDomainChange."""
+  HOME_DOMAIN
   """SEP-41 token allowances: AllowanceChange."""
   ALLOWANCE
   """Account authorization flags: AccountFlagsChange."""
@@ -2645,13 +2647,11 @@ enum StateChangeReason {
   ADD
   """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved."""
+  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
-  """METADATA: home domain changed."""
-  HOME_DOMAIN
-  """FLAGS or BALANCE_AUTHORIZATION: flags turned on."""
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none."""
   SET
-  """FLAGS or BALANCE_AUTHORIZATION: flags turned off."""
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed."""
   CLEAR
   """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY
@@ -3065,8 +3065,10 @@ type AccountFlagsChange implements BaseStateChange {
 }
 
 """
-A home-domain change on the account.
-Pair: (METADATA, HOME_DOMAIN).
+A home-domain change on the account. ` + "`" + `reason` + "`" + ` is SET when the account
+previously had no home domain, CLEAR when the domain was removed, and UPDATE
+when it changed from one value to another.
+Pairs: (HOME_DOMAIN, SET), (HOME_DOMAIN, CLEAR), (HOME_DOMAIN, UPDATE).
 """
 type HomeDomainChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)

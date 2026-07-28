@@ -104,10 +104,20 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryFlags, StateChangeReason: types.StateChangeReasonClear},
 			want: &types.AccountFlagsChangeModel{},
 		},
-		// METADATA: one model per reason.
+		// HOME_DOMAIN: any of the three transitions maps to one model.
 		{
-			name: "METADATA home domain",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonHomeDomain},
+			name: "HOME_DOMAIN set",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonSet},
+			want: &types.HomeDomainChangeModel{},
+		},
+		{
+			name: "HOME_DOMAIN clear",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonClear},
+			want: &types.HomeDomainChangeModel{},
+		},
+		{
+			name: "HOME_DOMAIN update",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonUpdate},
 			want: &types.HomeDomainChangeModel{},
 		},
 		{
@@ -219,6 +229,12 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonUpdate},
 			category: "METADATA",
 			reason:   "UPDATE",
+		},
+		{
+			name:     "HOME_DOMAIN with an account reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonMerge},
+			category: "HOME_DOMAIN",
+			reason:   "MERGE",
 		},
 		{
 			name:     "ALLOWANCE with a flags reason",
@@ -359,7 +375,7 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 
 	t.Run("extracts old and new from key_value", func(t *testing.T) {
 		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"old": "a.com", "new": "b.com"}},
+			KeyValue: types.NullableJSONB{"old": "a.com", "new": "b.com"},
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
 		require.NoError(t, err)
@@ -372,7 +388,7 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 
 	t.Run("previously unset domain is the empty string, not null", func(t *testing.T) {
 		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"old": "", "new": "b.com"}},
+			KeyValue: types.NullableJSONB{"old": "", "new": "b.com"},
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
 		require.NoError(t, err)
@@ -381,7 +397,7 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 
 	t.Run("missing old is a data-integrity error", func(t *testing.T) {
 		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"home_domain": map[string]any{"new": "b.com"}},
+			KeyValue: types.NullableJSONB{"new": "b.com"},
 		}}
 		_, err := r.OldHomeDomain(ctx, obj)
 		require.Error(t, err)

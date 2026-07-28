@@ -561,7 +561,7 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int!` |
 | `ThresholdChange` | `(SIGNATURE_THRESHOLD, UPDATE)` | `threshold: ThresholdLevel!`, `oldThreshold: Int!`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
-| `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
+| `HomeDomainChange` | `(HOME_DOMAIN, SET)`, `(HOME_DOMAIN, CLEAR)`, `(HOME_DOMAIN, UPDATE)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
 | `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
 | `AllowanceChange` | `(ALLOWANCE, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
 | `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
@@ -582,7 +582,8 @@ Notes on the polymorphic fields:
 | `ACCOUNT` | `AccountCreatedChange`, `AccountMergedChange` |
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
-| `METADATA` | `HomeDomainChange`, `DataEntryChange` |
+| `METADATA` | `DataEntryChange` |
+| `HOME_DOMAIN` | `HomeDomainChange` |
 | `ALLOWANCE` | `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
 | `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
@@ -600,11 +601,10 @@ Notes on the polymorphic fields:
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
 | `ADD` | SIGNER or TRUSTLINE: entry added |
 | `REMOVE` | SIGNER or TRUSTLINE: entry removed |
-| `UPDATE` | SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved |
-| `HOME_DOMAIN` | METADATA: home domain changed |
+| `UPDATE` | SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved |
 | `DATA_ENTRY` | METADATA: data entry created, updated, or removed |
-| `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on |
-| `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off |
+| `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none |
+| `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed |
 
 **Flag Enum Values:**
 

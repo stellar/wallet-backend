@@ -46,8 +46,10 @@ enum StateChangeCategory {
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
-  """Account metadata: HomeDomainChange, DataEntryChange."""
+  """Account metadata: DataEntryChange."""
   METADATA
+  """The account's home domain: HomeDomainChange."""
+  HOME_DOMAIN
   """SEP-41 token allowances: AllowanceChange."""
   ALLOWANCE
   """Account authorization flags: AccountFlagsChange."""
@@ -79,13 +81,11 @@ enum StateChangeReason {
   ADD
   """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved."""
+  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
-  """METADATA: home domain changed."""
-  HOME_DOMAIN
-  """FLAGS or BALANCE_AUTHORIZATION: flags turned on."""
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none."""
   SET
-  """FLAGS or BALANCE_AUTHORIZATION: flags turned off."""
+  """FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed."""
   CLEAR
   """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY

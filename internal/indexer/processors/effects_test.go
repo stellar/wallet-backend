@@ -57,12 +57,11 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
-			case types.StateChangeCategoryMetadata:
-				assert.Equal(t, types.StateChangeReasonHomeDomain, change.StateChangeReason)
-				homeDomain, ok := change.KeyValue["home_domain"].(map[string]any)
-				require.True(t, ok, "home_domain should be an {old, new} map")
-				assert.Equal(t, "old.example.org", homeDomain["old"])
-				assert.Equal(t, "https://www.home.org/", homeDomain["new"])
+			case types.StateChangeCategoryHomeDomain:
+				// Both the pre-image and the new value are non-empty in this fixture.
+				assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason)
+				assert.Equal(t, "old.example.org", change.KeyValue["old"])
+				assert.Equal(t, "https://www.home.org/", change.KeyValue["new"])
 			case types.StateChangeCategorySignatureThreshold:
 				assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason)
 				require.True(t, change.Threshold.Valid, "threshold level must identify which threshold changed")
@@ -426,6 +425,38 @@ func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no previous account state")
 	})
+}
+
+// TestEffects_HomeDomainReason covers the derivation of the HOME_DOMAIN reason from the
+// empty-string transitions in the flattened {"old", "new"} key-value payload.
+func TestEffects_HomeDomainReason(t *testing.T) {
+	testCases := []struct {
+		name     string
+		keyValue map[string]any
+		want     types.StateChangeReason
+	}{
+		{
+			name:     "empty old value means the domain was set for the first time",
+			keyValue: map[string]any{"old": "", "new": "home.org"},
+			want:     types.StateChangeReasonSet,
+		},
+		{
+			name:     "empty new value means the domain was cleared",
+			keyValue: map[string]any{"old": "home.org", "new": ""},
+			want:     types.StateChangeReasonClear,
+		},
+		{
+			name:     "two non-empty values mean the domain was updated",
+			keyValue: map[string]any{"old": "old.example.org", "new": "home.org"},
+			want:     types.StateChangeReasonUpdate,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, homeDomainReason(tc.keyValue))
+		})
+	}
 }
 
 // TestEffects_GetPrevLedgerEntryState_MatchesEntity pins the pre-image lookup to the

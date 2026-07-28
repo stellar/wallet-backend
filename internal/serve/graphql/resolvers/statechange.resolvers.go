@@ -336,7 +336,7 @@ func (r *homeDomainChangeResolver) Transaction(ctx context.Context, obj *types.H
 // OldHomeDomain is the resolver for the oldHomeDomain field. The emission
 // requires the account pre-image, so a missing old value is a data-integrity error.
 func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
-	oldVal, _ := keyValueOldNew(obj.KeyValue, "home_domain")
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
 	if oldVal == nil {
 		return "", fmt.Errorf("state change is missing required oldHomeDomain")
 	}
@@ -346,7 +346,7 @@ func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types
 // NewHomeDomain is the resolver for the newHomeDomain field. The emission
 // requires the effect's new value, so a missing one is a data-integrity error.
 func (r *homeDomainChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
-	_, newVal := keyValueOldNew(obj.KeyValue, "home_domain")
+	newVal := flatKeyValueString(obj.KeyValue, "new")
 	if newVal == nil {
 		return "", fmt.Errorf("state change is missing required newHomeDomain")
 	}

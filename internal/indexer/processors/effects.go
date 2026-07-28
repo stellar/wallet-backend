@@ -155,7 +155,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryFlags)
 			stateChanges = append(stateChanges, p.parseFlags(accountFlags, changeBuilder, &effect)...)
 
-		// Home domain effects: track changes to account home domain metadata
+		// Home domain effects: track changes to the account's home domain
 		case EffectAccountHomeDomainUpdated:
 			keyValueMap, err := p.parseKeyValue(&effect, effectType, changes, "home_domain")
 			if err != nil {
@@ -163,8 +163,8 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 				continue
 			}
 			stateChanges = append(stateChanges, changeBuilder.
-				WithCategory(types.StateChangeCategoryMetadata).
-				WithReason(types.StateChangeReasonHomeDomain).
+				WithCategory(types.StateChangeCategoryHomeDomain).
+				WithReason(homeDomainReason(keyValueMap)).
 				WithKeyValue(keyValueMap).
 				Build())
 
@@ -433,6 +433,22 @@ func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) 
 	return flagStrings
 }
 
+// homeDomainReason derives the state-change reason from a home-domain key-value
+// map: an empty old value means the domain was set for the first time, an empty
+// new value means it was cleared, and anything else is an update.
+func homeDomainReason(keyValueMap map[string]any) types.StateChangeReason {
+	oldDomain, _ := keyValueMap["old"].(string)
+	newDomain, _ := keyValueMap["new"].(string)
+	switch {
+	case oldDomain == "":
+		return types.StateChangeReasonSet
+	case newDomain == "":
+		return types.StateChangeReasonClear
+	default:
+		return types.StateChangeReasonUpdate
+	}
+}
+
 // parseKeyValue extracts specified key-value pairs from effect details.
 // This is used to capture metadata like home domain values or data entry names and values.
 // Old values are recovered from the entry's pre-image; effects whose pre-image is required
@@ -484,10 +500,8 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 		if !ok {
 			return nil, fmt.Errorf("home domain effect on account %s (opID %d) carries no new value", effect.Address, effect.OperationID)
 		}
-		keyValueMap[key] = map[string]any{
-			"old": string(prevLedgerEntryState.Data.MustAccount().HomeDomain),
-			"new": value,
-		}
+		keyValueMap["old"] = string(prevLedgerEntryState.Data.MustAccount().HomeDomain)
+		keyValueMap["new"] = value
 	default:
 		if value, ok := effect.Details[key]; ok {
 			keyValueMap[key] = value

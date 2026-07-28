@@ -168,11 +168,15 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		}
 	case types.StateChangeCategoryMetadata:
 		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonHomeDomain:
-			return &types.HomeDomainChangeModel{StateChange: stateChange}, nil
 		case types.StateChangeReasonDataEntry:
 			return &types.DataEntryChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for METADATA; falls through to the error below
+		}
+	case types.StateChangeCategoryHomeDomain:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet, types.StateChangeReasonClear, types.StateChangeReasonUpdate:
+			return &types.HomeDomainChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for HOME_DOMAIN; falls through to the error below
 		}
 	case types.StateChangeCategoryAllowance:
 		switch stateChange.StateChangeReason {

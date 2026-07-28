@@ -195,6 +195,16 @@ func keyValueOldNew(kv types.NullableJSONB, key string) (oldVal, newVal *string)
 	return stringPtrFromAny(inner["old"]), stringPtrFromAny(inner["new"])
 }
 
+// flatKeyValueString extracts a top-level string value from a state change's
+// KeyValue payload (shape: {"old": ..., "new": ...}). A missing key or non-string
+// value yields a nil pointer rather than an error.
+func flatKeyValueString(kv types.NullableJSONB, key string) *string {
+	if kv == nil {
+		return nil
+	}
+	return stringPtrFromAny(kv[key])
+}
+
 // stringPtrFromAny returns a pointer to the string when v is a string, otherwise nil.
 func stringPtrFromAny(v any) *string {
 	s, ok := v.(string)

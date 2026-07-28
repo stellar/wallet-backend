@@ -499,6 +499,7 @@ const (
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
 	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryHomeDomain           StateChangeCategory = "HOME_DOMAIN"
 	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
@@ -508,19 +509,18 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate     StateChangeReason = "CREATE"
-	StateChangeReasonMerge      StateChangeReason = "MERGE"
-	StateChangeReasonDebit      StateChangeReason = "DEBIT"
-	StateChangeReasonCredit     StateChangeReason = "CREDIT"
-	StateChangeReasonMint       StateChangeReason = "MINT"
-	StateChangeReasonBurn       StateChangeReason = "BURN"
-	StateChangeReasonAdd        StateChangeReason = "ADD"
-	StateChangeReasonRemove     StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
-	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
-	StateChangeReasonSet        StateChangeReason = "SET"
-	StateChangeReasonClear      StateChangeReason = "CLEAR"
-	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonCreate    StateChangeReason = "CREATE"
+	StateChangeReasonMerge     StateChangeReason = "MERGE"
+	StateChangeReasonDebit     StateChangeReason = "DEBIT"
+	StateChangeReasonCredit    StateChangeReason = "CREDIT"
+	StateChangeReasonMint      StateChangeReason = "MINT"
+	StateChangeReasonBurn      StateChangeReason = "BURN"
+	StateChangeReasonAdd       StateChangeReason = "ADD"
+	StateChangeReasonRemove    StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate    StateChangeReason = "UPDATE"
+	StateChangeReasonSet       StateChangeReason = "SET"
+	StateChangeReasonClear     StateChangeReason = "CLEAR"
+	StateChangeReasonDataEntry StateChangeReason = "DATA_ENTRY"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
@@ -1019,7 +1019,7 @@ type AccountFlagsChangeModel struct {
 	StateChange
 }
 
-// HomeDomainChangeModel maps to GraphQL HomeDomainChange: METADATA × HOME_DOMAIN.
+// HomeDomainChangeModel maps to GraphQL HomeDomainChange: HOME_DOMAIN × SET/CLEAR/UPDATE.
 type HomeDomainChangeModel struct {
 	StateChange
 }

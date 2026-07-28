@@ -207,8 +207,10 @@ type AccountFlagsChange implements BaseStateChange {
 }
 
 """
-A home-domain change on the account.
-Pair: (METADATA, HOME_DOMAIN).
+A home-domain change on the account. `reason` is SET when the account
+previously had no home domain, CLEAR when the domain was removed, and UPDATE
+when it changed from one value to another.
+Pairs: (HOME_DOMAIN, SET), (HOME_DOMAIN, CLEAR), (HOME_DOMAIN, UPDATE).
 """
 type HomeDomainChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
