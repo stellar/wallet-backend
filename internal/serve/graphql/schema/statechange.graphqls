@@ -229,11 +229,10 @@ type HomeDomainChange implements BaseStateChange {
 }
 
 """
-A data entry created, updated, or removed on the account.
-Pair: (METADATA, DATA_ENTRY). A creation carries only newValue, a removal only
-oldValue, an update both.
+A data entry created on the account.
+Pair: (DATA_ENTRY, ADD).
 """
-type DataEntryChange implements BaseStateChange {
+type DataEntryAddedChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -245,10 +244,50 @@ type DataEntryChange implements BaseStateChange {
 
   """Name of the data entry."""
   name:                       String! @goField(forceResolver: true)
-  """Previous value, base64-encoded; null exactly when the entry was created."""
-  oldValue:                   String @goField(forceResolver: true)
-  """New value, base64-encoded; null on removal."""
-  newValue:                   String @goField(forceResolver: true)
+  """Value of the new entry, base64-encoded."""
+  value:                      String! @goField(forceResolver: true)
+}
+
+"""
+An existing data entry's value changed.
+Pair: (DATA_ENTRY, UPDATE).
+"""
+type DataEntryUpdatedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Name of the data entry."""
+  name:                       String! @goField(forceResolver: true)
+  """Previous value, base64-encoded."""
+  oldValue:                   String! @goField(forceResolver: true)
+  """New value, base64-encoded."""
+  newValue:                   String! @goField(forceResolver: true)
+}
+
+"""
+A data entry removed from the account.
+Pair: (DATA_ENTRY, REMOVE).
+"""
+type DataEntryRemovedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Name of the data entry."""
+  name:                       String! @goField(forceResolver: true)
+  """Value the entry had when removed, base64-encoded."""
+  oldValue:                   String! @goField(forceResolver: true)
 }
 
 """

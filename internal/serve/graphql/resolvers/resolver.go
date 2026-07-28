@@ -181,20 +181,6 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 	return transaction, nil
 }
 
-// keyValueOldNew extracts the "old" and "new" string values nested under the given
-// key of a state change's KeyValue payload (shape: {<key>: {"old": ..., "new": ...}}).
-// Any missing layer or non-string leaf yields a nil pointer rather than an error.
-func keyValueOldNew(kv types.NullableJSONB, key string) (oldVal, newVal *string) {
-	if kv == nil {
-		return nil, nil
-	}
-	inner, ok := kv[key].(map[string]any)
-	if !ok {
-		return nil, nil
-	}
-	return stringPtrFromAny(inner["old"]), stringPtrFromAny(inner["new"])
-}
-
 // flatKeyValueString extracts a top-level string value from a state change's
 // KeyValue payload (shape: {"old": ..., "new": ...}). A missing key or non-string
 // value yields a nil pointer rather than an error.

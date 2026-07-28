@@ -88,10 +88,18 @@ const (
 			oldHomeDomain
 			newHomeDomain
 		}
-		... on DataEntryChange {
+		... on DataEntryAddedChange {
+			name
+			value
+		}
+		... on DataEntryUpdatedChange {
 			name
 			oldValue
 			newValue
+		}
+		... on DataEntryRemovedChange {
+			name
+			oldValue
 		}
 		... on AllowanceChange {
 			allowanceTokenId: tokenId

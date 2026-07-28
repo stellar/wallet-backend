@@ -46,8 +46,8 @@ enum StateChangeCategory {
   SIGNER
   """Signature thresholds: ThresholdChange."""
   SIGNATURE_THRESHOLD
-  """Account metadata: DataEntryChange."""
-  METADATA
+  """Account data entries: DataEntryAddedChange, DataEntryUpdatedChange, DataEntryRemovedChange."""
+  DATA_ENTRY
   """The account's home domain: HomeDomainChange."""
   HOME_DOMAIN
   """SEP-41 token allowances: AllowanceChange."""
@@ -77,18 +77,16 @@ enum StateChangeReason {
   MINT
   """BALANCE: tokens burned from the account (including clawbacks)."""
   BURN
-  """SIGNER or TRUSTLINE: entry added."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry added."""
   ADD
-  """SIGNER or TRUSTLINE: entry removed."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
   """FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none."""
   SET
   """FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed."""
   CLEAR
-  """METADATA: data entry created, updated, or removed."""
-  DATA_ENTRY
 }
 
 """Which of an account's three signature thresholds a ThresholdChange refers to."""

@@ -166,11 +166,15 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 			return &types.AccountFlagsChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for FLAGS; falls through to the error below
 		}
-	case types.StateChangeCategoryMetadata:
+	case types.StateChangeCategoryDataEntry:
 		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonDataEntry:
-			return &types.DataEntryChangeModel{StateChange: stateChange}, nil
-		default: // invalid reason for METADATA; falls through to the error below
+		case types.StateChangeReasonAdd:
+			return &types.DataEntryAddedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.DataEntryUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonRemove:
+			return &types.DataEntryRemovedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for DATA_ENTRY; falls through to the error below
 		}
 	case types.StateChangeCategoryHomeDomain:
 		switch stateChange.StateChangeReason {
@@ -310,7 +314,10 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		case "limit", "newLimit":
 			dbColumns = append(dbColumns, "trustline_limit_new")
 			continue
-		case "oldHomeDomain", "newHomeDomain", "name", "oldValue", "newValue", "expirationLedger":
+		case "name":
+			dbColumns = append(dbColumns, "data_entry_name")
+			continue
+		case "oldHomeDomain", "newHomeDomain", "value", "oldValue", "newValue", "expirationLedger":
 			// Extracted from the key_value JSONB column by the field resolvers.
 			dbColumns = append(dbColumns, "key_value")
 			continue

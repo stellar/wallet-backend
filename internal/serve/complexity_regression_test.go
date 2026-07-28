@@ -146,10 +146,18 @@ const freighterAccountTransactionsQuery = `
 							oldHomeDomain
 							newHomeDomain
 						}
-						... on DataEntryChange {
-							dataEntryName: name
-							dataEntryOldValue: oldValue
-							dataEntryNewValue: newValue
+						... on DataEntryAddedChange {
+							dataEntryAddedName: name
+							dataEntryAddedValue: value
+						}
+						... on DataEntryUpdatedChange {
+							dataEntryUpdatedName: name
+							dataEntryUpdatedOldValue: oldValue
+							dataEntryUpdatedNewValue: newValue
+						}
+						... on DataEntryRemovedChange {
+							dataEntryRemovedName: name
+							dataEntryRemovedOldValue: oldValue
 						}
 						... on AllowanceChange {
 							allowanceTokenId: tokenId
@@ -208,8 +216,8 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 		name  string
 		query string
 		// computed complexity on record at time of writing, for both cases under the
-		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=6601.
-		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 15-fragment
+		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7101.
+		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 17-fragment
 		// state-change selection over-counts relative to what any one row resolves.
 		floor int
 	}{

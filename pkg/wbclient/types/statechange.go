@@ -121,12 +121,26 @@ type HomeDomainChange struct {
 	NewHomeDomain string `json:"newHomeDomain"`
 }
 
-// DataEntryChange is a data entry created, updated, or removed on the account.
-type DataEntryChange struct {
+// DataEntryAddedChange is a data entry created on the account.
+type DataEntryAddedChange struct {
 	BaseStateChangeFields
-	Name     string  `json:"name"`
-	OldValue *string `json:"oldValue,omitempty"`
-	NewValue *string `json:"newValue,omitempty"`
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// DataEntryUpdatedChange is an existing data entry whose value changed.
+type DataEntryUpdatedChange struct {
+	BaseStateChangeFields
+	Name     string `json:"name"`
+	OldValue string `json:"oldValue"`
+	NewValue string `json:"newValue"`
+}
+
+// DataEntryRemovedChange is a data entry removed from the account.
+type DataEntryRemovedChange struct {
+	BaseStateChangeFields
+	Name     string `json:"name"`
+	OldValue string `json:"oldValue"`
 }
 
 // AllowanceChange is a SEP-41 allowance approval.
@@ -204,8 +218,12 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[AccountFlagsChange](data)
 	case "HomeDomainChange":
 		return unmarshalStateChange[HomeDomainChange](data)
-	case "DataEntryChange":
-		return unmarshalStateChange[DataEntryChange](data)
+	case "DataEntryAddedChange":
+		return unmarshalStateChange[DataEntryAddedChange](data)
+	case "DataEntryUpdatedChange":
+		return unmarshalStateChange[DataEntryUpdatedChange](data)
+	case "DataEntryRemovedChange":
+		return unmarshalStateChange[DataEntryRemovedChange](data)
 	case "AllowanceChange":
 		return unmarshalStateChange[AllowanceChange](data)
 	case "TrustlineAddedChange":

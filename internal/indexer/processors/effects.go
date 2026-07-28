@@ -43,6 +43,13 @@ var (
 	// thresholdOrder fixes the emission order of threshold state changes so
 	// ordinals within a (to_id, operation_id) group are deterministic across runs.
 	thresholdOrder = []string{"low_threshold", "med_threshold", "high_threshold"}
+	// dataEntryEffectToReasonMap maps data-entry effect types to the state change
+	// reason describing the kind of update performed on the entry
+	dataEntryEffectToReasonMap = map[EffectType]types.StateChangeReason{
+		EffectDataCreated: types.StateChangeReasonAdd,
+		EffectDataUpdated: types.StateChangeReasonUpdate,
+		EffectDataRemoved: types.StateChangeReasonRemove,
+	}
 	// signerEffectToReasonMap maps Stellar signer effect types to our internal state change reasons
 	// for tracking when signers are added, removed, or updated on accounts
 	signerEffectToReasonMap = map[int32]types.StateChangeReason{
@@ -215,8 +222,9 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 				continue
 			}
 			stateChanges = append(stateChanges, changeBuilder.
-				WithCategory(types.StateChangeCategoryMetadata).
-				WithReason(types.StateChangeReasonDataEntry).
+				WithCategory(types.StateChangeCategoryDataEntry).
+				WithReason(dataEntryEffectToReasonMap[effectType]).
+				WithDataEntryName(string(effect.Details["name"].(xdr.String64))).
 				WithKeyValue(keyValueMap).
 				Build())
 
@@ -458,35 +466,30 @@ func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType Effect
 	keyValueMap := map[string]any{}
 	switch key {
 	case "name":
-		name, ok := effect.Details[key].(xdr.String64)
-		if !ok {
+		if _, ok := effect.Details[key].(xdr.String64); !ok {
 			return nil, fmt.Errorf("data entry effect on account %s (opID %d) carries no name", effect.Address, effect.OperationID)
 		}
-		keyName := string(name)
 
+		// The GraphQL schema declares the value non-null on additions and updates,
+		// so a create/update effect without a new value is malformed.
 		//exhaustive:ignore
 		switch effectType {
-		case EffectDataCreated:
-			if value, ok := effect.Details["value"]; ok {
-				keyValueMap[keyName] = map[string]any{
-					"new": value,
-				}
+		case EffectDataCreated, EffectDataUpdated:
+			value, ok := effect.Details["value"]
+			if !ok {
+				return nil, fmt.Errorf("%s effect on account %s (opID %d) carries no new value", effect.TypeString, effect.Address, effect.OperationID)
 			}
+			keyValueMap["new"] = value
+		}
+		//exhaustive:ignore
+		switch effectType {
 		case EffectDataUpdated, EffectDataRemoved:
 			prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
 			if prevLedgerEntryState == nil {
 				return nil, fmt.Errorf("no previous data entry state for %s effect on account %s (opID %d)", effect.TypeString, effect.Address, effect.OperationID)
 			}
 			oldData := prevLedgerEntryState.Data.MustData().DataValue
-			innerMap := map[string]any{
-				"old": base64.StdEncoding.EncodeToString(oldData),
-			}
-			if effectType == EffectDataUpdated {
-				if value, ok := effect.Details["value"]; ok {
-					innerMap["new"] = value
-				}
-			}
-			keyValueMap[keyName] = innerMap
+			keyValueMap["old"] = base64.StdEncoding.EncodeToString(oldData)
 		}
 	case "home_domain":
 		// The GraphQL schema declares both oldHomeDomain and newHomeDomain

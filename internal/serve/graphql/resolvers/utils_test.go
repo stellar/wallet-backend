@@ -42,10 +42,12 @@ func TestGetDBColumns(t *testing.T) {
 			{"oldLimit", "trustline_limit_old"},
 			{"limit", "trustline_limit_new"},
 			{"newLimit", "trustline_limit_new"},
+			// The data entry name has its own column.
+			{"name", "data_entry_name"},
 			// Fields extracted from the key_value JSONB blob.
 			{"oldHomeDomain", "key_value"},
 			{"newHomeDomain", "key_value"},
-			{"name", "key_value"},
+			{"value", "key_value"},
 			{"oldValue", "key_value"},
 			{"newValue", "key_value"},
 			{"expirationLedger", "key_value"},
@@ -65,7 +67,7 @@ func TestGetDBColumns(t *testing.T) {
 	t.Run("fields sharing a backing column collapse to one", func(t *testing.T) {
 		// A repeated column in the SELECT list would break positional row scanning, so the
 		// several fields extracted from key_value must dedupe to a single column.
-		got := getDBColumns(types.StateChange{}, collectedFields("name", "oldValue", "newValue", "expirationLedger"))
+		got := getDBColumns(types.StateChange{}, collectedFields("value", "oldValue", "newValue", "expirationLedger"))
 		assert.Equal(t, []string{"key_value"}, got)
 
 		got = getDBColumns(types.StateChange{}, collectedFields("oldHomeDomain", "newHomeDomain"))

@@ -54,7 +54,8 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			TrustlineLimitOld: sql.NullString{String: fmt.Sprintf("%d", i*1000), Valid: true},
 			TrustlineLimitNew: sql.NullString{String: fmt.Sprintf("%d", (i+1)*1000), Valid: true},
 			Flags:             sql.NullInt16{Int16: 6, Valid: true}, // Bitmask for auth_required (2) | auth_revocable (4)
-			KeyValue:          types.NullableJSONB{"key": fmt.Sprintf("data_key_%d", i), "value": fmt.Sprintf("data_value_%d", i)},
+			DataEntryName:     sql.NullString{String: fmt.Sprintf("data_key_%d", i), Valid: true},
+			KeyValue:          types.NullableJSONB{"old": fmt.Sprintf("old_value_%d", i), "new": fmt.Sprintf("new_value_%d", i)},
 		}
 	}
 

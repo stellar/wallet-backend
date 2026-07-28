@@ -43,6 +43,12 @@ func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateCh
 	return b
 }
 
+// WithDataEntryName sets the name of the changed data entry
+func (b *StateChangeBuilder) WithDataEntryName(name string) *StateChangeBuilder {
+	b.base.DataEntryName = sql.NullString{String: name, Valid: true}
+	return b
+}
+
 // WithThresholdLevel records which of the account's signature thresholds this change refers to
 func (b *StateChangeBuilder) WithThresholdLevel(level types.ThresholdLevel) *StateChangeBuilder {
 	b.base.Threshold = sql.NullString{String: string(level), Valid: true}

@@ -9,14 +9,14 @@ CREATE TABLE state_changes (
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
-            'METADATA', 'HOME_DOMAIN', 'ALLOWANCE', 'FLAGS', 'TRUSTLINE',
+            'DATA_ENTRY', 'HOME_DOMAIN', 'ALLOWANCE', 'FLAGS', 'TRUSTLINE',
             'BALANCE_AUTHORIZATION'
         )
     ),
     state_change_reason TEXT NOT NULL CHECK (
         state_change_reason IN (
             'CREATE', 'MERGE', 'DEBIT', 'CREDIT', 'MINT', 'BURN',
-            'ADD', 'REMOVE', 'UPDATE', 'SET', 'CLEAR', 'DATA_ENTRY'
+            'ADD', 'REMOVE', 'UPDATE', 'SET', 'CLEAR'
         )
     ),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -38,6 +38,7 @@ CREATE TABLE state_changes (
     trustline_limit_old TEXT,
     trustline_limit_new TEXT,
     flags SMALLINT,
+    data_entry_name TEXT,
     key_value JSONB,
     to_muxed_id TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL,

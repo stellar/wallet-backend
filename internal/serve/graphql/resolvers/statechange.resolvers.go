@@ -257,55 +257,133 @@ func (r *balanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.Balanc
 }
 
 // Category is the resolver for the category field.
-func (r *dataEntryChangeResolver) Category(ctx context.Context, obj *types.DataEntryChangeModel) (types.StateChangeCategory, error) {
+func (r *dataEntryAddedChangeResolver) Category(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *dataEntryChangeResolver) Reason(ctx context.Context, obj *types.DataEntryChangeModel) (types.StateChangeReason, error) {
+func (r *dataEntryAddedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *dataEntryChangeResolver) Account(ctx context.Context, obj *types.DataEntryChangeModel) (*types.Account, error) {
+func (r *dataEntryAddedChangeResolver) Account(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *dataEntryChangeResolver) Operation(ctx context.Context, obj *types.DataEntryChangeModel) (*types.Operation, error) {
+func (r *dataEntryAddedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *dataEntryChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryChangeModel) (*types.Transaction, error) {
+func (r *dataEntryAddedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// Name is the resolver for the name field. The KeyValue payload holds the data
-// entry name as its single top-level key.
-func (r *dataEntryChangeResolver) Name(ctx context.Context, obj *types.DataEntryChangeModel) (string, error) {
-	for name := range obj.KeyValue {
-		return name, nil
-	}
-	return "", fmt.Errorf("state change is missing required name")
+// Name is the resolver for the name field.
+func (r *dataEntryAddedChangeResolver) Name(ctx context.Context, obj *types.DataEntryAddedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
 }
 
-// OldValue is the resolver for the oldValue field.
-func (r *dataEntryChangeResolver) OldValue(ctx context.Context, obj *types.DataEntryChangeModel) (*string, error) {
-	for name := range obj.KeyValue {
-		oldVal, _ := keyValueOldNew(obj.KeyValue, name)
-		return oldVal, nil
+// Value is the resolver for the value field. The emission requires the effect's
+// new value, so a missing one is a data-integrity error.
+func (r *dataEntryAddedChangeResolver) Value(ctx context.Context, obj *types.DataEntryAddedChangeModel) (string, error) {
+	value := flatKeyValueString(obj.KeyValue, "new")
+	if value == nil {
+		return "", fmt.Errorf("state change is missing required value")
 	}
-	return nil, nil
+	return *value, nil
 }
 
-// NewValue is the resolver for the newValue field.
-func (r *dataEntryChangeResolver) NewValue(ctx context.Context, obj *types.DataEntryChangeModel) (*string, error) {
-	for name := range obj.KeyValue {
-		_, newVal := keyValueOldNew(obj.KeyValue, name)
-		return newVal, nil
+// Category is the resolver for the category field.
+func (r *dataEntryRemovedChangeResolver) Category(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *dataEntryRemovedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *dataEntryRemovedChangeResolver) Account(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *dataEntryRemovedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *dataEntryRemovedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Name is the resolver for the name field.
+func (r *dataEntryRemovedChangeResolver) Name(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
+}
+
+// OldValue is the resolver for the oldValue field. The emission requires the data
+// entry pre-image, so a missing old value is a data-integrity error.
+func (r *dataEntryRemovedChangeResolver) OldValue(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldValue")
 	}
-	return nil, nil
+	return *oldVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *dataEntryUpdatedChangeResolver) Category(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *dataEntryUpdatedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *dataEntryUpdatedChangeResolver) Account(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *dataEntryUpdatedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *dataEntryUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Name is the resolver for the name field.
+func (r *dataEntryUpdatedChangeResolver) Name(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
+}
+
+// OldValue is the resolver for the oldValue field. The emission requires the data
+// entry pre-image, so a missing old value is a data-integrity error.
+func (r *dataEntryUpdatedChangeResolver) OldValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldValue")
+	}
+	return *oldVal, nil
+}
+
+// NewValue is the resolver for the newValue field. The emission requires the
+// effect's new value, so a missing one is a data-integrity error.
+func (r *dataEntryUpdatedChangeResolver) NewValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	newVal := flatKeyValueString(obj.KeyValue, "new")
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required newValue")
+	}
+	return *newVal, nil
 }
 
 // Category is the resolver for the category field.
@@ -652,9 +730,19 @@ func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationCha
 // BalanceChange returns graphql1.BalanceChangeResolver implementation.
 func (r *Resolver) BalanceChange() graphql1.BalanceChangeResolver { return &balanceChangeResolver{r} }
 
-// DataEntryChange returns graphql1.DataEntryChangeResolver implementation.
-func (r *Resolver) DataEntryChange() graphql1.DataEntryChangeResolver {
-	return &dataEntryChangeResolver{r}
+// DataEntryAddedChange returns graphql1.DataEntryAddedChangeResolver implementation.
+func (r *Resolver) DataEntryAddedChange() graphql1.DataEntryAddedChangeResolver {
+	return &dataEntryAddedChangeResolver{r}
+}
+
+// DataEntryRemovedChange returns graphql1.DataEntryRemovedChangeResolver implementation.
+func (r *Resolver) DataEntryRemovedChange() graphql1.DataEntryRemovedChangeResolver {
+	return &dataEntryRemovedChangeResolver{r}
+}
+
+// DataEntryUpdatedChange returns graphql1.DataEntryUpdatedChangeResolver implementation.
+func (r *Resolver) DataEntryUpdatedChange() graphql1.DataEntryUpdatedChangeResolver {
+	return &dataEntryUpdatedChangeResolver{r}
 }
 
 // HomeDomainChange returns graphql1.HomeDomainChangeResolver implementation.
@@ -704,7 +792,9 @@ type (
 	allowanceChangeResolver            struct{ *Resolver }
 	balanceAuthorizationChangeResolver struct{ *Resolver }
 	balanceChangeResolver              struct{ *Resolver }
-	dataEntryChangeResolver            struct{ *Resolver }
+	dataEntryAddedChangeResolver       struct{ *Resolver }
+	dataEntryRemovedChangeResolver     struct{ *Resolver }
+	dataEntryUpdatedChangeResolver     struct{ *Resolver }
 	homeDomainChangeResolver           struct{ *Resolver }
 	signerAddedChangeResolver          struct{ *Resolver }
 	signerRemovedChangeResolver        struct{ *Resolver }

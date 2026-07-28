@@ -145,7 +145,7 @@ func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair
 		- 1 ACCOUNT/CREATE change for the new account
 		- 1 BALANCE/CREDIT change for the new account (amount is 5)
 		- 1 BALANCE/DEBIT change from primary account (amount is 5)
-		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
+		- 1 DATA_ENTRY/ADD change for primary account with the entry "foo"="bar"
 		- 1 SIGNER/ADD change for the sponsored account with signer address = sponsored account, weight = 1
 	*/
 	operations := []txnbuild.Operation{
@@ -745,8 +745,8 @@ func (f *Fixtures) prepareLiveLiquidityPoolDepositOps() ([]string, *Set[*keypair
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
 	/*
 		Should generate 2 state changes:
-			- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-			- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
+			- 1 DATA_ENTRY/ADD change for creating sponsored data entry on Secondary account
+			- 1 DATA_ENTRY/REMOVE change for removing the data entry for secondary account
 	*/
 	operations := []txnbuild.Operation{
 		// Primary begins sponsoring future reserves for Secondary

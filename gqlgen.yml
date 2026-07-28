@@ -200,9 +200,15 @@ models:
   HomeDomainChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainChangeModel
-  DataEntryChange:
+  DataEntryAddedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryAddedChangeModel
+  DataEntryUpdatedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryUpdatedChangeModel
+  DataEntryRemovedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryRemovedChangeModel
   AllowanceChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AllowanceChangeModel

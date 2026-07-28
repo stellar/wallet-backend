@@ -562,7 +562,9 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `ThresholdChange` | `(SIGNATURE_THRESHOLD, UPDATE)` | `threshold: ThresholdLevel!`, `oldThreshold: Int!`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
 | `HomeDomainChange` | `(HOME_DOMAIN, SET)`, `(HOME_DOMAIN, CLEAR)`, `(HOME_DOMAIN, UPDATE)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
-| `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
+| `DataEntryAddedChange` | `(DATA_ENTRY, ADD)` | `name: String!`, `value: String!` |
+| `DataEntryUpdatedChange` | `(DATA_ENTRY, UPDATE)` | `name: String!`, `oldValue: String!`, `newValue: String!` |
+| `DataEntryRemovedChange` | `(DATA_ENTRY, REMOVE)` | `name: String!`, `oldValue: String!` |
 | `AllowanceChange` | `(ALLOWANCE, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
 | `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
 | `TrustlineUpdatedChange` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
@@ -582,7 +584,7 @@ Notes on the polymorphic fields:
 | `ACCOUNT` | `AccountCreatedChange`, `AccountMergedChange` |
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
-| `METADATA` | `DataEntryChange` |
+| `DATA_ENTRY` | `DataEntryAddedChange`, `DataEntryUpdatedChange`, `DataEntryRemovedChange` |
 | `HOME_DOMAIN` | `HomeDomainChange` |
 | `ALLOWANCE` | `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
@@ -599,10 +601,9 @@ Notes on the polymorphic fields:
 | `CREDIT` | BALANCE: value entered the account |
 | `MINT` | BALANCE: tokens minted to the account |
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
-| `ADD` | SIGNER or TRUSTLINE: entry added |
-| `REMOVE` | SIGNER or TRUSTLINE: entry removed |
-| `UPDATE` | SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved |
-| `DATA_ENTRY` | METADATA: data entry created, updated, or removed |
+| `ADD` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry added |
+| `REMOVE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed |
+| `UPDATE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved |
 | `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none |
 | `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed |
 

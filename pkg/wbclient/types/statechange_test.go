@@ -154,6 +154,66 @@ func Test_UnmarshalStateChangeNode_BalanceAuthorizationWithFlags(t *testing.T) {
 	assert.Equal(t, []TrustlineFlag{TrustlineFlagAuthorized, TrustlineFlagClawbackEnabled}, bac.Flags)
 }
 
+// Test_UnmarshalStateChangeNode_DataEntryAdded checks the ADD shape, which carries only the
+// entry's new value.
+func Test_UnmarshalStateChangeNode_DataEntryAdded(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "DataEntryAddedChange",
+		"category": "DATA_ENTRY",
+		"reason": "ADD",
+		"name": "foo",
+		"value": "YmFy"
+	}`))
+	require.NoError(t, err)
+
+	da, ok := node.(*DataEntryAddedChange)
+	require.True(t, ok, "expected *DataEntryAddedChange, got %T", node)
+	assert.Equal(t, StateChangeCategoryDataEntry, da.GetCategory())
+	assert.Equal(t, StateChangeReasonAdd, da.GetReason())
+	assert.Equal(t, "foo", da.Name)
+	assert.Equal(t, "YmFy", da.Value)
+}
+
+// Test_UnmarshalStateChangeNode_DataEntryUpdated checks the UPDATE shape, which carries both
+// the previous and the new value.
+func Test_UnmarshalStateChangeNode_DataEntryUpdated(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "DataEntryUpdatedChange",
+		"category": "DATA_ENTRY",
+		"reason": "UPDATE",
+		"name": "foo",
+		"oldValue": "YmFy",
+		"newValue": "YmF6"
+	}`))
+	require.NoError(t, err)
+
+	du, ok := node.(*DataEntryUpdatedChange)
+	require.True(t, ok, "expected *DataEntryUpdatedChange, got %T", node)
+	assert.Equal(t, StateChangeReasonUpdate, du.GetReason())
+	assert.Equal(t, "foo", du.Name)
+	assert.Equal(t, "YmFy", du.OldValue)
+	assert.Equal(t, "YmF6", du.NewValue)
+}
+
+// Test_UnmarshalStateChangeNode_DataEntryRemoved checks the REMOVE shape, which carries only
+// the value the entry held when removed.
+func Test_UnmarshalStateChangeNode_DataEntryRemoved(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "DataEntryRemovedChange",
+		"category": "DATA_ENTRY",
+		"reason": "REMOVE",
+		"name": "foo",
+		"oldValue": "YmFy"
+	}`))
+	require.NoError(t, err)
+
+	dr, ok := node.(*DataEntryRemovedChange)
+	require.True(t, ok, "expected *DataEntryRemovedChange, got %T", node)
+	assert.Equal(t, StateChangeReasonRemove, dr.GetReason())
+	assert.Equal(t, "foo", dr.Name)
+	assert.Equal(t, "YmFy", dr.OldValue)
+}
+
 // Test_UnmarshalStateChangeNode_TrustlineAdded exercises the mutually-exclusive tokenId /
 // liquidityPoolId pair: an asset trustline sets tokenId and leaves liquidityPoolId nil.
 func Test_UnmarshalStateChangeNode_TrustlineAdded(t *testing.T) {

@@ -175,28 +175,32 @@ func validateSignerAddedChange(suite *DataValidationTestSuite, sc *types.SignerA
 	suite.Require().Equal(expectedWeight, sc.NewWeight, "signer weight mismatch")
 }
 
-// validateDataEntryChange validates a data-entry metadata state change (METADATA/DATA_ENTRY). The
-// data-entry name is a typed field; the old/new values remain base64-encoded raw bytes, so the
-// selected value is decoded before comparison. whichValue is "new" or "old".
-func validateDataEntryChange(suite *DataValidationTestSuite, dc *types.DataEntryChange, expectedReason types.StateChangeReason, expectedName, whichValue, expectedValue string) {
-	suite.Require().NotNil(dc, "data entry change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryMetadata, dc.GetCategory(), "should be METADATA category")
-	suite.Require().Equal(expectedReason, dc.GetReason(), "reason mismatch")
+// validateDataEntryAddedChange validates a data-entry creation (DATA_ENTRY/ADD), which carries
+// only the entry's new value.
+func validateDataEntryAddedChange(suite *DataValidationTestSuite, dc *types.DataEntryAddedChange, expectedName, expectedValue string) {
+	suite.Require().NotNil(dc, "data entry added change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryDataEntry, dc.GetCategory(), "should be DATA_ENTRY category")
+	suite.Require().Equal(types.StateChangeReasonAdd, dc.GetReason(), "reason mismatch")
 	suite.Require().Equal(expectedName, dc.Name, "data entry name mismatch")
+	assertDecodedDataEntryValue(suite, "value", dc.Value, expectedValue)
+}
 
-	var encoded *string
-	switch whichValue {
-	case "new":
-		encoded = dc.NewValue
-	case "old":
-		encoded = dc.OldValue
-	default:
-		suite.Require().Failf("invalid whichValue", "want new or old, got %q", whichValue)
-	}
-	suite.Require().NotNil(encoded, "%s value should not be nil", whichValue)
-	valueDecoded, err := base64.StdEncoding.DecodeString(*encoded)
-	suite.Require().NoError(err, "failed to decode %s value: %s", whichValue, *encoded)
-	suite.Require().Equal(expectedValue, string(valueDecoded), "value does not match")
+// validateDataEntryRemovedChange validates a data-entry removal (DATA_ENTRY/REMOVE), which
+// carries only the value the entry held when removed.
+func validateDataEntryRemovedChange(suite *DataValidationTestSuite, dc *types.DataEntryRemovedChange, expectedName, expectedOldValue string) {
+	suite.Require().NotNil(dc, "data entry removed change should not be nil")
+	suite.Require().Equal(types.StateChangeCategoryDataEntry, dc.GetCategory(), "should be DATA_ENTRY category")
+	suite.Require().Equal(types.StateChangeReasonRemove, dc.GetReason(), "reason mismatch")
+	suite.Require().Equal(expectedName, dc.Name, "data entry name mismatch")
+	assertDecodedDataEntryValue(suite, "oldValue", dc.OldValue, expectedOldValue)
+}
+
+// assertDecodedDataEntryValue decodes a base64-encoded data-entry value and compares it to the
+// expected raw bytes.
+func assertDecodedDataEntryValue(suite *DataValidationTestSuite, fieldName, encoded, expectedValue string) {
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	suite.Require().NoError(err, "failed to decode %s: %s", fieldName, encoded)
+	suite.Require().Equal(expectedValue, string(decoded), "%s does not match", fieldName)
 }
 
 // sumAmounts aggregates amounts from balance changes for a specific token and returns the total as int64
@@ -398,7 +402,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	first := int32(20)
 	balanceCategory := types.StateChangeCategoryBalance
 	accountCategory := types.StateChangeCategoryAccount
-	metadataCategory := types.StateChangeCategoryMetadata
+	dataEntryCategory := types.StateChangeCategoryDataEntry
 	signerCategory := types.StateChangeCategorySigner
 	addReason := types.StateChangeReasonAdd
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
@@ -428,7 +432,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 		{name: "primaryBalanceChange", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
 		{name: "sponsoredBalanceChange", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
 		{name: "sponsoredAccountChange", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: nil},
-		{name: "primaryMetadataChange", account: primaryAccount, txHash: &txHash, category: &metadataCategory, reason: nil},
+		{name: "primaryDataEntryChange", account: primaryAccount, txHash: &txHash, category: &dataEntryCategory, reason: nil},
 		{name: "sponsoredSignerChange", account: sponsoredNewAccount, txHash: &txHash, category: &signerCategory, reason: &addReason},
 	}
 	sponsorshipResults := suite.fetchStateChangesInParallel(ctx, sponsorshipQueries, &first)
@@ -437,14 +441,14 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	primaryBalanceChanges := sponsorshipResults["primaryBalanceChange"]
 	sponsoredBalanceChanges := sponsorshipResults["sponsoredBalanceChange"]
 	sponsoredAccountChanges := sponsorshipResults["sponsoredAccountChange"]
-	primaryMetadataChanges := sponsorshipResults["primaryMetadataChange"]
+	primaryDataEntryChanges := sponsorshipResults["primaryDataEntryChange"]
 	sponsoredSignerChanges := sponsorshipResults["sponsoredSignerChange"]
 
 	// Validate all results are not nil
 	suite.Require().NotNil(primaryBalanceChanges, "primary balance changes should not be nil")
 	suite.Require().NotNil(sponsoredBalanceChanges, "sponsored balance changes should not be nil")
 	suite.Require().NotNil(sponsoredAccountChanges, "sponsored account changes should not be nil")
-	suite.Require().NotNil(primaryMetadataChanges, "primary metadata changes should not be nil")
+	suite.Require().NotNil(primaryDataEntryChanges, "primary data entry changes should not be nil")
 	suite.Require().NotNil(sponsoredSignerChanges, "sponsored signer changes should not be nil")
 
 	// 1 BALANCE/DEBIT change for primary account (sending starting balance)
@@ -462,10 +466,10 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	accountChange := sponsoredAccountChanges.Edges[0].Node.(*types.AccountCreatedChange)
 	validateAccountCreatedChange(suite, accountChange, primaryAccount)
 
-	// 1 METADATA/DATA_ENTRY metadata change for primary account
-	suite.Require().Len(primaryMetadataChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
-	metadataChange := primaryMetadataChanges.Edges[0].Node.(*types.DataEntryChange)
-	validateDataEntryChange(suite, metadataChange, types.StateChangeReasonDataEntry, "foo", "new", "bar")
+	// 1 DATA_ENTRY/ADD data entry change for primary account
+	suite.Require().Len(primaryDataEntryChanges.Edges, 1, "should have exactly 1 DATA_ENTRY/ADD data entry change for primary account")
+	dataEntryChange := primaryDataEntryChanges.Edges[0].Node.(*types.DataEntryAddedChange)
+	validateDataEntryAddedChange(suite, dataEntryChange, "foo", "bar")
 
 	// 1 SIGNER/ADD change for sponsored account with default signer weight = 1
 	suite.Require().Len(sponsoredSignerChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
@@ -1622,8 +1626,9 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
 	// Define filter constants
-	metadataCategory := types.StateChangeCategoryMetadata
-	dataEntryReason := types.StateChangeReasonDataEntry
+	dataEntryCategory := types.StateChangeCategoryDataEntry
+	addReason := types.StateChangeReasonAdd
+	removeReason := types.StateChangeReasonRemove
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
@@ -1643,21 +1648,26 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 
 	// 2. FETCH STATE CHANGES IN PARALLEL
 	revokeSponsorshipQueries := []stateChangeQuery{
-		{name: "metadataDataEntry", account: secondaryAccount, txHash: &txHash, category: &metadataCategory, reason: &dataEntryReason},
+		{name: "dataEntryAdded", account: secondaryAccount, txHash: &txHash, category: &dataEntryCategory, reason: &addReason},
+		{name: "dataEntryRemoved", account: secondaryAccount, txHash: &txHash, category: &dataEntryCategory, reason: &removeReason},
 	}
 	revokeSponsorshipResults := suite.fetchStateChangesInParallel(ctx, revokeSponsorshipQueries, &first)
 
 	// Extract results
-	metadataDataEntry := revokeSponsorshipResults["metadataDataEntry"]
+	dataEntryAdded := revokeSponsorshipResults["dataEntryAdded"]
+	dataEntryRemoved := revokeSponsorshipResults["dataEntryRemoved"]
 
 	// Validate results are not nil
-	suite.Require().NotNil(metadataDataEntry, "METADATA/DATA_ENTRY should not be nil")
+	suite.Require().NotNil(dataEntryAdded, "DATA_ENTRY/ADD should not be nil")
+	suite.Require().NotNil(dataEntryRemoved, "DATA_ENTRY/REMOVE should not be nil")
 
-	// 4. METADATA STATE CHANGES VALIDATION
+	// 4. DATA ENTRY STATE CHANGES VALIDATION
 
 	// The sponsored data entry is created and then removed within the same transaction.
-	mc := metadataDataEntry.Edges[0].Node.(*types.DataEntryChange)
-	validateDataEntryChange(suite, mc, types.StateChangeReasonDataEntry, "sponsored_data", "new", "test_value")
-	mc = metadataDataEntry.Edges[1].Node.(*types.DataEntryChange)
-	validateDataEntryChange(suite, mc, types.StateChangeReasonDataEntry, "sponsored_data", "old", "test_value")
+	suite.Require().Len(dataEntryAdded.Edges, 1, "should have exactly 1 DATA_ENTRY/ADD change")
+	added := dataEntryAdded.Edges[0].Node.(*types.DataEntryAddedChange)
+	validateDataEntryAddedChange(suite, added, "sponsored_data", "test_value")
+	suite.Require().Len(dataEntryRemoved.Edges, 1, "should have exactly 1 DATA_ENTRY/REMOVE change")
+	removed := dataEntryRemoved.Edges[0].Node.(*types.DataEntryRemovedChange)
+	validateDataEntryRemovedChange(suite, removed, "sponsored_data", "test_value")
 }

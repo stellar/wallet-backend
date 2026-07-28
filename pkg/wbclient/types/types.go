@@ -47,7 +47,7 @@ const (
 	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
-	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryDataEntry            StateChangeCategory = "DATA_ENTRY"
 	StateChangeCategoryHomeDomain           StateChangeCategory = "HOME_DOMAIN"
 	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
@@ -59,18 +59,17 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate    StateChangeReason = "CREATE"
-	StateChangeReasonMerge     StateChangeReason = "MERGE"
-	StateChangeReasonDebit     StateChangeReason = "DEBIT"
-	StateChangeReasonCredit    StateChangeReason = "CREDIT"
-	StateChangeReasonMint      StateChangeReason = "MINT"
-	StateChangeReasonBurn      StateChangeReason = "BURN"
-	StateChangeReasonAdd       StateChangeReason = "ADD"
-	StateChangeReasonRemove    StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate    StateChangeReason = "UPDATE"
-	StateChangeReasonSet       StateChangeReason = "SET"
-	StateChangeReasonClear     StateChangeReason = "CLEAR"
-	StateChangeReasonDataEntry StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonCreate StateChangeReason = "CREATE"
+	StateChangeReasonMerge  StateChangeReason = "MERGE"
+	StateChangeReasonDebit  StateChangeReason = "DEBIT"
+	StateChangeReasonCredit StateChangeReason = "CREDIT"
+	StateChangeReasonMint   StateChangeReason = "MINT"
+	StateChangeReasonBurn   StateChangeReason = "BURN"
+	StateChangeReasonAdd    StateChangeReason = "ADD"
+	StateChangeReasonRemove StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate StateChangeReason = "UPDATE"
+	StateChangeReasonSet    StateChangeReason = "SET"
+	StateChangeReasonClear  StateChangeReason = "CLEAR"
 )
 
 // TokenType represents the type of token/balance

@@ -120,10 +120,21 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonUpdate},
 			want: &types.HomeDomainChangeModel{},
 		},
+		// DATA_ENTRY: one model per reason.
 		{
-			name: "METADATA data entry",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonDataEntry},
-			want: &types.DataEntryChangeModel{},
+			name: "DATA_ENTRY add",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryDataEntry, StateChangeReason: types.StateChangeReasonAdd},
+			want: &types.DataEntryAddedChangeModel{},
+		},
+		{
+			name: "DATA_ENTRY update",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryDataEntry, StateChangeReason: types.StateChangeReasonUpdate},
+			want: &types.DataEntryUpdatedChangeModel{},
+		},
+		{
+			name: "DATA_ENTRY remove",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryDataEntry, StateChangeReason: types.StateChangeReasonRemove},
+			want: &types.DataEntryRemovedChangeModel{},
 		},
 		{
 			name: "ALLOWANCE update is a SEP-41 allowance",
@@ -219,16 +230,16 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "SET",
 		},
 		{
-			name:     "METADATA with an account reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonCreate},
-			category: "METADATA",
+			name:     "DATA_ENTRY with an account reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryDataEntry, StateChangeReason: types.StateChangeReasonCreate},
+			category: "DATA_ENTRY",
 			reason:   "CREATE",
 		},
 		{
-			name:     "METADATA with an update reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryMetadata, StateChangeReason: types.StateChangeReasonUpdate},
-			category: "METADATA",
-			reason:   "UPDATE",
+			name:     "DATA_ENTRY with a merge reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryDataEntry, StateChangeReason: types.StateChangeReasonMerge},
+			category: "DATA_ENTRY",
+			reason:   "MERGE",
 		},
 		{
 			name:     "HOME_DOMAIN with an account reason",
@@ -405,13 +416,52 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 	})
 }
 
-func TestDataEntryChangeResolver(t *testing.T) {
+func TestDataEntryAddedChangeResolver(t *testing.T) {
 	ctx := context.Background()
-	r := &dataEntryChangeResolver{&Resolver{}}
+	r := &dataEntryAddedChangeResolver{&Resolver{}}
 
-	t.Run("name is the single key, old/new nested under it", func(t *testing.T) {
-		obj := &types.DataEntryChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"config.setting": map[string]any{"old": "v1", "new": "v2"}},
+	t.Run("name comes from its own column, value from key_value new", func(t *testing.T) {
+		obj := &types.DataEntryAddedChangeModel{StateChange: types.StateChange{
+			DataEntryName: sql.NullString{String: "config.setting", Valid: true},
+			KeyValue:      types.NullableJSONB{"new": "v1"},
+		}}
+		name, err := r.Name(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "config.setting", name)
+
+		value, err := r.Value(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "v1", value)
+	})
+
+	t.Run("name errors when the column is null", func(t *testing.T) {
+		obj := &types.DataEntryAddedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"new": "v1"},
+		}}
+		_, err := r.Name(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "name")
+	})
+
+	t.Run("value errors when key_value carries no new value", func(t *testing.T) {
+		obj := &types.DataEntryAddedChangeModel{StateChange: types.StateChange{
+			DataEntryName: sql.NullString{String: "config.setting", Valid: true},
+			KeyValue:      types.NullableJSONB{},
+		}}
+		_, err := r.Value(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value")
+	})
+}
+
+func TestDataEntryUpdatedChangeResolver(t *testing.T) {
+	ctx := context.Background()
+	r := &dataEntryUpdatedChangeResolver{&Resolver{}}
+
+	t.Run("both old and new values come from key_value", func(t *testing.T) {
+		obj := &types.DataEntryUpdatedChangeModel{StateChange: types.StateChange{
+			DataEntryName: sql.NullString{String: "config.setting", Valid: true},
+			KeyValue:      types.NullableJSONB{"old": "v1", "new": "v2"},
 		}}
 		name, err := r.Name(ctx, obj)
 		require.NoError(t, err)
@@ -419,20 +469,65 @@ func TestDataEntryChangeResolver(t *testing.T) {
 
 		old, err := r.OldValue(ctx, obj)
 		require.NoError(t, err)
-		require.NotNil(t, old)
-		assert.Equal(t, "v1", *old)
+		assert.Equal(t, "v1", old)
 
 		newV, err := r.NewValue(ctx, obj)
 		require.NoError(t, err)
-		require.NotNil(t, newV)
-		assert.Equal(t, "v2", *newV)
+		assert.Equal(t, "v2", newV)
 	})
 
-	t.Run("name errors when key_value is empty", func(t *testing.T) {
-		obj := &types.DataEntryChangeModel{StateChange: types.StateChange{KeyValue: types.NullableJSONB{}}}
-		_, err := r.Name(ctx, obj)
+	t.Run("missing old value is a data-integrity error", func(t *testing.T) {
+		obj := &types.DataEntryUpdatedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"new": "v2"},
+		}}
+		_, err := r.OldValue(ctx, obj)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "name")
+		assert.Contains(t, err.Error(), "oldValue")
+	})
+
+	t.Run("missing new value is a data-integrity error", func(t *testing.T) {
+		obj := &types.DataEntryUpdatedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"old": "v1"},
+		}}
+		_, err := r.NewValue(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "newValue")
+	})
+}
+
+func TestDataEntryRemovedChangeResolver(t *testing.T) {
+	ctx := context.Background()
+	r := &dataEntryRemovedChangeResolver{&Resolver{}}
+
+	t.Run("name and the removed value resolve", func(t *testing.T) {
+		obj := &types.DataEntryRemovedChangeModel{StateChange: types.StateChange{
+			DataEntryName: sql.NullString{String: "config.setting", Valid: true},
+			KeyValue:      types.NullableJSONB{"old": "v1"},
+		}}
+		name, err := r.Name(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "config.setting", name)
+
+		old, err := r.OldValue(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "v1", old)
+	})
+
+	t.Run("an entry removed while holding an empty value is the empty string, not an error", func(t *testing.T) {
+		obj := &types.DataEntryRemovedChangeModel{StateChange: types.StateChange{
+			DataEntryName: sql.NullString{String: "config.setting", Valid: true},
+			KeyValue:      types.NullableJSONB{"old": ""},
+		}}
+		old, err := r.OldValue(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "", old)
+	})
+
+	t.Run("missing old value is a data-integrity error", func(t *testing.T) {
+		obj := &types.DataEntryRemovedChangeModel{StateChange: types.StateChange{KeyValue: types.NullableJSONB{}}}
+		_, err := r.OldValue(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "oldValue")
 	})
 }
 

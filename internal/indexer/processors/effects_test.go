@@ -167,9 +167,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "name2", Valid: true}, changes[0].DataEntryName)
+		assert.Equal(t, types.NullableJSONB{"new": "NTY3OA=="}, changes[0].KeyValue)
 	})
 	t.Run("ManageData - data updated", func(t *testing.T) {
 		envelopeXDR := "AAAAAKO5w1Op9wij5oMFtCTUoGO9YgewUKQyeIw1g/L0mMP+AAAAZAAALbYAADNjAAAAAQAAAAAAAAAAAAAAAF4WVfgAAAAAAAAAAQAAAAEAAAAAOO6NdKTWKbGao6zsPag+izHxq3eUPLiwjREobLhQAmQAAAAKAAAAOEdDUjNUUTJUVkgzUVJJN0dRTUMzSUpHVVVCUjMyWVFIV0JJS0lNVFlSUTJZSDRYVVREQjc1VUtFAAAAAQAAABQxNTc4NTIxMjA0XzI5MzI5MDI3OAAAAAAAAAAC0oPafQAAAEAcsS0iq/t8i+p85xwLsRy8JpRNEeqobEC5yuhO9ouVf3PE0VjLqv8sDd0St4qbtXU5fqlHd49R9CR+z7tiRLEB9JjD/gAAAEBmaa9sGxQhEhrakzXcSNpMbR4nox/Ha0p/1sI4tabNEzjgYLwKMn1U9tIdVvKKDwE22jg+CI2FlPJ3+FJPmKUA"
@@ -206,13 +207,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonUpdate, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE", Valid: true}, changes[0].DataEntryName)
 		assert.Equal(t, types.NullableJSONB{
-			"GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE": map[string]any{
-				"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
-				"old": "MTU3ODUyMDg1OF8yNTIzOTE3Njg=",
-			},
+			"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
+			"old": "MTU3ODUyMDg1OF8yNTIzOTE3Njg=",
 		}, changes[0].KeyValue)
 	})
 	t.Run("ManageData - data removed", func(t *testing.T) {
@@ -250,9 +250,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRemove, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "hello", Valid: true}, changes[0].DataEntryName)
+		assert.Equal(t, types.NullableJSONB{"old": ""}, changes[0].KeyValue)
 	})
 	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
 		envelopeXDR := "AAAAAgAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAAGQAB1eLAAAAAwAAAAEAAAAAAAAAAAAAAABowwQqAAAAAAAAAAEAAAAAAAAABgAAAAFURVNUAAAAAFrnJwiWP46hSSjcYc6wY93h556Qpe47SA8bIQGXMJTlf/////////8AAAAAAAAAAbUNOWYAAABAzWelNCrF4Q+iSKX30xHrBm76FMa2h89pPauijrWAVlcj/swEyYZqjU94SYU+8XEWUuvg2rpjCIHGPHHyzSXlAw=="

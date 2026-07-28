@@ -8,7 +8,7 @@
 //  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
 //     This allows efficient storage in a single database table with nullable fields.
 //
-//  2. GRAPHQL LAYER: A BaseStateChange interface with 15 concrete implementations (defined in
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 17 concrete implementations (defined in
 //     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
 //     specific state change, providing strong typing and clean API contracts.
 //
@@ -498,7 +498,7 @@ const (
 	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
-	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryDataEntry            StateChangeCategory = "DATA_ENTRY"
 	StateChangeCategoryHomeDomain           StateChangeCategory = "HOME_DOMAIN"
 	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
@@ -509,18 +509,17 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate    StateChangeReason = "CREATE"
-	StateChangeReasonMerge     StateChangeReason = "MERGE"
-	StateChangeReasonDebit     StateChangeReason = "DEBIT"
-	StateChangeReasonCredit    StateChangeReason = "CREDIT"
-	StateChangeReasonMint      StateChangeReason = "MINT"
-	StateChangeReasonBurn      StateChangeReason = "BURN"
-	StateChangeReasonAdd       StateChangeReason = "ADD"
-	StateChangeReasonRemove    StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate    StateChangeReason = "UPDATE"
-	StateChangeReasonSet       StateChangeReason = "SET"
-	StateChangeReasonClear     StateChangeReason = "CLEAR"
-	StateChangeReasonDataEntry StateChangeReason = "DATA_ENTRY"
+	StateChangeReasonCreate StateChangeReason = "CREATE"
+	StateChangeReasonMerge  StateChangeReason = "MERGE"
+	StateChangeReasonDebit  StateChangeReason = "DEBIT"
+	StateChangeReasonCredit StateChangeReason = "CREDIT"
+	StateChangeReasonMint   StateChangeReason = "MINT"
+	StateChangeReasonBurn   StateChangeReason = "BURN"
+	StateChangeReasonAdd    StateChangeReason = "ADD"
+	StateChangeReasonRemove StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate StateChangeReason = "UPDATE"
+	StateChangeReasonSet    StateChangeReason = "SET"
+	StateChangeReasonClear  StateChangeReason = "CLEAR"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
@@ -645,7 +644,7 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 // - ACCOUNT: CreatorAccountID (CREATE), DestinationAccountID (MERGE)
 // - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - SIGNATURE_THRESHOLD: Threshold (which one), ThresholdOld, ThresholdNew
-// - METADATA: KeyValue
+// - DATA_ENTRY: DataEntryName, KeyValue ({"old", "new"})
 // - ALLOWANCE: TokenID, Amount, SpenderAccountID, KeyValue (live_until_ledger)
 // - FLAGS: Flags (bitmask)
 // - TRUSTLINE: TokenID xor LiquidityPoolID, TrustlineLimitOld, TrustlineLimitNew
@@ -704,7 +703,11 @@ type StateChange struct {
 	// Flags as bitmask instead of JSON array (see FlagBit* constants):
 	Flags sql.NullInt16 `json:"flags,omitempty" db:"flags"`
 
-	// ONLY truly variable data remains as JSONB (data entries, home domain):
+	// Name of the changed data entry (DATA_ENTRY rows only):
+	DataEntryName sql.NullString `json:"dataEntryName,omitempty" db:"data_entry_name"`
+
+	// ONLY truly variable data remains as JSONB, as a flat {"old", "new"} payload
+	// (data-entry values, home domain) plus the allowance live_until_ledger:
 	KeyValue NullableJSONB `json:"keyValue,omitempty" db:"key_value"`
 
 	// Relationships:
@@ -1024,8 +1027,18 @@ type HomeDomainChangeModel struct {
 	StateChange
 }
 
-// DataEntryChangeModel maps to GraphQL DataEntryChange: METADATA × DATA_ENTRY.
-type DataEntryChangeModel struct {
+// DataEntryAddedChangeModel maps to GraphQL DataEntryAddedChange: DATA_ENTRY × ADD.
+type DataEntryAddedChangeModel struct {
+	StateChange
+}
+
+// DataEntryUpdatedChangeModel maps to GraphQL DataEntryUpdatedChange: DATA_ENTRY × UPDATE.
+type DataEntryUpdatedChangeModel struct {
+	StateChange
+}
+
+// DataEntryRemovedChangeModel maps to GraphQL DataEntryRemovedChange: DATA_ENTRY × REMOVE.
+type DataEntryRemovedChangeModel struct {
 	StateChange
 }
 
