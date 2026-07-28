@@ -104,21 +104,21 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryFlags, StateChangeReason: types.StateChangeReasonClear},
 			want: &types.AccountFlagsChangeModel{},
 		},
-		// HOME_DOMAIN: any of the three transitions maps to one model.
+		// HOME_DOMAIN: one model per reason.
 		{
 			name: "HOME_DOMAIN set",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonSet},
-			want: &types.HomeDomainChangeModel{},
+			want: &types.HomeDomainSetChangeModel{},
 		},
 		{
 			name: "HOME_DOMAIN clear",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonClear},
-			want: &types.HomeDomainChangeModel{},
+			want: &types.HomeDomainClearedChangeModel{},
 		},
 		{
 			name: "HOME_DOMAIN update",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryHomeDomain, StateChangeReason: types.StateChangeReasonUpdate},
-			want: &types.HomeDomainChangeModel{},
+			want: &types.HomeDomainUpdatedChangeModel{},
 		},
 		// DATA_ENTRY: one model per reason.
 		{
@@ -380,12 +380,33 @@ func TestThresholdChangeResolver(t *testing.T) {
 	})
 }
 
-func TestHomeDomainChangeResolver(t *testing.T) {
+func TestHomeDomainSetChangeResolver(t *testing.T) {
 	ctx := context.Background()
-	r := &homeDomainChangeResolver{&Resolver{}}
+	r := &homeDomainSetChangeResolver{&Resolver{}}
 
-	t.Run("extracts old and new from key_value", func(t *testing.T) {
-		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
+	t.Run("the newly set domain comes from key_value new", func(t *testing.T) {
+		obj := &types.HomeDomainSetChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"new": "b.com"},
+		}}
+		domain, err := r.HomeDomain(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, "b.com", domain)
+	})
+
+	t.Run("missing domain is a data-integrity error", func(t *testing.T) {
+		obj := &types.HomeDomainSetChangeModel{StateChange: types.StateChange{KeyValue: types.NullableJSONB{}}}
+		_, err := r.HomeDomain(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "homeDomain")
+	})
+}
+
+func TestHomeDomainUpdatedChangeResolver(t *testing.T) {
+	ctx := context.Background()
+	r := &homeDomainUpdatedChangeResolver{&Resolver{}}
+
+	t.Run("both old and new domains come from key_value", func(t *testing.T) {
+		obj := &types.HomeDomainUpdatedChangeModel{StateChange: types.StateChange{
 			KeyValue: types.NullableJSONB{"old": "a.com", "new": "b.com"},
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
@@ -397,19 +418,40 @@ func TestHomeDomainChangeResolver(t *testing.T) {
 		assert.Equal(t, "b.com", newD)
 	})
 
-	t.Run("previously unset domain is the empty string, not null", func(t *testing.T) {
-		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"old": "", "new": "b.com"},
+	t.Run("missing old domain is a data-integrity error", func(t *testing.T) {
+		obj := &types.HomeDomainUpdatedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"new": "b.com"},
+		}}
+		_, err := r.OldHomeDomain(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "oldHomeDomain")
+	})
+
+	t.Run("missing new domain is a data-integrity error", func(t *testing.T) {
+		obj := &types.HomeDomainUpdatedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"old": "a.com"},
+		}}
+		_, err := r.NewHomeDomain(ctx, obj)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "newHomeDomain")
+	})
+}
+
+func TestHomeDomainClearedChangeResolver(t *testing.T) {
+	ctx := context.Background()
+	r := &homeDomainClearedChangeResolver{&Resolver{}}
+
+	t.Run("the removed domain comes from key_value old", func(t *testing.T) {
+		obj := &types.HomeDomainClearedChangeModel{StateChange: types.StateChange{
+			KeyValue: types.NullableJSONB{"old": "a.com"},
 		}}
 		old, err := r.OldHomeDomain(ctx, obj)
 		require.NoError(t, err)
-		assert.Equal(t, "", old)
+		assert.Equal(t, "a.com", old)
 	})
 
-	t.Run("missing old is a data-integrity error", func(t *testing.T) {
-		obj := &types.HomeDomainChangeModel{StateChange: types.StateChange{
-			KeyValue: types.NullableJSONB{"new": "b.com"},
-		}}
+	t.Run("missing old domain is a data-integrity error", func(t *testing.T) {
+		obj := &types.HomeDomainClearedChangeModel{StateChange: types.StateChange{KeyValue: types.NullableJSONB{}}}
 		_, err := r.OldHomeDomain(ctx, obj)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "oldHomeDomain")

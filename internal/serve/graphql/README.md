@@ -561,7 +561,9 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int!` |
 | `ThresholdChange` | `(SIGNATURE_THRESHOLD, UPDATE)` | `threshold: ThresholdLevel!`, `oldThreshold: Int!`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
-| `HomeDomainChange` | `(HOME_DOMAIN, SET)`, `(HOME_DOMAIN, CLEAR)`, `(HOME_DOMAIN, UPDATE)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
+| `HomeDomainSetChange` | `(HOME_DOMAIN, SET)` | `homeDomain: String!` |
+| `HomeDomainUpdatedChange` | `(HOME_DOMAIN, UPDATE)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
+| `HomeDomainClearedChange` | `(HOME_DOMAIN, CLEAR)` | `oldHomeDomain: String!` |
 | `DataEntryAddedChange` | `(DATA_ENTRY, ADD)` | `name: String!`, `value: String!` |
 | `DataEntryUpdatedChange` | `(DATA_ENTRY, UPDATE)` | `name: String!`, `oldValue: String!`, `newValue: String!` |
 | `DataEntryRemovedChange` | `(DATA_ENTRY, REMOVE)` | `name: String!`, `oldValue: String!` |
@@ -585,7 +587,7 @@ Notes on the polymorphic fields:
 | `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
 | `SIGNATURE_THRESHOLD` | `ThresholdChange` |
 | `DATA_ENTRY` | `DataEntryAddedChange`, `DataEntryUpdatedChange`, `DataEntryRemovedChange` |
-| `HOME_DOMAIN` | `HomeDomainChange` |
+| `HOME_DOMAIN` | `HomeDomainSetChange`, `HomeDomainUpdatedChange`, `HomeDomainClearedChange` |
 | `ALLOWANCE` | `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
 | `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
@@ -603,9 +605,9 @@ Notes on the polymorphic fields:
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
 | `ADD` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry added |
 | `REMOVE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed |
-| `UPDATE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved |
-| `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none |
-| `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed |
+| `UPDATE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another (`HomeDomainUpdatedChange`); ALLOWANCE: SEP-41 allowance approved |
+| `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none (`HomeDomainSetChange`) |
+| `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed (`HomeDomainClearedChange`) |
 
 **Flag Enum Values:**
 

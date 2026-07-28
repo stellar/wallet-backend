@@ -162,16 +162,21 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryFlags)
 			stateChanges = append(stateChanges, p.parseFlags(accountFlags, changeBuilder, &effect)...)
 
-		// Home domain effects: track changes to the account's home domain
+		// Home domain effects: track the account's home domain being set, replaced, or removed
 		case EffectAccountHomeDomainUpdated:
-			keyValueMap, err := p.parseKeyValue(&effect, effectType, changes, "home_domain")
+			oldDomain, newDomain, err := p.parseHomeDomain(&effect, changes)
 			if err != nil {
 				log.Debugf("processor: %s: failed to parse home domain effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
 			}
+			reason, keyValueMap, changed := homeDomainChange(oldDomain, newDomain)
+			if !changed {
+				// The operation wrote the home domain the account already had.
+				continue
+			}
 			stateChanges = append(stateChanges, changeBuilder.
 				WithCategory(types.StateChangeCategoryHomeDomain).
-				WithReason(homeDomainReason(keyValueMap)).
+				WithReason(reason).
 				WithKeyValue(keyValueMap).
 				Build())
 
@@ -216,7 +221,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 
 		// Data entry effects: track changes to account data entries (key-value storage)
 		case EffectDataCreated, EffectDataRemoved, EffectDataUpdated:
-			keyValueMap, err := p.parseKeyValue(&effect, effectType, changes, "name")
+			keyValueMap, err := p.parseDataEntryValues(&effect, effectType, changes)
 			if err != nil {
 				log.Debugf("processor: %s: failed to parse data entry effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
 				continue
@@ -441,74 +446,73 @@ func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) 
 	return flagStrings
 }
 
-// homeDomainReason derives the state-change reason from a home-domain key-value
-// map: an empty old value means the domain was set for the first time, an empty
-// new value means it was cleared, and anything else is an update.
-func homeDomainReason(keyValueMap map[string]any) types.StateChangeReason {
-	oldDomain, _ := keyValueMap["old"].(string)
-	newDomain, _ := keyValueMap["new"].(string)
+// parseHomeDomain returns the account's home domain before and after the effect,
+// with the empty string standing for an unset domain on either side. Both the
+// account pre-image and the effect's new value are required; a missing one is a
+// malformed effect.
+func (p *EffectsProcessor) parseHomeDomain(effect *EffectOutput, changes []ingest.Change) (oldDomain, newDomain string, err error) {
+	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
+	if prevLedgerEntryState == nil {
+		return "", "", fmt.Errorf("no previous account state for home domain effect on account %s (opID %d)", effect.Address, effect.OperationID)
+	}
+	newDomain, ok := effect.Details["home_domain"].(string)
+	if !ok {
+		return "", "", fmt.Errorf("home domain effect on account %s (opID %d) carries no new value", effect.Address, effect.OperationID)
+	}
+	return string(prevLedgerEntryState.Data.MustAccount().HomeDomain), newDomain, nil
+}
+
+// homeDomainChange derives the reason and key-value payload for a home-domain
+// transition. The payload carries only the meaningful side of the transition, so
+// the empty string never reaches the database: setting a domain on an account that
+// had none carries just "new", removing one carries just "old", and replacing one
+// carries both. A SetOptions operation may write the domain the account already
+// has, which changes nothing and produces no state change (changed is false).
+func homeDomainChange(oldDomain, newDomain string) (reason types.StateChangeReason, keyValue map[string]any, changed bool) {
 	switch {
+	case oldDomain == newDomain:
+		return "", nil, false
 	case oldDomain == "":
-		return types.StateChangeReasonSet
+		return types.StateChangeReasonSet, map[string]any{"new": newDomain}, true
 	case newDomain == "":
-		return types.StateChangeReasonClear
+		return types.StateChangeReasonClear, map[string]any{"old": oldDomain}, true
 	default:
-		return types.StateChangeReasonUpdate
+		return types.StateChangeReasonUpdate, map[string]any{"old": oldDomain, "new": newDomain}, true
 	}
 }
 
-// parseKeyValue extracts specified key-value pairs from effect details.
-// This is used to capture metadata like home domain values or data entry names and values.
-// Old values are recovered from the entry's pre-image; effects whose pre-image is required
-// but missing are malformed and rejected, so a null old value in the API is always semantic
-// (a data-entry creation) rather than a reconstruction miss.
-func (p *EffectsProcessor) parseKeyValue(effect *EffectOutput, effectType EffectType, changes []ingest.Change, key string) (map[string]any, error) {
+// parseDataEntryValues extracts a changed data entry's values into a flat key-value
+// payload carrying only the meaningful side of the change: a creation carries just
+// "new", a removal just "old", an update both. Old values are recovered from the
+// entry's pre-image; an effect whose pre-image is missing is malformed and rejected,
+// so a value absent from the payload is always semantic rather than a reconstruction
+// miss.
+func (p *EffectsProcessor) parseDataEntryValues(effect *EffectOutput, effectType EffectType, changes []ingest.Change) (map[string]any, error) {
 	keyValueMap := map[string]any{}
-	switch key {
-	case "name":
-		if _, ok := effect.Details[key].(xdr.String64); !ok {
-			return nil, fmt.Errorf("data entry effect on account %s (opID %d) carries no name", effect.Address, effect.OperationID)
-		}
+	if _, ok := effect.Details["name"].(xdr.String64); !ok {
+		return nil, fmt.Errorf("data entry effect on account %s (opID %d) carries no name", effect.Address, effect.OperationID)
+	}
 
-		// The GraphQL schema declares the value non-null on additions and updates,
-		// so a create/update effect without a new value is malformed.
-		//exhaustive:ignore
-		switch effectType {
-		case EffectDataCreated, EffectDataUpdated:
-			value, ok := effect.Details["value"]
-			if !ok {
-				return nil, fmt.Errorf("%s effect on account %s (opID %d) carries no new value", effect.TypeString, effect.Address, effect.OperationID)
-			}
-			keyValueMap["new"] = value
-		}
-		//exhaustive:ignore
-		switch effectType {
-		case EffectDataUpdated, EffectDataRemoved:
-			prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
-			if prevLedgerEntryState == nil {
-				return nil, fmt.Errorf("no previous data entry state for %s effect on account %s (opID %d)", effect.TypeString, effect.Address, effect.OperationID)
-			}
-			oldData := prevLedgerEntryState.Data.MustData().DataValue
-			keyValueMap["old"] = base64.StdEncoding.EncodeToString(oldData)
-		}
-	case "home_domain":
-		// The GraphQL schema declares both oldHomeDomain and newHomeDomain
-		// non-null (an unset domain is the empty string), so both the account
-		// pre-image and the effect's new value are required.
-		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
-		if prevLedgerEntryState == nil {
-			return nil, fmt.Errorf("no previous account state for home domain effect on account %s (opID %d)", effect.Address, effect.OperationID)
-		}
-		value, ok := effect.Details[key]
+	// The GraphQL schema declares the value non-null on additions and updates,
+	// so a create/update effect without a new value is malformed.
+	//exhaustive:ignore
+	switch effectType {
+	case EffectDataCreated, EffectDataUpdated:
+		value, ok := effect.Details["value"]
 		if !ok {
-			return nil, fmt.Errorf("home domain effect on account %s (opID %d) carries no new value", effect.Address, effect.OperationID)
+			return nil, fmt.Errorf("%s effect on account %s (opID %d) carries no new value", effect.TypeString, effect.Address, effect.OperationID)
 		}
-		keyValueMap["old"] = string(prevLedgerEntryState.Data.MustAccount().HomeDomain)
 		keyValueMap["new"] = value
-	default:
-		if value, ok := effect.Details[key]; ok {
-			keyValueMap[key] = value
+	}
+	//exhaustive:ignore
+	switch effectType {
+	case EffectDataUpdated, EffectDataRemoved:
+		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeData, changes)
+		if prevLedgerEntryState == nil {
+			return nil, fmt.Errorf("no previous data entry state for %s effect on account %s (opID %d)", effect.TypeString, effect.Address, effect.OperationID)
 		}
+		oldData := prevLedgerEntryState.Data.MustData().DataValue
+		keyValueMap["old"] = base64.StdEncoding.EncodeToString(oldData)
 	}
 
 	return keyValueMap, nil

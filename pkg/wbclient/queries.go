@@ -84,9 +84,15 @@ const (
 		... on AccountFlagsChange {
 			accountFlags: flags
 		}
-		... on HomeDomainChange {
+		... on HomeDomainSetChange {
+			homeDomain
+		}
+		... on HomeDomainUpdatedChange {
 			oldHomeDomain
 			newHomeDomain
+		}
+		... on HomeDomainClearedChange {
+			oldHomeDomain
 		}
 		... on DataEntryAddedChange {
 			name

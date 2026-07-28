@@ -45,6 +45,7 @@ func TestGetDBColumns(t *testing.T) {
 			// The data entry name has its own column.
 			{"name", "data_entry_name"},
 			// Fields extracted from the key_value JSONB blob.
+			{"homeDomain", "key_value"},
 			{"oldHomeDomain", "key_value"},
 			{"newHomeDomain", "key_value"},
 			{"value", "key_value"},
@@ -70,7 +71,7 @@ func TestGetDBColumns(t *testing.T) {
 		got := getDBColumns(types.StateChange{}, collectedFields("value", "oldValue", "newValue", "expirationLedger"))
 		assert.Equal(t, []string{"key_value"}, got)
 
-		got = getDBColumns(types.StateChange{}, collectedFields("oldHomeDomain", "newHomeDomain"))
+		got = getDBColumns(types.StateChange{}, collectedFields("homeDomain", "oldHomeDomain", "newHomeDomain"))
 		assert.Equal(t, []string{"key_value"}, got)
 	})
 

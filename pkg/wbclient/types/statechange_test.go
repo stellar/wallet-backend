@@ -154,6 +154,60 @@ func Test_UnmarshalStateChangeNode_BalanceAuthorizationWithFlags(t *testing.T) {
 	assert.Equal(t, []TrustlineFlag{TrustlineFlagAuthorized, TrustlineFlagClawbackEnabled}, bac.Flags)
 }
 
+// Test_UnmarshalStateChangeNode_HomeDomainSet checks the SET shape, which carries only the
+// newly set domain.
+func Test_UnmarshalStateChangeNode_HomeDomainSet(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "HomeDomainSetChange",
+		"category": "HOME_DOMAIN",
+		"reason": "SET",
+		"homeDomain": "example.org"
+	}`))
+	require.NoError(t, err)
+
+	hs, ok := node.(*HomeDomainSetChange)
+	require.True(t, ok, "expected *HomeDomainSetChange, got %T", node)
+	assert.Equal(t, StateChangeCategoryHomeDomain, hs.GetCategory())
+	assert.Equal(t, StateChangeReasonSet, hs.GetReason())
+	assert.Equal(t, "example.org", hs.HomeDomain)
+}
+
+// Test_UnmarshalStateChangeNode_HomeDomainUpdated checks the UPDATE shape, which carries both
+// the previous and the new domain.
+func Test_UnmarshalStateChangeNode_HomeDomainUpdated(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "HomeDomainUpdatedChange",
+		"category": "HOME_DOMAIN",
+		"reason": "UPDATE",
+		"oldHomeDomain": "old.example.org",
+		"newHomeDomain": "new.example.org"
+	}`))
+	require.NoError(t, err)
+
+	hu, ok := node.(*HomeDomainUpdatedChange)
+	require.True(t, ok, "expected *HomeDomainUpdatedChange, got %T", node)
+	assert.Equal(t, StateChangeReasonUpdate, hu.GetReason())
+	assert.Equal(t, "old.example.org", hu.OldHomeDomain)
+	assert.Equal(t, "new.example.org", hu.NewHomeDomain)
+}
+
+// Test_UnmarshalStateChangeNode_HomeDomainCleared checks the CLEAR shape, which carries only
+// the domain the account held when it was removed.
+func Test_UnmarshalStateChangeNode_HomeDomainCleared(t *testing.T) {
+	node, err := UnmarshalStateChangeNode([]byte(`{
+		"__typename": "HomeDomainClearedChange",
+		"category": "HOME_DOMAIN",
+		"reason": "CLEAR",
+		"oldHomeDomain": "old.example.org"
+	}`))
+	require.NoError(t, err)
+
+	hc, ok := node.(*HomeDomainClearedChange)
+	require.True(t, ok, "expected *HomeDomainClearedChange, got %T", node)
+	assert.Equal(t, StateChangeReasonClear, hc.GetReason())
+	assert.Equal(t, "old.example.org", hc.OldHomeDomain)
+}
+
 // Test_UnmarshalStateChangeNode_DataEntryAdded checks the ADD shape, which carries only the
 // entry's new value.
 func Test_UnmarshalStateChangeNode_DataEntryAdded(t *testing.T) {

@@ -207,12 +207,10 @@ type AccountFlagsChange implements BaseStateChange {
 }
 
 """
-A home-domain change on the account. `reason` is SET when the account
-previously had no home domain, CLEAR when the domain was removed, and UPDATE
-when it changed from one value to another.
-Pairs: (HOME_DOMAIN, SET), (HOME_DOMAIN, CLEAR), (HOME_DOMAIN, UPDATE).
+A home domain set on an account that had none.
+Pair: (HOME_DOMAIN, SET).
 """
-type HomeDomainChange implements BaseStateChange {
+type HomeDomainSetChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -222,10 +220,46 @@ type HomeDomainChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous home domain; empty when the account had no home domain set."""
+  """The newly set home domain."""
+  homeDomain:                 String! @goField(forceResolver: true)
+}
+
+"""
+An existing home domain replaced by a different one.
+Pair: (HOME_DOMAIN, UPDATE).
+"""
+type HomeDomainUpdatedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Previous home domain."""
   oldHomeDomain:              String! @goField(forceResolver: true)
-  """New home domain; empty when the home domain was cleared."""
+  """New home domain."""
   newHomeDomain:              String! @goField(forceResolver: true)
+}
+
+"""
+A home domain removed from the account.
+Pair: (HOME_DOMAIN, CLEAR).
+"""
+type HomeDomainClearedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Home domain the account had when it was removed."""
+  oldHomeDomain:              String! @goField(forceResolver: true)
 }
 
 """

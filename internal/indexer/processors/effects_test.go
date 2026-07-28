@@ -428,34 +428,62 @@ func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 	})
 }
 
-// TestEffects_HomeDomainReason covers the derivation of the HOME_DOMAIN reason from the
-// empty-string transitions in the flattened {"old", "new"} key-value payload.
-func TestEffects_HomeDomainReason(t *testing.T) {
+// TestEffects_HomeDomainChange covers the derivation of the HOME_DOMAIN reason and the
+// trimmed key-value payload from a domain transition, including the no-op transition that
+// emits no state change at all.
+func TestEffects_HomeDomainChange(t *testing.T) {
 	testCases := []struct {
-		name     string
-		keyValue map[string]any
-		want     types.StateChangeReason
+		name         string
+		oldDomain    string
+		newDomain    string
+		wantReason   types.StateChangeReason
+		wantKeyValue map[string]any
+		wantChanged  bool
 	}{
 		{
-			name:     "empty old value means the domain was set for the first time",
-			keyValue: map[string]any{"old": "", "new": "home.org"},
-			want:     types.StateChangeReasonSet,
+			name:         "empty old domain means the domain was set for the first time",
+			oldDomain:    "",
+			newDomain:    "home.org",
+			wantReason:   types.StateChangeReasonSet,
+			wantKeyValue: map[string]any{"new": "home.org"},
+			wantChanged:  true,
 		},
 		{
-			name:     "empty new value means the domain was cleared",
-			keyValue: map[string]any{"old": "home.org", "new": ""},
-			want:     types.StateChangeReasonClear,
+			name:         "empty new domain means the domain was cleared",
+			oldDomain:    "home.org",
+			newDomain:    "",
+			wantReason:   types.StateChangeReasonClear,
+			wantKeyValue: map[string]any{"old": "home.org"},
+			wantChanged:  true,
 		},
 		{
-			name:     "two non-empty values mean the domain was updated",
-			keyValue: map[string]any{"old": "old.example.org", "new": "home.org"},
-			want:     types.StateChangeReasonUpdate,
+			name:         "two distinct non-empty domains mean the domain was updated",
+			oldDomain:    "old.example.org",
+			newDomain:    "home.org",
+			wantReason:   types.StateChangeReasonUpdate,
+			wantKeyValue: map[string]any{"old": "old.example.org", "new": "home.org"},
+			wantChanged:  true,
+		},
+		{
+			name:        "rewriting the same domain changes nothing",
+			oldDomain:   "same.org",
+			newDomain:   "same.org",
+			wantChanged: false,
+		},
+		{
+			name:        "an absent domain left absent changes nothing",
+			oldDomain:   "",
+			newDomain:   "",
+			wantChanged: false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, homeDomainReason(tc.keyValue))
+			reason, keyValue, changed := homeDomainChange(tc.oldDomain, tc.newDomain)
+			assert.Equal(t, tc.wantChanged, changed)
+			assert.Equal(t, tc.wantReason, reason)
+			assert.Equal(t, tc.wantKeyValue, keyValue)
 		})
 	}
 }

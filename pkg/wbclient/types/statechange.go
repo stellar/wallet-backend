@@ -114,11 +114,23 @@ type AccountFlagsChange struct {
 	Flags []AccountFlag `json:"accountFlags"`
 }
 
-// HomeDomainChange is a home domain set, cleared, or updated on the account.
-type HomeDomainChange struct {
+// HomeDomainSetChange is a home domain set on an account that had none.
+type HomeDomainSetChange struct {
+	BaseStateChangeFields
+	HomeDomain string `json:"homeDomain"`
+}
+
+// HomeDomainUpdatedChange is an existing home domain replaced by a different one.
+type HomeDomainUpdatedChange struct {
 	BaseStateChangeFields
 	OldHomeDomain string `json:"oldHomeDomain"`
 	NewHomeDomain string `json:"newHomeDomain"`
+}
+
+// HomeDomainClearedChange is a home domain removed from the account.
+type HomeDomainClearedChange struct {
+	BaseStateChangeFields
+	OldHomeDomain string `json:"oldHomeDomain"`
 }
 
 // DataEntryAddedChange is a data entry created on the account.
@@ -216,8 +228,12 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[ThresholdChange](data)
 	case "AccountFlagsChange":
 		return unmarshalStateChange[AccountFlagsChange](data)
-	case "HomeDomainChange":
-		return unmarshalStateChange[HomeDomainChange](data)
+	case "HomeDomainSetChange":
+		return unmarshalStateChange[HomeDomainSetChange](data)
+	case "HomeDomainUpdatedChange":
+		return unmarshalStateChange[HomeDomainUpdatedChange](data)
+	case "HomeDomainClearedChange":
+		return unmarshalStateChange[HomeDomainClearedChange](data)
 	case "DataEntryAddedChange":
 		return unmarshalStateChange[DataEntryAddedChange](data)
 	case "DataEntryUpdatedChange":

@@ -8,7 +8,7 @@
 //  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
 //     This allows efficient storage in a single database table with nullable fields.
 //
-//  2. GRAPHQL LAYER: A BaseStateChange interface with 17 concrete implementations (defined in
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 19 concrete implementations (defined in
 //     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
 //     specific state change, providing strong typing and clean API contracts.
 //
@@ -645,6 +645,7 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 // - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
 // - SIGNATURE_THRESHOLD: Threshold (which one), ThresholdOld, ThresholdNew
 // - DATA_ENTRY: DataEntryName, KeyValue ({"old", "new"})
+// - HOME_DOMAIN: KeyValue ({"old"} cleared, {"new"} set, both on update)
 // - ALLOWANCE: TokenID, Amount, SpenderAccountID, KeyValue (live_until_ledger)
 // - FLAGS: Flags (bitmask)
 // - TRUSTLINE: TokenID xor LiquidityPoolID, TrustlineLimitOld, TrustlineLimitNew
@@ -1022,8 +1023,18 @@ type AccountFlagsChangeModel struct {
 	StateChange
 }
 
-// HomeDomainChangeModel maps to GraphQL HomeDomainChange: HOME_DOMAIN × SET/CLEAR/UPDATE.
-type HomeDomainChangeModel struct {
+// HomeDomainSetChangeModel maps to GraphQL HomeDomainSetChange: HOME_DOMAIN × SET.
+type HomeDomainSetChangeModel struct {
+	StateChange
+}
+
+// HomeDomainUpdatedChangeModel maps to GraphQL HomeDomainUpdatedChange: HOME_DOMAIN × UPDATE.
+type HomeDomainUpdatedChangeModel struct {
+	StateChange
+}
+
+// HomeDomainClearedChangeModel maps to GraphQL HomeDomainClearedChange: HOME_DOMAIN × CLEAR.
+type HomeDomainClearedChangeModel struct {
 	StateChange
 }
 

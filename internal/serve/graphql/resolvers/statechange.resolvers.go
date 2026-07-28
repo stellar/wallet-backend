@@ -387,33 +387,33 @@ func (r *dataEntryUpdatedChangeResolver) NewValue(ctx context.Context, obj *type
 }
 
 // Category is the resolver for the category field.
-func (r *homeDomainChangeResolver) Category(ctx context.Context, obj *types.HomeDomainChangeModel) (types.StateChangeCategory, error) {
+func (r *homeDomainClearedChangeResolver) Category(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *homeDomainChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainChangeModel) (types.StateChangeReason, error) {
+func (r *homeDomainClearedChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *homeDomainChangeResolver) Account(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Account, error) {
+func (r *homeDomainClearedChangeResolver) Account(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *homeDomainChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Operation, error) {
+func (r *homeDomainClearedChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *homeDomainChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Transaction, error) {
+func (r *homeDomainClearedChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// OldHomeDomain is the resolver for the oldHomeDomain field. The emission
-// requires the account pre-image, so a missing old value is a data-integrity error.
-func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
+// OldHomeDomain is the resolver for the oldHomeDomain field. The emission requires
+// the account pre-image, so a missing old value is a data-integrity error.
+func (r *homeDomainClearedChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (string, error) {
 	oldVal := flatKeyValueString(obj.KeyValue, "old")
 	if oldVal == nil {
 		return "", fmt.Errorf("state change is missing required oldHomeDomain")
@@ -421,9 +421,79 @@ func (r *homeDomainChangeResolver) OldHomeDomain(ctx context.Context, obj *types
 	return *oldVal, nil
 }
 
-// NewHomeDomain is the resolver for the newHomeDomain field. The emission
-// requires the effect's new value, so a missing one is a data-integrity error.
-func (r *homeDomainChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error) {
+// Category is the resolver for the category field.
+func (r *homeDomainSetChangeResolver) Category(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *homeDomainSetChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *homeDomainSetChangeResolver) Account(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *homeDomainSetChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *homeDomainSetChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// HomeDomain is the resolver for the homeDomain field. The emission requires the
+// effect's new value, so a missing one is a data-integrity error.
+func (r *homeDomainSetChangeResolver) HomeDomain(ctx context.Context, obj *types.HomeDomainSetChangeModel) (string, error) {
+	newVal := flatKeyValueString(obj.KeyValue, "new")
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required homeDomain")
+	}
+	return *newVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *homeDomainUpdatedChangeResolver) Category(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *homeDomainUpdatedChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *homeDomainUpdatedChangeResolver) Account(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *homeDomainUpdatedChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *homeDomainUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// OldHomeDomain is the resolver for the oldHomeDomain field. The emission requires
+// the account pre-image, so a missing old value is a data-integrity error.
+func (r *homeDomainUpdatedChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldHomeDomain")
+	}
+	return *oldVal, nil
+}
+
+// NewHomeDomain is the resolver for the newHomeDomain field. The emission requires
+// the effect's new value, so a missing one is a data-integrity error.
+func (r *homeDomainUpdatedChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error) {
 	newVal := flatKeyValueString(obj.KeyValue, "new")
 	if newVal == nil {
 		return "", fmt.Errorf("state change is missing required newHomeDomain")
@@ -745,9 +815,19 @@ func (r *Resolver) DataEntryUpdatedChange() graphql1.DataEntryUpdatedChangeResol
 	return &dataEntryUpdatedChangeResolver{r}
 }
 
-// HomeDomainChange returns graphql1.HomeDomainChangeResolver implementation.
-func (r *Resolver) HomeDomainChange() graphql1.HomeDomainChangeResolver {
-	return &homeDomainChangeResolver{r}
+// HomeDomainClearedChange returns graphql1.HomeDomainClearedChangeResolver implementation.
+func (r *Resolver) HomeDomainClearedChange() graphql1.HomeDomainClearedChangeResolver {
+	return &homeDomainClearedChangeResolver{r}
+}
+
+// HomeDomainSetChange returns graphql1.HomeDomainSetChangeResolver implementation.
+func (r *Resolver) HomeDomainSetChange() graphql1.HomeDomainSetChangeResolver {
+	return &homeDomainSetChangeResolver{r}
+}
+
+// HomeDomainUpdatedChange returns graphql1.HomeDomainUpdatedChangeResolver implementation.
+func (r *Resolver) HomeDomainUpdatedChange() graphql1.HomeDomainUpdatedChangeResolver {
+	return &homeDomainUpdatedChangeResolver{r}
 }
 
 // SignerAddedChange returns graphql1.SignerAddedChangeResolver implementation.
@@ -795,7 +875,9 @@ type (
 	dataEntryAddedChangeResolver       struct{ *Resolver }
 	dataEntryRemovedChangeResolver     struct{ *Resolver }
 	dataEntryUpdatedChangeResolver     struct{ *Resolver }
-	homeDomainChangeResolver           struct{ *Resolver }
+	homeDomainClearedChangeResolver    struct{ *Resolver }
+	homeDomainSetChangeResolver        struct{ *Resolver }
+	homeDomainUpdatedChangeResolver    struct{ *Resolver }
 	signerAddedChangeResolver          struct{ *Resolver }
 	signerRemovedChangeResolver        struct{ *Resolver }
 	signerUpdatedChangeResolver        struct{ *Resolver }

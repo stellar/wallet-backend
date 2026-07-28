@@ -197,9 +197,15 @@ models:
   AccountFlagsChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.AccountFlagsChangeModel
-  HomeDomainChange:
+  HomeDomainSetChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainSetChangeModel
+  HomeDomainUpdatedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainUpdatedChangeModel
+  HomeDomainClearedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainClearedChangeModel
   DataEntryAddedChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryAddedChangeModel

@@ -41,7 +41,9 @@ type ResolverRoot interface {
 	DataEntryAddedChange() DataEntryAddedChangeResolver
 	DataEntryRemovedChange() DataEntryRemovedChangeResolver
 	DataEntryUpdatedChange() DataEntryUpdatedChangeResolver
-	HomeDomainChange() HomeDomainChangeResolver
+	HomeDomainClearedChange() HomeDomainClearedChangeResolver
+	HomeDomainSetChange() HomeDomainSetChangeResolver
+	HomeDomainUpdatedChange() HomeDomainUpdatedChangeResolver
 	Operation() OperationResolver
 	Query() QueryResolver
 	SignerAddedChange() SignerAddedChangeResolver
@@ -208,7 +210,31 @@ type ComplexityRoot struct {
 		Transaction     func(childComplexity int) int
 	}
 
-	HomeDomainChange struct {
+	HomeDomainClearedChange struct {
+		Account         func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		OldHomeDomain   func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	HomeDomainSetChange struct {
+		Account         func(childComplexity int) int
+		Category        func(childComplexity int) int
+		HomeDomain      func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	HomeDomainUpdatedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
 		IngestedAt      func(childComplexity int) int
@@ -561,15 +587,33 @@ type DataEntryUpdatedChangeResolver interface {
 	OldValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error)
 	NewValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error)
 }
-type HomeDomainChangeResolver interface {
-	Category(ctx context.Context, obj *types.HomeDomainChangeModel) (types.StateChangeCategory, error)
-	Reason(ctx context.Context, obj *types.HomeDomainChangeModel) (types.StateChangeReason, error)
+type HomeDomainClearedChangeResolver interface {
+	Category(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeReason, error)
 
-	Account(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Account, error)
-	Operation(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Operation, error)
-	Transaction(ctx context.Context, obj *types.HomeDomainChangeModel) (*types.Transaction, error)
-	OldHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error)
-	NewHomeDomain(ctx context.Context, obj *types.HomeDomainChangeModel) (string, error)
+	Account(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Transaction, error)
+	OldHomeDomain(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (string, error)
+}
+type HomeDomainSetChangeResolver interface {
+	Category(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Transaction, error)
+	HomeDomain(ctx context.Context, obj *types.HomeDomainSetChangeModel) (string, error)
+}
+type HomeDomainUpdatedChangeResolver interface {
+	Category(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Transaction, error)
+	OldHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error)
+	NewHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error)
 }
 type OperationResolver interface {
 	OperationXdr(ctx context.Context, obj *types.Operation) (string, error)
@@ -1367,66 +1411,176 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.DataEntryUpdatedChange.Transaction(childComplexity), true
 
-	case "HomeDomainChange.account":
-		if e.ComplexityRoot.HomeDomainChange.Account == nil {
+	case "HomeDomainClearedChange.account":
+		if e.ComplexityRoot.HomeDomainClearedChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.Account(childComplexity), true
-	case "HomeDomainChange.category":
-		if e.ComplexityRoot.HomeDomainChange.Category == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.Account(childComplexity), true
+	case "HomeDomainClearedChange.category":
+		if e.ComplexityRoot.HomeDomainClearedChange.Category == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.Category(childComplexity), true
-	case "HomeDomainChange.ingestedAt":
-		if e.ComplexityRoot.HomeDomainChange.IngestedAt == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.Category(childComplexity), true
+	case "HomeDomainClearedChange.ingestedAt":
+		if e.ComplexityRoot.HomeDomainClearedChange.IngestedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.IngestedAt(childComplexity), true
-	case "HomeDomainChange.ledgerCreatedAt":
-		if e.ComplexityRoot.HomeDomainChange.LedgerCreatedAt == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.IngestedAt(childComplexity), true
+	case "HomeDomainClearedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.HomeDomainClearedChange.LedgerCreatedAt == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.LedgerCreatedAt(childComplexity), true
-	case "HomeDomainChange.ledgerNumber":
-		if e.ComplexityRoot.HomeDomainChange.LedgerNumber == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.LedgerCreatedAt(childComplexity), true
+	case "HomeDomainClearedChange.ledgerNumber":
+		if e.ComplexityRoot.HomeDomainClearedChange.LedgerNumber == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.LedgerNumber(childComplexity), true
-	case "HomeDomainChange.newHomeDomain":
-		if e.ComplexityRoot.HomeDomainChange.NewHomeDomain == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.LedgerNumber(childComplexity), true
+	case "HomeDomainClearedChange.oldHomeDomain":
+		if e.ComplexityRoot.HomeDomainClearedChange.OldHomeDomain == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.NewHomeDomain(childComplexity), true
-	case "HomeDomainChange.oldHomeDomain":
-		if e.ComplexityRoot.HomeDomainChange.OldHomeDomain == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.OldHomeDomain(childComplexity), true
+	case "HomeDomainClearedChange.operation":
+		if e.ComplexityRoot.HomeDomainClearedChange.Operation == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.OldHomeDomain(childComplexity), true
-	case "HomeDomainChange.operation":
-		if e.ComplexityRoot.HomeDomainChange.Operation == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.Operation(childComplexity), true
+	case "HomeDomainClearedChange.reason":
+		if e.ComplexityRoot.HomeDomainClearedChange.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.Operation(childComplexity), true
-	case "HomeDomainChange.reason":
-		if e.ComplexityRoot.HomeDomainChange.Reason == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.Reason(childComplexity), true
+	case "HomeDomainClearedChange.transaction":
+		if e.ComplexityRoot.HomeDomainClearedChange.Transaction == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.Reason(childComplexity), true
-	case "HomeDomainChange.transaction":
-		if e.ComplexityRoot.HomeDomainChange.Transaction == nil {
+		return e.ComplexityRoot.HomeDomainClearedChange.Transaction(childComplexity), true
+
+	case "HomeDomainSetChange.account":
+		if e.ComplexityRoot.HomeDomainSetChange.Account == nil {
 			break
 		}
 
-		return e.ComplexityRoot.HomeDomainChange.Transaction(childComplexity), true
+		return e.ComplexityRoot.HomeDomainSetChange.Account(childComplexity), true
+	case "HomeDomainSetChange.category":
+		if e.ComplexityRoot.HomeDomainSetChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.Category(childComplexity), true
+	case "HomeDomainSetChange.homeDomain":
+		if e.ComplexityRoot.HomeDomainSetChange.HomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.HomeDomain(childComplexity), true
+	case "HomeDomainSetChange.ingestedAt":
+		if e.ComplexityRoot.HomeDomainSetChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.IngestedAt(childComplexity), true
+	case "HomeDomainSetChange.ledgerCreatedAt":
+		if e.ComplexityRoot.HomeDomainSetChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.LedgerCreatedAt(childComplexity), true
+	case "HomeDomainSetChange.ledgerNumber":
+		if e.ComplexityRoot.HomeDomainSetChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.LedgerNumber(childComplexity), true
+	case "HomeDomainSetChange.operation":
+		if e.ComplexityRoot.HomeDomainSetChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.Operation(childComplexity), true
+	case "HomeDomainSetChange.reason":
+		if e.ComplexityRoot.HomeDomainSetChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.Reason(childComplexity), true
+	case "HomeDomainSetChange.transaction":
+		if e.ComplexityRoot.HomeDomainSetChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainSetChange.Transaction(childComplexity), true
+
+	case "HomeDomainUpdatedChange.account":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.Account(childComplexity), true
+	case "HomeDomainUpdatedChange.category":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.Category(childComplexity), true
+	case "HomeDomainUpdatedChange.ingestedAt":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.IngestedAt(childComplexity), true
+	case "HomeDomainUpdatedChange.ledgerCreatedAt":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.LedgerCreatedAt(childComplexity), true
+	case "HomeDomainUpdatedChange.ledgerNumber":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.LedgerNumber(childComplexity), true
+	case "HomeDomainUpdatedChange.newHomeDomain":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.NewHomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.NewHomeDomain(childComplexity), true
+	case "HomeDomainUpdatedChange.oldHomeDomain":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.OldHomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.OldHomeDomain(childComplexity), true
+	case "HomeDomainUpdatedChange.operation":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.Operation(childComplexity), true
+	case "HomeDomainUpdatedChange.reason":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.Reason(childComplexity), true
+	case "HomeDomainUpdatedChange.transaction":
+		if e.ComplexityRoot.HomeDomainUpdatedChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HomeDomainUpdatedChange.Transaction(childComplexity), true
 
 	case "LiquidityPoolBalance.balance":
 		if e.ComplexityRoot.LiquidityPoolBalance.Balance == nil {
@@ -2784,7 +2938,7 @@ enum StateChangeCategory {
   SIGNATURE_THRESHOLD
   """Account data entries: DataEntryAddedChange, DataEntryUpdatedChange, DataEntryRemovedChange."""
   DATA_ENTRY
-  """The account's home domain: HomeDomainChange."""
+  """The account's home domain: HomeDomainSetChange, HomeDomainUpdatedChange, HomeDomainClearedChange."""
   HOME_DOMAIN
   """SEP-41 token allowances: AllowanceChange."""
   ALLOWANCE
@@ -3233,12 +3387,10 @@ type AccountFlagsChange implements BaseStateChange {
 }
 
 """
-A home-domain change on the account. ` + "`" + `reason` + "`" + ` is SET when the account
-previously had no home domain, CLEAR when the domain was removed, and UPDATE
-when it changed from one value to another.
-Pairs: (HOME_DOMAIN, SET), (HOME_DOMAIN, CLEAR), (HOME_DOMAIN, UPDATE).
+A home domain set on an account that had none.
+Pair: (HOME_DOMAIN, SET).
 """
-type HomeDomainChange implements BaseStateChange {
+type HomeDomainSetChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -3248,10 +3400,46 @@ type HomeDomainChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Previous home domain; empty when the account had no home domain set."""
+  """The newly set home domain."""
+  homeDomain:                 String! @goField(forceResolver: true)
+}
+
+"""
+An existing home domain replaced by a different one.
+Pair: (HOME_DOMAIN, UPDATE).
+"""
+type HomeDomainUpdatedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Previous home domain."""
   oldHomeDomain:              String! @goField(forceResolver: true)
-  """New home domain; empty when the home domain was cleared."""
+  """New home domain."""
   newHomeDomain:              String! @goField(forceResolver: true)
+}
+
+"""
+A home domain removed from the account.
+Pair: (HOME_DOMAIN, CLEAR).
+"""
+type HomeDomainClearedChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Home domain the account had when it was removed."""
+  oldHomeDomain:              String! @goField(forceResolver: true)
 }
 
 """
@@ -7650,14 +7838,14 @@ func (ec *executionContext) fieldContext_DataEntryUpdatedChange_newValue(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_category(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_category,
+		ec.fieldContext_HomeDomainClearedChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().Category(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().Category(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
@@ -7666,9 +7854,9 @@ func (ec *executionContext) _HomeDomainChange_category(ctx context.Context, fiel
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7679,14 +7867,14 @@ func (ec *executionContext) fieldContext_HomeDomainChange_category(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_reason,
+		ec.fieldContext_HomeDomainClearedChange_reason,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().Reason(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().Reason(ctx, obj)
 		},
 		nil,
 		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
@@ -7695,9 +7883,9 @@ func (ec *executionContext) _HomeDomainChange_reason(ctx context.Context, field 
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7708,12 +7896,12 @@ func (ec *executionContext) fieldContext_HomeDomainChange_reason(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_ingestedAt,
+		ec.fieldContext_HomeDomainClearedChange_ingestedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.IngestedAt, nil
 		},
@@ -7724,9 +7912,9 @@ func (ec *executionContext) _HomeDomainChange_ingestedAt(ctx context.Context, fi
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7737,12 +7925,12 @@ func (ec *executionContext) fieldContext_HomeDomainChange_ingestedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_ledgerCreatedAt,
+		ec.fieldContext_HomeDomainClearedChange_ledgerCreatedAt,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerCreatedAt, nil
 		},
@@ -7753,9 +7941,9 @@ func (ec *executionContext) _HomeDomainChange_ledgerCreatedAt(ctx context.Contex
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7766,12 +7954,12 @@ func (ec *executionContext) fieldContext_HomeDomainChange_ledgerCreatedAt(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_ledgerNumber,
+		ec.fieldContext_HomeDomainClearedChange_ledgerNumber,
 		func(ctx context.Context) (any, error) {
 			return obj.LedgerNumber, nil
 		},
@@ -7782,9 +7970,9 @@ func (ec *executionContext) _HomeDomainChange_ledgerNumber(ctx context.Context, 
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -7795,14 +7983,14 @@ func (ec *executionContext) fieldContext_HomeDomainChange_ledgerNumber(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_account(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_account,
+		ec.fieldContext_HomeDomainClearedChange_account,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().Account(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().Account(ctx, obj)
 		},
 		nil,
 		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
@@ -7811,9 +7999,9 @@ func (ec *executionContext) _HomeDomainChange_account(ctx context.Context, field
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7838,14 +8026,14 @@ func (ec *executionContext) fieldContext_HomeDomainChange_account(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_operation,
+		ec.fieldContext_HomeDomainClearedChange_operation,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().Operation(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().Operation(ctx, obj)
 		},
 		nil,
 		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
@@ -7854,9 +8042,9 @@ func (ec *executionContext) _HomeDomainChange_operation(ctx context.Context, fie
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7891,14 +8079,14 @@ func (ec *executionContext) fieldContext_HomeDomainChange_operation(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_transaction,
+		ec.fieldContext_HomeDomainClearedChange_transaction,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().Transaction(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().Transaction(ctx, obj)
 		},
 		nil,
 		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
@@ -7907,9 +8095,9 @@ func (ec *executionContext) _HomeDomainChange_transaction(ctx context.Context, f
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7942,14 +8130,14 @@ func (ec *executionContext) fieldContext_HomeDomainChange_transaction(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainClearedChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainClearedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_oldHomeDomain,
+		ec.fieldContext_HomeDomainClearedChange_oldHomeDomain,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().OldHomeDomain(ctx, obj)
+			return ec.Resolvers.HomeDomainClearedChange().OldHomeDomain(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -7958,9 +8146,9 @@ func (ec *executionContext) _HomeDomainChange_oldHomeDomain(ctx context.Context,
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_oldHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainClearedChange_oldHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainClearedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -7971,14 +8159,306 @@ func (ec *executionContext) fieldContext_HomeDomainChange_oldHomeDomain(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _HomeDomainChange_newHomeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainChangeModel) (ret graphql.Marshaler) {
+func (ec *executionContext) _HomeDomainSetChange_category(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_HomeDomainChange_newHomeDomain,
+		ec.fieldContext_HomeDomainSetChange_category,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.HomeDomainChange().NewHomeDomain(ctx, obj)
+			return ec.Resolvers.HomeDomainSetChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainSetChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_account(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainSetChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainSetChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainSetChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainSetChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainSetChange_homeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainSetChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainSetChange_homeDomain,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainSetChange().HomeDomain(ctx, obj)
 		},
 		nil,
 		ec.marshalNString2string,
@@ -7987,9 +8467,359 @@ func (ec *executionContext) _HomeDomainChange_newHomeDomain(ctx context.Context,
 	)
 }
 
-func (ec *executionContext) fieldContext_HomeDomainChange_newHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_HomeDomainSetChange_homeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
-		Object:     "HomeDomainChange",
+		Object:     "HomeDomainSetChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_account(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_oldHomeDomain,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().OldHomeDomain(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_oldHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HomeDomainUpdatedChange_newHomeDomain(ctx context.Context, field graphql.CollectedField, obj *types.HomeDomainUpdatedChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HomeDomainUpdatedChange_newHomeDomain,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HomeDomainUpdatedChange().NewHomeDomain(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_newHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HomeDomainUpdatedChange",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
@@ -15149,13 +15979,27 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._SignerAddedChange(ctx, sel, obj)
-	case types.HomeDomainChangeModel:
-		return ec._HomeDomainChange(ctx, sel, &obj)
-	case *types.HomeDomainChangeModel:
+	case types.HomeDomainUpdatedChangeModel:
+		return ec._HomeDomainUpdatedChange(ctx, sel, &obj)
+	case *types.HomeDomainUpdatedChangeModel:
 		if obj == nil {
 			return graphql.Null
 		}
-		return ec._HomeDomainChange(ctx, sel, obj)
+		return ec._HomeDomainUpdatedChange(ctx, sel, obj)
+	case types.HomeDomainSetChangeModel:
+		return ec._HomeDomainSetChange(ctx, sel, &obj)
+	case *types.HomeDomainSetChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._HomeDomainSetChange(ctx, sel, obj)
+	case types.HomeDomainClearedChangeModel:
+		return ec._HomeDomainClearedChange(ctx, sel, &obj)
+	case *types.HomeDomainClearedChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._HomeDomainClearedChange(ctx, sel, obj)
 	case types.DataEntryUpdatedChangeModel:
 		return ec._DataEntryUpdatedChange(ctx, sel, &obj)
 	case *types.DataEntryUpdatedChangeModel:
@@ -18496,17 +19340,17 @@ func (ec *executionContext) _DataEntryUpdatedChange(ctx context.Context, sel ast
 	return out
 }
 
-var homeDomainChangeImplementors = []string{"HomeDomainChange", "BaseStateChange"}
+var homeDomainClearedChangeImplementors = []string{"HomeDomainClearedChange", "BaseStateChange"}
 
-func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.SelectionSet, obj *types.HomeDomainChangeModel) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, homeDomainChangeImplementors)
+func (ec *executionContext) _HomeDomainClearedChange(ctx context.Context, sel ast.SelectionSet, obj *types.HomeDomainClearedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, homeDomainClearedChangeImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferred := make(map[string]*graphql.FieldSet)
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("HomeDomainChange")
+			out.Values[i] = graphql.MarshalString("HomeDomainClearedChange")
 		case "category":
 			field := field
 
@@ -18516,7 +19360,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_category(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_category(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18552,7 +19396,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_reason(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_reason(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18580,17 +19424,17 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
-			out.Values[i] = ec._HomeDomainChange_ingestedAt(ctx, field, obj)
+			out.Values[i] = ec._HomeDomainClearedChange_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerCreatedAt":
-			out.Values[i] = ec._HomeDomainChange_ledgerCreatedAt(ctx, field, obj)
+			out.Values[i] = ec._HomeDomainClearedChange_ledgerCreatedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "ledgerNumber":
-			out.Values[i] = ec._HomeDomainChange_ledgerNumber(ctx, field, obj)
+			out.Values[i] = ec._HomeDomainClearedChange_ledgerNumber(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -18603,7 +19447,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_account(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_account(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18639,7 +19483,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_operation(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_operation(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18675,7 +19519,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_transaction(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_transaction(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18711,7 +19555,537 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_oldHomeDomain(ctx, field, obj)
+				res = ec._HomeDomainClearedChange_oldHomeDomain(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var homeDomainSetChangeImplementors = []string{"HomeDomainSetChange", "BaseStateChange"}
+
+func (ec *executionContext) _HomeDomainSetChange(ctx context.Context, sel ast.SelectionSet, obj *types.HomeDomainSetChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, homeDomainSetChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HomeDomainSetChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._HomeDomainSetChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._HomeDomainSetChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._HomeDomainSetChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "homeDomain":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainSetChange_homeDomain(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var homeDomainUpdatedChangeImplementors = []string{"HomeDomainUpdatedChange", "BaseStateChange"}
+
+func (ec *executionContext) _HomeDomainUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *types.HomeDomainUpdatedChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, homeDomainUpdatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HomeDomainUpdatedChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._HomeDomainUpdatedChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._HomeDomainUpdatedChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._HomeDomainUpdatedChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "oldHomeDomain":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HomeDomainUpdatedChange_oldHomeDomain(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -18747,7 +20121,7 @@ func (ec *executionContext) _HomeDomainChange(ctx context.Context, sel ast.Selec
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._HomeDomainChange_newHomeDomain(ctx, field, obj)
+				res = ec._HomeDomainUpdatedChange_newHomeDomain(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

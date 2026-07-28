@@ -142,9 +142,15 @@ const freighterAccountTransactionsQuery = `
 						... on AccountFlagsChange {
 							accountFlags: flags
 						}
-						... on HomeDomainChange {
-							oldHomeDomain
-							newHomeDomain
+						... on HomeDomainSetChange {
+							homeDomainSetValue: homeDomain
+						}
+						... on HomeDomainUpdatedChange {
+							homeDomainUpdatedOld: oldHomeDomain
+							homeDomainUpdatedNew: newHomeDomain
+						}
+						... on HomeDomainClearedChange {
+							homeDomainClearedOld: oldHomeDomain
 						}
 						... on DataEntryAddedChange {
 							dataEntryAddedName: name
@@ -216,8 +222,8 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 		name  string
 		query string
 		// computed complexity on record at time of writing, for both cases under the
-		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7101.
-		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 17-fragment
+		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7301.
+		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 19-fragment
 		// state-change selection over-counts relative to what any one row resolves.
 		floor int
 	}{

@@ -48,7 +48,7 @@ enum StateChangeCategory {
   SIGNATURE_THRESHOLD
   """Account data entries: DataEntryAddedChange, DataEntryUpdatedChange, DataEntryRemovedChange."""
   DATA_ENTRY
-  """The account's home domain: HomeDomainChange."""
+  """The account's home domain: HomeDomainSetChange, HomeDomainUpdatedChange, HomeDomainClearedChange."""
   HOME_DOMAIN
   """SEP-41 token allowances: AllowanceChange."""
   ALLOWANCE

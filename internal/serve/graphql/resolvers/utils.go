@@ -178,8 +178,12 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		}
 	case types.StateChangeCategoryHomeDomain:
 		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonSet, types.StateChangeReasonClear, types.StateChangeReasonUpdate:
-			return &types.HomeDomainChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonSet:
+			return &types.HomeDomainSetChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.HomeDomainUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonClear:
+			return &types.HomeDomainClearedChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for HOME_DOMAIN; falls through to the error below
 		}
 	case types.StateChangeCategoryAllowance:
@@ -317,7 +321,7 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		case "name":
 			dbColumns = append(dbColumns, "data_entry_name")
 			continue
-		case "oldHomeDomain", "newHomeDomain", "value", "oldValue", "newValue", "expirationLedger":
+		case "homeDomain", "oldHomeDomain", "newHomeDomain", "value", "oldValue", "newValue", "expirationLedger":
 			// Extracted from the key_value JSONB column by the field resolvers.
 			dbColumns = append(dbColumns, "key_value")
 			continue
