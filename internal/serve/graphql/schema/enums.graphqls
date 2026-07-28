@@ -79,14 +79,8 @@ enum StateChangeReason {
   ADD
   """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; ALLOWANCE: SEP-41 allowance approved."""
+  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
-  """SIGNATURE_THRESHOLD: low threshold changed."""
-  LOW
-  """SIGNATURE_THRESHOLD: medium threshold changed."""
-  MEDIUM
-  """SIGNATURE_THRESHOLD: high threshold changed."""
-  HIGH
   """METADATA: home domain changed."""
   HOME_DOMAIN
   """FLAGS or BALANCE_AUTHORIZATION: flags turned on."""
@@ -95,6 +89,16 @@ enum StateChangeReason {
   CLEAR
   """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY
+}
+
+"""Which of an account's three signature thresholds a ThresholdChange refers to."""
+enum ThresholdLevel {
+  """The low threshold."""
+  LOW
+  """The medium threshold."""
+  MEDIUM
+  """The high threshold."""
+  HIGH
 }
 
 """Classification of a token as held in an account's balance."""

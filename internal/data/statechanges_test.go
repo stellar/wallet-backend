@@ -136,6 +136,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		OperationID:         789,
 		SignerWeightOld:     sql.NullInt16{Int16: 0, Valid: true},
 		SignerWeightNew:     sql.NullInt16{Int16: 10, Valid: true},
+		Threshold:           sql.NullString{String: string(types.ThresholdLevelMedium), Valid: true},
 		ThresholdOld:        sql.NullInt16{Int16: 1, Valid: true},
 		ThresholdNew:        sql.NullInt16{Int16: 3, Valid: true},
 	}

@@ -33,12 +33,12 @@ const (
 )
 
 var (
-	// thresholdToReasonMap maps Stellar effect detail field names to our internal state change reasons
-	// for account signature threshold updates (low, medium, high threshold changes)
-	thresholdToReasonMap = map[string]types.StateChangeReason{
-		"low_threshold":  types.StateChangeReasonLow,
-		"med_threshold":  types.StateChangeReasonMedium,
-		"high_threshold": types.StateChangeReasonHigh,
+	// thresholdToLevelMap maps Stellar effect detail field names to the ThresholdLevel
+	// identifying which of the account's signature thresholds a state change refers to
+	thresholdToLevelMap = map[string]types.ThresholdLevel{
+		"low_threshold":  types.ThresholdLevelLow,
+		"med_threshold":  types.ThresholdLevelMedium,
+		"high_threshold": types.ThresholdLevelHigh,
 	}
 	// thresholdOrder fixes the emission order of threshold state changes so
 	// ordinals within a (to_id, operation_id) group are deterministic across runs.
@@ -588,7 +588,7 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 	// order so ordinal assignment is deterministic when multiple thresholds change together.
 	var thresholdChanges []types.StateChange
 	for _, threshold := range thresholdOrder {
-		reason := thresholdToReasonMap[threshold]
+		level := thresholdToLevelMap[threshold]
 		if value, ok := effect.Details[threshold]; ok {
 			// Convert XDR threshold value to int16 for storage
 			newValue := int16(value.(xdr.Uint32))
@@ -605,7 +605,8 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 
 			thresholdChanges = append(thresholdChanges, changeBuilder.
 				Clone().
-				WithReason(reason).
+				WithReason(types.StateChangeReasonUpdate).
+				WithThresholdLevel(level).
 				WithThreshold(&oldVal, &newValue).
 				Build())
 		}

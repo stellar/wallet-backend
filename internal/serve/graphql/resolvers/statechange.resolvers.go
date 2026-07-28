@@ -488,6 +488,12 @@ func (r *thresholdChangeResolver) Transaction(ctx context.Context, obj *types.Th
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
+// Threshold is the resolver for the threshold field.
+func (r *thresholdChangeResolver) Threshold(ctx context.Context, obj *types.ThresholdChangeModel) (types.ThresholdLevel, error) {
+	level, err := r.resolveRequiredString(obj.Threshold, "threshold")
+	return types.ThresholdLevel(level), err
+}
+
 // OldThreshold is the resolver for the oldThreshold field.
 func (r *thresholdChangeResolver) OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error) {
 	return r.resolveRequiredInt16(obj.ThresholdOld, "oldThreshold")

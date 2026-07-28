@@ -354,6 +354,7 @@ type ComplexityRoot struct {
 		OldThreshold    func(childComplexity int) int
 		Operation       func(childComplexity int) int
 		Reason          func(childComplexity int) int
+		Threshold       func(childComplexity int) int
 		Transaction     func(childComplexity int) int
 	}
 
@@ -572,6 +573,7 @@ type ThresholdChangeResolver interface {
 	Account(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Account, error)
 	Operation(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Operation, error)
 	Transaction(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Transaction, error)
+	Threshold(ctx context.Context, obj *types.ThresholdChangeModel) (types.ThresholdLevel, error)
 	OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error)
 	NewThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error)
 }
@@ -1931,6 +1933,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ThresholdChange.Reason(childComplexity), true
+	case "ThresholdChange.threshold":
+		if e.ComplexityRoot.ThresholdChange.Threshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ThresholdChange.Threshold(childComplexity), true
 	case "ThresholdChange.transaction":
 		if e.ComplexityRoot.ThresholdChange.Transaction == nil {
 			break
@@ -2637,14 +2645,8 @@ enum StateChangeReason {
   ADD
   """SIGNER or TRUSTLINE: entry removed."""
   REMOVE
-  """SIGNER or TRUSTLINE: entry updated; ALLOWANCE: SEP-41 allowance approved."""
+  """SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
-  """SIGNATURE_THRESHOLD: low threshold changed."""
-  LOW
-  """SIGNATURE_THRESHOLD: medium threshold changed."""
-  MEDIUM
-  """SIGNATURE_THRESHOLD: high threshold changed."""
-  HIGH
   """METADATA: home domain changed."""
   HOME_DOMAIN
   """FLAGS or BALANCE_AUTHORIZATION: flags turned on."""
@@ -2653,6 +2655,16 @@ enum StateChangeReason {
   CLEAR
   """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY
+}
+
+"""Which of an account's three signature thresholds a ThresholdChange refers to."""
+enum ThresholdLevel {
+  """The low threshold."""
+  LOW
+  """The medium threshold."""
+  MEDIUM
+  """The high threshold."""
+  HIGH
 }
 
 """Classification of a token as held in an account's balance."""
@@ -3011,9 +3023,9 @@ type SignerRemovedChange implements BaseStateChange {
 }
 
 """
-A signature-threshold change. ` + "`" + `reason` + "`" + ` identifies which threshold changed.
-Pairs: (SIGNATURE_THRESHOLD, LOW), (SIGNATURE_THRESHOLD, MEDIUM),
-(SIGNATURE_THRESHOLD, HIGH). One state change is emitted per changed threshold.
+A signature-threshold change. ` + "`" + `threshold` + "`" + ` identifies which of the account's
+three thresholds changed; one state change is emitted per changed threshold.
+Pair: (SIGNATURE_THRESHOLD, UPDATE).
 """
 type ThresholdChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
@@ -3025,6 +3037,8 @@ type ThresholdChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
+  """Which signature threshold changed."""
+  threshold:                  ThresholdLevel! @goField(forceResolver: true)
   """Previous threshold value (0-255)."""
   oldThreshold:               Int! @goField(forceResolver: true)
   """New threshold value (0-255)."""
@@ -10707,6 +10721,35 @@ func (ec *executionContext) fieldContext_ThresholdChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_stateChanges(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThresholdChange_threshold(ctx context.Context, field graphql.CollectedField, obj *types.ThresholdChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThresholdChange_threshold,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ThresholdChange().Threshold(ctx, obj)
+		},
+		nil,
+		ec.marshalNThresholdLevel2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐThresholdLevel,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThresholdChange_threshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThresholdChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ThresholdLevel does not have child fields")
 		},
 	}
 	return fc, nil
@@ -19378,6 +19421,42 @@ func (ec *executionContext) _ThresholdChange(ctx context.Context, sel ast.Select
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "threshold":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ThresholdChange_threshold(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "oldThreshold":
 			field := field
 
@@ -21610,6 +21689,23 @@ func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) 
 func (ec *executionContext) marshalNString2string(ctx context.Context, sel ast.SelectionSet, v string) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+func (ec *executionContext) unmarshalNThresholdLevel2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐThresholdLevel(ctx context.Context, v any) (types.ThresholdLevel, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := types.ThresholdLevel(tmp)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNThresholdLevel2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐThresholdLevel(ctx context.Context, sel ast.SelectionSet, v types.ThresholdLevel) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")

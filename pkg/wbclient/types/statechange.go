@@ -100,11 +100,12 @@ type SignerRemovedChange struct {
 	OldWeight     int32  `json:"oldWeight"`
 }
 
-// ThresholdChange is a signature-threshold change; Reason identifies which threshold changed.
+// ThresholdChange is a signature-threshold change; Threshold identifies which threshold changed.
 type ThresholdChange struct {
 	BaseStateChangeFields
-	OldThreshold int32 `json:"oldThreshold"`
-	NewThreshold int32 `json:"newThreshold"`
+	Threshold    ThresholdLevel `json:"threshold"`
+	OldThreshold int32          `json:"oldThreshold"`
+	NewThreshold int32          `json:"newThreshold"`
 }
 
 // AccountFlagsChange lists account authorization flags set or cleared in one operation.

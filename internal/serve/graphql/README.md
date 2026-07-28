@@ -559,7 +559,7 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `SignerAddedChange` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
 | `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int!`, `newWeight: Int!` |
 | `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int!` |
-| `ThresholdChange` | `(SIGNATURE_THRESHOLD, LOW)`, `(SIGNATURE_THRESHOLD, MEDIUM)`, `(SIGNATURE_THRESHOLD, HIGH)` | `oldThreshold: Int!`, `newThreshold: Int!` |
+| `ThresholdChange` | `(SIGNATURE_THRESHOLD, UPDATE)` | `threshold: ThresholdLevel!`, `oldThreshold: Int!`, `newThreshold: Int!` |
 | `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
 | `HomeDomainChange` | `(METADATA, HOME_DOMAIN)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
 | `DataEntryChange` | `(METADATA, DATA_ENTRY)` | `name: String!`, `oldValue: String`, `newValue: String` |
@@ -600,8 +600,7 @@ Notes on the polymorphic fields:
 | `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
 | `ADD` | SIGNER or TRUSTLINE: entry added |
 | `REMOVE` | SIGNER or TRUSTLINE: entry removed |
-| `UPDATE` | SIGNER or TRUSTLINE: entry updated; ALLOWANCE: SEP-41 allowance approved |
-| `LOW` / `MEDIUM` / `HIGH` | SIGNATURE_THRESHOLD: which threshold changed |
+| `UPDATE` | SIGNER or TRUSTLINE: entry updated; SIGNATURE_THRESHOLD: threshold changed; ALLOWANCE: SEP-41 allowance approved |
 | `HOME_DOMAIN` | METADATA: home domain changed |
 | `DATA_ENTRY` | METADATA: data entry created, updated, or removed |
 | `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on |
@@ -619,6 +618,13 @@ Notes on the polymorphic fields:
 - `AUTHORIZED` - The holder is fully authorized to transact the asset
 - `AUTHORIZED_TO_MAINTAIN_LIABILITIES` - The holder may only maintain existing liabilities
 - `CLAWBACK_ENABLED` - The issuer can claw the asset back from this trustline
+
+**Threshold Level Enum Values:**
+
+`ThresholdLevel` (on `ThresholdChange.threshold`) identifies which of the account's three signature thresholds a change refers to; one state change is emitted per changed threshold:
+- `LOW` - The low threshold
+- `MEDIUM` - The medium threshold
+- `HIGH` - The high threshold
 
 **Example: Querying balance changes:**
 

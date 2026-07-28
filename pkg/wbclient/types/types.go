@@ -67,9 +67,6 @@ const (
 	StateChangeReasonAdd        StateChangeReason = "ADD"
 	StateChangeReasonRemove     StateChangeReason = "REMOVE"
 	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
-	StateChangeReasonLow        StateChangeReason = "LOW"
-	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh       StateChangeReason = "HIGH"
 	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
 	StateChangeReasonSet        StateChangeReason = "SET"
 	StateChangeReasonClear      StateChangeReason = "CLEAR"
@@ -104,6 +101,16 @@ const (
 	TrustlineFlagAuthorized                      TrustlineFlag = "AUTHORIZED"
 	TrustlineFlagAuthorizedToMaintainLiabilities TrustlineFlag = "AUTHORIZED_TO_MAINTAIN_LIABILITIES"
 	TrustlineFlagClawbackEnabled                 TrustlineFlag = "CLAWBACK_ENABLED"
+)
+
+// ThresholdLevel identifies which of an account's three signature thresholds a
+// ThresholdChange refers to.
+type ThresholdLevel string
+
+const (
+	ThresholdLevelLow    ThresholdLevel = "LOW"
+	ThresholdLevelMedium ThresholdLevel = "MEDIUM"
+	ThresholdLevelHigh   ThresholdLevel = "HIGH"
 )
 
 // AssetType represents the classic Stellar asset type, determined by the asset code length.

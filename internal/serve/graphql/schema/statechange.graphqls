@@ -165,9 +165,9 @@ type SignerRemovedChange implements BaseStateChange {
 }
 
 """
-A signature-threshold change. `reason` identifies which threshold changed.
-Pairs: (SIGNATURE_THRESHOLD, LOW), (SIGNATURE_THRESHOLD, MEDIUM),
-(SIGNATURE_THRESHOLD, HIGH). One state change is emitted per changed threshold.
+A signature-threshold change. `threshold` identifies which of the account's
+three thresholds changed; one state change is emitted per changed threshold.
+Pair: (SIGNATURE_THRESHOLD, UPDATE).
 """
 type ThresholdChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
@@ -179,6 +179,8 @@ type ThresholdChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
+  """Which signature threshold changed."""
+  threshold:                  ThresholdLevel! @goField(forceResolver: true)
   """Previous threshold value (0-255)."""
   oldThreshold:               Int! @goField(forceResolver: true)
   """New threshold value (0-255)."""

@@ -90,13 +90,8 @@ func TestConvertStateChangeTypes(t *testing.T) {
 		},
 		// SIGNATURE_THRESHOLD / FLAGS / BALANCE_AUTHORIZATION: any reason maps to one model.
 		{
-			name: "SIGNATURE_THRESHOLD low",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonLow},
-			want: &types.ThresholdChangeModel{},
-		},
-		{
-			name: "SIGNATURE_THRESHOLD high",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonHigh},
+			name: "SIGNATURE_THRESHOLD update",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonUpdate},
 			want: &types.ThresholdChangeModel{},
 		},
 		{
@@ -190,10 +185,16 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "ADD",
 		},
 		{
-			name:     "FLAGS with a threshold reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryFlags, StateChangeReason: types.StateChangeReasonLow},
+			name:     "SIGNATURE_THRESHOLD with a flags reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonSet},
+			category: "SIGNATURE_THRESHOLD",
+			reason:   "SET",
+		},
+		{
+			name:     "FLAGS with an account reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryFlags, StateChangeReason: types.StateChangeReasonMerge},
 			category: "FLAGS",
-			reason:   "LOW",
+			reason:   "MERGE",
 		},
 		{
 			name:     "BALANCE_AUTHORIZATION with a signer reason",
@@ -333,6 +334,22 @@ func TestThresholdChangeResolver(t *testing.T) {
 		_, err := r.NewThreshold(ctx, obj)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "newThreshold")
+	})
+
+	t.Run("threshold identifies which threshold changed", func(t *testing.T) {
+		obj := &types.ThresholdChangeModel{StateChange: types.StateChange{
+			Threshold: sql.NullString{String: string(types.ThresholdLevelLow), Valid: true},
+		}}
+		level, err := r.Threshold(ctx, obj)
+		require.NoError(t, err)
+		assert.Equal(t, types.ThresholdLevelLow, level)
+	})
+
+	t.Run("threshold errors when null", func(t *testing.T) {
+		obj := &types.ThresholdChangeModel{StateChange: types.StateChange{Threshold: sql.NullString{Valid: false}}}
+		_, err := r.Threshold(ctx, obj)
+		require.Error(t, err, "every threshold change identifies its threshold; a null column is a data-integrity error")
+		assert.Contains(t, err.Error(), "threshold")
 	})
 }
 

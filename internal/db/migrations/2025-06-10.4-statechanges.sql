@@ -16,7 +16,7 @@ CREATE TABLE state_changes (
     state_change_reason TEXT NOT NULL CHECK (
         state_change_reason IN (
             'CREATE', 'MERGE', 'DEBIT', 'CREDIT', 'MINT', 'BURN',
-            'ADD', 'REMOVE', 'UPDATE', 'LOW', 'MEDIUM', 'HIGH',
+            'ADD', 'REMOVE', 'UPDATE',
             'HOME_DOMAIN', 'SET', 'CLEAR', 'DATA_ENTRY'
         )
     ),
@@ -33,6 +33,7 @@ CREATE TABLE state_changes (
     liquidity_pool_id TEXT,
     signer_weight_old SMALLINT,
     signer_weight_new SMALLINT,
+    threshold TEXT,
     threshold_old SMALLINT,
     threshold_new SMALLINT,
     trustline_limit_old TEXT,

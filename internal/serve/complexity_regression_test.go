@@ -135,6 +135,7 @@ const freighterAccountTransactionsQuery = `
 							signerRemovedOldWeight: oldWeight
 						}
 						... on ThresholdChange {
+							threshold
 							oldThreshold
 							newThreshold
 						}

@@ -156,7 +156,7 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 		}
 	case types.StateChangeCategorySignatureThreshold:
 		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonLow, types.StateChangeReasonMedium, types.StateChangeReasonHigh:
+		case types.StateChangeReasonUpdate:
 			return &types.ThresholdChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for SIGNATURE_THRESHOLD; falls through to the error below
 		}

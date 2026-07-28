@@ -52,6 +52,7 @@ func TestGetDBColumns(t *testing.T) {
 			// A field whose name already matches its json tag falls through to the tag→db map.
 			{"tokenId", "token_id"},
 			{"amount", "amount"},
+			{"threshold", "threshold"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.field, func(t *testing.T) {

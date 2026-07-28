@@ -43,6 +43,12 @@ func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateCh
 	return b
 }
 
+// WithThresholdLevel records which of the account's signature thresholds this change refers to
+func (b *StateChangeBuilder) WithThresholdLevel(level types.ThresholdLevel) *StateChangeBuilder {
+	b.base.Threshold = sql.NullString{String: string(level), Valid: true}
+	return b
+}
+
 // WithThreshold sets the threshold old and new values directly
 func (b *StateChangeBuilder) WithThreshold(oldValue, newValue *int16) *StateChangeBuilder {
 	if oldValue != nil {

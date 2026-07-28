@@ -517,9 +517,6 @@ const (
 	StateChangeReasonAdd        StateChangeReason = "ADD"
 	StateChangeReasonRemove     StateChangeReason = "REMOVE"
 	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
-	StateChangeReasonLow        StateChangeReason = "LOW"
-	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh       StateChangeReason = "HIGH"
 	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
 	StateChangeReasonSet        StateChangeReason = "SET"
 	StateChangeReasonClear      StateChangeReason = "CLEAR"
@@ -568,6 +565,16 @@ const (
 	AccountFlagAuthRevocable       AccountFlag = "AUTH_REVOCABLE"
 	AccountFlagAuthImmutable       AccountFlag = "AUTH_IMMUTABLE"
 	AccountFlagAuthClawbackEnabled AccountFlag = "AUTH_CLAWBACK_ENABLED"
+)
+
+// ThresholdLevel identifies which of an account's three signature thresholds a
+// ThresholdChange refers to, as exposed by the GraphQL ThresholdLevel enum.
+type ThresholdLevel string
+
+const (
+	ThresholdLevelLow    ThresholdLevel = "LOW"
+	ThresholdLevelMedium ThresholdLevel = "MEDIUM"
+	ThresholdLevelHigh   ThresholdLevel = "HIGH"
 )
 
 // TrustlineFlag is a Stellar trustline authorization flag as exposed by the GraphQL TrustlineFlag enum.
@@ -637,7 +644,7 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 // - BALANCE: TokenID, Amount, ToMuxedID (transaction-fee rows have OperationID=0)
 // - ACCOUNT: CreatorAccountID (CREATE), DestinationAccountID (MERGE)
 // - SIGNER: SignerAccountID, SignerWeightOld, SignerWeightNew
-// - SIGNATURE_THRESHOLD: ThresholdOld, ThresholdNew
+// - SIGNATURE_THRESHOLD: Threshold (which one), ThresholdOld, ThresholdNew
 // - METADATA: KeyValue
 // - ALLOWANCE: TokenID, Amount, SpenderAccountID, KeyValue (live_until_ledger)
 // - FLAGS: Flags (bitmask)
@@ -684,9 +691,11 @@ type StateChange struct {
 	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`
 	SignerWeightNew sql.NullInt16 `json:"signerWeightNew,omitempty" db:"signer_weight_new"`
 
-	// Flattened thresholds (range 0-255, was JSONB {"old": "val", "new": "val"}):
-	ThresholdOld sql.NullInt16 `json:"thresholdOld,omitempty" db:"threshold_old"`
-	ThresholdNew sql.NullInt16 `json:"thresholdNew,omitempty" db:"threshold_new"`
+	// Signature thresholds: which threshold changed (ThresholdLevel value) plus
+	// its old/new values (range 0-255). One row per changed threshold.
+	Threshold    sql.NullString `json:"threshold,omitempty" db:"threshold"`
+	ThresholdOld sql.NullInt16  `json:"thresholdOld,omitempty" db:"threshold_old"`
+	ThresholdNew sql.NullInt16  `json:"thresholdNew,omitempty" db:"threshold_new"`
 
 	// Flattened trustline limit (was JSONB {"limit": {"old": "...", "new": "..."}}):
 	TrustlineLimitOld sql.NullString `json:"trustlineLimitOld,omitempty" db:"trustline_limit_old"`
@@ -1000,7 +1009,7 @@ type SignerRemovedChangeModel struct {
 	StateChange
 }
 
-// ThresholdChangeModel maps to GraphQL ThresholdChange: SIGNATURE_THRESHOLD × LOW/MEDIUM/HIGH.
+// ThresholdChangeModel maps to GraphQL ThresholdChange: SIGNATURE_THRESHOLD × UPDATE.
 type ThresholdChangeModel struct {
 	StateChange
 }

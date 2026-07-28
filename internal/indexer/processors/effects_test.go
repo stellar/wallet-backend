@@ -64,15 +64,16 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				assert.Equal(t, "old.example.org", homeDomain["old"])
 				assert.Equal(t, "https://www.home.org/", homeDomain["new"])
 			case types.StateChangeCategorySignatureThreshold:
-				//exhaustive:ignore
-				switch change.StateChangeReason {
-				case types.StateChangeReasonLow:
+				assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason)
+				require.True(t, change.Threshold.Valid, "threshold level must identify which threshold changed")
+				switch types.ThresholdLevel(change.Threshold.String) {
+				case types.ThresholdLevelLow:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(1), change.ThresholdNew.Int16)
-				case types.StateChangeReasonMedium:
+				case types.ThresholdLevelMedium:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(2), change.ThresholdNew.Int16)
-				case types.StateChangeReasonHigh:
+				case types.ThresholdLevelHigh:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(3), change.ThresholdNew.Int16)
 				}
@@ -410,9 +411,12 @@ func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, thresholdChanges, 3)
-	assert.Equal(t, types.StateChangeReasonLow, thresholdChanges[0].StateChangeReason)
-	assert.Equal(t, types.StateChangeReasonMedium, thresholdChanges[1].StateChangeReason)
-	assert.Equal(t, types.StateChangeReasonHigh, thresholdChanges[2].StateChangeReason)
+	for i, change := range thresholdChanges {
+		assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason, "change %d", i)
+	}
+	assert.Equal(t, types.ThresholdLevelLow, types.ThresholdLevel(thresholdChanges[0].Threshold.String))
+	assert.Equal(t, types.ThresholdLevelMedium, types.ThresholdLevel(thresholdChanges[1].Threshold.String))
+	assert.Equal(t, types.ThresholdLevelHigh, types.ThresholdLevel(thresholdChanges[2].Threshold.String))
 	assert.Equal(t, int16(5), thresholdChanges[0].ThresholdOld.Int16)
 	assert.Equal(t, int16(6), thresholdChanges[1].ThresholdOld.Int16)
 	assert.Equal(t, int16(7), thresholdChanges[2].ThresholdOld.Int16)

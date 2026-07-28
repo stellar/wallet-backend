@@ -77,6 +77,7 @@ const (
 			oldWeight
 		}
 		... on ThresholdChange {
+			threshold
 			oldThreshold
 			newThreshold
 		}

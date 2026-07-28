@@ -224,6 +224,9 @@ models:
   TrustlineFlag:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineFlag
+  ThresholdLevel:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.ThresholdLevel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType
