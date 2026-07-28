@@ -76,7 +76,6 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 		{"TrustlineAddedChange", types.TrustlineAddedChange{}},
 		{"TrustlineUpdatedChange", types.TrustlineUpdatedChange{}},
 		{"TrustlineRemovedChange", types.TrustlineRemovedChange{}},
-		{"SponsorshipChange", types.SponsorshipChange{}},
 		{"BalanceAuthorizationChange", types.BalanceAuthorizationChange{}},
 	}
 

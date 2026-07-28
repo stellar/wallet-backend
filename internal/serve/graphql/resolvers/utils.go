@@ -194,12 +194,6 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 			return &types.TrustlineRemovedChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for TRUSTLINE; falls through to the error below
 		}
-	case types.StateChangeCategoryReserves:
-		switch stateChange.StateChangeReason {
-		case types.StateChangeReasonSponsor, types.StateChangeReasonUnsponsor:
-			return &types.SponsorshipChangeModel{StateChange: stateChange}, nil
-		default: // invalid reason for RESERVES; falls through to the error below
-		}
 	case types.StateChangeCategoryBalanceAuthorization:
 		switch stateChange.StateChangeReason {
 		case types.StateChangeReasonSet, types.StateChangeReasonClear:
@@ -278,8 +272,8 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 	dbColumns := make([]string, 0, len(fields))
 	for _, field := range fields {
 		fieldName := field.Name
-		// GraphQL fields whose names do not match the Go json tags (e.g. sponsoredAddress
-		// vs sponsoredAccountId) are renamed here so they resolve to the right db column.
+		// GraphQL fields whose names do not match the Go json tags (e.g. signerAddress
+		// vs signerAccountId) are renamed here so they resolve to the right db column.
 		// Fields derived from a specific column (old/new pairs, key_value extractions)
 		// append their db column directly.
 		switch fieldName {
@@ -290,10 +284,6 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "stateChangeCategory"
 		case "reason":
 			fieldName = "stateChangeReason"
-		case "sponsoredAddress":
-			fieldName = "sponsoredAccountId"
-		case "sponsorAddress":
-			fieldName = "sponsorAccountId"
 		case "signerAddress":
 			fieldName = "signerAccountId"
 		case "funderAddress":
@@ -304,8 +294,6 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "destinationAccountId"
 		case "spender":
 			fieldName = "spenderAccountId"
-		case "dataName":
-			fieldName = "sponsoredData"
 		case "oldWeight":
 			dbColumns = append(dbColumns, "signer_weight_old")
 			continue

@@ -8,7 +8,7 @@
 //  1. DATABASE LAYER: A unified StateChange struct that contains all possible fields for any state change type.
 //     This allows efficient storage in a single database table with nullable fields.
 //
-//  2. GRAPHQL LAYER: A BaseStateChange interface with 18 concrete implementations (defined in
+//  2. GRAPHQL LAYER: A BaseStateChange interface with 16 concrete implementations (defined in
 //     internal/serve/graphql/schema/statechange.graphqls). Each type has only the fields relevant to that
 //     specific state change, providing strong typing and clean API contracts.
 //
@@ -502,7 +502,6 @@ const (
 	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
-	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 )
 
@@ -525,8 +524,6 @@ const (
 	StateChangeReasonSet        StateChangeReason = "SET"
 	StateChangeReasonClear      StateChangeReason = "CLEAR"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
-	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
@@ -645,7 +642,6 @@ func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
 // - ALLOWANCE: TokenID, Amount, SpenderAccountID, KeyValue (live_until_ledger)
 // - FLAGS: Flags (bitmask)
 // - TRUSTLINE: TokenID xor LiquidityPoolID, TrustlineLimitOld, TrustlineLimitNew
-// - RESERVES: SponsoredAccountID, SponsorAccountID + one of TokenID, LiquidityPoolID, ClaimableBalanceID, SponsoredData, SignerAccountID
 // - BALANCE_AUTHORIZATION: TokenID xor LiquidityPoolID, Flags
 //
 // The StateChangeCategory field determines which subset of fields are populated and relevant.
@@ -677,8 +673,6 @@ type StateChange struct {
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID      NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID     NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	SponsoredAccountID   NullAddressBytea `json:"sponsoredAccountId,omitempty" db:"sponsored_account_id"`
-	SponsorAccountID     NullAddressBytea `json:"sponsorAccountId,omitempty" db:"sponsor_account_id"`
 	DeployerAccountID    NullAddressBytea `json:"deployerAccountId,omitempty" db:"deployer_account_id"`
 	FunderAccountID      NullAddressBytea `json:"funderAccountId,omitempty" db:"funder_account_id"`
 	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`
@@ -686,7 +680,6 @@ type StateChange struct {
 	// Entity identifiers (moved from key_value JSONB):
 	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
 	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
-	SponsoredData      sql.NullString `json:"sponsoredData,omitempty" db:"sponsored_data"`
 
 	// Flattened signer weights (range 0-255, was JSONB {"old": int, "new": int}):
 	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`
@@ -955,7 +948,7 @@ func (sc StateChange) GetCursor() StateChangeCursor {
 // 2. GRAPHQL INTERFACE PATTERN: GraphQL interfaces require concrete implementations with
 //    potentially different field sets. While our database uses one unified schema, GraphQL
 //    clients expect type-specific fields (e.g., only BalanceChange should expose
-//    toMuxedId, only SponsorshipChange should expose sponsorAddress).
+//    toMuxedId, only AccountMergedChange should expose destinationAddress).
 //
 // 3. TYPE SAFETY: These distinct types enable compile-time type checking in resolvers
 //    and prevent field access errors at runtime.
@@ -1047,11 +1040,6 @@ type TrustlineUpdatedChangeModel struct {
 
 // TrustlineRemovedChangeModel maps to GraphQL TrustlineRemovedChange: TRUSTLINE × REMOVE.
 type TrustlineRemovedChangeModel struct {
-	StateChange
-}
-
-// SponsorshipChangeModel maps to GraphQL SponsorshipChange: RESERVES × SPONSOR/UNSPONSOR.
-type SponsorshipChangeModel struct {
 	StateChange
 }
 

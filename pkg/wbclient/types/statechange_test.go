@@ -173,24 +173,3 @@ func Test_UnmarshalStateChangeNode_TrustlineAdded(t *testing.T) {
 	assert.Nil(t, ta.LiquidityPoolID)
 	assert.Equal(t, "1000", ta.Limit)
 }
-
-// Test_UnmarshalStateChangeNode_SponsorshipChange verifies the aliased signerAddress and tokenId
-// keys land on the right fields without colliding with the signer types' bare signerAddress.
-func Test_UnmarshalStateChangeNode_SponsorshipChange(t *testing.T) {
-	node, err := UnmarshalStateChangeNode([]byte(`{
-		"__typename": "SponsorshipChange",
-		"category": "RESERVES",
-		"reason": "SPONSOR",
-		"sponsorAddress": "GSPONSOR",
-		"sponsorshipSignerAddress": "GSIGNER"
-	}`))
-	require.NoError(t, err)
-
-	sc, ok := node.(*SponsorshipChange)
-	require.True(t, ok, "expected *SponsorshipChange, got %T", node)
-	require.NotNil(t, sc.SponsorAddress)
-	assert.Equal(t, "GSPONSOR", *sc.SponsorAddress)
-	require.NotNil(t, sc.SignerAddress)
-	assert.Equal(t, "GSIGNER", *sc.SignerAddress)
-	assert.Nil(t, sc.SponsoredAddress)
-}

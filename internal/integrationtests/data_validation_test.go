@@ -208,32 +208,6 @@ func validateDataEntryChange(suite *DataValidationTestSuite, dc *types.DataEntry
 	suite.Require().Equal(expectedValue, string(valueDecoded), "value does not match")
 }
 
-// validateSponsorshipChangeForSponsoredAccount validates a sponsorship state change (RESERVES) as
-// seen from the sponsored account, which carries the sponsor's address.
-func validateSponsorshipChangeForSponsoredAccount(suite *DataValidationTestSuite, sc *types.SponsorshipChange,
-	expectedReason types.StateChangeReason, expectedSponsorAddress string,
-) {
-	suite.Require().NotNil(sc, "sponsorship change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryReserves, sc.GetCategory(), "should be RESERVES category")
-	suite.Require().Equal(expectedReason, sc.GetReason(), "reason mismatch")
-	suite.Require().NotNil(sc.SponsorAddress, "sponsor address should not be nil")
-	suite.Require().Equal(expectedSponsorAddress, *sc.SponsorAddress, "sponsor address mismatch")
-}
-
-// validateSponsorshipChangeForSponsoringAccount validates a sponsorship state change (RESERVES) as
-// seen from the sponsoring account, which carries the sponsored account's address.
-func validateSponsorshipChangeForSponsoringAccount(suite *DataValidationTestSuite, sc *types.SponsorshipChange,
-	expectedReason types.StateChangeReason, expectedSponsoredAddress string,
-) {
-	suite.Require().NotNil(sc, "sponsorship change should not be nil")
-	suite.Require().Equal(types.StateChangeCategoryReserves, sc.GetCategory(), "should be RESERVES category")
-	suite.Require().Equal(expectedReason, sc.GetReason(), "reason mismatch")
-	if expectedSponsoredAddress != "" {
-		suite.Require().NotNil(sc.SponsoredAddress, "sponsored address should not be nil")
-		suite.Require().Equal(expectedSponsoredAddress, *sc.SponsoredAddress, "sponsored address mismatch")
-	}
-}
-
 // sumAmounts aggregates amounts from balance changes for a specific token and returns the total as int64
 func sumAmounts(suite *DataValidationTestSuite, sc *types.StateChangeConnection, tokenID string) int64 {
 	var total int64
@@ -358,7 +332,7 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
+	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -434,8 +408,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	balanceCategory := types.StateChangeCategoryBalance
 	accountCategory := types.StateChangeCategoryAccount
 	metadataCategory := types.StateChangeCategoryMetadata
-	reservesCategory := types.StateChangeCategoryReserves
-	sponsorReason := types.StateChangeReasonSponsor
 	signerCategory := types.StateChangeCategorySigner
 	addReason := types.StateChangeReasonAdd
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
@@ -446,7 +418,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 8 total state changes")
+	suite.Require().Len(stateChanges.Edges, 6, "should have exactly 6 total state changes")
 
 	for i, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -458,7 +430,7 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	fmt.Printf("sponsored new account: %s\n", sponsoredNewAccount)
 	fmt.Printf("xlm contract address: %s\n", xlmContractAddress)
 
-	suite.Require().Len(stateChanges.Edges, 8, "should have exactly 8 total state changes")
+	suite.Require().Len(stateChanges.Edges, 6, "should have exactly 6 total state changes")
 
 	// Fetch all state changes in parallel
 	sponsorshipQueries := []stateChangeQuery{
@@ -466,8 +438,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 		{name: "sponsoredBalanceChange", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: nil},
 		{name: "sponsoredAccountChange", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: nil},
 		{name: "primaryMetadataChange", account: primaryAccount, txHash: &txHash, category: &metadataCategory, reason: nil},
-		{name: "sponsoredReservesChange", account: sponsoredNewAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
-		{name: "primaryReservesChange", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
 		{name: "sponsoredSignerChange", account: sponsoredNewAccount, txHash: &txHash, category: &signerCategory, reason: &addReason},
 	}
 	sponsorshipResults := suite.fetchStateChangesInParallel(ctx, sponsorshipQueries, &first)
@@ -477,8 +447,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	sponsoredBalanceChanges := sponsorshipResults["sponsoredBalanceChange"]
 	sponsoredAccountChanges := sponsorshipResults["sponsoredAccountChange"]
 	primaryMetadataChanges := sponsorshipResults["primaryMetadataChange"]
-	sponsoredReservesChanges := sponsorshipResults["sponsoredReservesChange"]
-	primaryReservesChanges := sponsorshipResults["primaryReservesChange"]
 	sponsoredSignerChanges := sponsorshipResults["sponsoredSignerChange"]
 
 	// Validate all results are not nil
@@ -486,8 +454,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	suite.Require().NotNil(sponsoredBalanceChanges, "sponsored balance changes should not be nil")
 	suite.Require().NotNil(sponsoredAccountChanges, "sponsored account changes should not be nil")
 	suite.Require().NotNil(primaryMetadataChanges, "primary metadata changes should not be nil")
-	suite.Require().NotNil(sponsoredReservesChanges, "sponsored reserves changes should not be nil")
-	suite.Require().NotNil(primaryReservesChanges, "primary reserves changes should not be nil")
 	suite.Require().NotNil(sponsoredSignerChanges, "sponsored signer changes should not be nil")
 
 	// 1 BALANCE/DEBIT change for primary account (sending starting balance)
@@ -509,16 +475,6 @@ func (suite *DataValidationTestSuite) validateSponsoredAccountCreationStateChang
 	suite.Require().Len(primaryMetadataChanges.Edges, 1, "should have exactly 1 METADATA/DATA_ENTRY metadata change for primary account")
 	metadataChange := primaryMetadataChanges.Edges[0].Node.(*types.DataEntryChange)
 	validateDataEntryChange(suite, metadataChange, types.StateChangeReasonDataEntry, "foo", "new", "bar")
-
-	// 1 RESERVES/SPONSOR change for sponsored account - sponsorship begin
-	suite.Require().Len(sponsoredReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsored account")
-	reserveChange := sponsoredReservesChanges.Edges[0].Node.(*types.SponsorshipChange)
-	validateSponsorshipChangeForSponsoredAccount(suite, reserveChange, types.StateChangeReasonSponsor, primaryAccount)
-
-	// 1 RESERVES/SPONSOR change for sponsoring account - sponsorship begin
-	suite.Require().Len(primaryReservesChanges.Edges, 1, "should have exactly 1 RESERVES/SPONSOR reserves change for sponsoring account")
-	reserveChange = primaryReservesChanges.Edges[0].Node.(*types.SponsorshipChange)
-	validateSponsorshipChangeForSponsoringAccount(suite, reserveChange, types.StateChangeReasonSponsor, sponsoredNewAccount)
 
 	// 1 SIGNER/ADD change for sponsored account with default signer weight = 1
 	suite.Require().Len(sponsoredSignerChanges.Edges, 1, "should have exactly 1 SIGNER/CREATE signer change for sponsored account")
@@ -986,11 +942,9 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	first := int32(10)
 	accountCategory := types.StateChangeCategoryAccount
 	balanceCategory := types.StateChangeCategoryBalance
-	reservesCategory := types.StateChangeCategoryReserves
 	mergeReason := types.StateChangeReasonMerge
 	creditReason := types.StateChangeReasonCredit
 	debitReason := types.StateChangeReasonDebit
-	unsponsorReason := types.StateChangeReasonUnsponsor
 	xlmContractAddress := suite.getAssetContractAddress(xlmAsset)
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	sponsoredNewAccount := suite.testEnv.SponsoredNewAccountKP.Address()
@@ -999,7 +953,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 6, "should have exactly 5 state changes")
+	suite.Require().Len(stateChanges.Edges, 4, "should have exactly 4 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -1016,8 +970,6 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 		{name: "accountMerge", account: sponsoredNewAccount, txHash: &txHash, category: &accountCategory, reason: &mergeReason},
 		{name: "balanceCredit", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
 		{name: "balanceDebit", account: sponsoredNewAccount, txHash: &txHash, category: &balanceCategory, reason: &debitReason},
-		{name: "sponsoredReservesUnsponsor", account: sponsoredNewAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
-		{name: "sponsorReservesUnsponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
 	}
 	accountMergeResults := suite.fetchStateChangesInParallel(ctx, accountMergeQueries, &first)
 
@@ -1025,15 +977,11 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	accountMergeChanges := accountMergeResults["accountMerge"]
 	balanceCreditChanges := accountMergeResults["balanceCredit"]
 	balanceDebitChanges := accountMergeResults["balanceDebit"]
-	sponsoredReservesUnsponsorChanges := accountMergeResults["sponsoredReservesUnsponsor"]
-	sponsorReservesUnsponsorChanges := accountMergeResults["sponsorReservesUnsponsor"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(accountMergeChanges, "ACCOUNT/MERGE changes should not be nil")
 	suite.Require().NotNil(balanceCreditChanges, "BALANCE/CREDIT changes should not be nil")
 	suite.Require().NotNil(balanceDebitChanges, "BALANCE/DEBIT changes should not be nil")
-	suite.Require().NotNil(sponsoredReservesUnsponsorChanges, "RESERVES/UNSPONSOR for sponsored account should not be nil")
-	suite.Require().NotNil(sponsorReservesUnsponsorChanges, "RESERVES/UNSPONSOR for sponsor account should not be nil")
 
 	// Validate ACCOUNT/MERGE change
 	suite.Require().Len(accountMergeChanges.Edges, 1, "should have exactly 1 ACCOUNT/MERGE change")
@@ -1048,25 +996,10 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	balanceCreditChange := balanceCreditChanges.Edges[0].Node.(*types.BalanceChange)
 	validateBalanceChange(suite, balanceCreditChange, xlmContractAddress, "50000000", types.StateChangeReasonCredit)
 
-	// 5. RESERVES/UNSPONSOR STATE CHANGES VALIDATION FOR SPONSORED ACCOUNT
-	suite.Require().Len(sponsoredReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsored account")
-	sponsoredReservesChange := sponsoredReservesUnsponsorChanges.Edges[0].Node.(*types.SponsorshipChange)
-	validateSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, types.StateChangeReasonUnsponsor, primaryAccount)
-
 	// Validate BALANCE/DEBIT change
 	suite.Require().Len(balanceDebitChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT change")
 	balanceDebitChange := balanceDebitChanges.Edges[0].Node.(*types.BalanceChange)
 	validateBalanceChange(suite, balanceDebitChange, xlmContractAddress, "50000000", types.StateChangeReasonDebit)
-
-	// Validate RESERVES/UNSPONSOR for sponsored account
-	suite.Require().Len(sponsoredReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsored account")
-	sponsoredReservesChange = sponsoredReservesUnsponsorChanges.Edges[0].Node.(*types.SponsorshipChange)
-	validateSponsorshipChangeForSponsoredAccount(suite, sponsoredReservesChange, types.StateChangeReasonUnsponsor, primaryAccount)
-
-	// Validate RESERVES/UNSPONSOR for sponsor account
-	suite.Require().Len(sponsorReservesUnsponsorChanges.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor account")
-	sponsorReservesChange := sponsorReservesUnsponsorChanges.Edges[0].Node.(*types.SponsorshipChange)
-	validateSponsorshipChangeForSponsoringAccount(suite, sponsorReservesChange, types.StateChangeReasonUnsponsor, sponsoredNewAccount)
 }
 
 func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {
@@ -1233,8 +1166,6 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	trustlineCategory := types.StateChangeCategoryTrustline
 	balanceAuthCategory := types.StateChangeCategoryBalanceAuthorization
 	balanceCategory := types.StateChangeCategoryBalance
-	reservesCategory := types.StateChangeCategoryReserves
-	sponsorReason := types.StateChangeReasonSponsor
 	setReason := types.StateChangeReasonSet
 	addReason := types.StateChangeReasonAdd
 	mintReason := types.StateChangeReasonMint
@@ -1260,7 +1191,6 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 		{name: "trustlineAdd", account: secondaryAccount, txHash: &txHash, category: &trustlineCategory, reason: &addReason},
 		{name: "balanceAuthSet", account: secondaryAccount, txHash: &txHash, category: &balanceAuthCategory, reason: &setReason},
 		{name: "balanceMint", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &mintReason},
-		{name: "reservesSponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
 	}
 	claimableBalanceResults := suite.fetchStateChangesInParallel(ctx, claimableBalanceQueries, &first)
 
@@ -1268,13 +1198,11 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 	trustlineAdd := claimableBalanceResults["trustlineAdd"]
 	balanceAuthSet := claimableBalanceResults["balanceAuthSet"]
 	balanceMint := claimableBalanceResults["balanceMint"]
-	reservesSponsorForSponsor := claimableBalanceResults["reservesSponsorForSponsor"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(trustlineAdd, "TRUSTLINE/ADD should not be nil")
 	suite.Require().NotNil(balanceAuthSet, "BALANCE_AUTHORIZATION/SET should not be nil")
 	suite.Require().NotNil(balanceMint, "BALANCE/MINT should not be nil")
-	suite.Require().NotNil(reservesSponsorForSponsor, "RESERVES/SPONSOR for sponsor should not be nil")
 
 	// 3. TRUSTLINE STATE CHANGES VALIDATION FOR SECONDARY ACCOUNT
 	suite.Require().Len(trustlineAdd.Edges, 1, "should have exactly 1 TRUSTLINE/ADD")
@@ -1299,16 +1227,6 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceStateChanges
 		mintChange := edge.Node.(*types.BalanceChange)
 		validateBalanceChange(suite, mintChange, test3ContractAddress, "10000000", types.StateChangeReasonMint)
 	}
-
-	// 6. 2 RESERVES/SPONSOR STATE CHANGES VALIDATION FOR SPONSORING ACCOUNT for 2 claimable balances
-	suite.Require().Len(reservesSponsorForSponsor.Edges, 2, "should have exactly 2 RESERVES/SPONSOR for sponsor")
-	change := reservesSponsorForSponsor.Edges[0].Node.(*types.SponsorshipChange)
-	suite.Require().Equal(suite.testEnv.ClaimBalanceID, *change.ClaimableBalanceID, "claimable balance ID does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, change, types.StateChangeReasonSponsor, "")
-
-	change = reservesSponsorForSponsor.Edges[1].Node.(*types.SponsorshipChange)
-	suite.Require().Equal(suite.testEnv.ClawbackBalanceID, *change.ClaimableBalanceID, "claimable balance ID for clawback does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, change, types.StateChangeReasonSponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClaimClaimableBalanceDataValidation() {
@@ -1349,8 +1267,6 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	// Define filter constants
 	balanceCategory := types.StateChangeCategoryBalance
 	creditReason := types.StateChangeReasonCredit
-	reservesCategory := types.StateChangeCategoryReserves
-	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
@@ -1372,26 +1288,17 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	// 2. FETCH BALANCE/CREDIT STATE CHANGE
 	claimQueries := []stateChangeQuery{
 		{name: "balanceCredit", account: secondaryAccount, txHash: &txHash, category: &balanceCategory, reason: &creditReason},
-		{name: "reservesUnsponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
 	}
 	claimResults := suite.fetchStateChangesInParallel(ctx, claimQueries, &first)
 
 	// Extract and validate results
 	balanceCreditChanges := claimResults["balanceCredit"]
-	reservesUnsponsorForSponsor := claimResults["reservesUnsponsorForSponsor"]
 	suite.Require().NotNil(balanceCreditChanges, "BALANCE/CREDIT changes should not be nil")
-	suite.Require().NotNil(reservesUnsponsorForSponsor, "RESERVES/UNSPONSOR for sponsor should not be nil")
 
 	// 3. VALIDATE BALANCE/CREDIT CHANGE
 	suite.Require().Len(balanceCreditChanges.Edges, 1, "should have exactly 1 BALANCE/CREDIT change")
 	balanceCreditChange := balanceCreditChanges.Edges[0].Node.(*types.BalanceChange)
 	validateBalanceChange(suite, balanceCreditChange, test3ContractAddress, "10000000", types.StateChangeReasonCredit)
-
-	// 4. RESERVES/UNSPONSOR STATE CHANGES VALIDATION FOR SPONSORING ACCOUNT
-	suite.Require().Len(reservesUnsponsorForSponsor.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor")
-	reservesUnsponsorForSponsorChange := reservesUnsponsorForSponsor.Edges[0].Node.(*types.SponsorshipChange)
-	suite.Require().Equal(suite.testEnv.ClaimBalanceID, *reservesUnsponsorForSponsorChange.ClaimableBalanceID, "claimable balance ID does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, types.StateChangeReasonUnsponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClawbackClaimableBalanceDataValidation() {
@@ -1432,14 +1339,12 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	// Define filter constants
 	balanceCategory := types.StateChangeCategoryBalance
 	burnReason := types.StateChangeReasonBurn
-	reservesCategory := types.StateChangeCategoryReserves
-	unsponsorReason := types.StateChangeReasonUnsponsor
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state change")
+	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1454,26 +1359,17 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChang
 	// 2. FETCH BALANCE/BURN STATE CHANGE
 	clawbackQueries := []stateChangeQuery{
 		{name: "balanceBurn", account: primaryAccount, txHash: &txHash, category: &balanceCategory, reason: &burnReason},
-		{name: "reservesUnsponsorForSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
 	}
 	clawbackResults := suite.fetchStateChangesInParallel(ctx, clawbackQueries, &first)
 
 	// Extract and validate results
 	balanceBurnChanges := clawbackResults["balanceBurn"]
-	reservesUnsponsorForSponsor := clawbackResults["reservesUnsponsorForSponsor"]
 	suite.Require().NotNil(balanceBurnChanges, "BALANCE/BURN changes should not be nil")
-	suite.Require().NotNil(reservesUnsponsorForSponsor, "RESERVES/UNSPONSOR for sponsor should not be nil")
 
 	// 3. VALIDATE BALANCE/BURN CHANGE
 	suite.Require().Len(balanceBurnChanges.Edges, 1, "should have exactly 1 BALANCE/BURN change")
 	balanceBurnChange := balanceBurnChanges.Edges[0].Node.(*types.BalanceChange)
 	validateBalanceChange(suite, balanceBurnChange, test3ContractAddress, "10000000", types.StateChangeReasonBurn)
-
-	// 4. RESERVES/UNSPONSOR STATE CHANGES VALIDATION FOR SPONSORING ACCOUNT FOR CLAWBACK BALANCE
-	suite.Require().Len(reservesUnsponsorForSponsor.Edges, 1, "should have exactly 1 RESERVES/UNSPONSOR for sponsor")
-	reservesUnsponsorForSponsorChange := reservesUnsponsorForSponsor.Edges[0].Node.(*types.SponsorshipChange)
-	suite.Require().Equal(suite.testEnv.ClawbackBalanceID, *reservesUnsponsorForSponsorChange.ClaimableBalanceID, "claimable balance ID for clawback does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, reservesUnsponsorForSponsorChange, types.StateChangeReasonUnsponsor, "")
 }
 
 func (suite *DataValidationTestSuite) TestClearAuthFlagsOpsDataValidation() {
@@ -1736,16 +1632,13 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 
 	// Define filter constants
 	metadataCategory := types.StateChangeCategoryMetadata
-	reservesCategory := types.StateChangeCategoryReserves
-	sponsorReason := types.StateChangeReasonSponsor
-	unsponsorReason := types.StateChangeReasonUnsponsor
 	dataEntryReason := types.StateChangeReasonDataEntry
 
 	// 1. TOTAL STATE CHANGE COUNT VALIDATION
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 5, "should have exactly 4 state changes")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
@@ -1760,34 +1653,20 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipStateChanges(ctx 
 	// 2. FETCH STATE CHANGES IN PARALLEL
 	revokeSponsorshipQueries := []stateChangeQuery{
 		{name: "metadataDataEntry", account: secondaryAccount, txHash: &txHash, category: &metadataCategory, reason: &dataEntryReason},
-		{name: "primaryReservesSponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &sponsorReason},
-		{name: "primaryReservesUnsponsor", account: primaryAccount, txHash: &txHash, category: &reservesCategory, reason: &unsponsorReason},
 	}
 	revokeSponsorshipResults := suite.fetchStateChangesInParallel(ctx, revokeSponsorshipQueries, &first)
 
 	// Extract results
 	metadataDataEntry := revokeSponsorshipResults["metadataDataEntry"]
-	primaryReservesSponsor := revokeSponsorshipResults["primaryReservesSponsor"]
-	primaryReservesUnsponsor := revokeSponsorshipResults["primaryReservesUnsponsor"]
 
 	// Validate results are not nil
 	suite.Require().NotNil(metadataDataEntry, "METADATA/DATA_ENTRY should not be nil")
-	suite.Require().NotNil(primaryReservesSponsor, "RESERVES/SPONSOR for primary should not be nil")
-	suite.Require().NotNil(primaryReservesUnsponsor, "RESERVES/UNSPONSOR for primary should not be nil")
 
 	// 4. METADATA STATE CHANGES VALIDATION
 
-	// Validate sponsorship revocation
+	// The sponsored data entry is created and then removed within the same transaction.
 	mc := metadataDataEntry.Edges[0].Node.(*types.DataEntryChange)
 	validateDataEntryChange(suite, mc, types.StateChangeReasonDataEntry, "sponsored_data", "new", "test_value")
 	mc = metadataDataEntry.Edges[1].Node.(*types.DataEntryChange)
 	validateDataEntryChange(suite, mc, types.StateChangeReasonDataEntry, "sponsored_data", "old", "test_value")
-
-	// 5. RESERVES STATE CHANGES VALIDATION
-	rc := primaryReservesSponsor.Edges[0].Node.(*types.SponsorshipChange)
-	suite.Require().Equal("sponsored_data", *rc.DataName, "sponsored data value does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, rc, types.StateChangeReasonSponsor, "")
-	rc = primaryReservesUnsponsor.Edges[0].Node.(*types.SponsorshipChange)
-	suite.Require().Equal("sponsored_data", *rc.DataName, "sponsored data value does not match")
-	validateSponsorshipChangeForSponsoringAccount(suite, rc, types.StateChangeReasonUnsponsor, "")
 }

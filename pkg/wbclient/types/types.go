@@ -51,7 +51,6 @@ const (
 	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
-	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 )
 
@@ -75,8 +74,6 @@ const (
 	StateChangeReasonSet        StateChangeReason = "SET"
 	StateChangeReasonClear      StateChangeReason = "CLEAR"
 	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
-	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
 )
 
 // TokenType represents the type of token/balance

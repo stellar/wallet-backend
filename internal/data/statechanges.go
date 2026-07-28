@@ -162,8 +162,8 @@ func (m *StateChangeModel) BatchCopy(
 			"to_id", "state_change_id", "state_change_category", "state_change_reason",
 			"ledger_created_at", "ledger_number", "account_id", "operation_id",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
-			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"destination_account_id", "claimable_balance_id", "liquidity_pool_id", "sponsored_data",
+			"deployer_account_id", "funder_account_id", "destination_account_id",
+			"claimable_balance_id", "liquidity_pool_id",
 			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
 			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
 			"to_muxed_id",
@@ -185,14 +185,6 @@ func (m *StateChangeModel) BatchCopy(
 			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting spender_account_id: %w", err)
-			}
-			sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
-			}
-			sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
 			}
 			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
 			if err != nil {
@@ -224,14 +216,11 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.Amount),
 				signerBytes,
 				spenderBytes,
-				sponsoredBytes,
-				sponsorBytes,
 				deployerBytes,
 				funderBytes,
 				destinationBytes,
 				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeTextFromNullString(sc.SponsoredData),
 				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
 				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
 				pgtypeInt2FromNullInt16(sc.ThresholdOld),

@@ -54,8 +54,6 @@ enum StateChangeCategory {
   FLAGS
   """Trustlines: TrustlineAddedChange, TrustlineUpdatedChange, TrustlineRemovedChange."""
   TRUSTLINE
-  """Base-reserve sponsorships: SponsorshipChange."""
-  RESERVES
   """Asset authorization for a holder: BalanceAuthorizationChange."""
   BALANCE_AUTHORIZATION
 }
@@ -97,10 +95,6 @@ enum StateChangeReason {
   CLEAR
   """METADATA: data entry created, updated, or removed."""
   DATA_ENTRY
-  """RESERVES: sponsorship established."""
-  SPONSOR
-  """RESERVES: sponsorship released."""
-  UNSPONSOR
 }
 
 """Classification of a token as held in an account's balance."""

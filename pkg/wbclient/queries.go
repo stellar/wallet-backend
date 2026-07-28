@@ -42,9 +42,7 @@ const (
 	//   - tokenId is String! on BalanceChange/AllowanceChange and String elsewhere, so
 	//     every occurrence is aliased per type;
 	//   - flags is [AccountFlag!]! on AccountFlagsChange and [TrustlineFlag!] on
-	//     BalanceAuthorizationChange, so both are aliased;
-	//   - signerAddress is String! on the signer types and String on SponsorshipChange, so the
-	//     SponsorshipChange occurrence is aliased.
+	//     BalanceAuthorizationChange, so both are aliased.
 	// The JSON tags in pkg/wbclient/types/statechange.go match these aliases.
 	stateChangeFragments = `
 		__typename
@@ -117,15 +115,6 @@ const (
 		... on TrustlineRemovedChange {
 			trustlineRemovedTokenId: tokenId
 			liquidityPoolId
-		}
-		... on SponsorshipChange {
-			sponsoredAddress
-			sponsorAddress
-			sponsorshipTokenId: tokenId
-			liquidityPoolId
-			claimableBalanceId
-			dataName
-			sponsorshipSignerAddress: signerAddress
 		}
 		... on BalanceAuthorizationChange {
 			balanceAuthTokenId: tokenId

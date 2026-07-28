@@ -30,14 +30,11 @@ func TestGetDBColumns(t *testing.T) {
 			// GraphQL field names that differ from the model json tags.
 			{"category", "state_change_category"},
 			{"reason", "state_change_reason"},
-			{"sponsoredAddress", "sponsored_account_id"},
-			{"sponsorAddress", "sponsor_account_id"},
 			{"signerAddress", "signer_account_id"},
 			{"funderAddress", "funder_account_id"},
 			{"deployerAddress", "deployer_account_id"},
 			{"destinationAddress", "destination_account_id"},
 			{"spender", "spender_account_id"},
-			{"dataName", "sponsored_data"},
 			// Fields derived from a flattened old/new column pair.
 			{"oldWeight", "signer_weight_old"},
 			{"newWeight", "signer_weight_new"},

@@ -164,7 +164,7 @@ The `stateChanges` field on Account supports an optional `filter` parameter with
 |-------|------|-------------|
 | `transactionHash` | `String` | Filter by transaction hash - returns only state changes from this transaction |
 | `operationId` | `Int64` | Filter by operation ID - returns only state changes from this operation |
-| `category` | `StateChangeCategory` | Filter by state change category enum (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `RESERVES`) |
+| `category` | `StateChangeCategory` | Filter by state change category enum (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `FLAGS`) |
 | `reason` | `StateChangeReason` | Filter by state change reason enum (e.g., `CREDIT`, `DEBIT`, `CREATE`, `MERGE`, `ADD`, `REMOVE`) |
 
 Enum-typed filters take unquoted enum values (`category: BALANCE`), not strings. All conditions are ANDed.
@@ -568,12 +568,10 @@ Each type below also exposes all interface fields. "Own fields" lists only what 
 | `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
 | `TrustlineUpdatedChange` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
 | `TrustlineRemovedChange` | `(TRUSTLINE, REMOVE)` | `tokenId: String`, `liquidityPoolId: String` |
-| `SponsorshipChange` | `(RESERVES, SPONSOR)`, `(RESERVES, UNSPONSOR)` | `sponsoredAddress: String`, `sponsorAddress: String`, `tokenId: String`, `liquidityPoolId: String`, `claimableBalanceId: String`, `dataName: String`, `signerAddress: String` |
 | `BalanceAuthorizationChange` | `(BALANCE_AUTHORIZATION, SET)`, `(BALANCE_AUTHORIZATION, CLEAR)` | `tokenId: String`, `liquidityPoolId: String`, `flags: [TrustlineFlag!]` |
 
 Notes on the polymorphic fields:
 - On `TrustlineAddedChange`/`TrustlineUpdatedChange`/`TrustlineRemovedChange`/`BalanceAuthorizationChange`, exactly one of `tokenId` / `liquidityPoolId` is set (asset trustline vs. pool-share trustline).
-- On `SponsorshipChange`, `sponsoredAddress` is set on the sponsoring account's change and `sponsorAddress` on the sponsored account's; at most one of the entity fields (`tokenId`, `liquidityPoolId`, `claimableBalanceId`, `dataName`, `signerAddress`) identifies what is sponsored, all null for whole-account sponsorships.
 - On `BalanceAuthorizationChange`, `flags` is null for SAC contract-holder authorization (a plain boolean in the contract balance entry, so there are no trustline flags).
 
 **State Change Categories** (`StateChangeCategory` enum):
@@ -588,7 +586,6 @@ Notes on the polymorphic fields:
 | `ALLOWANCE` | `AllowanceChange` |
 | `FLAGS` | `AccountFlagsChange` |
 | `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
-| `RESERVES` | `SponsorshipChange` |
 | `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` |
 
 **State Change Reasons** (`StateChangeReason` enum) — each reason applies only to the categories noted:
@@ -609,8 +606,6 @@ Notes on the polymorphic fields:
 | `DATA_ENTRY` | METADATA: data entry created, updated, or removed |
 | `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on |
 | `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off |
-| `SPONSOR` | RESERVES: sponsorship established |
-| `UNSPONSOR` | RESERVES: sponsorship released |
 
 **Flag Enum Values:**
 

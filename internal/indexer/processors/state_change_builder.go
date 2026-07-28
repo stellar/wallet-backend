@@ -110,12 +110,6 @@ func (b *StateChangeBuilder) WithDestination(destination string) *StateChangeBui
 	return b
 }
 
-// WithSponsor sets the sponsor
-func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
-	b.base.SponsorAccountID = utils.NullAddressBytea(sponsor)
-	return b
-}
-
 // WithSpender sets the spender account ID, the account granted an allowance to spend on the owner's behalf.
 func (b *StateChangeBuilder) WithSpender(spender string) *StateChangeBuilder {
 	b.base.SpenderAccountID = utils.NullAddressBytea(spender)
@@ -153,33 +147,21 @@ func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateC
 	return b
 }
 
-// WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
-func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
-	b.base.SponsoredAccountID = utils.NullAddressBytea(sponsoredAccountID)
-	return b
-}
-
 // WithOperationID sets the operation ID
 func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
 	b.base.OperationID = operationID
 	return b
 }
 
-// WithClaimableBalanceID sets the claimable balance ID for sponsorship state changes
+// WithClaimableBalanceID sets the claimable balance ID
 func (b *StateChangeBuilder) WithClaimableBalanceID(balanceID string) *StateChangeBuilder {
 	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
 	return b
 }
 
-// WithLiquidityPoolID sets the liquidity pool ID for trustline and sponsorship state changes
+// WithLiquidityPoolID sets the liquidity pool ID for trustline state changes
 func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuilder {
 	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
-	return b
-}
-
-// WithSponsoredData sets the data entry name for data sponsorship state changes
-func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuilder {
-	b.base.SponsoredData = utils.SQLNullString(dataName)
 	return b
 }
 

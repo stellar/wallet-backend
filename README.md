@@ -1189,7 +1189,7 @@ Each test suite focuses on a specific aspect of the wallet-backend functionality
 - **Tests**:
   - Transaction metadata (hash, ledger number, envelope XDR, result XDR, meta XDR)
   - Operations (type, source account, operation-specific fields)
-  - State changes (account creation, balance changes, trustlines, offers, liquidity pools, sponsorship, signers, metadata)
+  - State changes (account creation, balance changes, trustlines, offers, liquidity pools, signers, metadata)
   - Relationships (transaction ↔ operations ↔ state changes)
   - Pagination (forward and backward)
 - **Coverage**: GraphQL API, ingestion accuracy, ledger state parsing, XDR decoding

@@ -353,41 +353,6 @@ type TrustlineRemovedChange implements BaseStateChange {
 }
 
 """
-A base-reserve sponsorship established or released. Each sponsorship event
-emits one state change per perspective: on the sponsoring account's change
-`sponsoredAddress` is set (account and trustline sponsorships only); on the
-sponsored account's change `sponsorAddress` is set. At most one of the entity
-fields (tokenId, liquidityPoolId, claimableBalanceId, dataName, signerAddress)
-identifies what is sponsored; all are null for whole-account sponsorships.
-Pairs: (RESERVES, SPONSOR), (RESERVES, UNSPONSOR).
-"""
-type SponsorshipChange implements BaseStateChange {
-  category:                   StateChangeCategory! @goField(forceResolver: true)
-  reason:                     StateChangeReason! @goField(forceResolver: true)
-  ingestedAt:                 Time!
-  ledgerCreatedAt:            Time!
-  ledgerNumber:               UInt32!
-  account:                    Account! @goField(forceResolver: true)
-  operation:                  Operation! @goField(forceResolver: true)
-  transaction:                Transaction! @goField(forceResolver: true)
-
-  """On a sponsoring account's change: the account whose reserves it sponsors."""
-  sponsoredAddress:           String @goField(forceResolver: true)
-  """On a sponsored account's change: the account paying its reserves."""
-  sponsorAddress:             String @goField(forceResolver: true)
-  """Contract ID of the asset, for sponsored asset trustlines."""
-  tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID, for sponsored pool-share trustlines."""
-  liquidityPoolId:            String @goField(forceResolver: true)
-  """Claimable balance ID, for sponsored claimable balances."""
-  claimableBalanceId:         String @goField(forceResolver: true)
-  """Data entry name, for sponsored data entries."""
-  dataName:                   String @goField(forceResolver: true)
-  """Signer address, for sponsored signers."""
-  signerAddress:              String @goField(forceResolver: true)
-}
-
-"""
 Authorization to hold or transact an asset granted or revoked for the account.
 Exactly one of tokenId / liquidityPoolId is set. For classic trustlines,
 `flags` lists the trustline flags that were set (reason SET) or cleared

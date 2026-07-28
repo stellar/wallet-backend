@@ -165,20 +165,6 @@ type TrustlineRemovedChange struct {
 	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
 }
 
-// SponsorshipChange is a base-reserve sponsorship established or released. At most one of the
-// entity fields (TokenID, LiquidityPoolID, ClaimableBalanceID, DataName, SignerAddress)
-// identifies what is sponsored.
-type SponsorshipChange struct {
-	BaseStateChangeFields
-	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
-	TokenID            *string `json:"sponsorshipTokenId,omitempty"`
-	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
-	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
-	DataName           *string `json:"dataName,omitempty"`
-	SignerAddress      *string `json:"sponsorshipSignerAddress,omitempty"`
-}
-
 // BalanceAuthorizationChange is authorization to hold or transact an asset granted or revoked.
 // Exactly one of TokenID / LiquidityPoolID is set. Flags is nil for SAC contract-holder
 // authorization, which has no trustline flags.
@@ -233,8 +219,6 @@ func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
 		return unmarshalStateChange[TrustlineUpdatedChange](data)
 	case "TrustlineRemovedChange":
 		return unmarshalStateChange[TrustlineRemovedChange](data)
-	case "SponsorshipChange":
-		return unmarshalStateChange[SponsorshipChange](data)
 	case "BalanceAuthorizationChange":
 		return unmarshalStateChange[BalanceAuthorizationChange](data)
 	default:

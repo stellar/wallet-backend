@@ -35,9 +35,6 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		require.Same(t, b, b.WithFunder("GFUNDER"))
 		require.Same(t, b, b.WithClaimableBalanceID("cb"))
 		require.Same(t, b, b.WithLiquidityPoolID("lp"))
-		require.Same(t, b, b.WithSponsoredData("data"))
-		require.Same(t, b, b.WithSponsoredAccountID("GSPONSORED"))
-		require.Same(t, b, b.WithSponsor("GSPONSOR"))
 	})
 
 	t.Run("field values", func(t *testing.T) {
@@ -52,7 +49,6 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 			WithFunder("GFUN").
 			WithClaimableBalanceID("cb1").
 			WithLiquidityPoolID("lp1").
-			WithSponsoredData("sd1").
 			Build()
 
 		assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
@@ -67,6 +63,5 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		assert.Equal(t, "GFUN", string(sc.FunderAccountID.AddressBytea))
 		assert.Equal(t, "cb1", sc.ClaimableBalanceID.String)
 		assert.Equal(t, "lp1", sc.LiquidityPoolID.String)
-		assert.Equal(t, "sd1", sc.SponsoredData.String)
 	})
 }

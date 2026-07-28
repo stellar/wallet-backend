@@ -218,9 +218,6 @@ models:
   TrustlineRemovedChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineRemovedChangeModel
-  SponsorshipChange:
-    model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SponsorshipChangeModel
   BalanceAuthorizationChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationChangeModel

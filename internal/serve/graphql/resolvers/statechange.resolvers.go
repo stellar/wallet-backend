@@ -493,66 +493,6 @@ func (r *signerUpdatedChangeResolver) NewWeight(ctx context.Context, obj *types.
 }
 
 // Category is the resolver for the category field.
-func (r *sponsorshipChangeResolver) Category(ctx context.Context, obj *types.SponsorshipChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *sponsorshipChangeResolver) Reason(ctx context.Context, obj *types.SponsorshipChangeModel) (types.StateChangeReason, error) {
-	return obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *sponsorshipChangeResolver) Account(ctx context.Context, obj *types.SponsorshipChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(obj.AccountID)
-}
-
-// Operation is the resolver for the operation field.
-func (r *sponsorshipChangeResolver) Operation(ctx context.Context, obj *types.SponsorshipChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *sponsorshipChangeResolver) Transaction(ctx context.Context, obj *types.SponsorshipChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// SponsoredAddress is the resolver for the sponsoredAddress field.
-func (r *sponsorshipChangeResolver) SponsoredAddress(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SponsoredAccountID), nil
-}
-
-// SponsorAddress is the resolver for the sponsorAddress field.
-func (r *sponsorshipChangeResolver) SponsorAddress(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SponsorAccountID), nil
-}
-
-// TokenID is the resolver for the tokenId field.
-func (r *sponsorshipChangeResolver) TokenID(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.TokenID), nil
-}
-
-// LiquidityPoolID is the resolver for the liquidityPoolId field.
-func (r *sponsorshipChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.LiquidityPoolID), nil
-}
-
-// ClaimableBalanceID is the resolver for the claimableBalanceId field.
-func (r *sponsorshipChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.ClaimableBalanceID), nil
-}
-
-// DataName is the resolver for the dataName field.
-func (r *sponsorshipChangeResolver) DataName(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsoredData), nil
-}
-
-// SignerAddress is the resolver for the signerAddress field.
-func (r *sponsorshipChangeResolver) SignerAddress(ctx context.Context, obj *types.SponsorshipChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SignerAccountID), nil
-}
-
-// Category is the resolver for the category field.
 func (r *thresholdChangeResolver) Category(ctx context.Context, obj *types.ThresholdChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
@@ -765,11 +705,6 @@ func (r *Resolver) SignerUpdatedChange() graphql1.SignerUpdatedChangeResolver {
 	return &signerUpdatedChangeResolver{r}
 }
 
-// SponsorshipChange returns graphql1.SponsorshipChangeResolver implementation.
-func (r *Resolver) SponsorshipChange() graphql1.SponsorshipChangeResolver {
-	return &sponsorshipChangeResolver{r}
-}
-
 // ThresholdChange returns graphql1.ThresholdChangeResolver implementation.
 func (r *Resolver) ThresholdChange() graphql1.ThresholdChangeResolver {
 	return &thresholdChangeResolver{r}
@@ -803,7 +738,6 @@ type (
 	signerAddedChangeResolver          struct{ *Resolver }
 	signerRemovedChangeResolver        struct{ *Resolver }
 	signerUpdatedChangeResolver        struct{ *Resolver }
-	sponsorshipChangeResolver          struct{ *Resolver }
 	thresholdChangeResolver            struct{ *Resolver }
 	trustlineAddedChangeResolver       struct{ *Resolver }
 	trustlineRemovedChangeResolver     struct{ *Resolver }

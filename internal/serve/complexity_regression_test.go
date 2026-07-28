@@ -174,15 +174,6 @@ const freighterAccountTransactionsQuery = `
 							trustlineRemovedTokenId: tokenId
 							trustlineRemovedLiquidityPoolId: liquidityPoolId
 						}
-						... on SponsorshipChange {
-							sponsoredAddress
-							sponsorAddress
-							sponsorshipTokenId: tokenId
-							sponsorshipLiquidityPoolId: liquidityPoolId
-							claimableBalanceId
-							dataName
-							sponsorshipSignerAddress: signerAddress
-						}
 						... on BalanceAuthorizationChange {
 							balanceAuthTokenId: tokenId
 							balanceAuthLiquidityPoolId: liquidityPoolId
@@ -220,7 +211,7 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 		query string
 		// computed complexity on record at time of writing, for both cases under the
 		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7601.
-		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 17-fragment
+		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 16-fragment
 		// state-change selection over-counts relative to what any one row resolves.
 		floor int
 	}{

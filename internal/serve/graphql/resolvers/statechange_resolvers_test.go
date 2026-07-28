@@ -83,7 +83,7 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonRemove},
 			want: &types.SignerRemovedChangeModel{},
 		},
-		// SIGNATURE_THRESHOLD / FLAGS / RESERVES / BALANCE_AUTHORIZATION: any reason maps to one model.
+		// SIGNATURE_THRESHOLD / FLAGS / BALANCE_AUTHORIZATION: any reason maps to one model.
 		{
 			name: "SIGNATURE_THRESHOLD low",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonLow},
@@ -137,16 +137,6 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			want: &types.TrustlineRemovedChangeModel{},
 		},
 		{
-			name: "RESERVES sponsor",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryReserves, StateChangeReason: types.StateChangeReasonSponsor},
-			want: &types.SponsorshipChangeModel{},
-		},
-		{
-			name: "RESERVES unsponsor",
-			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryReserves, StateChangeReason: types.StateChangeReasonUnsponsor},
-			want: &types.SponsorshipChangeModel{},
-		},
-		{
 			name: "BALANCE_AUTHORIZATION set",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonSet},
 			want: &types.BalanceAuthorizationChangeModel{},
@@ -189,10 +179,10 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "MERGE",
 		},
 		{
-			name:     "SIGNATURE_THRESHOLD with a sponsor reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonSponsor},
+			name:     "SIGNATURE_THRESHOLD with a signer reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonAdd},
 			category: "SIGNATURE_THRESHOLD",
-			reason:   "SPONSOR",
+			reason:   "ADD",
 		},
 		{
 			name:     "FLAGS with a threshold reason",
@@ -201,16 +191,10 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			reason:   "LOW",
 		},
 		{
-			name:     "RESERVES with a flags reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryReserves, StateChangeReason: types.StateChangeReasonSet},
-			category: "RESERVES",
-			reason:   "SET",
-		},
-		{
-			name:     "BALANCE_AUTHORIZATION with a sponsor reason",
-			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonSponsor},
+			name:     "BALANCE_AUTHORIZATION with a signer reason",
+			sc:       types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonAdd},
 			category: "BALANCE_AUTHORIZATION",
-			reason:   "SPONSOR",
+			reason:   "ADD",
 		},
 		{
 			name:     "SIGNER with a flags reason",
