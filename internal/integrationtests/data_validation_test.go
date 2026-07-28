@@ -319,11 +319,11 @@ func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Co
 	primaryAccount := suite.testEnv.PrimaryAccountKP.Address()
 	secondaryAccount := suite.testEnv.SecondaryAccountKP.Address()
 
-	// Only 2 state changes for this transaction
+	// 3 state changes for this transaction: source debit + destination credit + the transaction-fee row
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
+	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 3 state changes")
 
 	for _, edge := range stateChanges.Edges {
 		jsonBytes, err := json.MarshalIndent(edge.Node, "", "  ")
@@ -1263,7 +1263,7 @@ func (suite *DataValidationTestSuite) validateClaimClaimableBalanceStateChanges(
 	stateChanges, err := suite.testEnv.WBClient.GetTransactionStateChanges(ctx, txHash, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get transaction state changes")
 	suite.Require().NotNil(stateChanges, "state changes should not be nil")
-	suite.Require().Len(stateChanges.Edges, 3, "should have exactly 2 state changes")
+	suite.Require().Len(stateChanges.Edges, 2, "should have exactly 2 state changes")
 
 	// Validate base fields for all state changes
 	for _, edge := range stateChanges.Edges {
