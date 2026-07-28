@@ -677,7 +677,9 @@ query GetAccountStateChanges {
           }
 
           ... on TrustlineAddedChange {
-            tokenId
+            # tokenId is String! on BalanceChange but String here, so the two
+            # occurrences need distinct response keys (SameResponseShape rule).
+            trustlineTokenId: tokenId
             liquidityPoolId
             limit
           }

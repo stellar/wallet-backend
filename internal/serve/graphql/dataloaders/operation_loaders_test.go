@@ -18,7 +18,7 @@ func int32Ptr(v int32) *int32 { return &v }
 
 // TestOperationsByToIDLoader_ColumnsPerKeyInSharedBatch covers a single request that aliases the
 // `operations` field on the SAME transaction with different sub-selections (e.g. a lean alias
-// selecting only `id` and a full alias also selecting `operationType`). Both aliases produce
+// selecting only `id` and a full alias also selecting `type`). Both aliases produce
 // OperationColumnsKey values with the same ToID but different Columns, and dataloadgen hands the
 // whole batch to the fetch function as one flat slice with no grouping. The fetcher reads
 // keys[0].Columns and applies it to the whole batch, so unless the loader groups the batch by

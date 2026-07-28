@@ -69,11 +69,12 @@ func (r *accountFlagsChangeResolver) Transaction(ctx context.Context, obj *types
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// Flags is the resolver for the flags field. Null when the row carries no flags;
-// otherwise the decoded account flags.
+// Flags is the resolver for the flags field. The schema declares it non-null and a
+// FLAGS row is only emitted when at least one flag changed, so a null flags column
+// is missing backing data and surfaces as an error rather than an empty list.
 func (r *accountFlagsChangeResolver) Flags(ctx context.Context, obj *types.AccountFlagsChangeModel) ([]types.AccountFlag, error) {
 	if !obj.Flags.Valid {
-		return nil, nil
+		return nil, fmt.Errorf("state change is missing required flags (to_id=%d, operation_id=%d, state_change_id=%d)", obj.ToID, obj.OperationID, obj.StateChangeID)
 	}
 	return types.DecodeAccountFlags(obj.Flags.Int16), nil
 }

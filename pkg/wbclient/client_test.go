@@ -233,7 +233,7 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 
 	t.Run("deserializes edges with embedded operations and state changes", func(t *testing.T) {
 		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc"},` +
-			`"operations":[{"id":1,"operationType":"PAYMENT"}],` +
+			`"operations":[{"id":1,"type":"PAYMENT"}],` +
 			`"stateChanges":[{"__typename":"BalanceChange","category":"BALANCE","balanceTokenId":"native","amount":"10"}],` +
 			`"cursor":"c1"}],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
 		srv := graphqlServer(t, body)
@@ -306,6 +306,245 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
 		require.Error(t, err)
 		assert.Nil(t, conn)
+	})
+}
+
+func TestGetTransactionByHash(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrTransactionNotFound when transactionByHash is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		tx, err := c.GetTransactionByHash(ctx, "deadbeef")
+		assert.Nil(t, tx)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrTransactionNotFound), "expected ErrTransactionNotFound, got %v", err)
+	})
+
+	t.Run("returns the transaction when it exists", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": {"hash": "deadbeef"}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		tx, err := c.GetTransactionByHash(ctx, "deadbeef")
+		require.NoError(t, err)
+		require.NotNil(t, tx)
+		assert.Equal(t, "deadbeef", tx.Hash)
+	})
+}
+
+func TestGetOperationByID(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrOperationNotFound when operationById is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"operationById": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		op, err := c.GetOperationByID(ctx, 42)
+		assert.Nil(t, op)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrOperationNotFound), "expected ErrOperationNotFound, got %v", err)
+	})
+
+	t.Run("returns the operation when it exists", func(t *testing.T) {
+		srv := graphqlServer(t, `{"operationById": {"id": 42, "type": "PAYMENT"}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		op, err := c.GetOperationByID(ctx, 42)
+		require.NoError(t, err)
+		require.NotNil(t, op)
+		assert.Equal(t, int64(42), op.ID)
+		assert.Equal(t, types.OperationTypePayment, op.Type)
+	})
+}
+
+func TestGetTransactionOperations(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrTransactionNotFound when transactionByHash is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionOperations(ctx, "deadbeef", nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrTransactionNotFound), "expected ErrTransactionNotFound, got %v", err)
+	})
+
+	t.Run("rejects null operations connection on existing transaction", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": {"operations": null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionOperations(ctx, "deadbeef", nil)
+		require.Error(t, err, "the schema declares the operations connection non-null")
+		assert.NotErrorIs(t, err, ErrTransactionNotFound, "an existing transaction must not be reported as not found")
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns connection with empty edges when transaction has no operations", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": {"operations": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionOperations(ctx, "deadbeef", nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
+
+	t.Run("sends well-formed GraphQL request body", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"transactionByHash": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetTransactionOperations(ctx, "deadbeef", nil)
+		require.ErrorIs(t, err, ErrTransactionNotFound)
+
+		assert.Contains(t, received.Query, "transactionByHash")
+		assert.Equal(t, "deadbeef", received.Variables["hash"])
+	})
+}
+
+func TestGetTransactionStateChanges(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrTransactionNotFound when transactionByHash is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionStateChanges(ctx, "deadbeef", nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrTransactionNotFound), "expected ErrTransactionNotFound, got %v", err)
+	})
+
+	t.Run("rejects null stateChanges connection on existing transaction", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": {"stateChanges": null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionStateChanges(ctx, "deadbeef", nil)
+		require.Error(t, err, "the schema declares the stateChanges connection non-null")
+		assert.NotErrorIs(t, err, ErrTransactionNotFound, "an existing transaction must not be reported as not found")
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns connection with empty edges when transaction has no state changes", func(t *testing.T) {
+		srv := graphqlServer(t, `{"transactionByHash": {"stateChanges": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetTransactionStateChanges(ctx, "deadbeef", nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
+
+	t.Run("sends well-formed GraphQL request body", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"transactionByHash": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetTransactionStateChanges(ctx, "deadbeef", nil)
+		require.ErrorIs(t, err, ErrTransactionNotFound)
+
+		assert.Contains(t, received.Query, "transactionByHash")
+		assert.Equal(t, "deadbeef", received.Variables["hash"])
+	})
+}
+
+func TestGetOperationStateChanges(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrOperationNotFound when operationById is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"operationById": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetOperationStateChanges(ctx, 42, nil)
+		assert.Nil(t, conn)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrOperationNotFound), "expected ErrOperationNotFound, got %v", err)
+	})
+
+	t.Run("rejects null stateChanges connection on existing operation", func(t *testing.T) {
+		srv := graphqlServer(t, `{"operationById": {"stateChanges": null}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetOperationStateChanges(ctx, 42, nil)
+		require.Error(t, err, "the schema declares the stateChanges connection non-null")
+		assert.NotErrorIs(t, err, ErrOperationNotFound, "an existing operation must not be reported as not found")
+		assert.Nil(t, conn)
+	})
+
+	t.Run("returns connection with empty edges when operation has no state changes", func(t *testing.T) {
+		srv := graphqlServer(t, `{"operationById": {"stateChanges": {"edges": [], "pageInfo": {"hasNextPage": false, "hasPreviousPage": false}}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetOperationStateChanges(ctx, 42, nil)
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		assert.Empty(t, conn.Edges)
+		require.NotNil(t, conn.PageInfo)
+	})
+
+	t.Run("sends well-formed GraphQL request body", func(t *testing.T) {
+		type gqlReq struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+
+		var received gqlReq
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(`{"data":{"operationById": null}}`))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetOperationStateChanges(ctx, 42, nil)
+		require.ErrorIs(t, err, ErrOperationNotFound)
+
+		assert.Contains(t, received.Query, "operationById")
+		assert.EqualValues(t, 42, received.Variables["id"])
 	})
 }
 

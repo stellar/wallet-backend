@@ -22,7 +22,7 @@ const (
 
 	defaultOperationFields = `
 		id
-		operationType: type
+		type
 		operationXdr
 		resultCode
 		successful

@@ -527,11 +527,18 @@ func TestAccountFlagsChangeResolver_Flags(t *testing.T) {
 	ctx := context.Background()
 	r := &accountFlagsChangeResolver{&Resolver{}}
 
-	t.Run("nil when the flags column is null", func(t *testing.T) {
-		obj := &types.AccountFlagsChangeModel{StateChange: types.StateChange{Flags: sql.NullInt16{Valid: false}}}
+	t.Run("errors when the flags column is null", func(t *testing.T) {
+		obj := &types.AccountFlagsChangeModel{StateChange: types.StateChange{
+			Flags:         sql.NullInt16{Valid: false},
+			ToID:          7,
+			OperationID:   8,
+			StateChangeID: 9,
+		}}
 		flags, err := r.Flags(ctx, obj)
-		require.NoError(t, err)
+		require.Error(t, err, "the schema declares flags non-null, so a null column is corrupt data")
 		assert.Nil(t, flags)
+		assert.Contains(t, err.Error(), "flags")
+		assert.Contains(t, err.Error(), "state_change_id=9")
 	})
 
 	t.Run("decodes only the account bits in fixed order", func(t *testing.T) {

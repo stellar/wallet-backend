@@ -126,7 +126,7 @@ func validateTransactionBase(suite *DataValidationTestSuite, ctx context.Context
 // validateOperationBase validates common operation fields
 func validateOperationBase(suite *DataValidationTestSuite, op *types.Operation, expectedLedgerNumber int64, expectedOperationType types.OperationType) {
 	suite.Require().NotNil(op, "operation should not be nil")
-	suite.Require().Equal(expectedOperationType, op.OperationType, "operation type mismatch")
+	suite.Require().Equal(expectedOperationType, op.Type, "operation type mismatch")
 	suite.Require().NotEmpty(op.OperationXdr, "operation XDR should not be empty")
 	suite.Require().Equal(processors.OpSuccess, op.ResultCode, "operation result code does not match")
 	suite.Require().True(op.Successful, "operation is not successful")
@@ -318,7 +318,7 @@ func (suite *DataValidationTestSuite) validatePaymentOperations(ctx context.Cont
 
 	operation := operations.Edges[0].Node
 	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypePayment)
-	suite.Require().Equal(types.OperationTypePayment, operation.OperationType, "operation type should be PAYMENT")
+	suite.Require().Equal(types.OperationTypePayment, operation.Type, "operation type should be PAYMENT")
 }
 
 func (suite *DataValidationTestSuite) validatePaymentStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
@@ -517,7 +517,7 @@ func (suite *DataValidationTestSuite) validateCustomAssetsOperations(ctx context
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -704,7 +704,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredIssuerSetupOperations(
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -726,7 +726,7 @@ func (suite *DataValidationTestSuite) validateAuthRequiredAssetOperations(ctx co
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -935,7 +935,7 @@ func (suite *DataValidationTestSuite) validateAccountMergeOperations(ctx context
 
 	operation := operations.Edges[0].Node
 	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeAccountMerge)
-	suite.Require().Equal(types.OperationTypeAccountMerge, operation.OperationType, "operation type should be ACCOUNT_MERGE")
+	suite.Require().Equal(types.OperationTypeAccountMerge, operation.Type, "operation type should be ACCOUNT_MERGE")
 }
 
 func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
@@ -1036,7 +1036,7 @@ func (suite *DataValidationTestSuite) validateInvokeContractOperations(ctx conte
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -1149,7 +1149,7 @@ func (suite *DataValidationTestSuite) validateCreateClaimableBalanceOperations(c
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -1325,7 +1325,7 @@ func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceOperations
 
 	operation := operations.Edges[0].Node
 	validateOperationBase(suite, operation, ledgerNumber, types.OperationTypeClawbackClaimableBalance)
-	suite.Require().Equal(types.OperationTypeClawbackClaimableBalance, operation.OperationType, "operation type should be CLAWBACK_CLAIMABLE_BALANCE")
+	suite.Require().Equal(types.OperationTypeClawbackClaimableBalance, operation.Type, "operation type should be CLAWBACK_CLAIMABLE_BALANCE")
 }
 
 func (suite *DataValidationTestSuite) validateClawbackClaimableBalanceStateChanges(ctx context.Context, txHash string, ledgerNumber int64) {
@@ -1400,7 +1400,7 @@ func (suite *DataValidationTestSuite) validateClearAuthFlagsOperations(ctx conte
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -1477,7 +1477,7 @@ func (suite *DataValidationTestSuite) validateLiquidityPoolOperations(ctx contex
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 
@@ -1620,7 +1620,7 @@ func (suite *DataValidationTestSuite) validateRevokeSponsorshipOperations(ctx co
 
 	for i, edge := range operations.Edges {
 		validateOperationBase(suite, edge.Node, ledgerNumber, expectedOpTypes[i])
-		suite.Require().Equal(expectedOpTypes[i], edge.Node.OperationType, "operation type mismatch at index %d", i)
+		suite.Require().Equal(expectedOpTypes[i], edge.Node.Type, "operation type mismatch at index %d", i)
 	}
 }
 

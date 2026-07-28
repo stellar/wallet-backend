@@ -340,7 +340,7 @@ func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
 			"cursor": "op-1",
 			"node": {
 				"id": 1234567,
-				"operationType": "PAYMENT",
+				"type": "PAYMENT",
 				"operationXdr": "AAAA",
 				"resultCode": "op_success",
 				"successful": true,
@@ -356,7 +356,7 @@ func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
 		require.NotNil(t, edge.Node)
 		assert.Equal(t, "op-1", edge.Cursor)
 		assert.Equal(t, int64(1234567), edge.Node.ID)
-		assert.Equal(t, OperationTypePayment, edge.Node.OperationType)
+		assert.Equal(t, OperationTypePayment, edge.Node.Type)
 		assert.True(t, edge.Node.Successful)
 	})
 }
@@ -558,7 +558,7 @@ func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
 					"cursor": "op-1",
 					"node": {
 						"id": 42,
-						"operationType": "PAYMENT",
+						"type": "PAYMENT",
 						"operationXdr": "AAAA",
 						"resultCode": "op_success",
 						"successful": true,

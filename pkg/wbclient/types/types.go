@@ -295,7 +295,7 @@ type GraphQLTransaction struct {
 // Operation represents a Stellar operation
 type Operation struct {
 	ID              int64         `json:"id"`
-	OperationType   OperationType `json:"operationType"`
+	Type            OperationType `json:"type"`
 	OperationXdr    string        `json:"operationXdr"`
 	ResultCode      string        `json:"resultCode"`
 	Successful      bool          `json:"successful"`

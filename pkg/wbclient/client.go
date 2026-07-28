@@ -25,6 +25,20 @@ import (
 // upstream failure. Use errors.Is(err, wbclient.ErrAccountNotFound).
 var ErrAccountNotFound = errors.New("account not found")
 
+// ErrTransactionNotFound is returned by transaction-scoped queries when the
+// GraphQL server reports the transaction does not exist (transactionByHash
+// returned null). Distinct from schema/pagination failures so callers can
+// classify it as a hash-scoped error rather than a systemic upstream failure.
+// Use errors.Is(err, wbclient.ErrTransactionNotFound).
+var ErrTransactionNotFound = errors.New("transaction not found")
+
+// ErrOperationNotFound is returned by operation-scoped queries when the
+// GraphQL server reports the operation does not exist (operationById returned
+// null). Distinct from schema/pagination failures so callers can classify it
+// as an id-scoped error rather than a systemic upstream failure. Use
+// errors.Is(err, wbclient.ErrOperationNotFound).
+var ErrOperationNotFound = errors.New("operation not found")
+
 // GraphQLRequest is the JSON body of a GraphQL POST: an operation document
 // and its variables.
 type GraphQLRequest struct {
@@ -104,21 +118,21 @@ type AccountStateChangesData struct {
 
 // TransactionOperationsData is the result shape of the transactionByHash.operations query.
 type TransactionOperationsData struct {
-	TransactionByHash struct {
+	TransactionByHash *struct {
 		Operations *types.OperationConnection `json:"operations"`
 	} `json:"transactionByHash"`
 }
 
 // TransactionStateChangesData is the result shape of the transactionByHash.stateChanges query.
 type TransactionStateChangesData struct {
-	TransactionByHash struct {
+	TransactionByHash *struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"transactionByHash"`
 }
 
 // OperationStateChangesData is the result shape of the operationById.stateChanges query.
 type OperationStateChangesData struct {
-	OperationByID struct {
+	OperationByID *struct {
 		StateChanges *types.StateChangeConnection `json:"stateChanges"`
 	} `json:"operationById"`
 }
@@ -233,7 +247,8 @@ func mergeVariables(sources ...map[string]any) map[string]any {
 
 // GetTransactionByHash fetches a single transaction by its hash. Pass a
 // *QueryOptions to restrict the transaction fields fetched; omit it (or pass nil)
-// for the default field set.
+// for the default field set. Returns ErrTransactionNotFound if the transaction
+// does not exist.
 func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...*QueryOptions) (*types.GraphQLTransaction, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -247,6 +262,10 @@ func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...
 	data, err := executeGraphQL[TransactionByHashData](c, ctx, buildTransactionByHashQuery(fields), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.TransactionByHash == nil {
+		return nil, fmt.Errorf("%w: %s", ErrTransactionNotFound, hash)
 	}
 
 	return data.TransactionByHash, nil
@@ -275,7 +294,7 @@ func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts .
 
 // GetOperationByID fetches a single operation by its ID. Pass a *QueryOptions
 // to restrict the operation fields fetched; omit it (or pass nil) for the default
-// field set.
+// field set. Returns ErrOperationNotFound if the operation does not exist.
 func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryOptions) (*types.Operation, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -289,6 +308,10 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 	data, err := executeGraphQL[OperationByIDData](c, ctx, buildOperationByIDQuery(fields), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.OperationByID == nil {
+		return nil, fmt.Errorf("%w: %d", ErrOperationNotFound, id)
 	}
 
 	return data.OperationByID, nil
@@ -432,7 +455,8 @@ func (c *Client) GetAccountStateChanges(ctx context.Context, address string, fil
 
 // GetTransactionOperations fetches a page of a transaction's operations. A nil
 // page requests the server's default page. Pass a *QueryOptions to restrict the
-// operation fields fetched.
+// operation fields fetched. Returns ErrTransactionNotFound if the transaction
+// does not exist.
 func (c *Client) GetTransactionOperations(ctx context.Context, hash string, page *Page, opts ...*QueryOptions) (*types.OperationConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -454,11 +478,19 @@ func (c *Client) GetTransactionOperations(ctx context.Context, hash string, page
 		return nil, err
 	}
 
+	if data.TransactionByHash == nil {
+		return nil, fmt.Errorf("%w: %s", ErrTransactionNotFound, hash)
+	}
+	if data.TransactionByHash.Operations == nil {
+		return nil, fmt.Errorf("transaction operations response missing required operations field for hash %s", hash)
+	}
+
 	return data.TransactionByHash.Operations, nil
 }
 
 // GetTransactionStateChanges fetches a page of a transaction's state changes. A
-// nil page requests the server's default page.
+// nil page requests the server's default page. Returns ErrTransactionNotFound if
+// the transaction does not exist.
 func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, page *Page) (*types.StateChangeConnection, error) {
 	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
@@ -475,11 +507,19 @@ func (c *Client) GetTransactionStateChanges(ctx context.Context, hash string, pa
 		return nil, err
 	}
 
+	if data.TransactionByHash == nil {
+		return nil, fmt.Errorf("%w: %s", ErrTransactionNotFound, hash)
+	}
+	if data.TransactionByHash.StateChanges == nil {
+		return nil, fmt.Errorf("transaction state changes response missing required stateChanges field for hash %s", hash)
+	}
+
 	return data.TransactionByHash.StateChanges, nil
 }
 
 // GetOperationStateChanges fetches a page of an operation's state changes. A nil
-// page requests the server's default page.
+// page requests the server's default page. Returns ErrOperationNotFound if the
+// operation does not exist.
 func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, page *Page) (*types.StateChangeConnection, error) {
 	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
@@ -494,6 +534,13 @@ func (c *Client) GetOperationStateChanges(ctx context.Context, id int64, page *P
 	data, err := executeGraphQL[OperationStateChangesData](c, ctx, buildOperationStateChangesQuery(), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.OperationByID == nil {
+		return nil, fmt.Errorf("%w: %d", ErrOperationNotFound, id)
+	}
+	if data.OperationByID.StateChanges == nil {
+		return nil, fmt.Errorf("operation state changes response missing required stateChanges field for id %d", id)
 	}
 
 	return data.OperationByID.StateChanges, nil
