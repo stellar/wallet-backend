@@ -50,6 +50,11 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonMint, OperationID: 12345},
 			want: &types.BalanceChangeModel{},
 		},
+		{
+			name: "BALANCE burn with an operation is a balance change",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalance, StateChangeReason: types.StateChangeReasonBurn, OperationID: 12345},
+			want: &types.BalanceChangeModel{},
+		},
 		// ACCOUNT/CREATE: one model for both classic account creation and contract
 		// deployment — the account being a G- or C-address does not change dispatch.
 		{
@@ -88,7 +93,9 @@ func TestConvertStateChangeTypes(t *testing.T) {
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySigner, StateChangeReason: types.StateChangeReasonRemove},
 			want: &types.SignerRemovedChangeModel{},
 		},
-		// SIGNATURE_THRESHOLD / FLAGS / BALANCE_AUTHORIZATION: any reason maps to one model.
+		// SIGNATURE_THRESHOLD / FLAGS / BALANCE_AUTHORIZATION: each category accepts only
+		// specific reasons (UPDATE; SET and CLEAR; SET and CLEAR respectively) and collapses
+		// all of them onto a single model.
 		{
 			name: "SIGNATURE_THRESHOLD update",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategorySignatureThreshold, StateChangeReason: types.StateChangeReasonUpdate},
@@ -160,6 +167,11 @@ func TestConvertStateChangeTypes(t *testing.T) {
 		{
 			name: "BALANCE_AUTHORIZATION set",
 			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonSet},
+			want: &types.BalanceAuthorizationChangeModel{},
+		},
+		{
+			name: "BALANCE_AUTHORIZATION clear",
+			sc:   types.StateChange{StateChangeCategory: types.StateChangeCategoryBalanceAuthorization, StateChangeReason: types.StateChangeReasonClear},
 			want: &types.BalanceAuthorizationChangeModel{},
 		},
 	}

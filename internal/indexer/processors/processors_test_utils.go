@@ -117,6 +117,73 @@ var (
 	trustor    = xdr.MustAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY")
 	setFlags   = xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
 	clearFlags = xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag | xdr.TrustLineFlagsAuthorizedFlag)
+
+	// The funder and destination of the CreateAccount operation encoded in the
+	// envelope that createAccountMeta accompanies.
+	createAccountFunder      = xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
+	createAccountDestination = xdr.MustAddress("GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN")
+
+	// createAccountMeta is the operation metadata of a successful CreateAccount: the
+	// funder's entry is debited the starting balance and the destination's entry is
+	// created with the default master-key weight of 1.
+	createAccountMeta = &xdr.TransactionMeta{
+		V: 1,
+		V1: &xdr.TransactionMetaV1{
+			Operations: []xdr.OperationMeta{
+				{
+					Changes: xdr.LedgerEntryChanges{
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+							State: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:  createAccountFunder,
+										Balance:    800152377009533292,
+										SeqNum:     26,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+							Updated: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:  createAccountFunder,
+										Balance:    800152367009533292,
+										SeqNum:     26,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+							},
+						},
+						{
+							Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+							Created: &xdr.LedgerEntry{
+								LastModifiedLedgerSeq: 0x39,
+								Data: xdr.LedgerEntryData{
+									Type: xdr.LedgerEntryTypeAccount,
+									Account: &xdr.AccountEntry{
+										AccountId:  createAccountDestination,
+										Balance:    10000000000,
+										SeqNum:     244813135872,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createAccountMetaB64, _ = xdr.MarshalBase64(createAccountMeta) //nolint:errcheck
 )
 
 type testTransaction struct {

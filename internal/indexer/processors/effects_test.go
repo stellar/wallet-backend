@@ -132,6 +132,51 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized | types.FlagBitClawbackEnabled, Valid: true}, changes[1].Flags)
 	})
 
+	t.Run("CreateAccount - synthesizes master-key signer", func(t *testing.T) {
+		envelopeXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAAAAAAAAAaAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvkAAAAAAAAAAABVvwF9wAAAEDHU95E9wxgETD8TqxUrkgC0/7XHyNDts6Q5huRHfDRyRcoHdv7aMp/sPvC3RPkXjOMjgbKJUX7SgExUeYB5f8F"
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
+		metaXDR := createAccountMetaB64
+		feeChangesXDR := "AAAAAgAAAAMAAAA3AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nHQAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA5AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nFsAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "0e5bd332291e3098e49886df2cdb9b5369a5f9e0a9973f0d9e1a9489c6581ba2"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
+		opWrapper := &TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		// Creating an account implicitly adds its master key as a signer, so the
+		// operation yields a SIGNER/ADD change on the new account with no old weight.
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
+		assert.Equal(t, createAccountDestination.Address(), changes[0].AccountID.String())
+		assert.Equal(t, createAccountDestination.Address(), changes[0].SignerAccountID.String())
+		assert.Equal(t, sql.NullInt16{Int16: 1, Valid: true}, changes[0].SignerWeightNew)
+		assert.False(t, changes[0].SignerWeightOld.Valid)
+	})
+
 	t.Run("ManageData - data created", func(t *testing.T) {
 		envelopeXDR := "AAAAADEhMVDHiYXdz5z8l73XGyrQ2RN85ZRW1uLsCNQumfsZAAAAZAAAADAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAoAAAAFbmFtZTIAAAAAAAABAAAABDU2NzgAAAAAAAAAAS6Z+xkAAABAjxgnTRBCa0n1efZocxpEjXeITQ5sEYTVd9fowuto2kPw5eFwgVnz6OrKJwCRt5L8ylmWiATXVI3Zyfi3yTKqBA=="
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
