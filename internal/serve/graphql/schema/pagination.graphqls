@@ -1,43 +1,52 @@
+"""Relay-style page of operations."""
 type OperationConnection {
-    edges: [OperationEdge!]
+    edges: [OperationEdge!]!
     pageInfo: PageInfo!
 }
 
+"""One operation in a page, with its pagination cursor."""
 type OperationEdge {
-    node: Operation
+    node: Operation!
     cursor: String!
 }
 
+"""Relay-style page of state changes."""
 type StateChangeConnection {
-    edges: [StateChangeEdge!]
+    edges: [StateChangeEdge!]!
     pageInfo: PageInfo!
 }
 
+"""One state change in a page, with its pagination cursor."""
 type StateChangeEdge {
-    node: BaseStateChange
+    node: BaseStateChange!
     cursor: String!
 }
 
+"""Relay-style page of an account's token balances."""
 type BalanceConnection {
     edges: [BalanceEdge!]!
     pageInfo: PageInfo!
 }
 
+"""One balance in a page, with its pagination cursor."""
 type BalanceEdge {
     node: Balance!
     cursor: String!
 }
 
+"""Relay-style page of SEP-41 allowances."""
 type SEP41AllowanceConnection {
     edges: [SEP41AllowanceEdge!]!
     pageInfo: PageInfo!
 }
 
+"""One SEP-41 allowance in a page, with its pagination cursor."""
 type SEP41AllowanceEdge {
     node: SEP41Allowance!
     cursor: String!
 }
 
+"""Relay-style pagination metadata; cursors are opaque strings."""
 type PageInfo {
     startCursor: String
     endCursor: String
@@ -45,11 +54,16 @@ type PageInfo {
     hasPreviousPage: Boolean!
 }
 
+"""Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
   edges:    [AccountTransactionEdge!]!
   pageInfo: PageInfo!
 }
 
+"""
+One transaction in an account's history, with the transaction's operations and
+state changes inlined so a full account-history page resolves in one query.
+"""
 type AccountTransactionEdge {
   node:         Transaction!
   cursor:       String!

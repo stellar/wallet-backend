@@ -173,33 +173,72 @@ models:
   StateChange:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.StateChange
-  StandardBalanceChange:
+  BalanceChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.StandardBalanceStateChangeModel
-  AccountChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BalanceChangeModel
+  AccountCreatedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.AccountStateChangeModel
-  SignerChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountCreatedChangeModel
+  AccountMergedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SignerStateChangeModel
-  SignerThresholdsChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountMergedChangeModel
+  SignerAddedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.SignerThresholdsStateChangeModel
-  MetadataChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerAddedChangeModel
+  SignerUpdatedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.MetadataStateChangeModel
-  FlagsChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerUpdatedChangeModel
+  SignerRemovedChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.FlagsStateChangeModel
-  TrustlineChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.SignerRemovedChangeModel
+  ThresholdChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineStateChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.ThresholdChangeModel
+  AccountFlagsChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountFlagsChangeModel
+  HomeDomainSetChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainSetChangeModel
+  HomeDomainUpdatedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainUpdatedChangeModel
+  HomeDomainClearedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.HomeDomainClearedChangeModel
+  DataEntryAddedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryAddedChangeModel
+  DataEntryUpdatedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryUpdatedChangeModel
+  DataEntryRemovedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.DataEntryRemovedChangeModel
+  AllowanceChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.AllowanceChangeModel
+  TrustlineAddedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineAddedChangeModel
+  TrustlineUpdatedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineUpdatedChangeModel
+  TrustlineRemovedChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineRemovedChangeModel
   BalanceAuthorizationChange:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationStateChangeModel
-  ReservesChange:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BalanceAuthorizationChangeModel
+  AccountFlag:
     model:
-      - github.com/stellar/wallet-backend/internal/indexer/types.ReservesStateChangeModel
+      - github.com/stellar/wallet-backend/internal/indexer/types.AccountFlag
+  TrustlineFlag:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.TrustlineFlag
+  ThresholdLevel:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.ThresholdLevel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType

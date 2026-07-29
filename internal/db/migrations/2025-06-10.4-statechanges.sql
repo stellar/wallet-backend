@@ -9,15 +9,14 @@ CREATE TABLE state_changes (
     state_change_category TEXT NOT NULL CHECK (
         state_change_category IN (
             'BALANCE', 'ACCOUNT', 'SIGNER', 'SIGNATURE_THRESHOLD',
-            'METADATA', 'FLAGS', 'TRUSTLINE', 'RESERVES',
-            'BALANCE_AUTHORIZATION', 'AUTHORIZATION'
+            'DATA_ENTRY', 'HOME_DOMAIN', 'ALLOWANCE', 'FLAGS', 'TRUSTLINE',
+            'BALANCE_AUTHORIZATION'
         )
     ),
     state_change_reason TEXT NOT NULL CHECK (
         state_change_reason IN (
             'CREATE', 'MERGE', 'DEBIT', 'CREDIT', 'MINT', 'BURN',
-            'ADD', 'REMOVE', 'UPDATE', 'LOW', 'MEDIUM', 'HIGH',
-            'HOME_DOMAIN', 'SET', 'CLEAR', 'DATA_ENTRY', 'SPONSOR', 'UNSPONSOR'
+            'ADD', 'REMOVE', 'UPDATE', 'SET', 'CLEAR'
         )
     ),
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -27,21 +26,18 @@ CREATE TABLE state_changes (
     amount TEXT,
     signer_account_id BYTEA,
     spender_account_id BYTEA,
-    sponsored_account_id BYTEA,
-    sponsor_account_id BYTEA,
-    deployer_account_id BYTEA,
-    funder_account_id BYTEA,
+    creator_account_id BYTEA,
     destination_account_id BYTEA,
-    claimable_balance_id TEXT,
     liquidity_pool_id TEXT,
-    sponsored_data TEXT,
     signer_weight_old SMALLINT,
     signer_weight_new SMALLINT,
+    threshold TEXT,
     threshold_old SMALLINT,
     threshold_new SMALLINT,
     trustline_limit_old TEXT,
     trustline_limit_new TEXT,
     flags SMALLINT,
+    data_entry_name TEXT,
     key_value JSONB,
     to_muxed_id TEXT,
     ledger_created_at TIMESTAMPTZ NOT NULL,

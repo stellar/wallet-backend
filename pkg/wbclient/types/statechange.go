@@ -7,197 +7,266 @@ import (
 	"time"
 )
 
-// StateChangeNode is the interface that all state change types implement
-// This corresponds to the BaseStateChange interface in the GraphQL schema
+// StateChangeNode is the interface that all state change types implement.
+// This corresponds to the BaseStateChange interface in the GraphQL schema.
 type StateChangeNode interface {
-	GetType() StateChangeCategory
+	GetCategory() StateChangeCategory
 	GetReason() StateChangeReason
 	GetIngestedAt() time.Time
 	GetLedgerCreatedAt() time.Time
 	GetLedgerNumber() uint32
 }
 
-// BaseStateChangeFields contains the common fields shared by all state change types
+// BaseStateChangeFields contains the common fields shared by all state change types.
 type BaseStateChangeFields struct {
-	Type            StateChangeCategory `json:"type"`
+	Category        StateChangeCategory `json:"category"`
 	Reason          StateChangeReason   `json:"reason"`
 	IngestedAt      time.Time           `json:"ingestedAt"`
 	LedgerCreatedAt time.Time           `json:"ledgerCreatedAt"`
 	LedgerNumber    uint32              `json:"ledgerNumber"`
 }
 
-// GetType returns the state change category
-func (b BaseStateChangeFields) GetType() StateChangeCategory {
-	return b.Type
+// GetCategory returns the state change category.
+func (b BaseStateChangeFields) GetCategory() StateChangeCategory {
+	return b.Category
 }
 
-// GetReason returns the state change reason
+// GetReason returns the state change reason.
 func (b BaseStateChangeFields) GetReason() StateChangeReason {
 	return b.Reason
 }
 
-// GetIngestedAt returns when the state change was ingested
+// GetIngestedAt returns when the state change was ingested.
 func (b BaseStateChangeFields) GetIngestedAt() time.Time {
 	return b.IngestedAt
 }
 
-// GetLedgerCreatedAt returns when the ledger was created
+// GetLedgerCreatedAt returns when the ledger was created.
 func (b BaseStateChangeFields) GetLedgerCreatedAt() time.Time {
 	return b.LedgerCreatedAt
 }
 
-// GetLedgerNumber returns the ledger number
+// GetLedgerNumber returns the ledger number.
 func (b BaseStateChangeFields) GetLedgerNumber() uint32 {
 	return b.LedgerNumber
 }
 
-// StandardBalanceChange represents a standard balance state change
-type StandardBalanceChange struct {
+// The concrete types below mirror the GraphQL schema's BaseStateChange implementations one-to-one.
+// Fields whose GraphQL type differs across concrete types that share a name (tokenId, flags, and
+// signerAddress) are aliased in the query fragments to distinct response keys; the JSON tags here
+// match those aliases. See stateChangeFragments in the wbclient package.
+
+// BalanceChange is a movement of value on the account's token balance.
+type BalanceChange struct {
 	BaseStateChangeFields
-	TokenID string `json:"standardBalanceTokenId"`
-	Amount  string `json:"amount"`
+	TokenID   string  `json:"balanceTokenId"`
+	Amount    string  `json:"amount"`
+	ToMuxedID *string `json:"toMuxedId,omitempty"`
 }
 
-// AccountChange represents an account state change
-type AccountChange struct {
+// AccountCreatedChange is a classic account creation or a smart-contract deployment.
+// Account holds the created G-address or the deployed C-address; CreatorAddress is the
+// funding account or the deploying address respectively.
+type AccountCreatedChange struct {
 	BaseStateChangeFields
-	FunderAddress      *string `json:"funderAddress,omitempty"`
-	DeployerAddress    *string `json:"deployerAddress,omitempty"`
-	DestinationAddress *string `json:"destinationAddress,omitempty"`
+	CreatorAddress string `json:"creatorAddress"`
 }
 
-// SignerChange represents a signer state change
-type SignerChange struct {
+// AccountMergedChange is an account merge.
+type AccountMergedChange struct {
 	BaseStateChangeFields
-	SignerAddress *string `json:"signerAddress,omitempty"`
-	SignerWeights *string `json:"signerWeights,omitempty"`
+	DestinationAddress string `json:"destinationAddress"`
 }
 
-// SignerThresholdsChange represents a signer thresholds state change
-type SignerThresholdsChange struct {
+// SignerAddedChange is a signer added to the account.
+type SignerAddedChange struct {
 	BaseStateChangeFields
-	Thresholds string `json:"thresholds"`
+	SignerAddress string `json:"signerAddress"`
+	NewWeight     int32  `json:"newWeight"`
 }
 
-// MetadataChange represents a metadata state change
-type MetadataChange struct {
+// SignerUpdatedChange is an existing signer's weight change.
+type SignerUpdatedChange struct {
 	BaseStateChangeFields
-	KeyValue string `json:"metadataKeyValue"`
+	SignerAddress string `json:"signerAddress"`
+	OldWeight     int32  `json:"oldWeight"`
+	NewWeight     int32  `json:"newWeight"`
 }
 
-// FlagsChange represents a flags state change
-type FlagsChange struct {
+// SignerRemovedChange is a signer removed from the account.
+type SignerRemovedChange struct {
 	BaseStateChangeFields
-	Flags []string `json:"flags"`
+	SignerAddress string `json:"signerAddress"`
+	OldWeight     int32  `json:"oldWeight"`
 }
 
-// TrustlineChange represents a trustline state change
-type TrustlineChange struct {
+// ThresholdChange is a signature-threshold change; Threshold identifies which threshold changed.
+type ThresholdChange struct {
 	BaseStateChangeFields
-	TokenID         *string `json:"trustlineTokenId,omitempty"`
-	Limit           *string `json:"limit,omitempty"`
-	LiquidityPoolID *string `json:"trustlineLiquidityPoolId,omitempty"`
+	Threshold    ThresholdLevel `json:"threshold"`
+	OldThreshold int32          `json:"oldThreshold"`
+	NewThreshold int32          `json:"newThreshold"`
 }
 
-// ReservesChange represents a reserves state change
-type ReservesChange struct {
+// AccountFlagsChange lists account authorization flags set or cleared in one operation.
+type AccountFlagsChange struct {
 	BaseStateChangeFields
-	SponsoredAddress   *string `json:"sponsoredAddress,omitempty"`
-	SponsorAddress     *string `json:"sponsorAddress,omitempty"`
-	SponsoredData      *string `json:"sponsoredData,omitempty"`
-	SponsoredTrustline *string `json:"sponsoredTrustline,omitempty"`
-	ClaimableBalanceID *string `json:"claimableBalanceId,omitempty"`
-	LiquidityPoolID    *string `json:"liquidityPoolId,omitempty"`
+	Flags []AccountFlag `json:"accountFlags"`
 }
 
-// BalanceAuthorizationChange represents a balance authorization state change
+// HomeDomainSetChange is a home domain set on an account that had none.
+type HomeDomainSetChange struct {
+	BaseStateChangeFields
+	HomeDomain string `json:"homeDomain"`
+}
+
+// HomeDomainUpdatedChange is an existing home domain replaced by a different one.
+type HomeDomainUpdatedChange struct {
+	BaseStateChangeFields
+	OldHomeDomain string `json:"oldHomeDomain"`
+	NewHomeDomain string `json:"newHomeDomain"`
+}
+
+// HomeDomainClearedChange is a home domain removed from the account.
+type HomeDomainClearedChange struct {
+	BaseStateChangeFields
+	OldHomeDomain string `json:"oldHomeDomain"`
+}
+
+// DataEntryAddedChange is a data entry created on the account.
+type DataEntryAddedChange struct {
+	BaseStateChangeFields
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// DataEntryUpdatedChange is an existing data entry whose value changed.
+type DataEntryUpdatedChange struct {
+	BaseStateChangeFields
+	Name     string `json:"name"`
+	OldValue string `json:"oldValue"`
+	NewValue string `json:"newValue"`
+}
+
+// DataEntryRemovedChange is a data entry removed from the account.
+type DataEntryRemovedChange struct {
+	BaseStateChangeFields
+	Name     string `json:"name"`
+	OldValue string `json:"oldValue"`
+}
+
+// AllowanceChange is a SEP-41 allowance approval.
+type AllowanceChange struct {
+	BaseStateChangeFields
+	TokenID          string `json:"allowanceTokenId"`
+	Spender          string `json:"spender"`
+	Amount           string `json:"amount"`
+	ExpirationLedger uint32 `json:"expirationLedger"`
+}
+
+// TrustlineAddedChange is a trustline created. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineAddedChange struct {
+	BaseStateChangeFields
+	TokenID         *string `json:"trustlineAddedTokenId,omitempty"`
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+	Limit           string  `json:"limit"`
+}
+
+// TrustlineUpdatedChange is a trustline limit update. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineUpdatedChange struct {
+	BaseStateChangeFields
+	TokenID         *string `json:"trustlineUpdatedTokenId,omitempty"`
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+	OldLimit        string  `json:"oldLimit"`
+	NewLimit        string  `json:"newLimit"`
+}
+
+// TrustlineRemovedChange is a trustline removed. Exactly one of TokenID / LiquidityPoolID is set.
+type TrustlineRemovedChange struct {
+	BaseStateChangeFields
+	TokenID         *string `json:"trustlineRemovedTokenId,omitempty"`
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+}
+
+// BalanceAuthorizationChange is authorization to hold or transact an asset granted or revoked.
+// Exactly one of TokenID / LiquidityPoolID is set. Flags is nil for SAC contract-holder
+// authorization, which has no trustline flags.
 type BalanceAuthorizationChange struct {
 	BaseStateChangeFields
-	TokenID         *string  `json:"balanceAuthTokenId,omitempty"`
-	LiquidityPoolID *string  `json:"balanceAuthLiquidityPoolId,omitempty"`
-	Flags           []string `json:"flags"`
+	TokenID         *string         `json:"balanceAuthTokenId,omitempty"`
+	LiquidityPoolID *string         `json:"liquidityPoolId,omitempty"`
+	Flags           []TrustlineFlag `json:"balanceAuthFlags,omitempty"`
 }
 
-// stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses
+// stateChangeNodeWrapper is used for unmarshaling polymorphic state change responses.
 type stateChangeNodeWrapper struct {
 	TypeName string `json:"__typename"`
 }
 
 // UnmarshalStateChangeNode unmarshals a JSON state change node into the appropriate concrete type
-// based on the __typename field
+// based on the __typename field.
 func UnmarshalStateChangeNode(data []byte) (StateChangeNode, error) {
-	// First, extract the __typename to determine which type to unmarshal into
 	var wrapper stateChangeNodeWrapper
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return nil, fmt.Errorf("unmarshaling state change wrapper: %w", err)
 	}
 
-	// Unmarshal into the appropriate concrete type based on __typename
 	switch wrapper.TypeName {
-	case "StandardBalanceChange":
-		var sc StandardBalanceChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling StandardBalanceChange: %w", err)
-		}
-		return &sc, nil
-
-	case "AccountChange":
-		var sc AccountChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling AccountChange: %w", err)
-		}
-		return &sc, nil
-
-	case "SignerChange":
-		var sc SignerChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling SignerChange: %w", err)
-		}
-		return &sc, nil
-
-	case "SignerThresholdsChange":
-		var sc SignerThresholdsChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling SignerThresholdsChange: %w", err)
-		}
-		return &sc, nil
-
-	case "MetadataChange":
-		var sc MetadataChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling MetadataChange: %w", err)
-		}
-		return &sc, nil
-
-	case "FlagsChange":
-		var sc FlagsChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling FlagsChange: %w", err)
-		}
-		return &sc, nil
-
-	case "TrustlineChange":
-		var sc TrustlineChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling TrustlineChange: %w", err)
-		}
-		return &sc, nil
-
-	case "ReservesChange":
-		var sc ReservesChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling ReservesChange: %w", err)
-		}
-		return &sc, nil
-
+	case "BalanceChange":
+		return unmarshalStateChange[BalanceChange](data)
+	case "AccountCreatedChange":
+		return unmarshalStateChange[AccountCreatedChange](data)
+	case "AccountMergedChange":
+		return unmarshalStateChange[AccountMergedChange](data)
+	case "SignerAddedChange":
+		return unmarshalStateChange[SignerAddedChange](data)
+	case "SignerUpdatedChange":
+		return unmarshalStateChange[SignerUpdatedChange](data)
+	case "SignerRemovedChange":
+		return unmarshalStateChange[SignerRemovedChange](data)
+	case "ThresholdChange":
+		return unmarshalStateChange[ThresholdChange](data)
+	case "AccountFlagsChange":
+		return unmarshalStateChange[AccountFlagsChange](data)
+	case "HomeDomainSetChange":
+		return unmarshalStateChange[HomeDomainSetChange](data)
+	case "HomeDomainUpdatedChange":
+		return unmarshalStateChange[HomeDomainUpdatedChange](data)
+	case "HomeDomainClearedChange":
+		return unmarshalStateChange[HomeDomainClearedChange](data)
+	case "DataEntryAddedChange":
+		return unmarshalStateChange[DataEntryAddedChange](data)
+	case "DataEntryUpdatedChange":
+		return unmarshalStateChange[DataEntryUpdatedChange](data)
+	case "DataEntryRemovedChange":
+		return unmarshalStateChange[DataEntryRemovedChange](data)
+	case "AllowanceChange":
+		return unmarshalStateChange[AllowanceChange](data)
+	case "TrustlineAddedChange":
+		return unmarshalStateChange[TrustlineAddedChange](data)
+	case "TrustlineUpdatedChange":
+		return unmarshalStateChange[TrustlineUpdatedChange](data)
+	case "TrustlineRemovedChange":
+		return unmarshalStateChange[TrustlineRemovedChange](data)
 	case "BalanceAuthorizationChange":
-		var sc BalanceAuthorizationChange
-		if err := json.Unmarshal(data, &sc); err != nil {
-			return nil, fmt.Errorf("unmarshaling BalanceAuthorizationChange: %w", err)
-		}
-		return &sc, nil
-
+		return unmarshalStateChange[BalanceAuthorizationChange](data)
 	default:
 		return nil, fmt.Errorf("unknown state change type: %s", wrapper.TypeName)
 	}
+}
+
+// unmarshalStateChange decodes data into a concrete state change type SC and returns it as a
+// StateChangeNode. SC must be a value type whose pointer implements StateChangeNode (every
+// concrete type embeds BaseStateChangeFields, whose getters have value receivers, so *SC
+// satisfies the interface).
+func unmarshalStateChange[SC any](data []byte) (StateChangeNode, error) {
+	var sc SC
+	if err := json.Unmarshal(data, &sc); err != nil {
+		return nil, fmt.Errorf("unmarshaling %T: %w", sc, err)
+	}
+	node, ok := any(&sc).(StateChangeNode)
+	if !ok {
+		return nil, fmt.Errorf("%T does not implement StateChangeNode", sc)
+	}
+	return node, nil
 }

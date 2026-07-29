@@ -118,47 +118,17 @@ var (
 	setFlags   = xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
 	clearFlags = xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag | xdr.TrustLineFlagsAuthorizedFlag)
 
-	creator           = xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
-	created           = xdr.MustAddress("GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN")
-	sponsor           = xdr.MustAddress("GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A")
-	sponsor2          = xdr.MustAddress("GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX")
+	// The funder and destination of the CreateAccount operation encoded in the
+	// envelope that createAccountMeta accompanies.
+	createAccountFunder      = xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
+	createAccountDestination = xdr.MustAddress("GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN")
+
+	// createAccountMeta is the operation metadata of a successful CreateAccount: the
+	// funder's entry is debited the starting balance and the destination's entry is
+	// created with the default master-key weight of 1.
 	createAccountMeta = &xdr.TransactionMeta{
 		V: 1,
 		V1: &xdr.TransactionMetaV1{
-			TxChanges: xdr.LedgerEntryChanges{
-				{
-					Type: 3,
-					State: &xdr.LedgerEntry{
-						LastModifiedLedgerSeq: 0x39,
-						Data: xdr.LedgerEntryData{
-							Type: 0,
-							Account: &xdr.AccountEntry{
-								AccountId:     creator,
-								Balance:       800152377009533292,
-								SeqNum:        25,
-								InflationDest: &creator,
-								Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-							},
-						},
-					},
-				},
-				{
-					Type: 1,
-					Updated: &xdr.LedgerEntry{
-						LastModifiedLedgerSeq: 0x39,
-						Data: xdr.LedgerEntryData{
-							Type: 0,
-							Account: &xdr.AccountEntry{
-								AccountId:     creator,
-								Balance:       800152377009533292,
-								SeqNum:        26,
-								InflationDest: &creator,
-							},
-						},
-						Ext: xdr.LedgerEntryExt{},
-					},
-				},
-			},
 			Operations: []xdr.OperationMeta{
 				{
 					Changes: xdr.LedgerEntryChanges{
@@ -169,48 +139,10 @@ var (
 								Data: xdr.LedgerEntryData{
 									Type: xdr.LedgerEntryTypeAccount,
 									Account: &xdr.AccountEntry{
-										AccountId:     creator,
-										Balance:       800152367009533292,
-										SeqNum:        26,
-										InflationDest: &creator,
-										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor2,
-									},
-								},
-							},
-						},
-						{
-							Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved,
-							Removed: &xdr.LedgerKey{
-								Type: xdr.LedgerEntryTypeAccount,
-								Account: &xdr.LedgerKeyAccount{
-									AccountId: created,
-								},
-							},
-						},
-						{
-							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
-							State: &xdr.LedgerEntry{
-								LastModifiedLedgerSeq: 0x39,
-								Data: xdr.LedgerEntryData{
-									Type: xdr.LedgerEntryTypeAccount,
-									Account: &xdr.AccountEntry{
-										AccountId:     creator,
-										Balance:       800152367009533292,
-										SeqNum:        26,
-										InflationDest: &creator,
-										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor,
+										AccountId:  createAccountFunder,
+										Balance:    800152377009533292,
+										SeqNum:     26,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
 									},
 								},
 							},
@@ -222,61 +154,10 @@ var (
 								Data: xdr.LedgerEntryData{
 									Type: xdr.LedgerEntryTypeAccount,
 									Account: &xdr.AccountEntry{
-										AccountId:     creator,
-										Balance:       800152367009533292,
-										SeqNum:        26,
-										InflationDest: &creator,
-										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor2,
-									},
-								},
-							},
-						},
-						{
-							Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
-							State: &xdr.LedgerEntry{
-								LastModifiedLedgerSeq: 0x39,
-								Data: xdr.LedgerEntryData{
-									Type: xdr.LedgerEntryTypeAccount,
-									Account: &xdr.AccountEntry{
-										AccountId:     creator,
-										Balance:       800152377009533292,
-										SeqNum:        26,
-										InflationDest: &creator,
-										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor,
-									},
-								},
-							},
-						},
-						{
-							Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
-							Updated: &xdr.LedgerEntry{
-								LastModifiedLedgerSeq: 0x39,
-								Data: xdr.LedgerEntryData{
-									Type: xdr.LedgerEntryTypeAccount,
-									Account: &xdr.AccountEntry{
-										AccountId:     creator,
-										Balance:       800152367009533292,
-										SeqNum:        26,
-										InflationDest: &creator,
-										Thresholds:    xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor,
+										AccountId:  createAccountFunder,
+										Balance:    800152367009533292,
+										SeqNum:     26,
+										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
 									},
 								},
 							},
@@ -288,16 +169,10 @@ var (
 								Data: xdr.LedgerEntryData{
 									Type: xdr.LedgerEntryTypeAccount,
 									Account: &xdr.AccountEntry{
-										AccountId:  created,
+										AccountId:  createAccountDestination,
 										Balance:    10000000000,
 										SeqNum:     244813135872,
 										Thresholds: xdr.Thresholds{0x1, 0x0, 0x0, 0x0},
-									},
-								},
-								Ext: xdr.LedgerEntryExt{
-									V: 1,
-									V1: &xdr.LedgerEntryExtensionV1{
-										SponsoringId: &sponsor,
 									},
 								},
 							},

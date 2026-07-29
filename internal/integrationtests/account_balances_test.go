@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
@@ -72,11 +73,10 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -84,7 +84,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		default:
@@ -121,10 +121,8 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal("USDC", *b.Code)
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().Equal("USDC", b.Code)
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 			suite.Require().Equal("100.0000000", b.GetBalance())
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 
@@ -210,7 +208,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Fo
 
 	page1, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		&pageSize, nil, nil, nil,
+		&wbclient.Page{First: &pageSize},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(page1)
@@ -221,7 +219,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Fo
 
 	page2, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		&pageSize, nil, page1.PageInfo.EndCursor, nil,
+		&wbclient.Page{First: &pageSize, After: page1.PageInfo.EndCursor},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(page2)
@@ -241,7 +239,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ba
 
 	lastPage, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		nil, &pageSize, nil, nil,
+		&wbclient.Page{Last: &pageSize},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(lastPage)
@@ -252,7 +250,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ba
 
 	prevPage, err := suite.testEnv.WBClient.GetAccountBalances(
 		context.Background(), address,
-		nil, &pageSize, nil, lastPage.PageInfo.StartCursor,
+		&wbclient.Page{Last: &pageSize, Before: lastPage.PageInfo.StartCursor},
 	)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(prevPage)
@@ -303,11 +301,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -315,7 +312,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC balance should be reduced to 50 after transfer")
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		case *types.SEP41Balance:
@@ -360,11 +357,10 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 		case *types.TrustlineBalance:
 			suite.Require().Equal(types.TokenTypeClassic, b.GetTokenType())
-			suite.Require().NotNil(b.Code, "Trustline balance should have a code")
-			suite.Require().NotNil(b.Issuer, "Trustline balance should have an issuer")
-			suite.Require().Equal(suite.testEnv.MasterAccountAddress, *b.Issuer)
+			suite.Require().NotEmpty(b.Code, "Trustline balance should have a code")
+			suite.Require().Equal(suite.testEnv.MasterAccountAddress, b.Issuer)
 
-			switch *b.Code {
+			switch b.Code {
 			case "USDC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
@@ -372,7 +368,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 				suite.Require().Equal("75.0000000", b.GetBalance(), "EURC balance should be 75 from payment")
 				suite.Require().Equal(suite.testEnv.EURCContractAddress, b.GetTokenID())
 			default:
-				suite.Fail("Unexpected trustline code: %s", *b.Code)
+				suite.Fail("Unexpected trustline code: %s", b.Code)
 			}
 
 		case *types.SEP41Balance:
@@ -542,7 +538,6 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) assertSEP41TokenBalance
 func assertLiquidityPoolBalance(r *require.Assertions, b *types.LiquidityPoolBalance, expectedPoolID, expectedShares, assetA, amountA, assetB, amountB string) {
 	r.Equal(types.TokenTypeLiquidityPool, b.GetTokenType())
 	r.Equal(expectedPoolID, b.GetTokenID(), "LP tokenId should be the pool id")
-	r.Equal(expectedPoolID, b.LiquidityPoolID, "LP liquidityPoolId should be the pool id")
 	r.Equal(expectedShares, b.GetBalance(), "LP share balance mismatch")
 	r.Greater(b.LastModifiedLedger, uint32(0), "LastModifiedLedger should be set")
 	r.Len(b.Reserves, 2, "LP should expose both reserve legs")

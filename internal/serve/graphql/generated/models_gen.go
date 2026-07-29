@@ -12,101 +12,152 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// Common contract for every token balance held by an account.
 type Balance interface {
 	IsBalance()
+	// Balance amount, as a decimal string.
 	GetBalance() string
+	// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
 	GetTokenID() string
+	// Classification of the token.
 	GetTokenType() TokenType
 }
 
+// Common contract implemented by every state change. A state change records one
+// modification to one account's ledger state, attributed to the transaction (and,
+// except for transaction fees, the operation) that caused it.
+//
+// Each concrete type documents the exact (category, reason) pairs it represents
+// and the nullability of every field, so the variant structure is fully encoded
+// in the schema. Select concrete-type fields via inline fragments; `category` and
+// `reason` carry the same discrimination for generic consumers.
 type BaseStateChange interface {
 	IsBaseStateChange()
-	GetType() types.StateChangeCategory
+	// Category of account state this change affects.
+	GetCategory() types.StateChangeCategory
+	// Why the change occurred. Each concrete type documents its valid reasons.
 	GetReason() types.StateChangeReason
+	// When the indexer persisted this state change.
 	GetIngestedAt() time.Time
+	// Close time of the ledger that produced this change.
 	GetLedgerCreatedAt() time.Time
+	// Sequence number of the ledger that produced this change.
 	GetLedgerNumber() uint32
+	// Account whose state changed.
 	GetAccount() *types.Account
+	// Operation that caused this change. Non-null on every concrete type except
+	// BalanceChange, where it is null on transaction-fee rows (fees are charged per
+	// transaction, not per operation).
 	GetOperation() *types.Operation
+	// Transaction that caused this change.
 	GetTransaction() *types.Transaction
 }
 
-// Input type for filtering account state changes by transaction and/or operation
+// Filters for an account's state changes; all conditions are ANDed.
 type AccountStateChangeFilterInput struct {
-	// Filter by transaction hash - returns only state changes from this transaction
+	// Only state changes from the transaction with this hash.
 	TransactionHash *string `json:"transactionHash,omitempty"`
-	// Filter by operation ID - returns only state changes from this operation
+	// Only state changes from the operation with this ID.
 	OperationID *int64 `json:"operationId,omitempty"`
-	// Filter by state change category - returns only state changes with this category
-	Category *string `json:"category,omitempty"`
-	// Filter by state change reason - returns only state changes with this reason
-	Reason *string `json:"reason,omitempty"`
+	// Only state changes with this category.
+	Category *types.StateChangeCategory `json:"category,omitempty"`
+	// Only state changes with this reason.
+	Reason *types.StateChangeReason `json:"reason,omitempty"`
 }
 
+// Relay-style page of an account's transactions.
 type AccountTransactionConnection struct {
 	Edges    []*types.AccountTransactionEdge `json:"edges"`
 	PageInfo *PageInfo                       `json:"pageInfo"`
 }
 
+// Relay-style page of an account's token balances.
 type BalanceConnection struct {
 	Edges    []*BalanceEdge `json:"edges"`
 	PageInfo *PageInfo      `json:"pageInfo"`
 }
 
+// One balance in a page, with its pagination cursor.
 type BalanceEdge struct {
 	Node   Balance `json:"node"`
 	Cursor string  `json:"cursor"`
 }
 
-// LiquidityPoolBalance represents an account's liquidity-pool share holding. `balance` is the
-// account's pool shares and `tokenId` is the pool id; `reserves` carries the pool's constituent
+// An account's liquidity-pool share holding. `balance` is the account's pool
+// shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 // assets and amounts.
 type LiquidityPoolBalance struct {
-	Balance            string                  `json:"balance"`
-	TokenID            string                  `json:"tokenId"`
-	TokenType          TokenType               `json:"tokenType"`
-	LiquidityPoolID    string                  `json:"liquidityPoolId"`
-	Reserves           []*LiquidityPoolReserve `json:"reserves"`
-	LastModifiedLedger uint32                  `json:"lastModifiedLedger"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+	// The pool's constituent assets and reserve amounts.
+	Reserves []*LiquidityPoolReserve `json:"reserves"`
+	// Ledger in which this pool-share trustline was last modified.
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
 }
 
-func (LiquidityPoolBalance) IsBalance()                   {}
-func (this LiquidityPoolBalance) GetBalance() string      { return this.Balance }
-func (this LiquidityPoolBalance) GetTokenID() string      { return this.TokenID }
+func (LiquidityPoolBalance) IsBalance() {}
+
+// Balance amount, as a decimal string.
+func (this LiquidityPoolBalance) GetBalance() string { return this.Balance }
+
+// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+func (this LiquidityPoolBalance) GetTokenID() string { return this.TokenID }
+
+// Classification of the token.
 func (this LiquidityPoolBalance) GetTokenType() TokenType { return this.TokenType }
 
-// LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount.
+// One constituent asset of a liquidity pool and its reserve amount.
 type LiquidityPoolReserve struct {
-	Asset  string `json:"asset"`
+	// Canonical asset name (code:issuer, or 'native').
+	Asset string `json:"asset"`
+	// Reserve amount, as a decimal string.
 	Amount string `json:"amount"`
 }
 
+// The account's native XLM balance.
 type NativeBalance struct {
-	Balance            string    `json:"balance"`
-	TokenID            string    `json:"tokenId"`
-	TokenType          TokenType `json:"tokenType"`
-	MinimumBalance     string    `json:"minimumBalance"`
-	BuyingLiabilities  string    `json:"buyingLiabilities"`
-	SellingLiabilities string    `json:"sellingLiabilities"`
-	NumSubentries      uint32    `json:"numSubentries"`
-	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+	// Base reserve requirement (excludes liabilities):
+	// (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
+	// Spendable balance = balance - minimumBalance - sellingLiabilities.
+	MinimumBalance string `json:"minimumBalance"`
+	// XLM locked in open buy offers.
+	BuyingLiabilities string `json:"buyingLiabilities"`
+	// XLM locked in open sell offers.
+	SellingLiabilities string `json:"sellingLiabilities"`
+	// Number of subentries on the account (trustlines, offers, data entries, signers).
+	NumSubentries uint32 `json:"numSubentries"`
+	// Ledger in which this balance entry was last modified.
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
 }
 
-func (NativeBalance) IsBalance()                   {}
-func (this NativeBalance) GetBalance() string      { return this.Balance }
-func (this NativeBalance) GetTokenID() string      { return this.TokenID }
+func (NativeBalance) IsBalance() {}
+
+// Balance amount, as a decimal string.
+func (this NativeBalance) GetBalance() string { return this.Balance }
+
+// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+func (this NativeBalance) GetTokenID() string { return this.TokenID }
+
+// Classification of the token.
 func (this NativeBalance) GetTokenType() TokenType { return this.TokenType }
 
+// Relay-style page of operations.
 type OperationConnection struct {
-	Edges    []*OperationEdge `json:"edges,omitempty"`
+	Edges    []*OperationEdge `json:"edges"`
 	PageInfo *PageInfo        `json:"pageInfo"`
 }
 
+// One operation in a page, with its pagination cursor.
 type OperationEdge struct {
-	Node   *types.Operation `json:"node,omitempty"`
+	Node   *types.Operation `json:"node"`
 	Cursor string           `json:"cursor"`
 }
 
+// Relay-style pagination metadata; cursors are opaque strings.
 type PageInfo struct {
 	StartCursor     *string `json:"startCursor,omitempty"`
 	EndCursor       *string `json:"endCursor,omitempty"`
@@ -114,98 +165,211 @@ type PageInfo struct {
 	HasPreviousPage bool    `json:"hasPreviousPage"`
 }
 
+// Root queries. Entities not found return null.
 type Query struct {
 }
 
+// A Stellar Asset Contract balance held by a contract address.
 type SACBalance struct {
-	Balance           string    `json:"balance"`
-	TokenID           string    `json:"tokenId"`
-	TokenType         TokenType `json:"tokenType"`
-	Code              string    `json:"code"`
-	Issuer            string    `json:"issuer"`
-	Decimals          int32     `json:"decimals"`
-	IsAuthorized      bool      `json:"isAuthorized"`
-	IsClawbackEnabled bool      `json:"isClawbackEnabled"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+	// Asset code of the wrapped classic asset.
+	Code string `json:"code"`
+	// Issuer address of the wrapped classic asset.
+	Issuer string `json:"issuer"`
+	// Number of decimal places in the balance amount.
+	Decimals int32 `json:"decimals"`
+	// Whether the holder is authorized to transact the asset.
+	IsAuthorized bool `json:"isAuthorized"`
+	// Whether the issuer can claw the asset back from this holder.
+	IsClawbackEnabled bool `json:"isClawbackEnabled"`
 }
 
-func (SACBalance) IsBalance()                   {}
-func (this SACBalance) GetBalance() string      { return this.Balance }
-func (this SACBalance) GetTokenID() string      { return this.TokenID }
+func (SACBalance) IsBalance() {}
+
+// Balance amount, as a decimal string.
+func (this SACBalance) GetBalance() string { return this.Balance }
+
+// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+func (this SACBalance) GetTokenID() string { return this.TokenID }
+
+// Classification of the token.
 func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
 
-// SEP41Allowance represents an approve() grant issued by a SEP-41 token holder.
+// An approve() grant issued by a SEP-41 token holder.
 type SEP41Allowance struct {
-	Owner              string `json:"owner"`
-	Spender            string `json:"spender"`
-	TokenID            string `json:"tokenId"`
-	Amount             string `json:"amount"`
-	ExpirationLedger   uint32 `json:"expirationLedger"`
+	// Token holder that granted the allowance.
+	Owner string `json:"owner"`
+	// Address authorized to spend from the holder's balance.
+	Spender string `json:"spender"`
+	// Contract ID of the token.
+	TokenID string `json:"tokenId"`
+	// Approved allowance, as a decimal string in the token's smallest unit.
+	Amount string `json:"amount"`
+	// Last ledger sequence at which the allowance is live.
+	ExpirationLedger uint32 `json:"expirationLedger"`
+	// Ledger in which this allowance was last modified.
 	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
 }
 
+// Relay-style page of SEP-41 allowances.
 type SEP41AllowanceConnection struct {
 	Edges    []*SEP41AllowanceEdge `json:"edges"`
 	PageInfo *PageInfo             `json:"pageInfo"`
 }
 
+// One SEP-41 allowance in a page, with its pagination cursor.
 type SEP41AllowanceEdge struct {
 	Node   *SEP41Allowance `json:"node"`
 	Cursor string          `json:"cursor"`
 }
 
-// SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder.
+// A pure SEP-41 (non-SAC) contract token balance.
 type SEP41Balance struct {
-	Balance            string    `json:"balance"`
-	TokenID            string    `json:"tokenId"`
-	TokenType          TokenType `json:"tokenType"`
-	Name               *string   `json:"name,omitempty"`
-	Symbol             *string   `json:"symbol,omitempty"`
-	Decimals           int32     `json:"decimals"`
-	LastModifiedLedger uint32    `json:"lastModifiedLedger"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+	// Token name reported by the contract; null when the contract does not expose one.
+	Name *string `json:"name,omitempty"`
+	// Token symbol reported by the contract; null when the contract does not expose one.
+	Symbol *string `json:"symbol,omitempty"`
+	// Number of decimal places in the balance amount.
+	Decimals int32 `json:"decimals"`
+	// Ledger in which this balance entry was last modified.
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
 }
 
-func (SEP41Balance) IsBalance()                   {}
-func (this SEP41Balance) GetBalance() string      { return this.Balance }
-func (this SEP41Balance) GetTokenID() string      { return this.TokenID }
+func (SEP41Balance) IsBalance() {}
+
+// Balance amount, as a decimal string.
+func (this SEP41Balance) GetBalance() string { return this.Balance }
+
+// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+func (this SEP41Balance) GetTokenID() string { return this.TokenID }
+
+// Classification of the token.
 func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
 
+// Relay-style page of state changes.
 type StateChangeConnection struct {
-	Edges    []*StateChangeEdge `json:"edges,omitempty"`
+	Edges    []*StateChangeEdge `json:"edges"`
 	PageInfo *PageInfo          `json:"pageInfo"`
 }
 
+// One state change in a page, with its pagination cursor.
 type StateChangeEdge struct {
-	Node   BaseStateChange `json:"node,omitempty"`
+	Node   BaseStateChange `json:"node"`
 	Cursor string          `json:"cursor"`
 }
 
+// A classic Stellar asset held via a trustline.
 type TrustlineBalance struct {
-	Balance                           string    `json:"balance"`
-	TokenID                           string    `json:"tokenId"`
-	TokenType                         TokenType `json:"tokenType"`
-	Code                              string    `json:"code"`
-	Issuer                            string    `json:"issuer"`
-	Type                              string    `json:"type"`
-	Limit                             string    `json:"limit"`
-	BuyingLiabilities                 string    `json:"buyingLiabilities"`
-	SellingLiabilities                string    `json:"sellingLiabilities"`
-	LastModifiedLedger                uint32    `json:"lastModifiedLedger"`
-	IsAuthorized                      bool      `json:"isAuthorized"`
-	IsAuthorizedToMaintainLiabilities bool      `json:"isAuthorizedToMaintainLiabilities"`
+	Balance   string    `json:"balance"`
+	TokenID   string    `json:"tokenId"`
+	TokenType TokenType `json:"tokenType"`
+	// Asset code.
+	Code string `json:"code"`
+	// Asset issuer address.
+	Issuer string `json:"issuer"`
+	// Classic asset type, determined by the asset code length.
+	AssetType AssetType `json:"assetType"`
+	// Trustline limit, as a decimal string.
+	Limit string `json:"limit"`
+	// Amount locked in open buy offers.
+	BuyingLiabilities string `json:"buyingLiabilities"`
+	// Amount locked in open sell offers.
+	SellingLiabilities string `json:"sellingLiabilities"`
+	// Ledger in which this trustline was last modified.
+	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
+	// Whether the holder is fully authorized to transact the asset.
+	IsAuthorized bool `json:"isAuthorized"`
+	// Whether the holder may maintain existing liabilities on the asset.
+	IsAuthorizedToMaintainLiabilities bool `json:"isAuthorizedToMaintainLiabilities"`
 }
 
-func (TrustlineBalance) IsBalance()                   {}
-func (this TrustlineBalance) GetBalance() string      { return this.Balance }
-func (this TrustlineBalance) GetTokenID() string      { return this.TokenID }
+func (TrustlineBalance) IsBalance() {}
+
+// Balance amount, as a decimal string.
+func (this TrustlineBalance) GetBalance() string { return this.Balance }
+
+// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+func (this TrustlineBalance) GetTokenID() string { return this.TokenID }
+
+// Classification of the token.
 func (this TrustlineBalance) GetTokenType() TokenType { return this.TokenType }
 
+// Classic Stellar asset type, determined by the asset code length.
+type AssetType string
+
+const (
+	// Asset code of 1-4 characters.
+	AssetTypeCreditAlphanum4 AssetType = "CREDIT_ALPHANUM4"
+	// Asset code of 5-12 characters.
+	AssetTypeCreditAlphanum12 AssetType = "CREDIT_ALPHANUM12"
+)
+
+var AllAssetType = []AssetType{
+	AssetTypeCreditAlphanum4,
+	AssetTypeCreditAlphanum12,
+}
+
+func (e AssetType) IsValid() bool {
+	switch e {
+	case AssetTypeCreditAlphanum4, AssetTypeCreditAlphanum12:
+		return true
+	}
+	return false
+}
+
+func (e AssetType) String() string {
+	return string(e)
+}
+
+func (e *AssetType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = AssetType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid AssetType", str)
+	}
+	return nil
+}
+
+func (e AssetType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *AssetType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e AssetType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Classification of a token as held in an account's balance.
 type TokenType string
 
 const (
-	TokenTypeNative        TokenType = "NATIVE"
-	TokenTypeClassic       TokenType = "CLASSIC"
-	TokenTypeSac           TokenType = "SAC"
-	TokenTypeSep41         TokenType = "SEP41"
+	// The native XLM asset.
+	TokenTypeNative TokenType = "NATIVE"
+	// A classic Stellar asset held via a trustline.
+	TokenTypeClassic TokenType = "CLASSIC"
+	// A Stellar Asset Contract balance held by a contract address.
+	TokenTypeSac TokenType = "SAC"
+	// A pure SEP-41 (non-SAC) contract token balance.
+	TokenTypeSep41 TokenType = "SEP41"
+	// A liquidity-pool share position.
 	TokenTypeLiquidityPool TokenType = "LIQUIDITY_POOL"
 )
 

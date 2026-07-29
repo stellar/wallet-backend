@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -56,22 +57,22 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 			//exhaustive:ignore
 			switch change.StateChangeCategory {
-			case types.StateChangeCategoryMetadata:
-				assert.Equal(t, types.StateChangeReasonHomeDomain, change.StateChangeReason)
-				homeDomain, ok := change.KeyValue["home_domain"].(map[string]any)
-				require.True(t, ok, "home_domain should be an {old, new} map")
-				assert.Equal(t, "old.example.org", homeDomain["old"])
-				assert.Equal(t, "https://www.home.org/", homeDomain["new"])
+			case types.StateChangeCategoryHomeDomain:
+				// Both the pre-image and the new value are non-empty in this fixture.
+				assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason)
+				assert.Equal(t, "old.example.org", change.KeyValue["old"])
+				assert.Equal(t, "https://www.home.org/", change.KeyValue["new"])
 			case types.StateChangeCategorySignatureThreshold:
-				//exhaustive:ignore
-				switch change.StateChangeReason {
-				case types.StateChangeReasonLow:
+				assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason)
+				require.True(t, change.Threshold.Valid, "threshold level must identify which threshold changed")
+				switch types.ThresholdLevel(change.Threshold.String) {
+				case types.ThresholdLevelLow:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(1), change.ThresholdNew.Int16)
-				case types.StateChangeReasonMedium:
+				case types.ThresholdLevelMedium:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(2), change.ThresholdNew.Int16)
-				case types.StateChangeReasonHigh:
+				case types.ThresholdLevelHigh:
 					assert.Equal(t, int16(0), change.ThresholdOld.Int16)
 					assert.Equal(t, int16(3), change.ThresholdNew.Int16)
 				}
@@ -131,6 +132,51 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized | types.FlagBitClawbackEnabled, Valid: true}, changes[1].Flags)
 	})
 
+	t.Run("CreateAccount - synthesizes master-key signer", func(t *testing.T) {
+		envelopeXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAAAAAAAAAaAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvkAAAAAAAAAAABVvwF9wAAAEDHU95E9wxgETD8TqxUrkgC0/7XHyNDts6Q5huRHfDRyRcoHdv7aMp/sPvC3RPkXjOMjgbKJUX7SgExUeYB5f8F"
+		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
+		metaXDR := createAccountMetaB64
+		feeChangesXDR := "AAAAAgAAAAMAAAA3AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nHQAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA5AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nFsAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
+		hash := "0e5bd332291e3098e49886df2cdb9b5369a5f9e0a9973f0d9e1a9489c6581ba2"
+		transaction := buildTransactionFromXDR(
+			t,
+			testTransaction{
+				Index:         1,
+				EnvelopeXDR:   envelopeXDR,
+				ResultXDR:     resultXDR,
+				MetaXDR:       metaXDR,
+				FeeChangesXDR: feeChangesXDR,
+				Hash:          hash,
+			},
+		)
+
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
+		opWrapper := &TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		// Creating an account implicitly adds its master key as a signer, so the
+		// operation yields a SIGNER/ADD change on the new account with no old weight.
+		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
+		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
+		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
+		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
+		assert.Equal(t, createAccountDestination.Address(), changes[0].AccountID.String())
+		assert.Equal(t, createAccountDestination.Address(), changes[0].SignerAccountID.String())
+		assert.Equal(t, sql.NullInt16{Int16: 1, Valid: true}, changes[0].SignerWeightNew)
+		assert.False(t, changes[0].SignerWeightOld.Valid)
+	})
+
 	t.Run("ManageData - data created", func(t *testing.T) {
 		envelopeXDR := "AAAAADEhMVDHiYXdz5z8l73XGyrQ2RN85ZRW1uLsCNQumfsZAAAAZAAAADAAAAACAAAAAAAAAAAAAAABAAAAAAAAAAoAAAAFbmFtZTIAAAAAAAABAAAABDU2NzgAAAAAAAAAAS6Z+xkAAABAjxgnTRBCa0n1efZocxpEjXeITQ5sEYTVd9fowuto2kPw5eFwgVnz6OrKJwCRt5L8ylmWiATXVI3Zyfi3yTKqBA=="
 		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAAKAAAAAAAAAAA="
@@ -166,9 +212,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"name2": map[string]any{"new": "NTY3OA=="}}, changes[0].KeyValue)
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "name2", Valid: true}, changes[0].DataEntryName)
+		assert.Equal(t, types.NullableJSONB{"new": "NTY3OA=="}, changes[0].KeyValue)
 	})
 	t.Run("ManageData - data updated", func(t *testing.T) {
 		envelopeXDR := "AAAAAKO5w1Op9wij5oMFtCTUoGO9YgewUKQyeIw1g/L0mMP+AAAAZAAALbYAADNjAAAAAQAAAAAAAAAAAAAAAF4WVfgAAAAAAAAAAQAAAAEAAAAAOO6NdKTWKbGao6zsPag+izHxq3eUPLiwjREobLhQAmQAAAAKAAAAOEdDUjNUUTJUVkgzUVJJN0dRTUMzSUpHVVVCUjMyWVFIV0JJS0lNVFlSUTJZSDRYVVREQjc1VUtFAAAAAQAAABQxNTc4NTIxMjA0XzI5MzI5MDI3OAAAAAAAAAAC0oPafQAAAEAcsS0iq/t8i+p85xwLsRy8JpRNEeqobEC5yuhO9ouVf3PE0VjLqv8sDd0St4qbtXU5fqlHd49R9CR+z7tiRLEB9JjD/gAAAEBmaa9sGxQhEhrakzXcSNpMbR4nox/Ha0p/1sI4tabNEzjgYLwKMn1U9tIdVvKKDwE22jg+CI2FlPJ3+FJPmKUA"
@@ -205,13 +252,12 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonUpdate, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE", Valid: true}, changes[0].DataEntryName)
 		assert.Equal(t, types.NullableJSONB{
-			"GCR3TQ2TVH3QRI7GQMC3IJGUUBR32YQHWBIKIMTYRQ2YH4XUTDB75UKE": map[string]any{
-				"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
-				"old": "MTU3ODUyMDg1OF8yNTIzOTE3Njg=",
-			},
+			"new": "MTU3ODUyMTIwNF8yOTMyOTAyNzg=",
+			"old": "MTU3ODUyMDg1OF8yNTIzOTE3Njg=",
 		}, changes[0].KeyValue)
 	})
 	t.Run("ManageData - data removed", func(t *testing.T) {
@@ -249,90 +295,10 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[0].OperationID)
 		assert.Equal(t, uint32(12345), changes[0].LedgerNumber)
 		assert.Equal(t, time.Unix(12345*100, 0), changes[0].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryMetadata, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonDataEntry, changes[0].StateChangeReason)
-		assert.Equal(t, types.NullableJSONB{"hello": map[string]any{"old": ""}}, changes[0].KeyValue)
-	})
-	t.Run("Sponsorship - reserves sponsorship created/updated/revoked", func(t *testing.T) {
-		envelopeXDR := "AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAAAAAAAAAaAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAoZftFP3p4ifbTm6hQdieotu3Zw9E05GtoSh5MBytEpQAAAACVAvkAAAAAAAAAAABVvwF9wAAAEDHU95E9wxgETD8TqxUrkgC0/7XHyNDts6Q5huRHfDRyRcoHdv7aMp/sPvC3RPkXjOMjgbKJUX7SgExUeYB5f8F"
-		resultXDR := "AAAAAAAAAGQAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAA="
-		metaXDR := createAccountMetaB64
-		feeChangesXDR := "AAAAAgAAAAMAAAA3AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nHQAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAEAAAA5AAAAAAAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wsatlj11nFsAAAAAAAAABkAAAAAAAAAAQAAAABi/B0L0JGythwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAA=="
-		hash := "0e5bd332291e3098e49886df2cdb9b5369a5f9e0a9973f0d9e1a9489c6581ba2"
-		transaction := buildTransactionFromXDR(
-			t,
-			testTransaction{
-				Index:         1,
-				EnvelopeXDR:   envelopeXDR,
-				ResultXDR:     resultXDR,
-				MetaXDR:       metaXDR,
-				FeeChangesXDR: feeChangesXDR,
-				Hash:          hash,
-			},
-		)
-		op, found := transaction.GetOperation(0)
-		require.True(t, found)
-		processor := NewEffectsProcessor(networkPassphrase, nil)
-		opWrapper := &TransactionOperationWrapper{
-			Index:          0,
-			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
-			LedgerSequence: 12345,
-		}
-		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
-		require.NoError(t, err)
-		require.Len(t, changes, 9) // Updated: CreateAccount now generates SIGNER/ADD effect
-
-		// CreateAccount generates SIGNER/ADD effect at index 0
-		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
-
-		// Sponsorship revoked creates two state changes - one for the sponsor and one for the target account
-		assert.Equal(t, toid.New(12345, 1, 1).ToInt64(), changes[1].OperationID)
-		assert.Equal(t, uint32(12345), changes[1].LedgerNumber)
-		assert.Equal(t, time.Unix(12345*100, 0), changes[1].LedgerCreatedAt)
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[1].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[1].StateChangeReason)
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[1].AccountID.String())
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[1].SponsoredAccountID.String())
-
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[2].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[2].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[2].AccountID.String())
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[2].SponsorAccountID.String())
-
-		// Updating sponsorship creates 4 state changes - one for the new sponsor, one for the former sponsor, and two for the target account
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[3].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, changes[3].StateChangeReason)
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[3].AccountID.String())
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[3].SponsoredAccountID.String())
-
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[4].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[4].StateChangeReason)
-		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[4].AccountID.String())
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[4].SponsoredAccountID.String())
-
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[5].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, changes[5].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[5].AccountID.String())
-		assert.Equal(t, "GACMZD5VJXTRLKVET72CETCYKELPNCOTTBDC6DHFEUPLG5DHEK534JQX", changes[5].SponsorAccountID.String())
-
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[6].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonUnsponsor, changes[6].StateChangeReason)
-		assert.Equal(t, "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", changes[6].AccountID.String())
-		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[6].SponsorAccountID.String())
-
-		// Sponsorship created creates two state changes - one for the sponsor and one for the target account
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[7].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, changes[7].StateChangeReason)
-		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[7].AccountID.String())
-		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[7].SponsoredAccountID.String())
-
-		assert.Equal(t, types.StateChangeCategoryReserves, changes[8].StateChangeCategory)
-		assert.Equal(t, types.StateChangeReasonSponsor, changes[8].StateChangeReason)
-		assert.Equal(t, "GCQZP3IU7XU6EJ63JZXKCQOYT2RNXN3HB5CNHENNUEUHSMA4VUJJJSEN", changes[8].AccountID.String())
-		assert.Equal(t, "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4A", changes[8].SponsorAccountID.String())
+		assert.Equal(t, types.StateChangeCategoryDataEntry, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonRemove, changes[0].StateChangeReason)
+		assert.Equal(t, sql.NullString{String: "hello", Valid: true}, changes[0].DataEntryName)
+		assert.Equal(t, types.NullableJSONB{"old": ""}, changes[0].KeyValue)
 	})
 	t.Run("ChangeTrust - trustline created", func(t *testing.T) {
 		envelopeXDR := "AAAAAgAAAAAf1miSBZ7jc0TxIHULMUqdj+dibtkh1JEEwITVtQ05ZgAAAGQAB1eLAAAAAwAAAAEAAAAAAAAAAAAAAABowwQqAAAAAAAAAAEAAAAAAAAABgAAAAFURVNUAAAAAFrnJwiWP46hSSjcYc6wY93h556Qpe47SA8bIQGXMJTlf/////////8AAAAAAAAAAbUNOWYAAABAzWelNCrF4Q+iSKX30xHrBm76FMa2h89pPauijrWAVlcj/swEyYZqjU94SYU+8XEWUuvg2rpjCIHGPHHyzSXlAw=="
@@ -459,24 +425,197 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 // changes: when a single SetOptions effect updates low, medium, and high thresholds together,
 // the resulting state changes must always come back in low -> medium -> high order so that
 // ordinals assigned within a (to_id, operation_id) group are reproducible across re-ingests.
+// It also covers the required old values, which come from the account pre-image.
 func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
+	const address = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
 	processor := NewEffectsProcessor(networkPassphrase, nil)
 	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
-		WithAccount("GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH").
+		WithAccount(address).
 		WithCategory(types.StateChangeCategorySignatureThreshold)
 	effect := &EffectOutput{
-		Address: "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH",
+		Address: address,
 		Details: map[string]interface{}{
 			"low_threshold":  xdr.Uint32(1),
 			"med_threshold":  xdr.Uint32(2),
 			"high_threshold": xdr.Uint32(3),
 		},
 	}
+	changes := []ingest.Change{{
+		Type: xdr.LedgerEntryTypeAccount,
+		Pre: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId: xdr.MustAddress(address),
+				// Thresholds are [master, low, medium, high].
+				Thresholds: xdr.Thresholds{1, 5, 6, 7},
+			},
+		}},
+	}}
 
-	thresholdChanges := processor.parseThresholds(changeBuilder, effect, nil)
+	thresholdChanges, err := processor.parseThresholds(changeBuilder, effect, changes)
+	require.NoError(t, err)
 
 	require.Len(t, thresholdChanges, 3)
-	assert.Equal(t, types.StateChangeReasonLow, thresholdChanges[0].StateChangeReason)
-	assert.Equal(t, types.StateChangeReasonMedium, thresholdChanges[1].StateChangeReason)
-	assert.Equal(t, types.StateChangeReasonHigh, thresholdChanges[2].StateChangeReason)
+	for i, change := range thresholdChanges {
+		assert.Equal(t, types.StateChangeReasonUpdate, change.StateChangeReason, "change %d", i)
+	}
+	assert.Equal(t, types.ThresholdLevelLow, types.ThresholdLevel(thresholdChanges[0].Threshold.String))
+	assert.Equal(t, types.ThresholdLevelMedium, types.ThresholdLevel(thresholdChanges[1].Threshold.String))
+	assert.Equal(t, types.ThresholdLevelHigh, types.ThresholdLevel(thresholdChanges[2].Threshold.String))
+	assert.Equal(t, int16(5), thresholdChanges[0].ThresholdOld.Int16)
+	assert.Equal(t, int16(6), thresholdChanges[1].ThresholdOld.Int16)
+	assert.Equal(t, int16(7), thresholdChanges[2].ThresholdOld.Int16)
+
+	t.Run("missing account pre-image is an error", func(t *testing.T) {
+		_, err := processor.parseThresholds(changeBuilder, effect, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no previous account state")
+	})
+}
+
+// TestEffects_HomeDomainChange covers the derivation of the HOME_DOMAIN reason and the
+// trimmed key-value payload from a domain transition, including the no-op transition that
+// emits no state change at all.
+func TestEffects_HomeDomainChange(t *testing.T) {
+	testCases := []struct {
+		name         string
+		oldDomain    string
+		newDomain    string
+		wantReason   types.StateChangeReason
+		wantKeyValue map[string]any
+		wantChanged  bool
+	}{
+		{
+			name:         "empty old domain means the domain was set for the first time",
+			oldDomain:    "",
+			newDomain:    "home.org",
+			wantReason:   types.StateChangeReasonSet,
+			wantKeyValue: map[string]any{"new": "home.org"},
+			wantChanged:  true,
+		},
+		{
+			name:         "empty new domain means the domain was cleared",
+			oldDomain:    "home.org",
+			newDomain:    "",
+			wantReason:   types.StateChangeReasonClear,
+			wantKeyValue: map[string]any{"old": "home.org"},
+			wantChanged:  true,
+		},
+		{
+			name:         "two distinct non-empty domains mean the domain was updated",
+			oldDomain:    "old.example.org",
+			newDomain:    "home.org",
+			wantReason:   types.StateChangeReasonUpdate,
+			wantKeyValue: map[string]any{"old": "old.example.org", "new": "home.org"},
+			wantChanged:  true,
+		},
+		{
+			name:        "rewriting the same domain changes nothing",
+			oldDomain:   "same.org",
+			newDomain:   "same.org",
+			wantChanged: false,
+		},
+		{
+			name:        "an absent domain left absent changes nothing",
+			oldDomain:   "",
+			newDomain:   "",
+			wantChanged: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, keyValue, changed := homeDomainChange(tc.oldDomain, tc.newDomain)
+			assert.Equal(t, tc.wantChanged, changed)
+			assert.Equal(t, tc.wantReason, reason)
+			assert.Equal(t, tc.wantKeyValue, keyValue)
+		})
+	}
+}
+
+// TestEffects_GetPrevLedgerEntryState_MatchesEntity pins the pre-image lookup to the
+// effect's entity rather than the first entry of the requested type: multi-account
+// operations such as merges carry several account pre-images in one change set, and an
+// operation can touch several of one account's trustlines. Serving another entity's
+// pre-image would fabricate old values.
+func TestEffects_GetPrevLedgerEntryState_MatchesEntity(t *testing.T) {
+	p := NewEffectsProcessor(networkPassphrase, nil)
+	const target = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
+	const other = "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C"
+
+	accountEntry := func(addr string, lowThreshold byte) *xdr.LedgerEntry {
+		return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId:  xdr.MustAddress(addr),
+				Thresholds: xdr.Thresholds{1, lowThreshold, 0, 0},
+			},
+		}}
+	}
+	effect := &EffectOutput{Address: target, Details: map[string]interface{}{}}
+
+	t.Run("account pre-image is matched by address, not position", func(t *testing.T) {
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(other, 9)},
+			{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(target, 5)},
+		}
+		pre := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
+		require.NotNil(t, pre)
+		account := pre.Data.MustAccount()
+		assert.Equal(t, target, account.AccountId.Address())
+		assert.Equal(t, xdr.Thresholds{1, 5, 0, 0}, account.Thresholds)
+	})
+
+	t.Run("no matching account yields nil", func(t *testing.T) {
+		changes := []ingest.Change{{Type: xdr.LedgerEntryTypeAccount, Pre: accountEntry(other, 9)}}
+		assert.Nil(t, p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes))
+	})
+
+	t.Run("trustline pre-image is matched by trustor and asset", func(t *testing.T) {
+		trustlineEntry := func(addr, code string, limit int64) *xdr.LedgerEntry {
+			asset := xdr.MustNewCreditAsset(code, other)
+			return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: xdr.MustAddress(addr),
+					Asset:     asset.ToTrustLineAsset(),
+					Limit:     xdr.Int64(limit),
+				},
+			}}
+		}
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(other, "USDC", 111)},
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(target, "EURC", 222)},
+			{Type: xdr.LedgerEntryTypeTrustline, Pre: trustlineEntry(target, "USDC", 333)},
+		}
+		tlEffect := &EffectOutput{Address: target, Details: map[string]interface{}{
+			"asset_type": "credit_alphanum4", "asset_code": "USDC", "asset_issuer": other,
+		}}
+		pre := p.getPrevLedgerEntryState(tlEffect, xdr.LedgerEntryTypeTrustline, changes)
+		require.NotNil(t, pre)
+		assert.Equal(t, xdr.Int64(333), pre.Data.MustTrustLine().Limit)
+	})
+
+	t.Run("data pre-image is matched by owner and entry name", func(t *testing.T) {
+		dataEntry := func(addr, name, value string) *xdr.LedgerEntry {
+			return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeData,
+				Data: &xdr.DataEntry{
+					AccountId: xdr.MustAddress(addr),
+					DataName:  xdr.String64(name),
+					DataValue: xdr.DataValue(value),
+				},
+			}}
+		}
+		changes := []ingest.Change{
+			{Type: xdr.LedgerEntryTypeData, Pre: dataEntry(target, "config_a", "v1")},
+			{Type: xdr.LedgerEntryTypeData, Pre: dataEntry(target, "config_b", "v2")},
+		}
+		dataEffect := &EffectOutput{Address: target, Details: map[string]interface{}{
+			"name": xdr.String64("config_b"),
+		}}
+		pre := p.getPrevLedgerEntryState(dataEffect, xdr.LedgerEntryTypeData, changes)
+		require.NotNil(t, pre)
+		assert.Equal(t, xdr.DataValue("v2"), pre.Data.MustData().DataValue)
+	})
 }

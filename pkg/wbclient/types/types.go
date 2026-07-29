@@ -47,10 +47,11 @@ const (
 	StateChangeCategoryAccount              StateChangeCategory = "ACCOUNT"
 	StateChangeCategorySigner               StateChangeCategory = "SIGNER"
 	StateChangeCategorySignatureThreshold   StateChangeCategory = "SIGNATURE_THRESHOLD"
-	StateChangeCategoryMetadata             StateChangeCategory = "METADATA"
+	StateChangeCategoryDataEntry            StateChangeCategory = "DATA_ENTRY"
+	StateChangeCategoryHomeDomain           StateChangeCategory = "HOME_DOMAIN"
+	StateChangeCategoryAllowance            StateChangeCategory = "ALLOWANCE"
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
-	StateChangeCategoryReserves             StateChangeCategory = "RESERVES"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
 )
 
@@ -58,24 +59,17 @@ const (
 type StateChangeReason string
 
 const (
-	StateChangeReasonCreate     StateChangeReason = "CREATE"
-	StateChangeReasonMerge      StateChangeReason = "MERGE"
-	StateChangeReasonDebit      StateChangeReason = "DEBIT"
-	StateChangeReasonCredit     StateChangeReason = "CREDIT"
-	StateChangeReasonMint       StateChangeReason = "MINT"
-	StateChangeReasonBurn       StateChangeReason = "BURN"
-	StateChangeReasonAdd        StateChangeReason = "ADD"
-	StateChangeReasonRemove     StateChangeReason = "REMOVE"
-	StateChangeReasonUpdate     StateChangeReason = "UPDATE"
-	StateChangeReasonLow        StateChangeReason = "LOW"
-	StateChangeReasonMedium     StateChangeReason = "MEDIUM"
-	StateChangeReasonHigh       StateChangeReason = "HIGH"
-	StateChangeReasonHomeDomain StateChangeReason = "HOME_DOMAIN"
-	StateChangeReasonSet        StateChangeReason = "SET"
-	StateChangeReasonClear      StateChangeReason = "CLEAR"
-	StateChangeReasonDataEntry  StateChangeReason = "DATA_ENTRY"
-	StateChangeReasonSponsor    StateChangeReason = "SPONSOR"
-	StateChangeReasonUnsponsor  StateChangeReason = "UNSPONSOR"
+	StateChangeReasonCreate StateChangeReason = "CREATE"
+	StateChangeReasonMerge  StateChangeReason = "MERGE"
+	StateChangeReasonDebit  StateChangeReason = "DEBIT"
+	StateChangeReasonCredit StateChangeReason = "CREDIT"
+	StateChangeReasonMint   StateChangeReason = "MINT"
+	StateChangeReasonBurn   StateChangeReason = "BURN"
+	StateChangeReasonAdd    StateChangeReason = "ADD"
+	StateChangeReasonRemove StateChangeReason = "REMOVE"
+	StateChangeReasonUpdate StateChangeReason = "UPDATE"
+	StateChangeReasonSet    StateChangeReason = "SET"
+	StateChangeReasonClear  StateChangeReason = "CLEAR"
 )
 
 // TokenType represents the type of token/balance
@@ -87,6 +81,43 @@ const (
 	TokenTypeSAC           TokenType = "SAC"
 	TokenTypeSEP41         TokenType = "SEP41"
 	TokenTypeLiquidityPool TokenType = "LIQUIDITY_POOL"
+)
+
+// AccountFlag represents a Stellar account authorization flag.
+type AccountFlag string
+
+const (
+	AccountFlagAuthRequired        AccountFlag = "AUTH_REQUIRED"
+	AccountFlagAuthRevocable       AccountFlag = "AUTH_REVOCABLE"
+	AccountFlagAuthImmutable       AccountFlag = "AUTH_IMMUTABLE"
+	AccountFlagAuthClawbackEnabled AccountFlag = "AUTH_CLAWBACK_ENABLED"
+)
+
+// TrustlineFlag represents a Stellar trustline authorization flag.
+type TrustlineFlag string
+
+const (
+	TrustlineFlagAuthorized                      TrustlineFlag = "AUTHORIZED"
+	TrustlineFlagAuthorizedToMaintainLiabilities TrustlineFlag = "AUTHORIZED_TO_MAINTAIN_LIABILITIES"
+	TrustlineFlagClawbackEnabled                 TrustlineFlag = "CLAWBACK_ENABLED"
+)
+
+// ThresholdLevel identifies which of an account's three signature thresholds a
+// ThresholdChange refers to.
+type ThresholdLevel string
+
+const (
+	ThresholdLevelLow    ThresholdLevel = "LOW"
+	ThresholdLevelMedium ThresholdLevel = "MEDIUM"
+	ThresholdLevelHigh   ThresholdLevel = "HIGH"
+)
+
+// AssetType represents the classic Stellar asset type, determined by the asset code length.
+type AssetType string
+
+const (
+	AssetTypeCreditAlphanum4  AssetType = "CREDIT_ALPHANUM4"
+	AssetTypeCreditAlphanum12 AssetType = "CREDIT_ALPHANUM12"
 )
 
 // Balance is an interface representing different types of account balances
@@ -122,9 +153,9 @@ type TrustlineBalance struct {
 	BalanceValue                      string    `json:"balance"`
 	TokenID                           string    `json:"tokenId"`
 	TokenType                         TokenType `json:"tokenType"`
-	Code                              *string   `json:"code,omitempty"`
-	Issuer                            *string   `json:"issuer,omitempty"`
-	Type                              string    `json:"type"`
+	Code                              string    `json:"code"`
+	Issuer                            string    `json:"issuer"`
+	AssetType                         AssetType `json:"assetType"`
 	Limit                             string    `json:"limit"`
 	BuyingLiabilities                 string    `json:"buyingLiabilities"`
 	SellingLiabilities                string    `json:"sellingLiabilities"`
@@ -187,7 +218,6 @@ type LiquidityPoolBalance struct {
 	BalanceValue       string                 `json:"balance"`
 	TokenID            string                 `json:"tokenId"`
 	TokenType          TokenType              `json:"tokenType"`
-	LiquidityPoolID    string                 `json:"liquidityPoolId"`
 	Reserves           []LiquidityPoolReserve `json:"reserves"`
 	LastModifiedLedger uint32                 `json:"lastModifiedLedger"`
 }
@@ -271,7 +301,7 @@ type GraphQLTransaction struct {
 // Operation represents a Stellar operation
 type Operation struct {
 	ID              int64         `json:"id"`
-	OperationType   OperationType `json:"operationType"`
+	Type            OperationType `json:"type"`
 	OperationXdr    string        `json:"operationXdr"`
 	ResultCode      string        `json:"resultCode"`
 	Successful      bool          `json:"successful"`
@@ -295,10 +325,9 @@ type TransactionEdge struct {
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for TransactionEdge.
-// The GraphQL schema declares the edge as `node: Transaction` (nullable),
-// so a null or missing node is a schema-valid response and leaves
-// e.Node == nil rather than returning an error. Callers iterating
-// connection.Edges must nil-check edge.Node.
+// The GraphQL schema declares the edge as `node: Transaction!` (non-null),
+// so a null or missing node is a malformed server response and is rejected
+// rather than left as e.Node == nil.
 func (e *TransactionEdge) UnmarshalJSON(data []byte) error {
 	type tempEdge struct {
 		Node   json.RawMessage `json:"node"`
@@ -313,8 +342,7 @@ func (e *TransactionEdge) UnmarshalJSON(data []byte) error {
 	e.Cursor = temp.Cursor
 
 	if len(temp.Node) == 0 || string(temp.Node) == "null" {
-		e.Node = nil
-		return nil
+		return fmt.Errorf("transaction edge missing required node (cursor=%q): the GraphQL schema declares Transaction as non-null", temp.Cursor)
 	}
 
 	var node GraphQLTransaction
@@ -326,12 +354,12 @@ func (e *TransactionEdge) UnmarshalJSON(data []byte) error {
 }
 
 // unmarshalConnection decodes a Relay-style connection payload and enforces the schema's non-null
-// guarantees shared by every *Connection type: a null edge entry and a missing/null pageInfo are
-// always rejected, and a missing/null edges field is rejected when requireEdges is set (some schema
-// connections declare edges nullable). connName and edgeTypeName are woven into the error messages.
-// Per-edge decoding (node-null guards, polymorphic nodes) stays with each edge type's own
-// UnmarshalJSON, which json.Unmarshal invokes while decoding []*E.
-func unmarshalConnection[E any](data []byte, connName, edgeTypeName string, requireEdges bool) ([]*E, *PageInfo, error) {
+// guarantees shared by every *Connection type: the schema declares edges and pageInfo as non-null on
+// every connection, so a missing/null edges field, a null edge entry, and a missing/null pageInfo are
+// all rejected. connName and edgeTypeName are woven into the error messages. Per-edge decoding
+// (node-null guards, polymorphic nodes) stays with each edge type's own UnmarshalJSON, which
+// json.Unmarshal invokes while decoding []*E.
+func unmarshalConnection[E any](data []byte, connName, edgeTypeName string) ([]*E, *PageInfo, error) {
 	type tempConnection struct {
 		Edges    []*E      `json:"edges"`
 		PageInfo *PageInfo `json:"pageInfo"`
@@ -340,7 +368,7 @@ func unmarshalConnection[E any](data []byte, connName, edgeTypeName string, requ
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return nil, nil, fmt.Errorf("unmarshaling %s: %w", connName, err)
 	}
-	if requireEdges && temp.Edges == nil {
+	if temp.Edges == nil {
 		return nil, nil, fmt.Errorf("%s missing required edges field: the GraphQL schema declares edges as non-null", connName)
 	}
 	for i, edge := range temp.Edges {
@@ -362,14 +390,15 @@ type TransactionConnection struct {
 
 // UnmarshalJSON implements custom JSON unmarshaling for TransactionConnection
 // and enforces the schema's non-null guarantees. The schema declares
-// edges as [TransactionEdge!] and pageInfo as PageInfo!, so:
-//   - a null entry within the edges array is a server bug and is rejected
-//   - a missing or null pageInfo field is a server bug and is rejected
+// edges as [TransactionEdge!]! and pageInfo as PageInfo!, so each of the
+// following is a server bug and is rejected here:
+//   - a missing or null edges field on the connection
+//   - a null entry within the edges array
+//   - a missing or null pageInfo field on the connection
 //
-// In contrast to BalanceConnection, the edges field itself is nullable in
-// the schema, so a missing or null edges field is accepted (Edges stays nil).
+// Null nodes inside an edge object are caught separately by TransactionEdge.UnmarshalJSON.
 func (c *TransactionConnection) UnmarshalJSON(data []byte) error {
-	edges, pageInfo, err := unmarshalConnection[TransactionEdge](data, "transaction connection", "TransactionEdge", false)
+	edges, pageInfo, err := unmarshalConnection[TransactionEdge](data, "transaction connection", "TransactionEdge")
 	if err != nil {
 		return err
 	}
@@ -385,10 +414,9 @@ type OperationEdge struct {
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for OperationEdge.
-// The GraphQL schema declares the edge as `node: Operation` (nullable),
-// so a null or missing node is a schema-valid response and leaves
-// e.Node == nil rather than returning an error. Callers iterating
-// connection.Edges must nil-check edge.Node.
+// The GraphQL schema declares the edge as `node: Operation!` (non-null),
+// so a null or missing node is a malformed server response and is rejected
+// rather than left as e.Node == nil.
 func (e *OperationEdge) UnmarshalJSON(data []byte) error {
 	type tempEdge struct {
 		Node   json.RawMessage `json:"node"`
@@ -403,8 +431,7 @@ func (e *OperationEdge) UnmarshalJSON(data []byte) error {
 	e.Cursor = temp.Cursor
 
 	if len(temp.Node) == 0 || string(temp.Node) == "null" {
-		e.Node = nil
-		return nil
+		return fmt.Errorf("operation edge missing required node (cursor=%q): the GraphQL schema declares Operation as non-null", temp.Cursor)
 	}
 
 	var node Operation
@@ -423,14 +450,15 @@ type OperationConnection struct {
 
 // UnmarshalJSON implements custom JSON unmarshaling for OperationConnection
 // and enforces the schema's non-null guarantees. The schema declares
-// edges as [OperationEdge!] and pageInfo as PageInfo!, so:
-//   - a null entry within the edges array is a server bug and is rejected
-//   - a missing or null pageInfo field is a server bug and is rejected
+// edges as [OperationEdge!]! and pageInfo as PageInfo!, so each of the
+// following is a server bug and is rejected here:
+//   - a missing or null edges field on the connection
+//   - a null entry within the edges array
+//   - a missing or null pageInfo field on the connection
 //
-// In contrast to BalanceConnection, the edges field itself is nullable in
-// the schema, so a missing or null edges field is accepted (Edges stays nil).
+// Null nodes inside an edge object are caught separately by OperationEdge.UnmarshalJSON.
 func (c *OperationConnection) UnmarshalJSON(data []byte) error {
-	edges, pageInfo, err := unmarshalConnection[OperationEdge](data, "operation connection", "OperationEdge", false)
+	edges, pageInfo, err := unmarshalConnection[OperationEdge](data, "operation connection", "OperationEdge")
 	if err != nil {
 		return err
 	}
@@ -446,11 +474,11 @@ type StateChangeEdge struct {
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for StateChangeEdge.
-// The GraphQL schema declares the edge as `node: BaseStateChange`
-// (nullable), so a null or missing node is a schema-valid response and
-// leaves e.Node == nil. When a node is present, it is dispatched to the
-// correct concrete type via UnmarshalStateChangeNode (which reads the
-// __typename discriminator).
+// The GraphQL schema declares the edge as `node: BaseStateChange!`
+// (non-null), so a null or missing node is a malformed server response and
+// is rejected rather than left as e.Node == nil. When a node is present, it
+// is dispatched to the correct concrete type via UnmarshalStateChangeNode
+// (which reads the __typename discriminator).
 func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 	// Create a temporary struct to unmarshal the edge structure
 	type tempEdge struct {
@@ -465,10 +493,8 @@ func (e *StateChangeEdge) UnmarshalJSON(data []byte) error {
 
 	e.Cursor = temp.Cursor
 
-	// If node is null, return early
 	if len(temp.Node) == 0 || string(temp.Node) == "null" {
-		e.Node = nil
-		return nil
+		return fmt.Errorf("state change edge missing required node (cursor=%q): the GraphQL schema declares BaseStateChange as non-null", temp.Cursor)
 	}
 
 	// Unmarshal the node using the polymorphic unmarshaler
@@ -489,14 +515,15 @@ type StateChangeConnection struct {
 
 // UnmarshalJSON implements custom JSON unmarshaling for StateChangeConnection
 // and enforces the schema's non-null guarantees. The schema declares
-// edges as [StateChangeEdge!] and pageInfo as PageInfo!, so:
-//   - a null entry within the edges array is a server bug and is rejected
-//   - a missing or null pageInfo field is a server bug and is rejected
+// edges as [StateChangeEdge!]! and pageInfo as PageInfo!, so each of the
+// following is a server bug and is rejected here:
+//   - a missing or null edges field on the connection
+//   - a null entry within the edges array
+//   - a missing or null pageInfo field on the connection
 //
-// In contrast to BalanceConnection, the edges field itself is nullable in
-// the schema, so a missing or null edges field is accepted (Edges stays nil).
+// Null nodes inside an edge object are caught separately by StateChangeEdge.UnmarshalJSON.
 func (c *StateChangeConnection) UnmarshalJSON(data []byte) error {
-	edges, pageInfo, err := unmarshalConnection[StateChangeEdge](data, "state change connection", "StateChangeEdge", false)
+	edges, pageInfo, err := unmarshalConnection[StateChangeEdge](data, "state change connection", "StateChangeEdge")
 	if err != nil {
 		return err
 	}
@@ -557,7 +584,7 @@ type BalanceConnection struct {
 // Null nodes inside an edge object are caught separately by
 // BalanceEdge.UnmarshalJSON.
 func (c *BalanceConnection) UnmarshalJSON(data []byte) error {
-	edges, pageInfo, err := unmarshalConnection[BalanceEdge](data, "balance connection", "BalanceEdge", true)
+	edges, pageInfo, err := unmarshalConnection[BalanceEdge](data, "balance connection", "BalanceEdge")
 	if err != nil {
 		return err
 	}
@@ -645,7 +672,7 @@ func (e *AccountTransactionEdge) UnmarshalJSON(dataBytes []byte) error {
 //
 // Null nodes inside an edge object are caught separately by AccountTransactionEdge.UnmarshalJSON.
 func (c *AccountTransactionConnection) UnmarshalJSON(dataBytes []byte) error {
-	edges, pageInfo, err := unmarshalConnection[AccountTransactionEdge](dataBytes, "detailed transaction connection", "AccountTransactionEdge", true)
+	edges, pageInfo, err := unmarshalConnection[AccountTransactionEdge](dataBytes, "detailed transaction connection", "AccountTransactionEdge")
 	if err != nil {
 		return err
 	}

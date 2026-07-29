@@ -156,10 +156,10 @@ func NetworkOption(configKey *string) *config.ConfigOption {
 func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-complexity-limit",
-		Usage:       "The maximum complexity limit for GraphQL queries. Complexity is calculated based on fields and pagination parameters.",
+		Usage:       "The maximum complexity limit for GraphQL queries. Complexity is calculated based on fields and pagination parameters. gqlgen sums mutually exclusive inline fragments, so the limit must accommodate a full-detail query selecting every BaseStateChange implementer (~7600 at first:100).",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 5000,
+		FlagDefault: 10_000,
 		Required:    false,
 	}
 }

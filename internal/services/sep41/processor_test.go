@@ -204,7 +204,7 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 		assert.Len(t, p.stagedBalanceDelta, 2)
 	})
 
-	t.Run("records an approve as a single metadata-category state change", func(t *testing.T) {
+	t.Run("records an approve as a single allowance-category state change", func(t *testing.T) {
 		p := newTestProcessor()
 		p.Reset()
 
@@ -229,12 +229,13 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 		require.Len(t, p.stagedStateChanges, 1)
 		sc := p.stagedStateChanges[0]
-		assert.Equal(t, types.StateChangeCategoryMetadata, sc.StateChangeCategory)
+		assert.Equal(t, types.StateChangeCategoryAllowance, sc.StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonUpdate, sc.StateChangeReason)
+		assert.Equal(t, types.AddressBytea(testAccountB), sc.SpenderAccountID.AddressBytea)
+		assert.True(t, sc.SpenderAccountID.Valid)
+		assert.Equal(t, "500", sc.Amount.String)
 		require.NotNil(t, sc.KeyValue)
-		assert.Equal(t, EventApprove, sc.KeyValue["sep41_event"])
-		assert.Equal(t, testAccountB, sc.KeyValue["spender"])
-		assert.Equal(t, "500", sc.KeyValue["amount"])
+		assert.Len(t, sc.KeyValue, 1)
 		// JSON numeric decoding round-trips u32 through float64, but we never marshal→unmarshal here;
 		// the builder stores the raw uint32. Cast for a stable assertion.
 		assert.EqualValues(t, uint32(1234), sc.KeyValue["live_until_ledger"])

@@ -344,8 +344,8 @@ func addComplexityCalculation(config *generated.Config) {
 									stateChanges(first: 5) {
 										edges {
 											node {
-												stateChangeCategory
-												stateChangeReason
+												category
+												reason
 											}
 										}
 									}
@@ -362,7 +362,7 @@ func addComplexityCalculation(config *generated.Config) {
 		Complexity = 50*(1+1+1+50*(1+1+1+50*(1+1+1+1))) = 507,650
 
 		Clients should provide explicit first/last arguments to keep
-		query complexity within the configured limit (default 5000).
+		query complexity within the configured limit (default 10000).
 		--------------------------------
 	*/
 	calculatePaginatedComplexity := func(childComplexity int, first *int32, last *int32) int {
@@ -399,8 +399,9 @@ func addComplexityCalculation(config *generated.Config) {
 	// accounts are unpaginated resolver lists that fan out into per-account balance lookups. Price
 	// them at a default page's worth (must stay >=~20 so a deep accounts->balances traversal stays
 	// over the limit). The account-edge operations/stateChanges lists are deliberately left at the
-	// default cost: the full-detail account-history query selects ~34 fields per edge, so any
-	// multiplier there would push a first=100 page past the limit.
+	// default cost: the full-detail account-history query selects ~68 fields per edge (gqlgen sums
+	// all 18 BaseStateChange inline fragments), so any multiplier there would push a first=100 page
+	// past the limit.
 	accountsListComplexityFunc := func(childComplexity int) int {
 		return childComplexity * int(graphqlutils.DefaultPageLimit)
 	}

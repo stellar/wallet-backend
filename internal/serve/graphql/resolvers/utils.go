@@ -108,61 +108,109 @@ func NewConnectionWithRelayPagination[T any, C int64 | string](nodes []T, params
 	}
 }
 
-func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCursor) []*baseStateChangeWithCursor {
+func convertStateChangeToBaseStateChange(stateChanges []*types.StateChangeWithCursor) ([]*baseStateChangeWithCursor, error) {
 	convertedStateChanges := make([]*baseStateChangeWithCursor, len(stateChanges))
 	for i, stateChange := range stateChanges {
+		converted, err := convertStateChangeTypes(stateChange.StateChange)
+		if err != nil {
+			return nil, err
+		}
 		convertedStateChanges[i] = &baseStateChangeWithCursor{
-			stateChange: convertStateChangeTypes(stateChange.StateChange),
+			stateChange: converted,
 			cursor:      stateChange.StateChangeCursor,
 		}
 	}
 
-	return convertedStateChanges
+	return convertedStateChanges, nil
 }
 
-// convertStateChangeTypes is the resolver for BaseStateChange interface type resolution
-// This method determines which concrete GraphQL type to return based on StateChangeCategory
-func convertStateChangeTypes(stateChange types.StateChange) generated.BaseStateChange {
+// convertStateChangeTypes resolves the concrete GraphQL type for a state change row.
+// Dispatch is on (category, reason). A row matching no arm is a data-integrity failure
+// and surfaces as an error rather than a nil node, which would violate the non-null
+// StateChangeEdge.node contract.
+func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseStateChange, error) {
 	switch stateChange.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
-		return &types.StandardBalanceStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonDebit, types.StateChangeReasonCredit, types.StateChangeReasonMint, types.StateChangeReasonBurn:
+			return &types.BalanceChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BALANCE; falls through to the error below
 		}
 	case types.StateChangeCategoryAccount:
-		return &types.AccountStateChangeModel{
-			StateChange: stateChange,
-		}
-	case types.StateChangeCategoryReserves:
-		return &types.ReservesStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonCreate:
+			return &types.AccountCreatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonMerge:
+			return &types.AccountMergedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for ACCOUNT; falls through to the error below
 		}
 	case types.StateChangeCategorySigner:
-		return &types.SignerStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonAdd:
+			return &types.SignerAddedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.SignerUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonRemove:
+			return &types.SignerRemovedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for SIGNER; falls through to the error below
 		}
 	case types.StateChangeCategorySignatureThreshold:
-		return &types.SignerThresholdsStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonUpdate:
+			return &types.ThresholdChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for SIGNATURE_THRESHOLD; falls through to the error below
 		}
 	case types.StateChangeCategoryFlags:
-		return &types.FlagsStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet, types.StateChangeReasonClear:
+			return &types.AccountFlagsChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for FLAGS; falls through to the error below
 		}
-	case types.StateChangeCategoryMetadata:
-		return &types.MetadataStateChangeModel{
-			StateChange: stateChange,
+	case types.StateChangeCategoryDataEntry:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonAdd:
+			return &types.DataEntryAddedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.DataEntryUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonRemove:
+			return &types.DataEntryRemovedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for DATA_ENTRY; falls through to the error below
+		}
+	case types.StateChangeCategoryHomeDomain:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet:
+			return &types.HomeDomainSetChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.HomeDomainUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonClear:
+			return &types.HomeDomainClearedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for HOME_DOMAIN; falls through to the error below
+		}
+	case types.StateChangeCategoryAllowance:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonUpdate:
+			return &types.AllowanceChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for ALLOWANCE; falls through to the error below
 		}
 	case types.StateChangeCategoryTrustline:
-		return &types.TrustlineStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonAdd:
+			return &types.TrustlineAddedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonUpdate:
+			return &types.TrustlineUpdatedChangeModel{StateChange: stateChange}, nil
+		case types.StateChangeReasonRemove:
+			return &types.TrustlineRemovedChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for TRUSTLINE; falls through to the error below
 		}
 	case types.StateChangeCategoryBalanceAuthorization:
-		return &types.BalanceAuthorizationStateChangeModel{
-			StateChange: stateChange,
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonSet, types.StateChangeReasonClear:
+			return &types.BalanceAuthorizationChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
 		}
-	default:
-		return nil
 	}
+	return nil, fmt.Errorf("state change (toID=%d, opID=%d, stateChangeID=%d) has no GraphQL type for (category=%s, reason=%s)",
+		stateChange.ToID, stateChange.OperationID, stateChange.StateChangeID, stateChange.StateChangeCategory, stateChange.StateChangeReason)
 }
 
 func GetDBColumnsForFields(ctx context.Context, model any) []string {
@@ -232,44 +280,73 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 	dbColumns := make([]string, 0, len(fields))
 	for _, field := range fields {
 		fieldName := field.Name
-		// In our graphql schema, the following fields do not match the Go json tags. For e.g. sponsoredAddress in graphql vs sponsoredAccountId in Go struct.
-		// So in order to have them resolve to the db column, we need to manually change the field name here.
-		// Some GraphQL fields map to multiple database columns (old/new pairs).
+		// GraphQL fields whose names do not match the Go json tags (e.g. signerAddress
+		// vs signerAccountId) are renamed here so they resolve to the right db column.
+		// Fields derived from a specific column (old/new pairs, key_value extractions)
+		// append their db column directly.
 		switch fieldName {
 		case "type":
+			// Operation's GraphQL `type` field is backed by the operation_type column.
+			fieldName = "operationType"
+		case "category":
 			fieldName = "stateChangeCategory"
 		case "reason":
 			fieldName = "stateChangeReason"
-		case "sponsoredAddress":
-			fieldName = "sponsoredAccountId"
-		case "sponsorAddress":
-			fieldName = "sponsorAccountId"
 		case "signerAddress":
 			fieldName = "signerAccountId"
-		case "funderAddress":
-			fieldName = "funderAccountId"
-		case "deployerAddress":
-			fieldName = "deployerAccountId"
+		case "creatorAddress":
+			fieldName = "creatorAccountId"
 		case "destinationAddress":
 			fieldName = "destinationAccountId"
-		case "limit":
-			// GraphQL "limit" field requires both old and new trustline limit columns
-			dbColumns = append(dbColumns, "trustline_limit_old", "trustline_limit_new")
+		case "spender":
+			fieldName = "spenderAccountId"
+		case "oldWeight":
+			dbColumns = append(dbColumns, "signer_weight_old")
 			continue
-		case "signerWeights":
-			// GraphQL "signerWeights" field requires both old and new signer weight columns
-			dbColumns = append(dbColumns, "signer_weight_old", "signer_weight_new")
+		case "newWeight":
+			dbColumns = append(dbColumns, "signer_weight_new")
 			continue
-		case "thresholds":
-			// GraphQL "thresholds" field requires both old and new threshold columns
-			dbColumns = append(dbColumns, "threshold_old", "threshold_new")
+		case "oldThreshold":
+			dbColumns = append(dbColumns, "threshold_old")
+			continue
+		case "newThreshold":
+			dbColumns = append(dbColumns, "threshold_new")
+			continue
+		case "oldLimit":
+			dbColumns = append(dbColumns, "trustline_limit_old")
+			continue
+		case "limit", "newLimit":
+			dbColumns = append(dbColumns, "trustline_limit_new")
+			continue
+		case "name":
+			dbColumns = append(dbColumns, "data_entry_name")
+			continue
+		case "homeDomain", "oldHomeDomain", "newHomeDomain", "value", "oldValue", "newValue", "expirationLedger":
+			// Extracted from the key_value JSONB column by the field resolvers.
+			dbColumns = append(dbColumns, "key_value")
 			continue
 		}
 		if colName, ok := fieldToColumnMap[fieldName]; ok {
 			dbColumns = append(dbColumns, colName)
 		}
 	}
-	return dbColumns
+	return dedupeColumns(dbColumns)
+}
+
+// dedupeColumns removes duplicate column names while preserving order; several
+// GraphQL fields share a backing column (e.g. the key_value extractions), and a
+// repeated column in the SELECT list would break positional row scanning.
+func dedupeColumns(columns []string) []string {
+	seen := make(map[string]struct{}, len(columns))
+	deduped := columns[:0]
+	for _, col := range columns {
+		if _, ok := seen[col]; ok {
+			continue
+		}
+		seen[col] = struct{}{}
+		deduped = append(deduped, col)
+	}
+	return deduped
 }
 
 func getColumnMap(model any) map[string]string {

@@ -29,8 +29,8 @@ func TestBuildLiquidityPoolBalanceFromDB(t *testing.T) {
 
 	got := buildLiquidityPoolBalanceFromDB(lp)
 
+	// tokenId IS the pool id for a liquidity-pool balance.
 	assert.Equal(t, "abc123", got.TokenID)
-	assert.Equal(t, "abc123", got.LiquidityPoolID)
 	assert.Equal(t, graphql1.TokenTypeLiquidityPool, got.TokenType)
 	assert.Equal(t, "1.5000000", got.Balance)
 	assert.Equal(t, uint32(999), got.LastModifiedLedger)
@@ -117,11 +117,11 @@ func TestAccountResolver_LiquidityPoolBalancesCrossSourcePagination(t *testing.T
 	lp2, ok3 := conn.Edges[3].Node.(*graphql1.LiquidityPoolBalance)
 	require.True(t, ok3, "edge[3] should be LiquidityPoolBalance, got %T", conn.Edges[3].Node)
 
-	assert.Equal(t, pool1, lp1.LiquidityPoolID)
+	assert.Equal(t, pool1, lp1.TokenID)
 	assert.Equal(t, "0.0005000", lp1.Balance)
 	require.Len(t, lp1.Reserves, 2)
 	assert.Equal(t, "native", lp1.Reserves[0].Asset)
-	assert.Equal(t, pool2, lp2.LiquidityPoolID)
+	assert.Equal(t, pool2, lp2.TokenID)
 
 	// Cursor round-trip ACROSS the SEP-41 → LP boundary: resume after the last SEP-41 edge and
 	// expect exactly the two LP balances (SEP-41 fully consumed, LP scanned from its start).
@@ -131,10 +131,10 @@ func TestAccountResolver_LiquidityPoolBalancesCrossSourcePagination(t *testing.T
 	require.Len(t, lpPage.Edges, 2)
 	got1, okA := lpPage.Edges[0].Node.(*graphql1.LiquidityPoolBalance)
 	require.True(t, okA, "expected LiquidityPoolBalance after SEP-41 boundary, got %T", lpPage.Edges[0].Node)
-	assert.Equal(t, pool1, got1.LiquidityPoolID)
+	assert.Equal(t, pool1, got1.TokenID)
 	got2, okB := lpPage.Edges[1].Node.(*graphql1.LiquidityPoolBalance)
 	require.True(t, okB)
-	assert.Equal(t, pool2, got2.LiquidityPoolID)
+	assert.Equal(t, pool2, got2.TokenID)
 
 	// Cursor round-trip WITHIN the LP source's own keyset: resume after the first LP edge.
 	afterFirstLP := lpPage.Edges[0].Cursor
@@ -143,5 +143,5 @@ func TestAccountResolver_LiquidityPoolBalancesCrossSourcePagination(t *testing.T
 	require.Len(t, tailPage.Edges, 1)
 	tail, okC := tailPage.Edges[0].Node.(*graphql1.LiquidityPoolBalance)
 	require.True(t, okC)
-	assert.Equal(t, pool2, tail.LiquidityPoolID)
+	assert.Equal(t, pool2, tail.TokenID)
 }

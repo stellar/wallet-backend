@@ -112,7 +112,10 @@ func (r *transactionResolver) StateChanges(ctx context.Context, obj *types.Trans
 		return nil, err
 	}
 
-	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
+	convertedStateChanges, err := convertStateChangeToBaseStateChange(stateChanges)
+	if err != nil {
+		return nil, err
+	}
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
 		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeID)
 	})

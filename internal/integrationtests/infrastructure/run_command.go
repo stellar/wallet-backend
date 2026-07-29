@@ -13,8 +13,12 @@ import (
 )
 
 // commandContainerExitTimeout bounds how long we wait for a one-shot
-// wallet-backend command container to finish.
-const commandContainerExitTimeout = 2 * time.Minute
+// wallet-backend command container to finish. The longest of these commands is
+// protocol-migrate current-state, whose wall-clock is dominated by waiting for
+// the host-side exporter to publish ledgers it has not reached yet rather than
+// by our own processing, so it needs headroom well above its observed runtime
+// (~112s on CI) to survive a loaded runner.
+const commandContainerExitTimeout = 4 * time.Minute
 
 // RunWalletBackendCommand runs a one-shot wallet-backend subcommand (e.g.
 // "protocol-setup --protocol-id SEP41") in its own named container against the

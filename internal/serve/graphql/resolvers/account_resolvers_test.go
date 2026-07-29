@@ -715,7 +715,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 	t.Run("filter by category only", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		category := "BALANCE"
+		category := types.StateChangeCategoryBalance
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 		}
@@ -723,13 +723,13 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		require.NoError(t, err)
 		// Verify all returned state changes are BALANCE category
 		for _, sc := range stateChanges.Edges {
-			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetCategory())
 		}
 	})
 
 	t.Run("filter by reason only", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		reason := "CREDIT"
+		reason := types.StateChangeReasonCredit
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Reason: &reason,
 		}
@@ -744,8 +744,8 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 	t.Run("filter by both category and reason", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		category := "SIGNER"
-		reason := "ADD"
+		category := types.StateChangeCategorySigner
+		reason := types.StateChangeReasonAdd
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 			Reason:   &reason,
@@ -755,7 +755,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 
 		// Verify all returned state changes are SIGNER category and ADD reason
 		for _, sc := range stateChanges.Edges {
-			assert.Equal(t, types.StateChangeCategorySigner, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeCategorySigner, sc.Node.GetCategory())
 			assert.Equal(t, types.StateChangeReasonAdd, sc.Node.GetReason())
 		}
 	})
@@ -765,8 +765,8 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		txHash := testTxHash1
 		opID := toid.New(1000, 1, 1).ToInt64()
 		txToID := opID &^ 0xFFF // Derive transaction to_id from operation_id
-		category := "BALANCE"
-		reason := "CREDIT"
+		category := types.StateChangeCategoryBalance
+		reason := types.StateChangeReasonCredit
 		filter := &graphql1.AccountStateChangeFilterInput{
 			TransactionHash: &txHash,
 			OperationID:     &opID,
@@ -781,14 +781,14 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 			cursor := extractStateChangeIDs(sc.Node)
 			assert.Equal(t, txToID, cursor.ToID)
 			assert.Equal(t, opID, cursor.OperationID)
-			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetCategory())
 			assert.Equal(t, types.StateChangeReasonCredit, sc.Node.GetReason())
 		}
 	})
 
 	t.Run("filter by category with pagination", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		category := "BALANCE"
+		category := types.StateChangeCategoryBalance
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 		}
@@ -801,7 +801,7 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		assert.True(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
 		for _, sc := range stateChanges.Edges {
-			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetCategory())
 		}
 
 		// Get next page
@@ -811,13 +811,13 @@ func TestAccountResolver_StateChanges_WithCategoryReasonFilters(t *testing.T) {
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(stateChanges.Edges), 2)
 		for _, sc := range stateChanges.Edges {
-			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetType())
+			assert.Equal(t, types.StateChangeCategoryBalance, sc.Node.GetCategory())
 		}
 	})
 
 	t.Run("filter with no matching results", func(t *testing.T) {
 		ctx := getTestCtx("state_changes", []string{""})
-		category := "NON_EXISTENT_CATEGORY"
+		category := types.StateChangeCategory("NON_EXISTENT_CATEGORY")
 		filter := &graphql1.AccountStateChangeFilterInput{
 			Category: &category,
 		}

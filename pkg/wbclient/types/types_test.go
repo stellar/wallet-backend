@@ -93,7 +93,6 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesLiquidityPoolBalance(t *testing.T) {
 			"balance": "0.0005000",
 			"tokenId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
 			"tokenType": "LIQUIDITY_POOL",
-			"liquidityPoolId": "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
 			"reserves": [
 				{"asset": "native", "amount": "10.0000000"},
 				{"asset": "USDC:GISSUER", "amount": "25.0000000"}
@@ -111,7 +110,7 @@ func Test_BalanceEdge_UnmarshalJSON_DecodesLiquidityPoolBalance(t *testing.T) {
 	require.True(t, ok, "expected node to decode into *LiquidityPoolBalance, got %T", edge.Node)
 	assert.Equal(t, "0.0005000", lp.BalanceValue)
 	assert.Equal(t, TokenTypeLiquidityPool, lp.TokenType)
-	assert.Equal(t, "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd", lp.LiquidityPoolID)
+	assert.Equal(t, "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd", lp.TokenID, "LP tokenId is the pool id")
 	require.Len(t, lp.Reserves, 2)
 	assert.Equal(t, "native", lp.Reserves[0].Asset)
 	assert.Equal(t, "10.0000000", lp.Reserves[0].Amount)
@@ -280,20 +279,19 @@ func Test_BalanceConnection_UnmarshalJSON_DecodesValidConnection(t *testing.T) {
 }
 
 func Test_TransactionEdge_UnmarshalJSON(t *testing.T) {
-	t.Run("accepts null node", func(t *testing.T) {
+	t.Run("rejects null node", func(t *testing.T) {
 		var edge TransactionEdge
 		err := json.Unmarshal([]byte(`{"node": null, "cursor": "abc"}`), &edge)
-		require.NoError(t, err)
-		assert.Nil(t, edge.Node)
-		assert.Equal(t, "abc", edge.Cursor)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
+		assert.Contains(t, err.Error(), `cursor="abc"`)
 	})
 
-	t.Run("accepts missing node", func(t *testing.T) {
+	t.Run("rejects missing node", func(t *testing.T) {
 		var edge TransactionEdge
 		err := json.Unmarshal([]byte(`{"cursor": "abc"}`), &edge)
-		require.NoError(t, err)
-		assert.Nil(t, edge.Node)
-		assert.Equal(t, "abc", edge.Cursor)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
 	})
 
 	t.Run("decodes populated node", func(t *testing.T) {
@@ -322,20 +320,19 @@ func Test_TransactionEdge_UnmarshalJSON(t *testing.T) {
 }
 
 func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
-	t.Run("accepts null node", func(t *testing.T) {
+	t.Run("rejects null node", func(t *testing.T) {
 		var edge OperationEdge
 		err := json.Unmarshal([]byte(`{"node": null, "cursor": "abc"}`), &edge)
-		require.NoError(t, err)
-		assert.Nil(t, edge.Node)
-		assert.Equal(t, "abc", edge.Cursor)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
+		assert.Contains(t, err.Error(), `cursor="abc"`)
 	})
 
-	t.Run("accepts missing node", func(t *testing.T) {
+	t.Run("rejects missing node", func(t *testing.T) {
 		var edge OperationEdge
 		err := json.Unmarshal([]byte(`{"cursor": "abc"}`), &edge)
-		require.NoError(t, err)
-		assert.Nil(t, edge.Node)
-		assert.Equal(t, "abc", edge.Cursor)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
 	})
 
 	t.Run("decodes populated node", func(t *testing.T) {
@@ -343,7 +340,7 @@ func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
 			"cursor": "op-1",
 			"node": {
 				"id": 1234567,
-				"operationType": "PAYMENT",
+				"type": "PAYMENT",
 				"operationXdr": "AAAA",
 				"resultCode": "op_success",
 				"successful": true,
@@ -359,25 +356,24 @@ func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
 		require.NotNil(t, edge.Node)
 		assert.Equal(t, "op-1", edge.Cursor)
 		assert.Equal(t, int64(1234567), edge.Node.ID)
-		assert.Equal(t, OperationTypePayment, edge.Node.OperationType)
+		assert.Equal(t, OperationTypePayment, edge.Node.Type)
 		assert.True(t, edge.Node.Successful)
 	})
 }
 
 func Test_TransactionConnection_UnmarshalJSON(t *testing.T) {
-	t.Run("accepts missing edges field", func(t *testing.T) {
+	t.Run("rejects missing edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
 		}`)
 
 		var conn TransactionConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
-		require.NotNil(t, conn.PageInfo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
-	t.Run("accepts null edges field", func(t *testing.T) {
+	t.Run("rejects null edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"edges": null,
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
@@ -385,9 +381,8 @@ func Test_TransactionConnection_UnmarshalJSON(t *testing.T) {
 
 		var conn TransactionConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
-		require.NotNil(t, conn.PageInfo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
 	t.Run("accepts empty edges array", func(t *testing.T) {
@@ -405,18 +400,27 @@ func Test_TransactionConnection_UnmarshalJSON(t *testing.T) {
 
 	t.Run("rejects null edge entry", func(t *testing.T) {
 		payload := []byte(`{
-			"edges": [
-				{"cursor": "c1", "node": null},
-				null
-			],
+			"edges": [null],
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
 		}`)
 
 		var conn TransactionConnection
 		err := json.Unmarshal(payload, &conn)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "edge at index 1 is null")
+		assert.Contains(t, err.Error(), "edge at index 0 is null")
 		assert.Contains(t, err.Error(), "TransactionEdge as non-null")
+	})
+
+	t.Run("rejects null node in edge", func(t *testing.T) {
+		payload := []byte(`{
+			"edges": [{"cursor": "c1", "node": null}],
+			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+		}`)
+
+		var conn TransactionConnection
+		err := json.Unmarshal(payload, &conn)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
 	})
 
 	t.Run("rejects missing pageInfo", func(t *testing.T) {
@@ -468,19 +472,18 @@ func Test_TransactionConnection_UnmarshalJSON(t *testing.T) {
 }
 
 func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
-	t.Run("accepts missing edges field", func(t *testing.T) {
+	t.Run("rejects missing edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
 		}`)
 
 		var conn OperationConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
-		require.NotNil(t, conn.PageInfo)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
-	t.Run("accepts null edges field", func(t *testing.T) {
+	t.Run("rejects null edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"edges": null,
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
@@ -488,8 +491,8 @@ func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
 
 		var conn OperationConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
 	t.Run("accepts empty edges array", func(t *testing.T) {
@@ -518,6 +521,18 @@ func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
 		assert.Contains(t, err.Error(), "OperationEdge as non-null")
 	})
 
+	t.Run("rejects null node in edge", func(t *testing.T) {
+		payload := []byte(`{
+			"edges": [{"cursor": "op-1", "node": null}],
+			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+		}`)
+
+		var conn OperationConnection
+		err := json.Unmarshal(payload, &conn)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
+	})
+
 	t.Run("rejects missing pageInfo", func(t *testing.T) {
 		payload := []byte(`{"edges": []}`)
 
@@ -543,7 +558,7 @@ func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
 					"cursor": "op-1",
 					"node": {
 						"id": 42,
-						"operationType": "PAYMENT",
+						"type": "PAYMENT",
 						"operationXdr": "AAAA",
 						"resultCode": "op_success",
 						"successful": true,
@@ -566,18 +581,18 @@ func Test_OperationConnection_UnmarshalJSON(t *testing.T) {
 }
 
 func Test_StateChangeConnection_UnmarshalJSON(t *testing.T) {
-	t.Run("accepts missing edges field", func(t *testing.T) {
+	t.Run("rejects missing edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
 		}`)
 
 		var conn StateChangeConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
-	t.Run("accepts null edges field", func(t *testing.T) {
+	t.Run("rejects null edges field", func(t *testing.T) {
 		payload := []byte(`{
 			"edges": null,
 			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
@@ -585,8 +600,8 @@ func Test_StateChangeConnection_UnmarshalJSON(t *testing.T) {
 
 		var conn StateChangeConnection
 		err := json.Unmarshal(payload, &conn)
-		require.NoError(t, err)
-		assert.Nil(t, conn.Edges)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required edges field")
 	})
 
 	t.Run("accepts empty edges array", func(t *testing.T) {
@@ -633,42 +648,49 @@ func Test_StateChangeConnection_UnmarshalJSON(t *testing.T) {
 		assert.Contains(t, err.Error(), "missing required pageInfo field")
 	})
 
-	t.Run("decodes valid connection with mixed null and populated nodes", func(t *testing.T) {
+	t.Run("rejects null node in edge", func(t *testing.T) {
+		payload := []byte(`{
+			"edges": [{"cursor": "sc-1", "node": null}],
+			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false}
+		}`)
+
+		var conn StateChangeConnection
+		err := json.Unmarshal(payload, &conn)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing required node")
+	})
+
+	t.Run("decodes valid connection", func(t *testing.T) {
 		payload := []byte(`{
 			"edges": [
 				{
 					"cursor": "sc-1",
 					"node": {
-						"__typename": "StandardBalanceChange",
-						"type": "CREDIT",
-						"reason": "PAYMENT",
+						"__typename": "BalanceChange",
+						"category": "BALANCE",
+						"reason": "CREDIT",
 						"ingestedAt": "2024-01-02T00:00:00Z",
 						"ledgerCreatedAt": "2024-01-01T00:00:00Z",
 						"ledgerNumber": 1,
-						"standardBalanceTokenId": "native",
+						"balanceTokenId": "native",
 						"amount": "100"
 					}
-				},
-				{
-					"cursor": "sc-2",
-					"node": null
 				}
 			],
-			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false, "endCursor": "sc-2"}
+			"pageInfo": {"hasNextPage": false, "hasPreviousPage": false, "endCursor": "sc-1"}
 		}`)
 
 		var conn StateChangeConnection
 		err := json.Unmarshal(payload, &conn)
 		require.NoError(t, err)
-		require.Len(t, conn.Edges, 2)
+		require.Len(t, conn.Edges, 1)
 
 		require.NotNil(t, conn.Edges[0].Node)
-		standard, ok := conn.Edges[0].Node.(*StandardBalanceChange)
-		require.True(t, ok, "expected first node to decode into *StandardBalanceChange, got %T", conn.Edges[0].Node)
-		assert.Equal(t, "100", standard.Amount)
-		assert.Equal(t, "native", standard.TokenID)
-
-		assert.Nil(t, conn.Edges[1].Node, "schema permits null node and StateChangeEdge must preserve that")
-		assert.Equal(t, "sc-2", conn.Edges[1].Cursor)
+		balance, ok := conn.Edges[0].Node.(*BalanceChange)
+		require.True(t, ok, "expected node to decode into *BalanceChange, got %T", conn.Edges[0].Node)
+		assert.Equal(t, StateChangeCategoryBalance, balance.GetCategory())
+		assert.Equal(t, "100", balance.Amount)
+		assert.Equal(t, "native", balance.TokenID)
+		assert.Equal(t, "sc-1", conn.Edges[0].Cursor)
 	})
 }

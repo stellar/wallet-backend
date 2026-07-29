@@ -24,7 +24,6 @@ func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int6
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
-			IngestedAt:      time.Now(),
 			ToID:            txID,
 		},
 		metricsService: metricsService,
@@ -40,6 +39,18 @@ func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *S
 // WithReason sets the state change reason
 func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
 	b.base.StateChangeReason = reason
+	return b
+}
+
+// WithDataEntryName sets the name of the changed data entry
+func (b *StateChangeBuilder) WithDataEntryName(name string) *StateChangeBuilder {
+	b.base.DataEntryName = sql.NullString{String: name, Valid: true}
+	return b
+}
+
+// WithThresholdLevel records which of the account's signature thresholds this change refers to
+func (b *StateChangeBuilder) WithThresholdLevel(level types.ThresholdLevel) *StateChangeBuilder {
+	b.base.Threshold = sql.NullString{String: string(level), Valid: true}
 	return b
 }
 
@@ -92,15 +103,10 @@ func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int
 	return b
 }
 
-// WithDeployer sets the deployer account ID, usually associated with a contract deployment.
-func (b *StateChangeBuilder) WithDeployer(deployer string) *StateChangeBuilder {
-	b.base.DeployerAccountID = utils.NullAddressBytea(deployer)
-	return b
-}
-
-// WithFunder sets the funder account ID
-func (b *StateChangeBuilder) WithFunder(funder string) *StateChangeBuilder {
-	b.base.FunderAccountID = utils.NullAddressBytea(funder)
+// WithCreator sets the creator account ID: the account that funded a classic
+// account creation, or the address that deployed a contract.
+func (b *StateChangeBuilder) WithCreator(creator string) *StateChangeBuilder {
+	b.base.CreatorAccountID = utils.NullAddressBytea(creator)
 	return b
 }
 
@@ -110,9 +116,9 @@ func (b *StateChangeBuilder) WithDestination(destination string) *StateChangeBui
 	return b
 }
 
-// WithSponsor sets the sponsor
-func (b *StateChangeBuilder) WithSponsor(sponsor string) *StateChangeBuilder {
-	b.base.SponsorAccountID = utils.NullAddressBytea(sponsor)
+// WithSpender sets the spender account ID, the account granted an allowance to spend on the owner's behalf.
+func (b *StateChangeBuilder) WithSpender(spender string) *StateChangeBuilder {
+	b.base.SpenderAccountID = utils.NullAddressBytea(spender)
 	return b
 }
 
@@ -141,39 +147,15 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
-// WithTokenType sets the token type (SAC or CUSTOM)
-func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
-	b.base.ContractType = tokenType
-	return b
-}
-
-// WithSponsoredAccountID sets the sponsored account ID for a sponsorship state change
-func (b *StateChangeBuilder) WithSponsoredAccountID(sponsoredAccountID string) *StateChangeBuilder {
-	b.base.SponsoredAccountID = utils.NullAddressBytea(sponsoredAccountID)
-	return b
-}
-
 // WithOperationID sets the operation ID
 func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
 	b.base.OperationID = operationID
 	return b
 }
 
-// WithClaimableBalanceID sets the claimable balance ID for sponsorship state changes
-func (b *StateChangeBuilder) WithClaimableBalanceID(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
-	return b
-}
-
-// WithLiquidityPoolID sets the liquidity pool ID for trustline and sponsorship state changes
+// WithLiquidityPoolID sets the liquidity pool ID for trustline state changes
 func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuilder {
 	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
-	return b
-}
-
-// WithSponsoredData sets the data entry name for data sponsorship state changes
-func (b *StateChangeBuilder) WithSponsoredData(dataName string) *StateChangeBuilder {
-	b.base.SponsoredData = utils.SQLNullString(dataName)
 	return b
 }
 

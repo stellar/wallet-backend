@@ -1,22 +1,26 @@
-# GraphQL Transaction type - represents a blockchain transaction
-# gqlgen generates Go structs from this schema definition
-type Transaction{
+"""A Stellar transaction."""
+type Transaction {
+  """Transaction hash, hex-encoded."""
   hash:            String! @goField(forceResolver: true)
+  """Fee charged for the transaction, in stroops."""
   feeCharged:      Int64!
+  """Transaction result code from transaction execution."""
   resultCode:      String!
+  """Sequence number of the ledger that included this transaction."""
   ledgerNumber:    UInt32!
+  """Close time of the ledger that included this transaction."""
   ledgerCreatedAt: Time!
+  """Whether this transaction is a fee-bump transaction."""
   isFeeBump:       Boolean!
+  """When the indexer persisted this transaction."""
   ingestedAt:      Time!
-  
-  # GraphQL Relationships - these fields require resolvers
-  # @goField(forceResolver: true) tells gqlgen to always generate a resolver
-  # even if the Go struct has a matching field
-  operations(first: Int, after: String, last: Int, before: String):     OperationConnection
-  
-  # Related accounts - uses resolver with dataloader for efficiency
+
+  """Operations contained in this transaction."""
+  operations(first: Int, after: String, last: Int, before: String): OperationConnection!
+
+  """Accounts that participated in this transaction."""
   accounts:        [Account!]! @goField(forceResolver: true)
-  
-  # Related state changes - uses resolver to fetch associated changes
-  stateChanges(first: Int, after: String, last: Int, before: String):   StateChangeConnection
+
+  """State changes produced by this transaction."""
+  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
 }

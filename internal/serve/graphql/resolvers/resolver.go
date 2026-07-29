@@ -10,7 +10,6 @@ package resolvers
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -91,26 +90,31 @@ func (r *Resolver) resolveNullableAddress(field types.NullAddressBytea) *string 
 	return nil
 }
 
-// resolveRequiredString resolves required string fields from the database
-// Returns empty string if null to satisfy non-nullable GraphQL fields
-func (r *Resolver) resolveRequiredString(field sql.NullString) string {
-	if field.Valid {
-		return field.String
+// resolveRequiredString resolves a required string field from the database.
+// Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
+func (r *Resolver) resolveRequiredString(field sql.NullString, fieldName string) (string, error) {
+	if !field.Valid {
+		return "", fmt.Errorf("state change is missing required %s", fieldName)
 	}
-	return ""
+	return field.String, nil
 }
 
-// resolveRequiredJSONBField resolves JSONB fields that return required strings
-// Marshals Go object to JSON string, returns empty string if field is nil
-func (r *Resolver) resolveRequiredJSONBField(field interface{}) (string, error) {
-	if field == nil {
-		return "", nil
+// resolveRequiredAddress resolves a required address field from the database.
+// Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
+func (r *Resolver) resolveRequiredAddress(field types.NullAddressBytea, fieldName string) (string, error) {
+	if !field.Valid {
+		return "", fmt.Errorf("state change is missing required %s", fieldName)
 	}
-	jsonBytes, err := json.Marshal(field)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal JSONB field: %w", err)
+	return field.String(), nil
+}
+
+// resolveRequiredInt16 resolves a required int16 field into an int32.
+// Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
+func (r *Resolver) resolveRequiredInt16(field sql.NullInt16, fieldName string) (int32, error) {
+	if !field.Valid {
+		return 0, fmt.Errorf("state change is missing required %s", fieldName)
 	}
-	return string(jsonBytes), nil
+	return int32(field.Int16), nil
 }
 
 // Shared resolver functions for BaseStateChange interface
@@ -139,11 +143,18 @@ func (r *Resolver) resolveStateChangeOperation(ctx context.Context, toID int64, 
 		Columns:         strings.Join(dbColumns, ", "),
 		LedgerCreatedAt: ledgerCreatedAt,
 	}
-	operations, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
+	operation, err := loaders.OperationByStateChangeIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, fmt.Errorf("loading operation for state change %s: %w", stateChangeKey, err)
 	}
-	return operations, nil
+	// Every caller passes a non-zero operationID (BalanceChange short-circuits
+	// its operation-less transaction-fee rows before calling), so a missing
+	// operations row is a data-integrity failure that must surface as a
+	// diagnosable error rather than a nil that gqlgen nullifies up-chain.
+	if operation == nil {
+		return nil, fmt.Errorf("operation %d not found for state change %s", operationID, stateChangeKey)
+	}
+	return operation, nil
 }
 
 // resolveStateChangeTransaction resolves the transaction field for any state change type
@@ -162,5 +173,29 @@ func (r *Resolver) resolveStateChangeTransaction(ctx context.Context, toID int64
 	if err != nil {
 		return nil, fmt.Errorf("loading transaction for state change %s: %w", stateChangeKey, err)
 	}
+	// transaction is non-null on every concrete type; a missing transactions row
+	// is a data-integrity failure surfaced as a diagnosable error.
+	if transaction == nil {
+		return nil, fmt.Errorf("transaction not found for state change %s", stateChangeKey)
+	}
 	return transaction, nil
+}
+
+// flatKeyValueString extracts a top-level string value from a state change's
+// KeyValue payload (shape: {"old": ..., "new": ...}). A missing key or non-string
+// value yields a nil pointer rather than an error.
+func flatKeyValueString(kv types.NullableJSONB, key string) *string {
+	if kv == nil {
+		return nil
+	}
+	return stringPtrFromAny(kv[key])
+}
+
+// stringPtrFromAny returns a pointer to the string when v is a string, otherwise nil.
+func stringPtrFromAny(v any) *string {
+	s, ok := v.(string)
+	if !ok {
+		return nil
+	}
+	return &s
 }

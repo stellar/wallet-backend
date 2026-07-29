@@ -8,457 +8,881 @@ package resolvers
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
-// Type is the resolver for the type field.
-func (r *accountChangeResolver) Type(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeCategory, error) {
+// Category is the resolver for the category field.
+func (r *accountCreatedChangeResolver) Category(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *accountChangeResolver) Reason(ctx context.Context, obj *types.AccountStateChangeModel) (types.StateChangeReason, error) {
+func (r *accountCreatedChangeResolver) Reason(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *accountChangeResolver) Account(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Account, error) {
+func (r *accountCreatedChangeResolver) Account(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *accountChangeResolver) Operation(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Operation, error) {
+func (r *accountCreatedChangeResolver) Operation(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *accountChangeResolver) Transaction(ctx context.Context, obj *types.AccountStateChangeModel) (*types.Transaction, error) {
+func (r *accountCreatedChangeResolver) Transaction(ctx context.Context, obj *types.AccountCreatedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// FunderAddress is the resolver for the funderAddress field.
-func (r *accountChangeResolver) FunderAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.FunderAccountID), nil
+// CreatorAddress is the resolver for the creatorAddress field.
+func (r *accountCreatedChangeResolver) CreatorAddress(ctx context.Context, obj *types.AccountCreatedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.CreatorAccountID, "creatorAddress")
 }
 
-// DeployerAddress is the resolver for the deployerAddress field.
-func (r *accountChangeResolver) DeployerAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.DeployerAccountID), nil
-}
-
-// DestinationAddress is the resolver for the destinationAddress field.
-func (r *accountChangeResolver) DestinationAddress(ctx context.Context, obj *types.AccountStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.DestinationAccountID), nil
-}
-
-// Type is the resolver for the type field.
-func (r *balanceAuthorizationChangeResolver) Type(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeCategory, error) {
+// Category is the resolver for the category field.
+func (r *accountFlagsChangeResolver) Category(ctx context.Context, obj *types.AccountFlagsChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (types.StateChangeReason, error) {
+func (r *accountFlagsChangeResolver) Reason(ctx context.Context, obj *types.AccountFlagsChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *balanceAuthorizationChangeResolver) Account(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Account, error) {
+func (r *accountFlagsChangeResolver) Account(ctx context.Context, obj *types.AccountFlagsChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *balanceAuthorizationChangeResolver) Operation(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Operation, error) {
+func (r *accountFlagsChangeResolver) Operation(ctx context.Context, obj *types.AccountFlagsChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*types.Transaction, error) {
+func (r *accountFlagsChangeResolver) Transaction(ctx context.Context, obj *types.AccountFlagsChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Flags is the resolver for the flags field. The schema declares it non-null and a
+// FLAGS row is only emitted when at least one flag changed, so a null flags column
+// is missing backing data and surfaces as an error rather than an empty list.
+func (r *accountFlagsChangeResolver) Flags(ctx context.Context, obj *types.AccountFlagsChangeModel) ([]types.AccountFlag, error) {
+	if !obj.Flags.Valid {
+		return nil, fmt.Errorf("state change is missing required flags (to_id=%d, operation_id=%d, state_change_id=%d)", obj.ToID, obj.OperationID, obj.StateChangeID)
+	}
+	return types.DecodeAccountFlags(obj.Flags.Int16), nil
+}
+
+// Category is the resolver for the category field.
+func (r *accountMergedChangeResolver) Category(ctx context.Context, obj *types.AccountMergedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *accountMergedChangeResolver) Reason(ctx context.Context, obj *types.AccountMergedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *accountMergedChangeResolver) Account(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *accountMergedChangeResolver) Operation(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *accountMergedChangeResolver) Transaction(ctx context.Context, obj *types.AccountMergedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// DestinationAddress is the resolver for the destinationAddress field.
+func (r *accountMergedChangeResolver) DestinationAddress(ctx context.Context, obj *types.AccountMergedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.DestinationAccountID, "destinationAddress")
+}
+
+// Category is the resolver for the category field.
+func (r *allowanceChangeResolver) Category(ctx context.Context, obj *types.AllowanceChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *allowanceChangeResolver) Reason(ctx context.Context, obj *types.AllowanceChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *allowanceChangeResolver) Account(ctx context.Context, obj *types.AllowanceChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *allowanceChangeResolver) Operation(ctx context.Context, obj *types.AllowanceChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *allowanceChangeResolver) Transaction(ctx context.Context, obj *types.AllowanceChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.
-func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
+func (r *allowanceChangeResolver) TokenID(ctx context.Context, obj *types.AllowanceChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
+}
+
+// Spender is the resolver for the spender field.
+func (r *allowanceChangeResolver) Spender(ctx context.Context, obj *types.AllowanceChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.SpenderAccountID, "spender")
+}
+
+// Amount is the resolver for the amount field.
+func (r *allowanceChangeResolver) Amount(ctx context.Context, obj *types.AllowanceChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// ExpirationLedger is the resolver for the expirationLedger field. It reads the
+// live_until_ledger entry from the KeyValue payload, which JSONB unmarshal exposes
+// as a float64.
+func (r *allowanceChangeResolver) ExpirationLedger(ctx context.Context, obj *types.AllowanceChangeModel) (uint32, error) {
+	raw, ok := obj.KeyValue["live_until_ledger"]
+	if !ok {
+		return 0, fmt.Errorf("state change is missing required expirationLedger")
+	}
+	f, ok := raw.(float64)
+	if !ok {
+		return 0, fmt.Errorf("state change is missing required expirationLedger")
+	}
+	if f < 0 || f > math.MaxUint32 {
+		return 0, fmt.Errorf("state change expirationLedger %v is out of uint32 range", f)
+	}
+	return uint32(f), nil
+}
+
+// Category is the resolver for the category field.
+func (r *balanceAuthorizationChangeResolver) Category(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *balanceAuthorizationChangeResolver) Reason(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *balanceAuthorizationChangeResolver) Account(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *balanceAuthorizationChangeResolver) Operation(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *balanceAuthorizationChangeResolver) Transaction(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *balanceAuthorizationChangeResolver) TokenID(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (*string, error) {
 	return r.resolveNullableAddress(obj.TokenID), nil
 }
 
 // LiquidityPoolID is the resolver for the liquidityPoolId field.
-func (r *balanceAuthorizationChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) (*string, error) {
+func (r *balanceAuthorizationChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.LiquidityPoolID), nil
 }
 
-// Flags is the resolver for the flags field.
-// Decodes the bitmask value to a slice of flag name strings.
-func (r *balanceAuthorizationChangeResolver) Flags(ctx context.Context, obj *types.BalanceAuthorizationStateChangeModel) ([]string, error) {
+// Flags is the resolver for the flags field. Null when the row carries no flags
+// (SAC contract-holder authorization); otherwise the decoded trustline flags.
+func (r *balanceAuthorizationChangeResolver) Flags(ctx context.Context, obj *types.BalanceAuthorizationChangeModel) ([]types.TrustlineFlag, error) {
 	if !obj.Flags.Valid {
-		return []string{}, nil
+		return nil, nil
 	}
-	return types.DecodeBitmaskToFlags(obj.Flags.Int16), nil
+	return types.DecodeTrustlineFlags(obj.Flags.Int16), nil
 }
 
-// Type is the resolver for the type field.
-func (r *flagsChangeResolver) Type(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeCategory, error) {
+// Category is the resolver for the category field.
+func (r *balanceChangeResolver) Category(ctx context.Context, obj *types.BalanceChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *flagsChangeResolver) Reason(ctx context.Context, obj *types.FlagsStateChangeModel) (types.StateChangeReason, error) {
+func (r *balanceChangeResolver) Reason(ctx context.Context, obj *types.BalanceChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *flagsChangeResolver) Account(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Account, error) {
+func (r *balanceChangeResolver) Account(ctx context.Context, obj *types.BalanceChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
-// Operation is the resolver for the operation field.
-func (r *flagsChangeResolver) Operation(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *flagsChangeResolver) Transaction(ctx context.Context, obj *types.FlagsStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// Flags is the resolver for the flags field.
-// Decodes the bitmask value to a slice of flag name strings.
-func (r *flagsChangeResolver) Flags(ctx context.Context, obj *types.FlagsStateChangeModel) ([]string, error) {
-	if !obj.Flags.Valid {
-		return []string{}, nil
+// Operation is the resolver for the operation field. Transaction-fee rows have
+// no operation (OperationID 0), and the schema declares BalanceChange.operation
+// nullable for exactly that case.
+func (r *balanceChangeResolver) Operation(ctx context.Context, obj *types.BalanceChangeModel) (*types.Operation, error) {
+	if obj.OperationID == 0 {
+		return nil, nil
 	}
-	return types.DecodeBitmaskToFlags(obj.Flags.Int16), nil
-}
-
-// Type is the resolver for the type field.
-func (r *metadataChangeResolver) Type(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *metadataChangeResolver) Reason(ctx context.Context, obj *types.MetadataStateChangeModel) (types.StateChangeReason, error) {
-	return obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *metadataChangeResolver) Account(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(obj.AccountID)
-}
-
-// Operation is the resolver for the operation field.
-func (r *metadataChangeResolver) Operation(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *metadataChangeResolver) Transaction(ctx context.Context, obj *types.MetadataStateChangeModel) (*types.Transaction, error) {
+func (r *balanceChangeResolver) Transaction(ctx context.Context, obj *types.BalanceChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// KeyValue is the resolver for the keyValue field.
-func (r *metadataChangeResolver) KeyValue(ctx context.Context, obj *types.MetadataStateChangeModel) (string, error) {
-	return r.resolveRequiredJSONBField(obj.KeyValue)
+// TokenID is the resolver for the tokenId field.
+func (r *balanceChangeResolver) TokenID(ctx context.Context, obj *types.BalanceChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
 }
 
-// Type is the resolver for the type field.
-func (r *reservesChangeResolver) Type(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeCategory, error) {
+// Amount is the resolver for the amount field.
+func (r *balanceChangeResolver) Amount(ctx context.Context, obj *types.BalanceChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// ToMuxedID is the resolver for the toMuxedId field.
+func (r *balanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.BalanceChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.ToMuxedID), nil
+}
+
+// Category is the resolver for the category field.
+func (r *dataEntryAddedChangeResolver) Category(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *reservesChangeResolver) Reason(ctx context.Context, obj *types.ReservesStateChangeModel) (types.StateChangeReason, error) {
+func (r *dataEntryAddedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *reservesChangeResolver) Account(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Account, error) {
+func (r *dataEntryAddedChangeResolver) Account(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *reservesChangeResolver) Operation(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Operation, error) {
+func (r *dataEntryAddedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *reservesChangeResolver) Transaction(ctx context.Context, obj *types.ReservesStateChangeModel) (*types.Transaction, error) {
+func (r *dataEntryAddedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryAddedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// SponsoredAddress is the resolver for the sponsoredAddress field.
-func (r *reservesChangeResolver) SponsoredAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SponsoredAccountID), nil
+// Name is the resolver for the name field.
+func (r *dataEntryAddedChangeResolver) Name(ctx context.Context, obj *types.DataEntryAddedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
 }
 
-// SponsorAddress is the resolver for the sponsorAddress field.
-func (r *reservesChangeResolver) SponsorAddress(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SponsorAccountID), nil
+// Value is the resolver for the value field. The emission requires the effect's
+// new value, so a missing one is a data-integrity error.
+func (r *dataEntryAddedChangeResolver) Value(ctx context.Context, obj *types.DataEntryAddedChangeModel) (string, error) {
+	value := flatKeyValueString(obj.KeyValue, "new")
+	if value == nil {
+		return "", fmt.Errorf("state change is missing required value")
+	}
+	return *value, nil
 }
 
-// LiquidityPoolID is the resolver for the liquidityPoolID field.
-func (r *reservesChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.LiquidityPoolID), nil
-}
-
-// ClaimableBalanceID is the resolver for the claimableBalanceID field.
-func (r *reservesChangeResolver) ClaimableBalanceID(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.ClaimableBalanceID), nil
-}
-
-// SponsoredTrustline is the resolver for the sponsoredTrustline field.
-func (r *reservesChangeResolver) SponsoredTrustline(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.TokenID), nil
-}
-
-// SponsoredData is the resolver for the sponsoredData field.
-func (r *reservesChangeResolver) SponsoredData(ctx context.Context, obj *types.ReservesStateChangeModel) (*string, error) {
-	return r.resolveNullableString(obj.SponsoredData), nil
-}
-
-// Type is the resolver for the type field.
-func (r *signerChangeResolver) Type(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeCategory, error) {
+// Category is the resolver for the category field.
+func (r *dataEntryRemovedChangeResolver) Category(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *signerChangeResolver) Reason(ctx context.Context, obj *types.SignerStateChangeModel) (types.StateChangeReason, error) {
+func (r *dataEntryRemovedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *signerChangeResolver) Account(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Account, error) {
+func (r *dataEntryRemovedChangeResolver) Account(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *signerChangeResolver) Operation(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Operation, error) {
+func (r *dataEntryRemovedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *signerChangeResolver) Transaction(ctx context.Context, obj *types.SignerStateChangeModel) (*types.Transaction, error) {
+func (r *dataEntryRemovedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Name is the resolver for the name field.
+func (r *dataEntryRemovedChangeResolver) Name(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
+}
+
+// OldValue is the resolver for the oldValue field. The emission requires the data
+// entry pre-image, so a missing old value is a data-integrity error.
+func (r *dataEntryRemovedChangeResolver) OldValue(ctx context.Context, obj *types.DataEntryRemovedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldValue")
+	}
+	return *oldVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *dataEntryUpdatedChangeResolver) Category(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *dataEntryUpdatedChangeResolver) Reason(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *dataEntryUpdatedChangeResolver) Account(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *dataEntryUpdatedChangeResolver) Operation(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *dataEntryUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Name is the resolver for the name field.
+func (r *dataEntryUpdatedChangeResolver) Name(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.DataEntryName, "name")
+}
+
+// OldValue is the resolver for the oldValue field. The emission requires the data
+// entry pre-image, so a missing old value is a data-integrity error.
+func (r *dataEntryUpdatedChangeResolver) OldValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldValue")
+	}
+	return *oldVal, nil
+}
+
+// NewValue is the resolver for the newValue field. The emission requires the
+// effect's new value, so a missing one is a data-integrity error.
+func (r *dataEntryUpdatedChangeResolver) NewValue(ctx context.Context, obj *types.DataEntryUpdatedChangeModel) (string, error) {
+	newVal := flatKeyValueString(obj.KeyValue, "new")
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required newValue")
+	}
+	return *newVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *homeDomainClearedChangeResolver) Category(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *homeDomainClearedChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *homeDomainClearedChangeResolver) Account(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *homeDomainClearedChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *homeDomainClearedChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// OldHomeDomain is the resolver for the oldHomeDomain field. The emission requires
+// the account pre-image, so a missing old value is a data-integrity error.
+func (r *homeDomainClearedChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainClearedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldHomeDomain")
+	}
+	return *oldVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *homeDomainSetChangeResolver) Category(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *homeDomainSetChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainSetChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *homeDomainSetChangeResolver) Account(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *homeDomainSetChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *homeDomainSetChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainSetChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// HomeDomain is the resolver for the homeDomain field. The emission requires the
+// effect's new value, so a missing one is a data-integrity error.
+func (r *homeDomainSetChangeResolver) HomeDomain(ctx context.Context, obj *types.HomeDomainSetChangeModel) (string, error) {
+	newVal := flatKeyValueString(obj.KeyValue, "new")
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required homeDomain")
+	}
+	return *newVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *homeDomainUpdatedChangeResolver) Category(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *homeDomainUpdatedChangeResolver) Reason(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *homeDomainUpdatedChangeResolver) Account(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *homeDomainUpdatedChangeResolver) Operation(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *homeDomainUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// OldHomeDomain is the resolver for the oldHomeDomain field. The emission requires
+// the account pre-image, so a missing old value is a data-integrity error.
+func (r *homeDomainUpdatedChangeResolver) OldHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error) {
+	oldVal := flatKeyValueString(obj.KeyValue, "old")
+	if oldVal == nil {
+		return "", fmt.Errorf("state change is missing required oldHomeDomain")
+	}
+	return *oldVal, nil
+}
+
+// NewHomeDomain is the resolver for the newHomeDomain field. The emission requires
+// the effect's new value, so a missing one is a data-integrity error.
+func (r *homeDomainUpdatedChangeResolver) NewHomeDomain(ctx context.Context, obj *types.HomeDomainUpdatedChangeModel) (string, error) {
+	newVal := flatKeyValueString(obj.KeyValue, "new")
+	if newVal == nil {
+		return "", fmt.Errorf("state change is missing required newHomeDomain")
+	}
+	return *newVal, nil
+}
+
+// Category is the resolver for the category field.
+func (r *signerAddedChangeResolver) Category(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *signerAddedChangeResolver) Reason(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *signerAddedChangeResolver) Account(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *signerAddedChangeResolver) Operation(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *signerAddedChangeResolver) Transaction(ctx context.Context, obj *types.SignerAddedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // SignerAddress is the resolver for the signerAddress field.
-func (r *signerChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
-	return r.resolveNullableAddress(obj.SignerAccountID), nil
+func (r *signerAddedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerAddedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
 }
 
-// SignerWeights is the resolver for the signerWeights field.
-// Formats the old/new signer weight values as a JSON object for backward compatibility.
-func (r *signerChangeResolver) SignerWeights(ctx context.Context, obj *types.SignerStateChangeModel) (*string, error) {
-	if !obj.SignerWeightOld.Valid && !obj.SignerWeightNew.Valid {
-		return nil, nil
-	}
-	// Format as {"old": X|null, "new": Y|null} for backward compatibility with JSONB format,
-	// while preserving null for invalid values to avoid confusing them with a valid weight of 0.
-	var oldStr, newStr string
-	if obj.SignerWeightOld.Valid {
-		oldStr = fmt.Sprintf("%d", obj.SignerWeightOld.Int16)
-	} else {
-		oldStr = "null"
-	}
-	if obj.SignerWeightNew.Valid {
-		newStr = fmt.Sprintf("%d", obj.SignerWeightNew.Int16)
-	} else {
-		newStr = "null"
-	}
-	result := fmt.Sprintf(`{"old": %s, "new": %s}`, oldStr, newStr)
-	return &result, nil
+// NewWeight is the resolver for the newWeight field.
+func (r *signerAddedChangeResolver) NewWeight(ctx context.Context, obj *types.SignerAddedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightNew, "newWeight")
 }
 
-// Type is the resolver for the type field.
-func (r *signerThresholdsChangeResolver) Type(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeCategory, error) {
+// Category is the resolver for the category field.
+func (r *signerRemovedChangeResolver) Category(ctx context.Context, obj *types.SignerRemovedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *signerThresholdsChangeResolver) Reason(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (types.StateChangeReason, error) {
+func (r *signerRemovedChangeResolver) Reason(ctx context.Context, obj *types.SignerRemovedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *signerThresholdsChangeResolver) Account(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Account, error) {
+func (r *signerRemovedChangeResolver) Account(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *signerThresholdsChangeResolver) Operation(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Operation, error) {
+func (r *signerRemovedChangeResolver) Operation(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *signerThresholdsChangeResolver) Transaction(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (*types.Transaction, error) {
+func (r *signerRemovedChangeResolver) Transaction(ctx context.Context, obj *types.SignerRemovedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
-// Thresholds is the resolver for the thresholds field.
-// Formats the old/new threshold values as a JSON object for backward compatibility.
-func (r *signerThresholdsChangeResolver) Thresholds(ctx context.Context, obj *types.SignerThresholdsStateChangeModel) (string, error) {
-	// Format as {"old": "X", "new": "Y"} for backward compatibility with JSONB format.
-	// Values are stored as ints but returned as quoted strings in JSON (0-255 range).
-	// When a threshold is not set (invalid), return JSON null to avoid treating it as "0".
-	var oldVal, newVal string
-	if obj.ThresholdOld.Valid {
-		oldVal = fmt.Sprintf(`"%d"`, obj.ThresholdOld.Int16)
-	} else {
-		oldVal = "null"
-	}
-	if obj.ThresholdNew.Valid {
-		newVal = fmt.Sprintf(`"%d"`, obj.ThresholdNew.Int16)
-	} else {
-		newVal = "null"
-	}
-	return fmt.Sprintf(`{"old": %s, "new": %s}`, oldVal, newVal), nil
+// SignerAddress is the resolver for the signerAddress field.
+func (r *signerRemovedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerRemovedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
 }
 
-// Type is the resolver for the type field.
-func (r *standardBalanceChangeResolver) Type(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeCategory, error) {
+// OldWeight is the resolver for the oldWeight field.
+func (r *signerRemovedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerRemovedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightOld, "oldWeight")
+}
+
+// Category is the resolver for the category field.
+func (r *signerUpdatedChangeResolver) Category(ctx context.Context, obj *types.SignerUpdatedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
 
 // Reason is the resolver for the reason field.
-func (r *standardBalanceChangeResolver) Reason(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (types.StateChangeReason, error) {
+func (r *signerUpdatedChangeResolver) Reason(ctx context.Context, obj *types.SignerUpdatedChangeModel) (types.StateChangeReason, error) {
 	return obj.StateChangeReason, nil
 }
 
 // Account is the resolver for the account field.
-func (r *standardBalanceChangeResolver) Account(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Account, error) {
+func (r *signerUpdatedChangeResolver) Account(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Account, error) {
 	return r.resolveStateChangeAccount(obj.AccountID)
 }
 
 // Operation is the resolver for the operation field.
-func (r *standardBalanceChangeResolver) Operation(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Operation, error) {
+func (r *signerUpdatedChangeResolver) Operation(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Operation, error) {
 	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // Transaction is the resolver for the transaction field.
-func (r *standardBalanceChangeResolver) Transaction(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*types.Transaction, error) {
+func (r *signerUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.SignerUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// SignerAddress is the resolver for the signerAddress field.
+func (r *signerUpdatedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerUpdatedChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
+}
+
+// OldWeight is the resolver for the oldWeight field.
+func (r *signerUpdatedChangeResolver) OldWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightOld, "oldWeight")
+}
+
+// NewWeight is the resolver for the newWeight field.
+func (r *signerUpdatedChangeResolver) NewWeight(ctx context.Context, obj *types.SignerUpdatedChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.SignerWeightNew, "newWeight")
+}
+
+// Category is the resolver for the category field.
+func (r *thresholdChangeResolver) Category(ctx context.Context, obj *types.ThresholdChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *thresholdChangeResolver) Reason(ctx context.Context, obj *types.ThresholdChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *thresholdChangeResolver) Account(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *thresholdChangeResolver) Operation(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *thresholdChangeResolver) Transaction(ctx context.Context, obj *types.ThresholdChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Threshold is the resolver for the threshold field.
+func (r *thresholdChangeResolver) Threshold(ctx context.Context, obj *types.ThresholdChangeModel) (types.ThresholdLevel, error) {
+	level, err := r.resolveRequiredString(obj.Threshold, "threshold")
+	return types.ThresholdLevel(level), err
+}
+
+// OldThreshold is the resolver for the oldThreshold field.
+func (r *thresholdChangeResolver) OldThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.ThresholdOld, "oldThreshold")
+}
+
+// NewThreshold is the resolver for the newThreshold field.
+func (r *thresholdChangeResolver) NewThreshold(ctx context.Context, obj *types.ThresholdChangeModel) (int32, error) {
+	return r.resolveRequiredInt16(obj.ThresholdNew, "newThreshold")
+}
+
+// Category is the resolver for the category field.
+func (r *trustlineAddedChangeResolver) Category(ctx context.Context, obj *types.TrustlineAddedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *trustlineAddedChangeResolver) Reason(ctx context.Context, obj *types.TrustlineAddedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *trustlineAddedChangeResolver) Account(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *trustlineAddedChangeResolver) Operation(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *trustlineAddedChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*types.Transaction, error) {
 	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
 }
 
 // TokenID is the resolver for the tokenId field.
-func (r *standardBalanceChangeResolver) TokenID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
-	return obj.TokenID.String(), nil
-}
-
-// Amount is the resolver for the amount field.
-func (r *standardBalanceChangeResolver) Amount(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (string, error) {
-	return r.resolveRequiredString(obj.Amount), nil
-}
-
-// ToMuxedID is the resolver for the toMuxedId field.
-func (r *standardBalanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.StandardBalanceStateChangeModel) (*string, error) {
-	if !obj.ToMuxedID.Valid {
-		return nil, nil
-	}
-	v := obj.ToMuxedID.String
-	return &v, nil
-}
-
-// Type is the resolver for the type field.
-func (r *trustlineChangeResolver) Type(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeCategory, error) {
-	return obj.StateChangeCategory, nil
-}
-
-// Reason is the resolver for the reason field.
-func (r *trustlineChangeResolver) Reason(ctx context.Context, obj *types.TrustlineStateChangeModel) (types.StateChangeReason, error) {
-	return obj.StateChangeReason, nil
-}
-
-// Account is the resolver for the account field.
-func (r *trustlineChangeResolver) Account(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Account, error) {
-	return r.resolveStateChangeAccount(obj.AccountID)
-}
-
-// Operation is the resolver for the operation field.
-func (r *trustlineChangeResolver) Operation(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Operation, error) {
-	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// Transaction is the resolver for the transaction field.
-func (r *trustlineChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineStateChangeModel) (*types.Transaction, error) {
-	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
-}
-
-// TokenID is the resolver for the tokenId field.
-func (r *trustlineChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+func (r *trustlineAddedChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*string, error) {
 	return r.resolveNullableAddress(obj.TokenID), nil
 }
 
-// Limit is the resolver for the limit field.
-// Formats the old/new trustline limit values as a JSON object for backward compatibility.
-func (r *trustlineChangeResolver) Limit(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
-	if !obj.TrustlineLimitOld.Valid && !obj.TrustlineLimitNew.Valid {
-		return nil, nil
-	}
-	// Format old/new as JSON for backward compatibility with JSONB format
-	oldVal := "null"
-	newVal := "null"
-	if obj.TrustlineLimitOld.Valid {
-		oldVal = fmt.Sprintf(`"%s"`, obj.TrustlineLimitOld.String)
-	}
-	if obj.TrustlineLimitNew.Valid {
-		newVal = fmt.Sprintf(`"%s"`, obj.TrustlineLimitNew.String)
-	}
-	result := fmt.Sprintf(`{"old": %s, "new": %s}`, oldVal, newVal)
-	return &result, nil
-}
-
 // LiquidityPoolID is the resolver for the liquidityPoolId field.
-func (r *trustlineChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.TrustlineStateChangeModel) (*string, error) {
+func (r *trustlineAddedChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.TrustlineAddedChangeModel) (*string, error) {
 	return r.resolveNullableString(obj.LiquidityPoolID), nil
 }
 
-// AccountChange returns graphql1.AccountChangeResolver implementation.
-func (r *Resolver) AccountChange() graphql1.AccountChangeResolver { return &accountChangeResolver{r} }
+// Limit is the resolver for the limit field.
+func (r *trustlineAddedChangeResolver) Limit(ctx context.Context, obj *types.TrustlineAddedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TrustlineLimitNew, "limit")
+}
+
+// Category is the resolver for the category field.
+func (r *trustlineRemovedChangeResolver) Category(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *trustlineRemovedChangeResolver) Reason(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *trustlineRemovedChangeResolver) Account(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *trustlineRemovedChangeResolver) Operation(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *trustlineRemovedChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *trustlineRemovedChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.TokenID), nil
+}
+
+// LiquidityPoolID is the resolver for the liquidityPoolId field.
+func (r *trustlineRemovedChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.TrustlineRemovedChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
+}
+
+// Category is the resolver for the category field.
+func (r *trustlineUpdatedChangeResolver) Category(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *trustlineUpdatedChangeResolver) Reason(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *trustlineUpdatedChangeResolver) Account(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *trustlineUpdatedChangeResolver) Operation(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *trustlineUpdatedChangeResolver) Transaction(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *trustlineUpdatedChangeResolver) TokenID(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.TokenID), nil
+}
+
+// LiquidityPoolID is the resolver for the liquidityPoolId field.
+func (r *trustlineUpdatedChangeResolver) LiquidityPoolID(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (*string, error) {
+	return r.resolveNullableString(obj.LiquidityPoolID), nil
+}
+
+// OldLimit is the resolver for the oldLimit field.
+func (r *trustlineUpdatedChangeResolver) OldLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TrustlineLimitOld, "oldLimit")
+}
+
+// NewLimit is the resolver for the newLimit field.
+func (r *trustlineUpdatedChangeResolver) NewLimit(ctx context.Context, obj *types.TrustlineUpdatedChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.TrustlineLimitNew, "newLimit")
+}
+
+// AccountCreatedChange returns graphql1.AccountCreatedChangeResolver implementation.
+func (r *Resolver) AccountCreatedChange() graphql1.AccountCreatedChangeResolver {
+	return &accountCreatedChangeResolver{r}
+}
+
+// AccountFlagsChange returns graphql1.AccountFlagsChangeResolver implementation.
+func (r *Resolver) AccountFlagsChange() graphql1.AccountFlagsChangeResolver {
+	return &accountFlagsChangeResolver{r}
+}
+
+// AccountMergedChange returns graphql1.AccountMergedChangeResolver implementation.
+func (r *Resolver) AccountMergedChange() graphql1.AccountMergedChangeResolver {
+	return &accountMergedChangeResolver{r}
+}
+
+// AllowanceChange returns graphql1.AllowanceChangeResolver implementation.
+func (r *Resolver) AllowanceChange() graphql1.AllowanceChangeResolver {
+	return &allowanceChangeResolver{r}
+}
 
 // BalanceAuthorizationChange returns graphql1.BalanceAuthorizationChangeResolver implementation.
 func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationChangeResolver {
 	return &balanceAuthorizationChangeResolver{r}
 }
 
-// FlagsChange returns graphql1.FlagsChangeResolver implementation.
-func (r *Resolver) FlagsChange() graphql1.FlagsChangeResolver { return &flagsChangeResolver{r} }
+// BalanceChange returns graphql1.BalanceChangeResolver implementation.
+func (r *Resolver) BalanceChange() graphql1.BalanceChangeResolver { return &balanceChangeResolver{r} }
 
-// MetadataChange returns graphql1.MetadataChangeResolver implementation.
-func (r *Resolver) MetadataChange() graphql1.MetadataChangeResolver {
-	return &metadataChangeResolver{r}
+// DataEntryAddedChange returns graphql1.DataEntryAddedChangeResolver implementation.
+func (r *Resolver) DataEntryAddedChange() graphql1.DataEntryAddedChangeResolver {
+	return &dataEntryAddedChangeResolver{r}
 }
 
-// ReservesChange returns graphql1.ReservesChangeResolver implementation.
-func (r *Resolver) ReservesChange() graphql1.ReservesChangeResolver {
-	return &reservesChangeResolver{r}
+// DataEntryRemovedChange returns graphql1.DataEntryRemovedChangeResolver implementation.
+func (r *Resolver) DataEntryRemovedChange() graphql1.DataEntryRemovedChangeResolver {
+	return &dataEntryRemovedChangeResolver{r}
 }
 
-// SignerChange returns graphql1.SignerChangeResolver implementation.
-func (r *Resolver) SignerChange() graphql1.SignerChangeResolver { return &signerChangeResolver{r} }
-
-// SignerThresholdsChange returns graphql1.SignerThresholdsChangeResolver implementation.
-func (r *Resolver) SignerThresholdsChange() graphql1.SignerThresholdsChangeResolver {
-	return &signerThresholdsChangeResolver{r}
+// DataEntryUpdatedChange returns graphql1.DataEntryUpdatedChangeResolver implementation.
+func (r *Resolver) DataEntryUpdatedChange() graphql1.DataEntryUpdatedChangeResolver {
+	return &dataEntryUpdatedChangeResolver{r}
 }
 
-// StandardBalanceChange returns graphql1.StandardBalanceChangeResolver implementation.
-func (r *Resolver) StandardBalanceChange() graphql1.StandardBalanceChangeResolver {
-	return &standardBalanceChangeResolver{r}
+// HomeDomainClearedChange returns graphql1.HomeDomainClearedChangeResolver implementation.
+func (r *Resolver) HomeDomainClearedChange() graphql1.HomeDomainClearedChangeResolver {
+	return &homeDomainClearedChangeResolver{r}
 }
 
-// TrustlineChange returns graphql1.TrustlineChangeResolver implementation.
-func (r *Resolver) TrustlineChange() graphql1.TrustlineChangeResolver {
-	return &trustlineChangeResolver{r}
+// HomeDomainSetChange returns graphql1.HomeDomainSetChangeResolver implementation.
+func (r *Resolver) HomeDomainSetChange() graphql1.HomeDomainSetChangeResolver {
+	return &homeDomainSetChangeResolver{r}
+}
+
+// HomeDomainUpdatedChange returns graphql1.HomeDomainUpdatedChangeResolver implementation.
+func (r *Resolver) HomeDomainUpdatedChange() graphql1.HomeDomainUpdatedChangeResolver {
+	return &homeDomainUpdatedChangeResolver{r}
+}
+
+// SignerAddedChange returns graphql1.SignerAddedChangeResolver implementation.
+func (r *Resolver) SignerAddedChange() graphql1.SignerAddedChangeResolver {
+	return &signerAddedChangeResolver{r}
+}
+
+// SignerRemovedChange returns graphql1.SignerRemovedChangeResolver implementation.
+func (r *Resolver) SignerRemovedChange() graphql1.SignerRemovedChangeResolver {
+	return &signerRemovedChangeResolver{r}
+}
+
+// SignerUpdatedChange returns graphql1.SignerUpdatedChangeResolver implementation.
+func (r *Resolver) SignerUpdatedChange() graphql1.SignerUpdatedChangeResolver {
+	return &signerUpdatedChangeResolver{r}
+}
+
+// ThresholdChange returns graphql1.ThresholdChangeResolver implementation.
+func (r *Resolver) ThresholdChange() graphql1.ThresholdChangeResolver {
+	return &thresholdChangeResolver{r}
+}
+
+// TrustlineAddedChange returns graphql1.TrustlineAddedChangeResolver implementation.
+func (r *Resolver) TrustlineAddedChange() graphql1.TrustlineAddedChangeResolver {
+	return &trustlineAddedChangeResolver{r}
+}
+
+// TrustlineRemovedChange returns graphql1.TrustlineRemovedChangeResolver implementation.
+func (r *Resolver) TrustlineRemovedChange() graphql1.TrustlineRemovedChangeResolver {
+	return &trustlineRemovedChangeResolver{r}
+}
+
+// TrustlineUpdatedChange returns graphql1.TrustlineUpdatedChangeResolver implementation.
+func (r *Resolver) TrustlineUpdatedChange() graphql1.TrustlineUpdatedChangeResolver {
+	return &trustlineUpdatedChangeResolver{r}
 }
 
 type (
-	accountChangeResolver              struct{ *Resolver }
+	accountCreatedChangeResolver       struct{ *Resolver }
+	accountFlagsChangeResolver         struct{ *Resolver }
+	accountMergedChangeResolver        struct{ *Resolver }
+	allowanceChangeResolver            struct{ *Resolver }
 	balanceAuthorizationChangeResolver struct{ *Resolver }
-	flagsChangeResolver                struct{ *Resolver }
-	metadataChangeResolver             struct{ *Resolver }
-	reservesChangeResolver             struct{ *Resolver }
-	signerChangeResolver               struct{ *Resolver }
-	signerThresholdsChangeResolver     struct{ *Resolver }
-	standardBalanceChangeResolver      struct{ *Resolver }
-	trustlineChangeResolver            struct{ *Resolver }
+	balanceChangeResolver              struct{ *Resolver }
+	dataEntryAddedChangeResolver       struct{ *Resolver }
+	dataEntryRemovedChangeResolver     struct{ *Resolver }
+	dataEntryUpdatedChangeResolver     struct{ *Resolver }
+	homeDomainClearedChangeResolver    struct{ *Resolver }
+	homeDomainSetChangeResolver        struct{ *Resolver }
+	homeDomainUpdatedChangeResolver    struct{ *Resolver }
+	signerAddedChangeResolver          struct{ *Resolver }
+	signerRemovedChangeResolver        struct{ *Resolver }
+	signerUpdatedChangeResolver        struct{ *Resolver }
+	thresholdChangeResolver            struct{ *Resolver }
+	trustlineAddedChangeResolver       struct{ *Resolver }
+	trustlineRemovedChangeResolver     struct{ *Resolver }
+	trustlineUpdatedChangeResolver     struct{ *Resolver }
 )

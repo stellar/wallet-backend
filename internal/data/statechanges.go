@@ -29,10 +29,16 @@ type StateChangeWriter interface {
 
 var _ StateChangeWriter = (*StateChangeModel)(nil)
 
+// stateChangeMandatoryColumns is always selected regardless of the GraphQL field
+// projection: the cursor/key columns, plus the discriminators (state_change_category,
+// state_change_reason) that convertStateChangeTypes in the resolvers package needs
+// to pick the concrete GraphQL type for each row.
+var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason"}
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
@@ -156,10 +162,12 @@ func (m *StateChangeModel) BatchCopy(
 			"to_id", "state_change_id", "state_change_category", "state_change_reason",
 			"ledger_created_at", "ledger_number", "account_id", "operation_id",
 			"token_id", "amount", "signer_account_id", "spender_account_id",
-			"sponsored_account_id", "sponsor_account_id", "deployer_account_id", "funder_account_id",
-			"destination_account_id", "claimable_balance_id", "liquidity_pool_id", "sponsored_data",
-			"signer_weight_old", "signer_weight_new", "threshold_old", "threshold_new",
-			"trustline_limit_old", "trustline_limit_new", "flags", "key_value",
+			"creator_account_id", "destination_account_id",
+			"liquidity_pool_id",
+			"signer_weight_old", "signer_weight_new",
+			"threshold", "threshold_old", "threshold_new",
+			"trustline_limit_old", "trustline_limit_new", "flags",
+			"data_entry_name", "key_value",
 			"to_muxed_id",
 		},
 		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
@@ -180,21 +188,9 @@ func (m *StateChangeModel) BatchCopy(
 			if err != nil {
 				return nil, fmt.Errorf("converting spender_account_id: %w", err)
 			}
-			sponsoredBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsoredAccountID)
+			creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
 			if err != nil {
-				return nil, fmt.Errorf("converting sponsored_account_id: %w", err)
-			}
-			sponsorBytes, err := pgtypeBytesFromNullAddressBytea(sc.SponsorAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting sponsor_account_id: %w", err)
-			}
-			deployerBytes, err := pgtypeBytesFromNullAddressBytea(sc.DeployerAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting deployer_account_id: %w", err)
-			}
-			funderBytes, err := pgtypeBytesFromNullAddressBytea(sc.FunderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting funder_account_id: %w", err)
+				return nil, fmt.Errorf("converting creator_account_id: %w", err)
 			}
 			destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
 			if err != nil {
@@ -218,21 +214,18 @@ func (m *StateChangeModel) BatchCopy(
 				pgtypeTextFromNullString(sc.Amount),
 				signerBytes,
 				spenderBytes,
-				sponsoredBytes,
-				sponsorBytes,
-				deployerBytes,
-				funderBytes,
+				creatorBytes,
 				destinationBytes,
-				pgtypeTextFromNullString(sc.ClaimableBalanceID),
 				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeTextFromNullString(sc.SponsoredData),
 				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
 				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
+				pgtypeTextFromNullString(sc.Threshold),
 				pgtypeInt2FromNullInt16(sc.ThresholdOld),
 				pgtypeInt2FromNullInt16(sc.ThresholdNew),
 				pgtypeTextFromNullString(sc.TrustlineLimitOld),
 				pgtypeTextFromNullString(sc.TrustlineLimitNew),
 				pgtypeInt2FromNullInt16(sc.Flags),
+				pgtypeTextFromNullString(sc.DataEntryName),
 				jsonbFromMap(sc.KeyValue),
 				pgtypeTextFromNullString(sc.ToMuxedID),
 			}, nil
@@ -266,7 +259,7 @@ func (m *StateChangeModel) BatchCopy(
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to
 // the parent transaction's ledger_created_at for partition-column chunk exclusion.
 func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
@@ -330,7 +323,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 
 	// The ORDER BY + LIMIT live inside the LATERAL (a per-transaction top-N), replacing the old
 	// ROW_NUMBER()-over-everything CTE with an equivalent per-to_id cap; a subquery containing
@@ -397,7 +390,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 // BatchGetByOperationID gets state changes for a single operation with pagination support,
 // pinned to the parent operation's ledger_created_at for partition-column chunk exclusion.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
@@ -484,7 +477,7 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 			hi = t
 		}
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM state_changes sc
@@ -516,7 +509,7 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	if len(operationIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
 	}
-	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", "to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at")
+	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 
 	// The ORDER BY + LIMIT live inside the LATERAL (a per-operation top-N), replacing the old
 	// ROW_NUMBER()-over-everything CTE with an equivalent per-operation cap; a subquery

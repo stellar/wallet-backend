@@ -46,7 +46,11 @@ func (r *accountTransactionEdgeResolver) StateChanges(ctx context.Context, obj *
 	}
 	result := make([]graphql1.BaseStateChange, 0, len(stateChanges))
 	for _, sc := range stateChanges {
-		result = append(result, convertStateChangeTypes(*sc))
+		converted, err := convertStateChangeTypes(*sc)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
 	}
 	return result, nil
 }

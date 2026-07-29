@@ -137,10 +137,12 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 			operationID = filter.OperationID
 		}
 		if filter.Category != nil {
-			category = filter.Category
+			c := string(*filter.Category)
+			category = &c
 		}
 		if filter.Reason != nil {
-			reason = filter.Reason
+			re := string(*filter.Reason)
+			reason = &re
 		}
 	}
 
@@ -155,7 +157,10 @@ func (r *accountResolver) StateChanges(ctx context.Context, obj *types.Account, 
 		return nil, fmt.Errorf("getting state changes from db for account %s: %w", obj.StellarAddress, err)
 	}
 
-	convertedStateChanges := convertStateChangeToBaseStateChange(stateChanges)
+	convertedStateChanges, err := convertStateChangeToBaseStateChange(stateChanges)
+	if err != nil {
+		return nil, err
+	}
 	conn := NewConnectionWithRelayPagination(convertedStateChanges, params, func(sc *baseStateChangeWithCursor) string {
 		return fmt.Sprintf("%d:%d:%d:%d", sc.cursor.LedgerCreatedAt.UnixNano(), sc.cursor.ToID, sc.cursor.OperationID, sc.cursor.StateChangeID)
 	})

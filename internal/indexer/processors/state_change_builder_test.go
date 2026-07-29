@@ -31,13 +31,8 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		require.Same(t, b, b.WithTrustlineLimit(strPtr("500"), strPtr("1000")))
 		require.Same(t, b, b.WithFlags([]string{"auth_required"}))
 		require.Same(t, b, b.WithKeyValue(map[string]any{"k": "v"}))
-		require.Same(t, b, b.WithDeployer("GDEPLOYER"))
-		require.Same(t, b, b.WithFunder("GFUNDER"))
-		require.Same(t, b, b.WithClaimableBalanceID("cb"))
+		require.Same(t, b, b.WithCreator("GCREATOR"))
 		require.Same(t, b, b.WithLiquidityPoolID("lp"))
-		require.Same(t, b, b.WithSponsoredData("data"))
-		require.Same(t, b, b.WithSponsoredAccountID("GSPONSORED"))
-		require.Same(t, b, b.WithSponsor("GSPONSOR"))
 	})
 
 	t.Run("field values", func(t *testing.T) {
@@ -48,11 +43,8 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 			WithOperationID(555).
 			WithToken("CTOK").
 			WithAmount("42").
-			WithDeployer("GDEP").
-			WithFunder("GFUN").
-			WithClaimableBalanceID("cb1").
+			WithCreator("GCREAT").
 			WithLiquidityPoolID("lp1").
-			WithSponsoredData("sd1").
 			Build()
 
 		assert.Equal(t, types.StateChangeCategorySigner, sc.StateChangeCategory)
@@ -63,10 +55,7 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		assert.True(t, sc.TokenID.Valid)
 		assert.Equal(t, "42", sc.Amount.String)
 		assert.True(t, sc.Amount.Valid)
-		assert.Equal(t, "GDEP", string(sc.DeployerAccountID.AddressBytea))
-		assert.Equal(t, "GFUN", string(sc.FunderAccountID.AddressBytea))
-		assert.Equal(t, "cb1", sc.ClaimableBalanceID.String)
+		assert.Equal(t, "GCREAT", string(sc.CreatorAccountID.AddressBytea))
 		assert.Equal(t, "lp1", sc.LiquidityPoolID.String)
-		assert.Equal(t, "sd1", sc.SponsoredData.String)
 	})
 }

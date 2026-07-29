@@ -380,6 +380,50 @@ func TestHashBytea_String(t *testing.T) {
 	}
 }
 
+func TestDecodeAccountFlags(t *testing.T) {
+	t.Run("zero decodes to nil", func(t *testing.T) {
+		assert.Nil(t, DecodeAccountFlags(0))
+	})
+
+	t.Run("decodes set bits in fixed order", func(t *testing.T) {
+		// Bits supplied high-to-low; decode order must still follow accountFlagBits.
+		mask := FlagBitAuthClawbackEnabled | FlagBitAuthImmutable | FlagBitAuthRevocable | FlagBitAuthRequired
+		assert.Equal(t, []AccountFlag{
+			AccountFlagAuthRequired,
+			AccountFlagAuthRevocable,
+			AccountFlagAuthImmutable,
+			AccountFlagAuthClawbackEnabled,
+		}, DecodeAccountFlags(mask))
+	})
+
+	t.Run("masks only account bits when trustline bits are also set", func(t *testing.T) {
+		// auth_required (account) + authorized & clawback_enabled (trustline-only bits).
+		mask := FlagBitAuthRequired | FlagBitAuthorized | FlagBitClawbackEnabled
+		assert.Equal(t, []AccountFlag{AccountFlagAuthRequired}, DecodeAccountFlags(mask))
+	})
+}
+
+func TestDecodeTrustlineFlags(t *testing.T) {
+	t.Run("zero decodes to nil", func(t *testing.T) {
+		assert.Nil(t, DecodeTrustlineFlags(0))
+	})
+
+	t.Run("decodes set bits in fixed order", func(t *testing.T) {
+		mask := FlagBitClawbackEnabled | FlagBitAuthorizedToMaintainLiabilities | FlagBitAuthorized
+		assert.Equal(t, []TrustlineFlag{
+			TrustlineFlagAuthorized,
+			TrustlineFlagAuthorizedToMaintainLiabilities,
+			TrustlineFlagClawbackEnabled,
+		}, DecodeTrustlineFlags(mask))
+	})
+
+	t.Run("masks only trustline bits when account bits are also set", func(t *testing.T) {
+		// authorized + clawback_enabled (trustline) + auth_required & auth_revocable (account-only bits).
+		mask := FlagBitAuthorized | FlagBitClawbackEnabled | FlagBitAuthRequired | FlagBitAuthRevocable
+		assert.Equal(t, []TrustlineFlag{TrustlineFlagAuthorized, TrustlineFlagClawbackEnabled}, DecodeTrustlineFlags(mask))
+	})
+}
+
 // buildOrdinalTestInput returns a fixed slice of state changes spanning two
 // operations, interleaved in emission order: op 10 gets three, op 20 gets two.
 func buildOrdinalTestInput() []StateChange {

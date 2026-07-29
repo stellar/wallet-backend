@@ -1,22 +1,28 @@
-# GraphQL Operation type - represents a blockchain operation
-# Operations are the individual actions within a transaction
-type Operation{
+"""One operation within a Stellar transaction."""
+type Operation {
+  """Operation ID (TOID): a globally unique, chronologically sortable identifier."""
   id:              Int64!
-  operationType:   OperationType!
+  """The operation's type."""
+  type:            OperationType! @goField(name: "operationType")
+  """The operation body, base64-encoded XDR."""
   operationXdr:    String! @goField(forceResolver: true)
+  """Operation result code from transaction execution."""
   resultCode:      String!
+  """Whether the operation succeeded."""
   successful:      Boolean!
+  """Sequence number of the ledger that included this operation."""
   ledgerNumber:    UInt32!
+  """Close time of the ledger that included this operation."""
   ledgerCreatedAt: Time!
+  """When the indexer persisted this operation."""
   ingestedAt:      Time!
-  
-  # GraphQL Relationships - these fields use resolvers  
-  # Parent transaction
+
+  """Transaction that contains this operation."""
   transaction: Transaction! @goField(forceResolver: true)
-  
-  # Related accounts - uses resolver with dataloader for efficiency
+
+  """Accounts that participated in this operation."""
   accounts:        [Account!]! @goField(forceResolver: true)
-  
-  # Related state changes - uses resolver to fetch associated changes
-  stateChanges(first: Int, after: String, last: Int, before: String):    StateChangeConnection
+
+  """State changes produced by this operation."""
+  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
 }

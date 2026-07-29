@@ -1,9 +1,11 @@
-# GraphQL Query root type - defines all available queries in the API
-# In GraphQL, the Query type is the entry point for read operations
+"""Root queries. Entities not found return null."""
 type Query {
-    transactionByHash(hash: String!):                                     Transaction
+    """Look up a transaction by its hex-encoded hash."""
+    transactionByHash(hash: String!): Transaction
 
-    accountByAddress(address: String!):                                   Account
+    """Look up an account or contract by its address (G... or C...)."""
+    accountByAddress(address: String!): Account
 
-    operationById(id: Int64!):                                            Operation
+    """Look up an operation by its ID (TOID)."""
+    operationById(id: Int64!): Operation
 }

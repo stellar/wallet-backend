@@ -85,17 +85,17 @@ func TestAccountTransactionEdgeResolver(t *testing.T) {
 
 	t.Run("state changes are scoped to the account", func(t *testing.T) {
 		loaders := dataloaders.NewDataloaders(models, m.Dataloader)
-		// Select "type" (state_change_category): it is the discriminator convertStateChangeTypes
-		// switches on, so it must be among the loaded columns for the row to resolve to a concrete
-		// type rather than a nil BaseStateChange. The loader force-loads to_id via prepareColumnsWithID.
-		c := context.WithValue(getTestCtx("stateChanges", []string{"type"}), middleware.LoadersKey, loaders)
+		// state_change_category is the discriminator convertStateChangeTypes switches on. It is one
+		// of stateChangeMandatoryColumns, so the loader force-loads it regardless of field selection;
+		// requesting "category" here mirrors a realistic client query.
+		c := context.WithValue(getTestCtx("stateChanges", []string{"category"}), middleware.LoadersKey, loaders)
 		scs, err := resolver.StateChanges(c, edge)
 		require.NoError(t, err)
 		require.Len(t, scs, 1) // only acct's state change, not other's
-		// The resolver runs each row through convertStateChangeTypes, so a BALANCE category must
-		// surface as its concrete GraphQL type, not a bare BaseStateChange.
-		_, ok := scs[0].(*types.StandardBalanceStateChangeModel)
-		require.True(t, ok, "BALANCE state change should convert to StandardBalanceStateChangeModel, got %T", scs[0])
+		// The seeded row is BALANCE with a non-zero operation_id, so convertStateChangeTypes must
+		// surface it as the concrete BalanceChangeModel, not a bare BaseStateChange.
+		_, ok := scs[0].(*types.BalanceChangeModel)
+		require.True(t, ok, "BALANCE state change should convert to BalanceChangeModel, got %T", scs[0])
 	})
 }
 

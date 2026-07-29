@@ -60,7 +60,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
 					subInvocationsStateChanges = []types.StateChange{
 						builder.Clone().
-							WithDeployer(deployerAccountID).
+							WithCreator(deployerAccountID).
 							WithAccount(deployedContractID).
 							Build(),
 					}
@@ -87,7 +87,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
 							builder.Clone().
-								WithDeployer(fromSourceAccount).
+								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
 						),
@@ -109,7 +109,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
 							builder.Clone().
-								WithDeployer(fromSourceAccount).
+								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
 						),
@@ -222,9 +222,9 @@ func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t 
 		WithCategory(types.StateChangeCategoryAccount)
 
 	wantOrder := []types.StateChange{
-		builder.Clone().WithDeployer(rootDeployer).WithAccount(contractA).Build(),
-		builder.Clone().WithDeployer(subDeployerB).WithAccount(contractB).Build(),
-		builder.Clone().WithDeployer(subDeployerC).WithAccount(contractC).Build(),
+		builder.Clone().WithCreator(rootDeployer).WithAccount(contractA).Build(),
+		builder.Clone().WithCreator(subDeployerB).WithAccount(contractB).Build(),
+		builder.Clone().WithCreator(subDeployerC).WithAccount(contractC).Build(),
 	}
 
 	require.Len(t, stateChanges, len(wantOrder))
@@ -297,7 +297,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 				prefix = "🔄WithSubinvocations🔄"
 				subInvocationsStateChanges = []types.StateChange{
 					builder.Clone().
-						WithDeployer(deployerAccountID).
+						WithCreator(deployerAccountID).
 						WithAccount(deployedContractID).
 						Build(),
 				}

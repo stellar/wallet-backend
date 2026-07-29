@@ -18,7 +18,7 @@ import (
 // max page size (first: 100, the resolver-enforced cap, see graphqlutils.DefaultPageLimit and the
 // resolvers' page-size clamping) with every field of every concrete implementer selected. A single
 // query combining both at first:100 is not representative: freighter issues them as separate
-// requests, and combined they total ~9500, over budget on their own. Each is tested independently
+// requests, and combined they total ~11400, over budget on their own. Each is tested independently
 // as its own worst case.
 
 const freighterAccountBalancesQuery = `
@@ -40,7 +40,7 @@ const freighterAccountBalancesQuery = `
 						... on TrustlineBalance {
 							code
 							issuer
-							type
+							assetType
 							limit
 							buyingLiabilities
 							sellingLiabilities
@@ -62,7 +62,6 @@ const freighterAccountBalancesQuery = `
 							lastModifiedLedger
 						}
 						... on LiquidityPoolBalance {
-							liquidityPoolId
 							reserves { asset amount }
 							lastModifiedLedger
 						}
@@ -97,7 +96,7 @@ const freighterAccountTransactionsQuery = `
 					cursor
 					operations {
 						id
-						operationType
+						type
 						operationXdr
 						resultCode
 						successful
@@ -106,51 +105,91 @@ const freighterAccountTransactionsQuery = `
 						ingestedAt
 					}
 					stateChanges {
-						type
+						category
 						reason
 						ingestedAt
 						ledgerCreatedAt
 						ledgerNumber
-						... on StandardBalanceChange {
-							standardBalanceTokenId: tokenId
-							amount
+						... on BalanceChange {
+							balanceTokenId: tokenId
+							balanceAmount: amount
 							toMuxedId
 						}
-						... on AccountChange {
-							funderAddress
-							deployerAddress
+						... on AccountCreatedChange {
+							creatorAddress
+						}
+						... on AccountMergedChange {
 							destinationAddress
 						}
-						... on SignerChange {
-							signerAddress
-							signerWeights
+						... on SignerAddedChange {
+							signerAddedAddress: signerAddress
+							signerAddedNewWeight: newWeight
 						}
-						... on SignerThresholdsChange {
-							thresholds
+						... on SignerUpdatedChange {
+							signerUpdatedAddress: signerAddress
+							signerUpdatedOldWeight: oldWeight
+							signerUpdatedNewWeight: newWeight
 						}
-						... on MetadataChange {
-							metadataKeyValue: keyValue
+						... on SignerRemovedChange {
+							signerRemovedAddress: signerAddress
+							signerRemovedOldWeight: oldWeight
 						}
-						... on FlagsChange {
-							flags
+						... on ThresholdChange {
+							threshold
+							oldThreshold
+							newThreshold
 						}
-						... on TrustlineChange {
-							trustlineTokenId: tokenId
-							limit
-							trustlineLiquidityPoolId: liquidityPoolId
+						... on AccountFlagsChange {
+							accountFlags: flags
 						}
-						... on ReservesChange {
-							sponsoredAddress
-							sponsorAddress
-							sponsoredData
-							sponsoredTrustline
-							claimableBalanceId
-							liquidityPoolId
+						... on HomeDomainSetChange {
+							homeDomainSetValue: homeDomain
+						}
+						... on HomeDomainUpdatedChange {
+							homeDomainUpdatedOld: oldHomeDomain
+							homeDomainUpdatedNew: newHomeDomain
+						}
+						... on HomeDomainClearedChange {
+							homeDomainClearedOld: oldHomeDomain
+						}
+						... on DataEntryAddedChange {
+							dataEntryAddedName: name
+							dataEntryAddedValue: value
+						}
+						... on DataEntryUpdatedChange {
+							dataEntryUpdatedName: name
+							dataEntryUpdatedOldValue: oldValue
+							dataEntryUpdatedNewValue: newValue
+						}
+						... on DataEntryRemovedChange {
+							dataEntryRemovedName: name
+							dataEntryRemovedOldValue: oldValue
+						}
+						... on AllowanceChange {
+							allowanceTokenId: tokenId
+							spender
+							allowanceAmount: amount
+							expirationLedger
+						}
+						... on TrustlineAddedChange {
+							trustlineAddedTokenId: tokenId
+							trustlineAddedLiquidityPoolId: liquidityPoolId
+							trustlineAddedLimit: limit
+						}
+						... on TrustlineUpdatedChange {
+							trustlineUpdatedTokenId: tokenId
+							trustlineUpdatedLiquidityPoolId: liquidityPoolId
+							oldLimit
+							newLimit
+						}
+						... on TrustlineRemovedChange {
+							trustlineRemovedTokenId: tokenId
+							trustlineRemovedLiquidityPoolId: liquidityPoolId
 						}
 						... on BalanceAuthorizationChange {
 							balanceAuthTokenId: tokenId
 							balanceAuthLiquidityPoolId: liquidityPoolId
-							flags
+							trustlineFlags: flags
 						}
 					}
 				}
@@ -172,7 +211,7 @@ func newComplexityCalculationSchema(t *testing.T) graphql.ExecutableSchema {
 }
 
 // TestFreighterFullDetailQueriesStayUnderComplexityLimit locks in that freighter's two heaviest
-// account-detail queries stay under the prod GRAPHQL_COMPLEXITY_LIMIT=6000. This only holds because
+// account-detail queries stay under the default GRAPHQL_COMPLEXITY_LIMIT=10000. This only holds because
 // AccountTransactionEdge.operations/stateChanges have no complexity multiplier registered (see
 // TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultiplier below); if that ever
 // changes, this test starts failing too.
@@ -182,8 +221,10 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 	testCases := []struct {
 		name  string
 		query string
-		// computed complexity on record at time of writing, for both cases well under the
-		// GRAPHQL_COMPLEXITY_LIMIT=6000 production limit: balances=3901, transactions=5601.
+		// computed complexity on record at time of writing, for both cases under the
+		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7301.
+		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 19-fragment
+		// state-change selection over-counts relative to what any one row resolves.
 		floor int
 	}{
 		{name: "account balances, first:100, every Balance implementer field", query: freighterAccountBalancesQuery, floor: 1000},
@@ -199,14 +240,14 @@ func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
 			t.Logf("%s: computed complexity = %d", tc.name, c)
 
 			require.Greater(t, c, tc.floor, "query should be substantial enough to be a meaningful worst case; a near-zero value likely means LoadQuery silently dropped selections")
-			require.Less(t, c, 6000, "freighter's full-detail query must stay under the prod complexity limit (GRAPHQL_COMPLEXITY_LIMIT=6000)")
+			require.Less(t, c, 10_000, "freighter's full-detail query must stay under the default complexity limit (GRAPHQL_COMPLEXITY_LIMIT=10000)")
 		})
 	}
 }
 
 // TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultiplier guards the
 // invariant documented in serve.go: AccountTransactionEdge.operations/stateChanges must never get a
-// complexity multiplier, or freighter's full-detail account-history query breaks the prod limit.
+// complexity multiplier, or freighter's full-detail account-history query breaks the complexity limit.
 func TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultiplier(t *testing.T) {
 	es := newComplexityCalculationSchema(t)
 	ctx := context.Background()
@@ -239,5 +280,5 @@ func TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultipli
 	require.Empty(t, gerr)
 	regressed := complexity.Calculate(ctx, regressedES, doc.Operations[0], nil)
 	t.Logf("freighter transactions query complexity with a hypothetical AccountTransactionEdge multiplier = %d", regressed)
-	require.Greater(t, regressed, 6000, "this confirms the guard above is load-bearing: without it, the freighter transactions query blows the prod complexity limit")
+	require.Greater(t, regressed, 10_000, "this confirms the guard above is load-bearing: without it, the freighter transactions query blows the complexity limit")
 }

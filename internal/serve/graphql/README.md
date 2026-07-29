@@ -30,7 +30,7 @@ curl -X POST http://localhost:8080/graphql \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
-    "query": "{ transactionByHash(hash: \"abc123...\") { hash ledgerNumber envelopeXdr } }"
+    "query": "{ transactionByHash(hash: \"abc123...\") { hash ledgerNumber feeCharged } }"
   }'
 ```
 
@@ -69,10 +69,8 @@ Retrieve a specific transaction by its hash.
 query GetTransaction {
   transactionByHash(hash: "abc123...") {
     hash
-    envelopeXdr
     feeCharged
     resultCode
-    metaXdr
     ledgerNumber
     ledgerCreatedAt
     isFeeBump
@@ -87,7 +85,7 @@ query GetTransaction {
       edges {
         node {
           id
-          operationType
+          type
         }
       }
     }
@@ -122,7 +120,7 @@ query GetAccount {
       edges {
         node {
           id
-          operationType
+          type
           operationXdr
         }
       }
@@ -133,25 +131,23 @@ query GetAccount {
       filter: {
         transactionHash: "abc123..."  # Filter by transaction hash
         operationId: 12345            # Filter by operation ID
-        category: "BALANCE"           # Filter by state change category
-        reason: "CREDIT"              # Filter by state change reason
+        category: BALANCE             # Filter by state change category (enum)
+        reason: CREDIT                # Filter by state change reason (enum)
       }
       first: 50
     ) {
       edges {
         node {
-          ... on StandardBalanceChange {
-            type
-            reason
+          category
+          reason
+          ... on BalanceChange {
             tokenId
             amount
             ledgerNumber
           }
-          ... on SignerChange {
-            type
-            reason
+          ... on SignerAddedChange {
             signerAddress
-            signerWeights
+            newWeight
           }
         }
       }
@@ -168,8 +164,10 @@ The `stateChanges` field on Account supports an optional `filter` parameter with
 |-------|------|-------------|
 | `transactionHash` | `String` | Filter by transaction hash - returns only state changes from this transaction |
 | `operationId` | `Int64` | Filter by operation ID - returns only state changes from this operation |
-| `category` | `String` | Filter by state change category (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `RESERVES`) |
-| `reason` | `String` | Filter by state change reason (e.g., `CREDIT`, `DEBIT`, `CREATE`, `MERGE`, `ADD`, `REMOVE`) |
+| `category` | `StateChangeCategory` | Filter by state change category enum (e.g., `BALANCE`, `ACCOUNT`, `SIGNER`, `TRUSTLINE`, `FLAGS`) |
+| `reason` | `StateChangeReason` | Filter by state change reason enum (e.g., `CREDIT`, `DEBIT`, `CREATE`, `MERGE`, `ADD`, `REMOVE`) |
+
+Enum-typed filters take unquoted enum values (`category: BALANCE`), not strings. All conditions are ANDed.
 
 ### 3. Get Operation by ID
 
@@ -179,7 +177,7 @@ Retrieve a specific operation by its ID.
 query GetOperation {
   operationById(id: 12345) {
     id
-    operationType
+    type
     operationXdr
     resultCode
     successful
@@ -198,7 +196,7 @@ query GetOperation {
     stateChanges(first: 10) {
       edges {
         node {
-          ... on StandardBalanceChange {
+          ... on BalanceChange {
             tokenId
             amount
           }
@@ -211,10 +209,10 @@ query GetOperation {
 
 **Operation Types:**
 
-The `operationType` field supports all Stellar operation types:
+The `type` field (an `OperationType` enum) supports all Stellar operation types:
 - `CREATE_ACCOUNT`, `PAYMENT`, `PATH_PAYMENT_STRICT_RECEIVE`, `PATH_PAYMENT_STRICT_SEND`
 - `MANAGE_SELL_OFFER`, `CREATE_PASSIVE_SELL_OFFER`, `MANAGE_BUY_OFFER`
-- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`
+- `SET_OPTIONS`, `CHANGE_TRUST`, `ALLOW_TRUST`, `ACCOUNT_MERGE`, `INFLATION`
 - `MANAGE_DATA`, `BUMP_SEQUENCE`
 - `CREATE_CLAIMABLE_BALANCE`, `CLAIM_CLAIMABLE_BALANCE`
 - `BEGIN_SPONSORING_FUTURE_RESERVES`, `END_SPONSORING_FUTURE_RESERVES`, `REVOKE_SPONSORSHIP`
@@ -241,13 +239,14 @@ query GetAccountBalances {
             minimumBalance
             buyingLiabilities
             sellingLiabilities
+            numSubentries
             lastModifiedLedger
           }
 
           ... on TrustlineBalance {
             code
             issuer
-            type
+            assetType
             limit
             buyingLiabilities
             sellingLiabilities
@@ -262,6 +261,21 @@ query GetAccountBalances {
             decimals
             isAuthorized
             isClawbackEnabled
+          }
+
+          ... on SEP41Balance {
+            name
+            symbol
+            decimals
+            lastModifiedLedger
+          }
+
+          ... on LiquidityPoolBalance {
+            reserves {
+              asset
+              amount
+            }
+            lastModifiedLedger
           }
         }
       }
@@ -278,27 +292,37 @@ query GetAccountBalances {
 
 The query returns different balance types based on the token:
 
+All balance types implement the `Balance` interface. Select concrete-type fields via inline fragments.
+
 | Type | Description | Key Fields |
 |------|-------------|------------|
-| `NativeBalance` | XLM (native asset) | `balance`, `tokenId`, `tokenType`, `minimumBalance`, `buyingLiabilities`, `sellingLiabilities`, `lastModifiedLedger` |
-| `TrustlineBalance` | Classic Stellar trustlines | `code`, `issuer`, `limit`, `isAuthorized`, liabilities |
+| `NativeBalance` | XLM (native asset) | `minimumBalance`, `buyingLiabilities`, `sellingLiabilities`, `numSubentries`, `lastModifiedLedger` |
+| `TrustlineBalance` | Classic Stellar trustlines | `code`, `issuer`, `assetType`, `limit`, `buyingLiabilities`, `sellingLiabilities`, `isAuthorized`, `isAuthorizedToMaintainLiabilities`, `lastModifiedLedger` |
 | `SACBalance` | Stellar Asset Contract (wrapped classic assets) | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
+| `SEP41Balance` | Pure SEP-41 (non-SAC) contract token | `name`, `symbol`, `decimals`, `lastModifiedLedger` |
+| `LiquidityPoolBalance` | Liquidity-pool share position | `reserves { asset amount }`, `lastModifiedLedger` |
 
-**Common Fields (all balance types):**
+**Common Fields (all balance types, from the `Balance` interface):**
 - `balance: String!` - Current balance amount
-- `tokenId: String!` - Contract ID (C...) for the token
-- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`
+- `tokenId: String!` - Contract ID (C...) for the token, or the pool ID for pool shares
+- `tokenType: TokenType!` - One of: `NATIVE`, `CLASSIC`, `SAC`, `SEP41`, `LIQUIDITY_POOL`
 
 **NativeBalance-specific Fields:**
-- `minimumBalance: String!` - Minimum balance required for reserves
-- `buyingLiabilities: String!` - Liabilities from buy offers
-- `sellingLiabilities: String!` - Liabilities from sell offers
-- `lastModifiedLedger: UInt32!` - Ledger number when account was last modified
+- `minimumBalance: String!` - Base reserve requirement (excludes liabilities)
+- `buyingLiabilities: String!` - XLM locked in open buy offers
+- `sellingLiabilities: String!` - XLM locked in open sell offers
+- `numSubentries: UInt32!` - Number of subentries (trustlines, offers, data entries, signers)
+- `lastModifiedLedger: UInt32!` - Ledger in which this balance entry was last modified
+
+**TrustlineBalance-specific Fields:**
+- `assetType: AssetType!` - Classic asset type by code length: `CREDIT_ALPHANUM4` or `CREDIT_ALPHANUM12`
 
 **Token Types:**
 - `NATIVE` - XLM (Stellar's native asset)
 - `CLASSIC` - Classic Stellar trustline assets
 - `SAC` - Stellar Asset Contract (classic assets wrapped for Soroban)
+- `SEP41` - Pure SEP-41 (non-SAC) contract tokens
+- `LIQUIDITY_POOL` - Liquidity-pool share positions
 
 **Example: Query with Type Fragments:**
 
@@ -508,62 +532,120 @@ Every connection in the schema — account-scoped (`Account.transactions`/`opera
 
 ## State Changes
 
-State changes represent modifications to an account's state. The API uses an **interface-based design** where all state changes implement the `BaseStateChange` interface.
+State changes represent modifications to an account's state. The API uses an **interface-based design**: every state change implements the `BaseStateChange` interface, and each concrete type encodes one variant of the state — its exact `(category, reason)` pairs and its own typed fields. Select concrete-type fields via inline fragments; `category` and `reason` are on the interface for generic consumers.
 
-**State Change Categories:**
+**Interface fields (`BaseStateChange`, present on every type):**
 
-| Category | Types | Description |
-|----------|-------|-------------|
-| `BALANCE` | `StandardBalanceChange` | Changes to an account's balance (payments, mints, burns, clawbacks) |
-| `ACCOUNT` | `AccountChange` | Account creation or merge operations |
-| `SIGNER` | `SignerChange` | Signer additions/removals |
-| `SIGNATURE_THRESHOLD` | `SignerThresholdsChange` | Threshold changes (low/medium/high) |
-| `METADATA` | `MetadataChange` | Account metadata/data entries |
-| `FLAGS` | `FlagsChange` | Account flag changes |
-| `TRUSTLINE` | `TrustlineChange` | Trustline limit changes |
-| `RESERVES` | `ReservesChange` | Sponsorship relationships for an account's base reserves |
-| `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` | Balance authorization for trustlines and contract accounts |
+| Field | Type | Notes |
+|-------|------|-------|
+| `category` | `StateChangeCategory!` | Category of account state affected |
+| `reason` | `StateChangeReason!` | Why the change occurred |
+| `ingestedAt` | `Time!` | When the indexer persisted the change |
+| `ledgerCreatedAt` | `Time!` | Close time of the producing ledger |
+| `ledgerNumber` | `UInt32!` | Sequence number of the producing ledger |
+| `account` | `Account!` | Account whose state changed |
+| `operation` | `Operation` | Producing operation; **non-null on every type except `BalanceChange`**, where it is null on transaction-fee rows (fees are per-transaction, not per-operation) |
+| `transaction` | `Transaction!` | Producing transaction |
 
-**State Change Reasons:**
+**Concrete Types:**
 
-Reasons provide context for why a state change occurred:
-- `CREATE`, `MERGE` - Account lifecycle
-- `DEBIT`, `CREDIT` - Balance decreases/increases
-- `MINT`, `BURN` - Token creation/destruction
-- `ADD`, `REMOVE` - Adding/removing signers, trustlines
-- `UPDATE` - Updates to the state. Could be account flags, reserves etc...
-- `LOW`, `MEDIUM`, `HIGH` - Threshold levels
-- `HOME_DOMAIN` - Home domain changes
-- `SET`, `CLEAR` - Setting/clearing values
-- `DATA_ENTRY` - Data entry operations
-- `SPONSOR`, `UNSPONSOR` - Sponsorship relationship changes
+Each type below also exposes all interface fields. "Own fields" lists only what the type adds; `!` marks non-null.
 
-**State Change Type-Specific Fields:**
+| Type | `(category, reason)` pairs | Own fields |
+|------|----------------------------|------------|
+| `BalanceChange` | `(BALANCE, DEBIT)`, `(BALANCE, CREDIT)`, `(BALANCE, MINT)`, `(BALANCE, BURN)` | `tokenId: String!`, `amount: String!`, `toMuxedId: String` |
+| `AccountCreatedChange` | `(ACCOUNT, CREATE)` | `creatorAddress: String!` |
+| `AccountMergedChange` | `(ACCOUNT, MERGE)` | `destinationAddress: String!` |
+| `SignerAddedChange` | `(SIGNER, ADD)` | `signerAddress: String!`, `newWeight: Int!` |
+| `SignerUpdatedChange` | `(SIGNER, UPDATE)` | `signerAddress: String!`, `oldWeight: Int!`, `newWeight: Int!` |
+| `SignerRemovedChange` | `(SIGNER, REMOVE)` | `signerAddress: String!`, `oldWeight: Int!` |
+| `ThresholdChange` | `(SIGNATURE_THRESHOLD, UPDATE)` | `threshold: ThresholdLevel!`, `oldThreshold: Int!`, `newThreshold: Int!` |
+| `AccountFlagsChange` | `(FLAGS, SET)`, `(FLAGS, CLEAR)` | `flags: [AccountFlag!]!` |
+| `HomeDomainSetChange` | `(HOME_DOMAIN, SET)` | `homeDomain: String!` |
+| `HomeDomainUpdatedChange` | `(HOME_DOMAIN, UPDATE)` | `oldHomeDomain: String!`, `newHomeDomain: String!` |
+| `HomeDomainClearedChange` | `(HOME_DOMAIN, CLEAR)` | `oldHomeDomain: String!` |
+| `DataEntryAddedChange` | `(DATA_ENTRY, ADD)` | `name: String!`, `value: String!` |
+| `DataEntryUpdatedChange` | `(DATA_ENTRY, UPDATE)` | `name: String!`, `oldValue: String!`, `newValue: String!` |
+| `DataEntryRemovedChange` | `(DATA_ENTRY, REMOVE)` | `name: String!`, `oldValue: String!` |
+| `AllowanceChange` | `(ALLOWANCE, UPDATE)` | `tokenId: String!`, `spender: String!`, `amount: String!`, `expirationLedger: UInt32!` |
+| `TrustlineAddedChange` | `(TRUSTLINE, ADD)` | `tokenId: String`, `liquidityPoolId: String`, `limit: String!` |
+| `TrustlineUpdatedChange` | `(TRUSTLINE, UPDATE)` | `tokenId: String`, `liquidityPoolId: String`, `oldLimit: String!`, `newLimit: String!` |
+| `TrustlineRemovedChange` | `(TRUSTLINE, REMOVE)` | `tokenId: String`, `liquidityPoolId: String` |
+| `BalanceAuthorizationChange` | `(BALANCE_AUTHORIZATION, SET)`, `(BALANCE_AUTHORIZATION, CLEAR)` | `tokenId: String`, `liquidityPoolId: String`, `flags: [TrustlineFlag!]` |
 
-| Type | Fields | Description |
-|------|--------|-------------|
-| `StandardBalanceChange` | `tokenId`, `amount` | Token identifier and change amount |
-| `AccountChange` | `funderAddress` | Address that funded the account (for CREATE reason) |
-| `SignerChange` | `signerAddress`, `signerWeights` | Signer address and weight changes |
-| `SignerThresholdsChange` | `thresholds` | Threshold configuration changes |
-| `MetadataChange` | `keyValue` | Metadata key-value changes |
-| `FlagsChange` | `flags` | Array of flag names |
-| `TrustlineChange` | `tokenId`, `limit`, `keyValue` | Trustline configuration and additional data |
-| `ReservesChange` | `sponsoredAddress`, `sponsorAddress`, `keyValue` | Reserve sponsorship and additional data |
-| `BalanceAuthorizationChange` | `tokenId`, `flags`, `keyValue` | Balance authorization flags |
+Notes on the polymorphic fields:
+- `AccountCreatedChange` serves both classic account creation and contract deployment: `account` is the created G-address or the deployed C-address, and `creatorAddress` is the funder or the deployer respectively.
+- On `TrustlineAddedChange`/`TrustlineUpdatedChange`/`TrustlineRemovedChange`/`BalanceAuthorizationChange`, exactly one of `tokenId` / `liquidityPoolId` is set (asset trustline vs. pool-share trustline).
+- On `BalanceAuthorizationChange`, `flags` is null for SAC contract-holder authorization (a plain boolean in the contract balance entry, so there are no trustline flags).
 
-**Example: Querying Specific State Change Types:**
+**State Change Categories** (`StateChangeCategory` enum):
+
+| Category | Types |
+|----------|-------|
+| `BALANCE` | `BalanceChange` (operation-sourced movements and transaction fees) |
+| `ACCOUNT` | `AccountCreatedChange`, `AccountMergedChange` |
+| `SIGNER` | `SignerAddedChange`, `SignerUpdatedChange`, `SignerRemovedChange` |
+| `SIGNATURE_THRESHOLD` | `ThresholdChange` |
+| `DATA_ENTRY` | `DataEntryAddedChange`, `DataEntryUpdatedChange`, `DataEntryRemovedChange` |
+| `HOME_DOMAIN` | `HomeDomainSetChange`, `HomeDomainUpdatedChange`, `HomeDomainClearedChange` |
+| `ALLOWANCE` | `AllowanceChange` |
+| `FLAGS` | `AccountFlagsChange` |
+| `TRUSTLINE` | `TrustlineAddedChange`, `TrustlineUpdatedChange`, `TrustlineRemovedChange` |
+| `BALANCE_AUTHORIZATION` | `BalanceAuthorizationChange` |
+
+**State Change Reasons** (`StateChangeReason` enum) — each reason applies only to the categories noted:
+
+| Reason | Applies to |
+|--------|-----------|
+| `CREATE` | ACCOUNT: account created or contract deployed |
+| `MERGE` | ACCOUNT: account merged into another |
+| `DEBIT` | BALANCE: value left the account (or a transaction-fee charge, which has a null `operation`) |
+| `CREDIT` | BALANCE: value entered the account |
+| `MINT` | BALANCE: tokens minted to the account |
+| `BURN` | BALANCE: tokens burned from the account (including clawbacks) |
+| `ADD` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry added |
+| `REMOVE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed |
+| `UPDATE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another (`HomeDomainUpdatedChange`); ALLOWANCE: SEP-41 allowance approved |
+| `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none (`HomeDomainSetChange`) |
+| `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed (`HomeDomainClearedChange`) |
+
+**Flag Enum Values:**
+
+`AccountFlag` (on `AccountFlagsChange.flags`):
+- `AUTH_REQUIRED` - Holders of the account's assets must be authorized by the issuer
+- `AUTH_REVOCABLE` - The issuer can revoke a holder's authorization
+- `AUTH_IMMUTABLE` - The account's flags can never be changed again
+- `AUTH_CLAWBACK_ENABLED` - The issuer can claw back its assets from holders
+
+`TrustlineFlag` (on `BalanceAuthorizationChange.flags`):
+- `AUTHORIZED` - The holder is fully authorized to transact the asset
+- `AUTHORIZED_TO_MAINTAIN_LIABILITIES` - The holder may only maintain existing liabilities
+- `CLAWBACK_ENABLED` - The issuer can claw the asset back from this trustline
+
+**Threshold Level Enum Values:**
+
+`ThresholdLevel` (on `ThresholdChange.threshold`) identifies which of the account's three signature thresholds a change refers to; one state change is emitted per changed threshold:
+- `LOW` - The low threshold
+- `MEDIUM` - The medium threshold
+- `HIGH` - The high threshold
+
+**Example: Querying balance changes:**
 
 ```graphql
 query GetBalanceChanges {
   accountByAddress(address: "GABC...") {
-    stateChanges(first: 100) {
+    stateChanges(filter: { category: BALANCE }, first: 100) {
       edges {
         node {
-          type
+          category
           reason
+          operation {
+            id
+          }
 
-          ... on StandardBalanceChange {
+          # BalanceChange covers both operation-sourced movements and transaction
+          # fees; on a fee row the `operation` selected above is null.
+          ... on BalanceChange {
             tokenId
             amount
             account {
@@ -580,7 +662,7 @@ query GetBalanceChanges {
 }
 ```
 
-**Example: Querying state changes for a specific account:**
+**Example: Querying mixed state change types:**
 
 ```graphql
 query GetAccountStateChanges {
@@ -588,18 +670,31 @@ query GetAccountStateChanges {
     stateChanges(first: 50) {
       edges {
         node {
-          type
+          category
           reason
           ledgerNumber
 
-          ... on StandardBalanceChange {
+          ... on BalanceChange {
             tokenId
             amount
           }
 
-          ... on SignerChange {
+          ... on SignerUpdatedChange {
             signerAddress
-            signerWeights
+            oldWeight
+            newWeight
+          }
+
+          ... on TrustlineAddedChange {
+            # tokenId is String! on BalanceChange but String here, so the two
+            # occurrences need distinct response keys (SameResponseShape rule).
+            trustlineTokenId: tokenId
+            liquidityPoolId
+            limit
+          }
+
+          ... on AccountFlagsChange {
+            flags
           }
         }
       }
@@ -607,49 +702,6 @@ query GetAccountStateChanges {
   }
 }
 ```
-
-**Field Structure Details:**
-
-Several state change fields return JSON-formatted strings containing old and new values. Here are the structures:
-
-1. **signerWeights** (SignerChange):
-   - For new signers: `{"new": 1}`
-   - For updated signers: `{"old": 1, "new": 2}`
-   - For removed signers: `{"old": 1}`
-
-2. **thresholds** (SignerThresholdsChange):
-   - Format: `{"old": "10", "new": "20"}`
-   - Values represent threshold weights as strings
-
-3. **limit** (TrustlineChange):
-   - For new trustlines: `{"limit": {"new": "1000"}}`
-   - For updated trustlines: `{"limit": {"old": "1000", "new": "2000"}}`
-
-4. **keyValue** (MetadataChange, TrustlineChange, ReservesChange, and BalanceAuthorizationChange):
-   - For MetadataChange (home domain): `{"home_domain": "example.com"}`
-   - For MetadataChange (data entry): `{"entry_name": {"old": "base64OldValue", "new": "base64NewValue"}}`
-   - For BalanceAuthorizationChange (liquidity pools): `{"liquidity_pool_id": "pool_id"}`
-   - For TrustlineChange: Additional trustline configuration data
-   - For ReservesChange: Additional reserve data
-
-5. **flags** (FlagsChange and BalanceAuthorizationChange):
-   - Array of flag names that were set or cleared
-   - See Flag Values Reference below for possible values
-
-**Flag Values Reference:**
-
-*Account Flags (FlagsChange):*
-- `auth_required_flag` - Authorization required for accounts to hold assets
-- `auth_revocable_flag` - Issuer can revoke authorization
-- `auth_immutable_flag` - Authorization flags cannot be changed
-- `auth_clawback_enabled_flag` - Issuer can clawback assets
-
-*Trustline/Balance Authorization Flags (BalanceAuthorizationChange):*
-- `authorized` - Trustline is authorized to hold assets
-- `authorized_to_maintain_liabilities` - Can maintain liabilities but not increase balance
-- `clawback_enabled_flag` - Asset issuer can clawback this balance
-- `auth_revocable_flag` - Authorization can be revoked
-- `auth_immutable_flag` - Authorization flags are immutable
 
 ## Error Handling
 
@@ -733,13 +785,16 @@ query ListTransactions {
     transactions(first: 5, after: "cursor123") {
       edges {
         node {
-          operations {
-            id
-            operationType
-            operationXdr
-            ledgerNumber
-            ledgerCreatedAt
-          }
+          hash
+        }
+        # operations is inlined on the edge (AccountTransactionEdge), so a full
+        # account-history page resolves in one batched query.
+        operations {
+          id
+          type
+          operationXdr
+          ledgerNumber
+          ledgerCreatedAt
         }
       }
     }
@@ -842,7 +897,7 @@ query {
 
 **Best Practices:**
 
-1. **Request only needed fields** - Don't query `envelopeXdr`, `metaXdr` unless required
+1. **Request only needed fields** - Don't query heavy resolver-backed fields like `operationXdr` unless required
 2. **Use reasonable pagination limits** - Start with `first: 10-50` and increase if needed
 3. **Leverage DataLoaders** - Query related data in a single request rather than multiple sequential queries
 4. **Consider APQ for production** - Reduces bandwidth for frequently-executed queries

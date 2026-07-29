@@ -3,10 +3,88 @@ package resolvers
 import (
 	"testing"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+// collectedFields wraps GraphQL field names into the CollectedField shape getDBColumns consumes.
+func collectedFields(names ...string) []graphql.CollectedField {
+	fields := make([]graphql.CollectedField, len(names))
+	for i, n := range names {
+		fields[i] = graphql.CollectedField{Field: &ast.Field{Name: n}}
+	}
+	return fields
+}
+
+func TestGetDBColumns(t *testing.T) {
+	t.Run("renamed and derived field mappings", func(t *testing.T) {
+		cases := []struct {
+			field string
+			want  string
+		}{
+			// GraphQL field names that differ from the model json tags.
+			{"category", "state_change_category"},
+			{"reason", "state_change_reason"},
+			{"signerAddress", "signer_account_id"},
+			{"creatorAddress", "creator_account_id"},
+			{"destinationAddress", "destination_account_id"},
+			{"spender", "spender_account_id"},
+			// Fields derived from a flattened old/new column pair.
+			{"oldWeight", "signer_weight_old"},
+			{"newWeight", "signer_weight_new"},
+			{"oldThreshold", "threshold_old"},
+			{"newThreshold", "threshold_new"},
+			{"oldLimit", "trustline_limit_old"},
+			{"limit", "trustline_limit_new"},
+			{"newLimit", "trustline_limit_new"},
+			// The data entry name has its own column.
+			{"name", "data_entry_name"},
+			// Fields extracted from the key_value JSONB blob.
+			{"homeDomain", "key_value"},
+			{"oldHomeDomain", "key_value"},
+			{"newHomeDomain", "key_value"},
+			{"value", "key_value"},
+			{"oldValue", "key_value"},
+			{"newValue", "key_value"},
+			{"expirationLedger", "key_value"},
+			// A field whose name already matches its json tag falls through to the tag→db map.
+			{"tokenId", "token_id"},
+			{"amount", "amount"},
+			{"threshold", "threshold"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.field, func(t *testing.T) {
+				got := getDBColumns(types.StateChange{}, collectedFields(tc.field))
+				assert.Equal(t, []string{tc.want}, got)
+			})
+		}
+	})
+
+	t.Run("fields sharing a backing column collapse to one", func(t *testing.T) {
+		// A repeated column in the SELECT list would break positional row scanning, so the
+		// several fields extracted from key_value must dedupe to a single column.
+		got := getDBColumns(types.StateChange{}, collectedFields("value", "oldValue", "newValue", "expirationLedger"))
+		assert.Equal(t, []string{"key_value"}, got)
+
+		got = getDBColumns(types.StateChange{}, collectedFields("homeDomain", "oldHomeDomain", "newHomeDomain"))
+		assert.Equal(t, []string{"key_value"}, got)
+	})
+
+	t.Run("preserves order across distinct columns", func(t *testing.T) {
+		got := getDBColumns(types.StateChange{}, collectedFields("category", "tokenId", "category", "amount"))
+		assert.Equal(t, []string{"state_change_category", "token_id", "amount"}, got)
+	})
+
+	t.Run("unknown fields are skipped", func(t *testing.T) {
+		got := getDBColumns(types.StateChange{}, collectedFields("thisFieldDoesNotExist", "amount"))
+		assert.Equal(t, []string{"amount"}, got)
+	})
+}
 
 func TestParseAccountPaginationParams(t *testing.T) {
 	t.Run("rejects first above max with BAD_USER_INPUT", func(t *testing.T) {

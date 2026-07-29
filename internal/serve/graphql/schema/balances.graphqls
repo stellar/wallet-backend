@@ -1,60 +1,90 @@
+"""Common contract for every token balance held by an account."""
 interface Balance {
+    """Balance amount, as a decimal string."""
     balance: String!
+    """Identifier of the token: a contract ID, or the liquidity pool ID for pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 }
 
+"""The account's native XLM balance."""
 type NativeBalance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
 
-    # base reserve requirement (excludes liabilities): (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
-    # Spendable balance = balance - minimumBalance - sellingLiabilities.
+    """
+    Base reserve requirement (excludes liabilities):
+    (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
+    Spendable balance = balance - minimumBalance - sellingLiabilities.
+    """
     minimumBalance: String!
+    """XLM locked in open buy offers."""
     buyingLiabilities: String!
+    """XLM locked in open sell offers."""
     sellingLiabilities: String!
+    """Number of subentries on the account (trustlines, offers, data entries, signers)."""
     numSubentries: UInt32!
+    """Ledger in which this balance entry was last modified."""
     lastModifiedLedger: UInt32!
 }
 
+"""A classic Stellar asset held via a trustline."""
 type TrustlineBalance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
 
+    """Asset code."""
     code: String!
+    """Asset issuer address."""
     issuer: String!
-    type: String!
+    """Classic asset type, determined by the asset code length."""
+    assetType: AssetType!
+    """Trustline limit, as a decimal string."""
     limit: String!
+    """Amount locked in open buy offers."""
     buyingLiabilities: String!
+    """Amount locked in open sell offers."""
     sellingLiabilities: String!
+    """Ledger in which this trustline was last modified."""
     lastModifiedLedger: UInt32!
+    """Whether the holder is fully authorized to transact the asset."""
     isAuthorized: Boolean!
+    """Whether the holder may maintain existing liabilities on the asset."""
     isAuthorizedToMaintainLiabilities: Boolean!
 }
 
+"""A Stellar Asset Contract balance held by a contract address."""
 type SACBalance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
 
+    """Asset code of the wrapped classic asset."""
     code: String!
+    """Issuer address of the wrapped classic asset."""
     issuer: String!
+    """Number of decimal places in the balance amount."""
     decimals: Int!
+    """Whether the holder is authorized to transact the asset."""
     isAuthorized: Boolean!
+    """Whether the issuer can claw the asset back from this holder."""
     isClawbackEnabled: Boolean!
 }
 
-"""LiquidityPoolReserve is one constituent asset of a liquidity pool and its reserve amount."""
+"""One constituent asset of a liquidity pool and its reserve amount."""
 type LiquidityPoolReserve {
+    """Canonical asset name (code:issuer, or 'native')."""
     asset: String!
+    """Reserve amount, as a decimal string."""
     amount: String!
 }
 
 """
-LiquidityPoolBalance represents an account's liquidity-pool share holding. `balance` is the
-account's pool shares and `tokenId` is the pool id; `reserves` carries the pool's constituent
+An account's liquidity-pool share holding. `balance` is the account's pool
+shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 assets and amounts.
 """
 type LiquidityPoolBalance implements Balance {
@@ -62,29 +92,40 @@ type LiquidityPoolBalance implements Balance {
     tokenId: String!
     tokenType: TokenType!
 
-    liquidityPoolId: String!
+    """The pool's constituent assets and reserve amounts."""
     reserves: [LiquidityPoolReserve!]!
+    """Ledger in which this pool-share trustline was last modified."""
     lastModifiedLedger: UInt32!
 }
 
-"""SEP41Balance represents a pure SEP-41 (non-SAC) token balance for a holder."""
+"""A pure SEP-41 (non-SAC) contract token balance."""
 type SEP41Balance implements Balance {
     balance: String!
     tokenId: String!
     tokenType: TokenType!
 
+    """Token name reported by the contract; null when the contract does not expose one."""
     name: String
+    """Token symbol reported by the contract; null when the contract does not expose one."""
     symbol: String
+    """Number of decimal places in the balance amount."""
     decimals: Int!
+    """Ledger in which this balance entry was last modified."""
     lastModifiedLedger: UInt32!
 }
 
-"""SEP41Allowance represents an approve() grant issued by a SEP-41 token holder."""
+"""An approve() grant issued by a SEP-41 token holder."""
 type SEP41Allowance {
+    """Token holder that granted the allowance."""
     owner: String!
+    """Address authorized to spend from the holder's balance."""
     spender: String!
+    """Contract ID of the token."""
     tokenId: String!
+    """Approved allowance, as a decimal string in the token's smallest unit."""
     amount: String!
+    """Last ledger sequence at which the allowance is live."""
     expirationLedger: UInt32!
+    """Ledger in which this allowance was last modified."""
     lastModifiedLedger: UInt32!
 }

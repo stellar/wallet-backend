@@ -70,7 +70,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		}
 
 		seen[contractID] = struct{}{}
-		stateChanges = append(stateChanges, builder.Clone().WithAccount(contractID).WithDeployer(deployerAddr).Build())
+		stateChanges = append(stateChanges, builder.Clone().WithAccount(contractID).WithCreator(deployerAddr).Build())
 		return nil
 	}
 

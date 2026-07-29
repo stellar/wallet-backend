@@ -43,12 +43,9 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			TokenID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+6)%len(auxAddresses)]), Valid: true},
 			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
 			// NullAddressBytea fields
-			SignerAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
-			SpenderAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
-			SponsoredAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+2)%len(auxAddresses)]), Valid: true},
-			SponsorAccountID:   types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+3)%len(auxAddresses)]), Valid: true},
-			DeployerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
-			FunderAccountID:    types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+5)%len(auxAddresses)]), Valid: true},
+			SignerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
+			SpenderAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
+			CreatorAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
 			// Typed fields (previously JSONB)
 			SignerWeightOld:   sql.NullInt16{Int16: int16(i % 256), Valid: true},
 			SignerWeightNew:   sql.NullInt16{Int16: int16((i + 1) % 256), Valid: true},
@@ -57,7 +54,8 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			TrustlineLimitOld: sql.NullString{String: fmt.Sprintf("%d", i*1000), Valid: true},
 			TrustlineLimitNew: sql.NullString{String: fmt.Sprintf("%d", (i+1)*1000), Valid: true},
 			Flags:             sql.NullInt16{Int16: 6, Valid: true}, // Bitmask for auth_required (2) | auth_revocable (4)
-			KeyValue:          types.NullableJSONB{"key": fmt.Sprintf("data_key_%d", i), "value": fmt.Sprintf("data_value_%d", i)},
+			DataEntryName:     sql.NullString{String: fmt.Sprintf("data_key_%d", i), Valid: true},
+			KeyValue:          types.NullableJSONB{"old": fmt.Sprintf("old_value_%d", i), "new": fmt.Sprintf("new_value_%d", i)},
 		}
 	}
 
@@ -139,6 +137,7 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 		OperationID:         789,
 		SignerWeightOld:     sql.NullInt16{Int16: 0, Valid: true},
 		SignerWeightNew:     sql.NullInt16{Int16: 10, Valid: true},
+		Threshold:           sql.NullString{String: string(types.ThresholdLevelMedium), Valid: true},
 		ThresholdOld:        sql.NullInt16{Int16: 1, Valid: true},
 		ThresholdNew:        sql.NullInt16{Int16: 3, Valid: true},
 	}

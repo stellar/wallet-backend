@@ -141,13 +141,11 @@ func (f *Fixtures) preparePaymentOp() (string, *Set[*keypair.Full], error) {
 // NOTE 2: one manageData operation is included here as a bonus.
 func (f *Fixtures) prepareSponsoredAccountCreationOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 7 state changes:
+		Should generate 5 state changes:
 		- 1 ACCOUNT/CREATE change for the new account
 		- 1 BALANCE/CREDIT change for the new account (amount is 5)
 		- 1 BALANCE/DEBIT change from primary account (amount is 5)
-		- 1 METADATA/DATA_ENTRY creation change for primary account with keyvalue "foo"="bar"
-		- 1 RESERVES/SPONSOR change for primary account with sponsored account = new account
-		- 1 RESERVES/SPONSOR change for new account with sponsor = primary account
+		- 1 DATA_ENTRY/ADD change for primary account with the entry "foo"="bar"
 		- 1 SIGNER/ADD change for the sponsored account with signer address = sponsored account, weight = 1
 	*/
 	operations := []txnbuild.Operation{
@@ -404,12 +402,11 @@ func (f *Fixtures) prepareAuthRequiredAssetOps() ([]string, *Set[*keypair.Full],
 // prepareClaimableBalanceOps creates claimable balance operations.
 func (f *Fixtures) prepareCreateClaimableBalanceOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 7 state changes:
+		Should generate 5 state changes:
 		- 1 BALANCE_AUTHORIZATION/SET (clawback_enabled)                                                                                                     │ │
 		- 1 TRUSTLINE/ADD                                                                                                                                    │ │
 		- 1 BALANCE_AUTHORIZATION/SET (authorized)                                                                                                           │ │
 		- 2 BALANCE/MINT (one per CB)                                                                                                                        │ │
-		- 2 RESERVES/SPONSOR for primary account (one per CB, sponsor's view only)
 	*/
 	customAsset := txnbuild.CreditAsset{
 		Issuer: f.PrimaryAccountKP.Address(),
@@ -467,7 +464,6 @@ func (f *Fixtures) prepareClaimClaimableBalanceOp(balanceID string) (string, *Se
 	/*
 		Should generate state changes for claiming a claimable balance:
 		- BALANCE/CREDIT change for the claiming account receiving the balance
-		- Claimable balance entry removal
 	*/
 	op := &txnbuild.ClaimClaimableBalance{
 		BalanceID:     balanceID,
@@ -491,7 +487,6 @@ func (f *Fixtures) prepareClawbackClaimableBalanceOp(balanceID string) (string, 
 	/*
 		Should generate state changes for clawing back a claimable balance:
 		- BALANCE/DEBIT or BURN for the claimable balance being clawed back
-		- Claimable balance entry removal
 	*/
 	op := &txnbuild.ClawbackClaimableBalance{
 		BalanceID:     balanceID,
@@ -749,11 +744,9 @@ func (f *Fixtures) prepareLiveLiquidityPoolDepositOps() ([]string, *Set[*keypair
 // prepareRevokeSponsorshipOps creates revoke sponsorship operations.
 func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 4 state changes:
-			- 1 METADATA/DATA_ENTRY change for creating sponsored data entry on Secondary account
-			- 1 RESERVES/SPONSOR change for establishing sponsorship for data entry (for sponsoring account)
-			- 1 RESERVES/UNSPONSOR change for revoking sponsorship for data entry (for sponsoring account)
-			- 1 METADATA/DATA_ENTRY change for removing the data entry for secondary account
+		Should generate 2 state changes:
+			- 1 DATA_ENTRY/ADD change for creating sponsored data entry on Secondary account
+			- 1 DATA_ENTRY/REMOVE change for removing the data entry for secondary account
 	*/
 	operations := []txnbuild.Operation{
 		// Primary begins sponsoring future reserves for Secondary
@@ -803,14 +796,11 @@ func (f *Fixtures) prepareRevokeSponsorshipOps() ([]string, *Set[*keypair.Full],
 // prepareAccountMergeOp creates an account merge operation.
 func (f *Fixtures) prepareAccountMergeOp() (string, *Set[*keypair.Full], error) {
 	/*
-		Should generate 5 state changes:
+		Should generate 3 state changes:
 		- 1 ACCOUNT/MERGE change for the destination account (PrimaryAccountKP) receiving the merge
 		  Note: The source account (SponsoredNewAccountKP) is deleted by Stellar, so we track the destination's state change
 		- 1 BALANCE/CREDIT change for the destination account (PrimaryAccountKP) receiving the merged balance
 		- 1 BALANCE/DEBIT change for the source account (SponsoredNewAccountKP) transferring its balance before deletion
-		- 2 RESERVES/UNSPONSOR changes for unwinding the sponsorship relationship:
-		  - 1 for the sponsored account (SponsoredNewAccountKP) losing its sponsor
-		  - 1 for the sponsor account (PrimaryAccountKP) no longer sponsoring
 	*/
 	op := &txnbuild.AccountMerge{
 		SourceAccount: f.SponsoredNewAccountKP.Address(),
@@ -907,7 +897,8 @@ func (f *Fixtures) createInvokeContractOp(sourceAccountKP *keypair.Full) (txnbui
 }
 
 // prepareDeployContractOp creates a from-address CreateContractV2 deploy of the holder WASM with the
-// PrimaryAccount as deployer, producing an ACCOUNT/CREATE state change that carries deployerAddress.
+// PrimaryAccount as deployer, producing an ACCOUNT/CREATE state change whose creatorAddress is
+// that deployer.
 func (f *Fixtures) prepareDeployContractOp(ctx context.Context) (opXDR string, txSigners *Set[*keypair.Full], simulationResponse entities.RPCSimulateTransactionResult, err error) {
 	deployerSCAddress, err := SCAccountID(f.PrimaryAccountKP.Address())
 	if err != nil {
@@ -1520,7 +1511,7 @@ func (f *Fixtures) appendSorobanUseCases(ctx context.Context, useCases []*UseCas
 	useCases = append(useCases, useCase)
 
 	// Contract deployment (from-address) — produces an ACCOUNT/CREATE deploy state change whose
-	// deployerAddress is the PrimaryAccount.
+	// creatorAddress is the PrimaryAccount.
 	deployOpXDR, deploySigners, simulationResponse, err := f.prepareDeployContractOp(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("preparing deploy contract operation: %w", err)
