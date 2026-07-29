@@ -273,7 +273,8 @@ func (c *Client) GetTransactionByHash(ctx context.Context, hash string, opts ...
 
 // GetAccountByAddress fetches a single account by its address. Pass a
 // *QueryOptions to restrict the account fields fetched; omit it (or pass nil)
-// for the default field set.
+// for the default field set. Returns ErrAccountNotFound if the account does not
+// exist.
 func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts ...*QueryOptions) (*types.Account, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
@@ -287,6 +288,10 @@ func (c *Client) GetAccountByAddress(ctx context.Context, address string, opts .
 	data, err := executeGraphQL[AccountByAddressData](c, ctx, buildAccountByAddressQuery(fields), variables)
 	if err != nil {
 		return nil, err
+	}
+
+	if data.AccountByAddress == nil {
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, address)
 	}
 
 	return data.AccountByAddress, nil

@@ -335,6 +335,32 @@ func TestGetTransactionByHash(t *testing.T) {
 	})
 }
 
+func TestGetAccountByAddress(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns ErrAccountNotFound when accountByAddress is null", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		account, err := c.GetAccountByAddress(ctx, "GABC")
+		assert.Nil(t, account)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrAccountNotFound), "expected ErrAccountNotFound, got %v", err)
+	})
+
+	t.Run("returns the account when it exists", func(t *testing.T) {
+		srv := graphqlServer(t, `{"accountByAddress": {"address": "GABC"}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		account, err := c.GetAccountByAddress(ctx, "GABC")
+		require.NoError(t, err)
+		require.NotNil(t, account)
+		assert.Equal(t, "GABC", account.Address)
+	})
+}
+
 func TestGetOperationByID(t *testing.T) {
 	ctx := context.Background()
 
