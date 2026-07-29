@@ -32,7 +32,6 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		require.Same(t, b, b.WithFlags([]string{"auth_required"}))
 		require.Same(t, b, b.WithKeyValue(map[string]any{"k": "v"}))
 		require.Same(t, b, b.WithCreator("GCREATOR"))
-		require.Same(t, b, b.WithClaimableBalanceID("cb"))
 		require.Same(t, b, b.WithLiquidityPoolID("lp"))
 	})
 
@@ -45,7 +44,6 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 			WithToken("CTOK").
 			WithAmount("42").
 			WithCreator("GCREAT").
-			WithClaimableBalanceID("cb1").
 			WithLiquidityPoolID("lp1").
 			Build()
 
@@ -58,7 +56,6 @@ func TestStateChangeBuilder_FluentAPI(t *testing.T) {
 		assert.Equal(t, "42", sc.Amount.String)
 		assert.True(t, sc.Amount.Valid)
 		assert.Equal(t, "GCREAT", string(sc.CreatorAccountID.AddressBytea))
-		assert.Equal(t, "cb1", sc.ClaimableBalanceID.String)
 		assert.Equal(t, "lp1", sc.LiquidityPoolID.String)
 	})
 }

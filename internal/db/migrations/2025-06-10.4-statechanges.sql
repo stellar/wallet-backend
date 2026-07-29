@@ -28,7 +28,6 @@ CREATE TABLE state_changes (
     spender_account_id BYTEA,
     creator_account_id BYTEA,
     destination_account_id BYTEA,
-    claimable_balance_id TEXT,
     liquidity_pool_id TEXT,
     signer_weight_old SMALLINT,
     signer_weight_new SMALLINT,

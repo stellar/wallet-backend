@@ -24,7 +24,6 @@ func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int6
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
-			IngestedAt:      time.Now(),
 			ToID:            txID,
 		},
 		metricsService: metricsService,
@@ -148,21 +147,9 @@ func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuild
 	return b
 }
 
-// WithTokenType sets the token type (SAC or CUSTOM)
-func (b *StateChangeBuilder) WithTokenType(tokenType types.ContractType) *StateChangeBuilder {
-	b.base.ContractType = tokenType
-	return b
-}
-
 // WithOperationID sets the operation ID
 func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
 	b.base.OperationID = operationID
-	return b
-}
-
-// WithClaimableBalanceID sets the claimable balance ID
-func (b *StateChangeBuilder) WithClaimableBalanceID(balanceID string) *StateChangeBuilder {
-	b.base.ClaimableBalanceID = utils.SQLNullString(balanceID)
 	return b
 }
 

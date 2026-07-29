@@ -684,8 +684,7 @@ type StateChange struct {
 	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
-	ClaimableBalanceID sql.NullString `json:"claimableBalanceId,omitempty" db:"claimable_balance_id"`
-	LiquidityPoolID    sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
+	LiquidityPoolID sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`
 
 	// Flattened signer weights (range 0-255, was JSONB {"old": int, "new": int}):
 	SignerWeightOld sql.NullInt16 `json:"signerWeightOld,omitempty" db:"signer_weight_old"`
@@ -717,9 +716,6 @@ type StateChange struct {
 	OperationID int64        `json:"operationId,omitempty" db:"operation_id"`
 	Operation   *Operation   `json:"operation,omitempty"`
 	Transaction *Transaction `json:"transaction,omitempty"`
-
-	// Internal only: used for filtering contract changes and identifying token type
-	ContractType ContractType `json:"-"`
 }
 
 type StateChangeWithCursor struct {
