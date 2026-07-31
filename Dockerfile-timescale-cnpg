@@ -8,6 +8,7 @@
 #   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.28.2 -t cnpg-timescaledb .
 
 ARG PG_MAJOR=17
+ARG TSDB_VERSION=2.28.2
 
 # ---------------------------------------------------------------------------
 # Stage 1: Install TimescaleDB via apt to capture extension artifacts
@@ -15,7 +16,7 @@ ARG PG_MAJOR=17
 FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-bookworm AS timescaledb-builder
 
 ARG PG_MAJOR
-ARG TSDB_VERSION=2.28.2
+ARG TSDB_VERSION
 
 USER root
 
@@ -35,12 +36,31 @@ RUN echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg m
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
         | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
 
-# Install TimescaleDB pinned to the requested version.
+# Install TimescaleDB pinned to the requested version. Two packages are needed
+# and both are pinned:
+#   timescaledb-2-postgresql-NN         versioned .so and .sql artifacts
+#   timescaledb-2-loader-postgresql-NN  the unversioned loader .so plus
+#                                       timescaledb.control, whose
+#                                       default_version and module_pathname are
+#                                       stamped with the loader's own version
+# The bundle depends on the loader with ">=", so an unpinned loader resolves to
+# the newest published release and the control file then names a version whose
+# install script and library this image does not carry.
 # The glob (=${TSDB_VERSION}*) matches the distro suffix automatically
-# (e.g., 2.19.3~debian12-1234).
+# (e.g., 2.28.2~debian12-1710); the dpkg-query check rejects a longer upstream
+# version that the same glob would also match (e.g., 2.28.21).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         timescaledb-2-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \
-    && rm -rf /var/lib/apt/lists/*
+        timescaledb-2-loader-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \
+    && rm -rf /var/lib/apt/lists/* \
+    && set -eu \
+    && for pkg in timescaledb-2-postgresql-${PG_MAJOR} timescaledb-2-loader-postgresql-${PG_MAJOR}; do \
+           ver="$(dpkg-query -W -f='${Version}' "$pkg")"; \
+           case "$ver" in \
+               "${TSDB_VERSION}" | "${TSDB_VERSION}"[~-]*) ;; \
+               *) echo "FATAL: $pkg resolved to $ver, expected upstream version ${TSDB_VERSION}" >&2; exit 1 ;; \
+           esac; \
+       done
 
 # ---------------------------------------------------------------------------
 # Stage 2: Assemble final image — only extension artifacts, no build deps
@@ -48,8 +68,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-bookworm
 
 ARG PG_MAJOR
+ARG TSDB_VERSION
 
-# Copy TimescaleDB shared libraries
+# Copy TimescaleDB shared libraries. The glob keeps every version the bundle
+# ships (timescaledb-<v>.so, -tsl-<v>.so, -invalidations-<v>.so): a database
+# with an older extension version registered resolves pg_proc.probin to
+# $libdir/timescaledb-<that version>, so its library must remain in the image.
 COPY --from=timescaledb-builder \
     /usr/lib/postgresql/${PG_MAJOR}/lib/timescaledb*.so \
     /usr/lib/postgresql/${PG_MAJOR}/lib/
@@ -62,8 +86,27 @@ COPY --from=timescaledb-builder \
     /usr/share/postgresql/${PG_MAJOR}/extension/timescaledb.control \
     /usr/share/postgresql/${PG_MAJOR}/extension/
 
+# timescaledb.control is what a bare CREATE EXTENSION and ALTER EXTENSION ...
+# UPDATE resolve against, so default_version must name a version whose install
+# script and versioned library are both present in this image.
+RUN set -eu; \
+    ext="/usr/share/postgresql/${PG_MAJOR}/extension"; \
+    lib="/usr/lib/postgresql/${PG_MAJOR}/lib"; \
+    ctl="$ext/timescaledb.control"; \
+    want_mp='$libdir/timescaledb-'"${TSDB_VERSION}"; \
+    dv="$(grep -E '^[[:space:]]*default_version[[:space:]]*=' "$ctl" | head -n1 | cut -d '=' -f2- | tr -d "[:space:]\"'")"; \
+    mp="$(grep -E '^[[:space:]]*module_pathname[[:space:]]*=' "$ctl" | head -n1 | cut -d '=' -f2- | tr -d "[:space:]\"'")"; \
+    [ "$dv" = "${TSDB_VERSION}" ] || { echo "FATAL: default_version=$dv in $ctl, expected ${TSDB_VERSION}" >&2; exit 1; }; \
+    [ "$mp" = "$want_mp" ] || { echo "FATAL: module_pathname=$mp in $ctl, expected $want_mp" >&2; exit 1; }; \
+    [ -f "$ext/timescaledb--${TSDB_VERSION}.sql" ] || { echo "FATAL: missing $ext/timescaledb--${TSDB_VERSION}.sql" >&2; exit 1; }; \
+    [ -f "$lib/timescaledb-${TSDB_VERSION}.so" ] || { echo "FATAL: missing $lib/timescaledb-${TSDB_VERSION}.so" >&2; exit 1; }; \
+    [ -f "$lib/timescaledb-tsl-${TSDB_VERSION}.so" ] || { echo "FATAL: missing $lib/timescaledb-tsl-${TSDB_VERSION}.so" >&2; exit 1; }; \
+    [ -f "$lib/timescaledb.so" ] || { echo "FATAL: missing loader $lib/timescaledb.so" >&2; exit 1; }; \
+    echo "timescaledb ${TSDB_VERSION}: control file and artifacts verified"
+
 # Switch to CNPG's unprivileged user (UID 26)
 USER 26
 
 LABEL org.opencontainers.image.title="CloudNativePG + TimescaleDB (Bookworm)"
 LABEL org.opencontainers.image.description="PostgreSQL ${PG_MAJOR} with TimescaleDB for CloudNativePG on Kubernetes"
+LABEL org.opencontainers.image.version="pg${PG_MAJOR}-tsdb${TSDB_VERSION}"
