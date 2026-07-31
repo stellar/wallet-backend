@@ -1,0 +1,72 @@
+# ABOUTME: Builds and pushes the CloudNativePG + TimescaleDB database image to the dev, stg or prd
+# ABOUTME: ECR namespace, tagged pg<major>-tsdb<version> from the dispatch inputs.
+name: Build and Push CNPG TimescaleDB
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target ECR namespace
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - stg
+          - prd
+      pg_major:
+        description: PostgreSQL major version
+        default: '17'
+        required: true
+      tsdb_version:
+        description: TimescaleDB version (semver, e.g. 2.28.2)
+        default: '2.28.2'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: build-cnpg-timescaledb-${{ inputs.environment }}-pg${{ inputs.pg_major }}-tsdb${{ inputs.tsdb_version }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        env:
+          PG_MAJOR: ${{ inputs.pg_major }}
+          TSDB_VERSION: ${{ inputs.tsdb_version }}
+        run: |
+          if [[ ! "$PG_MAJOR" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid pg_major '$PG_MAJOR'. Expected an integer (e.g. 17)."
+            exit 1
+          fi
+          if [[ ! "$TSDB_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid tsdb_version '$TSDB_VERSION'. Expected MAJOR.MINOR.PATCH (e.g. 2.28.2)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - name: ECR Login via OIDC
+        id: ecr-login
+        uses: stellar/actions/sdf-ecr-login@main
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.ecr-registry }}
+          ECR_REPO: ${{ inputs.environment }}/cnpg-timescaledb
+          PG_MAJOR: ${{ inputs.pg_major }}
+          TSDB_VERSION: ${{ inputs.tsdb_version }}
+        run: |
+          TAG="${ECR_REGISTRY}/${ECR_REPO}:pg${PG_MAJOR}-tsdb${TSDB_VERSION}"
+          echo "Building CNPG TimescaleDB image: ${TAG}"
+          docker build --pull --platform linux/amd64 \
+            -f Dockerfile-timescale-cnpg \
+            --build-arg PG_MAJOR="${PG_MAJOR}" \
+            --build-arg TSDB_VERSION="${TSDB_VERSION}" \
+            -t "${TAG}" .
+          docker push "${TAG}"

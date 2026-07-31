@@ -1328,7 +1328,8 @@ This section covers deployment and CI/CD configuration for the wallet-backend.
 
 **In this section:**
 - [Releases](#releases)
-- [Continuous builds (dev / stg)](#continuous-builds-dev--stg)
+- [Continuous builds](#continuous-builds)
+- [Database image (CNPG + TimescaleDB)](#database-image-cnpg--timescaledb)
 
 ### Releases
 
@@ -1368,6 +1369,38 @@ The workflows enforce these formats — anything else is rejected before any sid
 
 Out of scope for the current setup. All releases are cut from `main`. If you need to release a fix without including newer `main` changes, revert the unwanted commits on `main` first and cut from there.
 
-### Continuous builds (dev / stg)
+### Continuous builds
 
-Independent of the release flow, every push to `main` produces a SHA-tagged image at `${ecr-registry}/stg/wallet-backend:${sha}` ([`build-stg.yml`](./.github/workflows/build-stg.yml)). On-demand dev images can be built via [`build-dev.yml`](./.github/workflows/build-dev.yml).
+Independent of the release flow, [`build.yml`](./.github/workflows/build.yml) produces SHA-tagged images at `${ecr-registry}/<environment>/wallet-backend:${sha}`.
+
+Every push to `main` builds and pushes to **stg** automatically. Any environment can also be built on demand:
+
+```bash
+gh workflow run build.yml -f environment=dev   # or stg, prd
+```
+
+Dispatch runs default to `dev` and to the `main` ref; pass `--ref <branch>` to build a branch.
+
+#### Two paths into prd
+
+| Path | Tag | Use |
+|------|-----|-----|
+| `build.yml` with `environment=prd` | `prd/wallet-backend:${sha}` | Exercise a specific commit in production before cutting a release |
+| `promote-release.yml` | `prd/wallet-backend:vX.Y.Z` | The release itself — re-tagged from the validated staging image, digest preserved |
+
+The tag namespaces are disjoint, so a verification build can never overwrite a promoted release image.
+
+### Database image (CNPG + TimescaleDB)
+
+TimescaleDB's official images are incompatible with CloudNativePG, so the database image is built from [`Dockerfile-timescale-cnpg`](./Dockerfile-timescale-cnpg), which layers the TimescaleDB extension onto the CNPG base image. Build it with [`build-cnpg-timescaledb.yml`](./.github/workflows/build-cnpg-timescaledb.yml):
+
+```bash
+gh workflow run build-cnpg-timescaledb.yml \
+  -f environment=prd \
+  -f pg_major=17 \
+  -f tsdb_version=2.28.2
+```
+
+This pushes to `${ecr-registry}/<environment>/cnpg-timescaledb:pg<pg_major>-tsdb<tsdb_version>`. The CNPG `ImageCatalog` and `Database` resources in the deployment repo must reference that exact tag.
+
+The build fails rather than producing an image whose TimescaleDB version differs from `tsdb_version`. Both the extension bundle and the loader package are pinned to the requested version — the loader is what supplies `timescaledb.control`, and therefore the `default_version` that a bare `CREATE EXTENSION timescaledb` resolves to — and the assembled image is checked before it is tagged.
