@@ -1,0 +1,54 @@
+# ABOUTME: Builds and pushes a SHA-tagged wallet-backend image to the dev, stg or prd ECR namespace.
+# ABOUTME: Pushes to main publish stg; dev, stg and prd are all reachable by manual dispatch.
+name: Build and Push Wallet Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target ECR namespace
+        required: true
+        default: dev
+        type: choice
+        options:
+          - dev
+          - stg
+          - prd
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: ECR Login via OIDC
+        id: ecr-login
+        uses: stellar/actions/sdf-ecr-login@main
+
+      - name: Resolve target namespace
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          # A push to main publishes the staging image; a manual dispatch selects the namespace.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            namespace="$ENVIRONMENT"
+          else
+            namespace="stg"
+          fi
+          echo "Target namespace: $namespace"
+          echo "namespace=$namespace" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        env:
+          TAG: ${{ steps.ecr-login.outputs.ecr-registry }}/${{ steps.target.outputs.namespace }}/wallet-backend:${{ github.sha }}
+        run: |
+          make docker-build
+          make docker-push
