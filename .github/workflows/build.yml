@@ -51,4 +51,4 @@ jobs:
           TAG: ${{ steps.ecr-login.outputs.ecr-registry }}/${{ steps.target.outputs.namespace }}/wallet-backend:${{ github.sha }}
         run: |
           make docker-build
-          make docker-push
+          ecr-push "$TAG"

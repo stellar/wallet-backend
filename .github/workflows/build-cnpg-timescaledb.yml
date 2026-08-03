@@ -69,4 +69,4 @@ jobs:
             --build-arg PG_MAJOR="${PG_MAJOR}" \
             --build-arg TSDB_VERSION="${TSDB_VERSION}" \
             -t "${TAG}" .
-          docker push "${TAG}"
+          ecr-push "${TAG}"
