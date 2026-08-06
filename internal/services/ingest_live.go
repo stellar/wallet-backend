@@ -299,7 +299,21 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	}
 
 	startLedger := latestIngestedLedger + 1
-	if latestIngestedLedger == 0 {
+	if latestIngestedLedger == 0 && m.archive == nil {
+		// No history archive (streaming-loadtest backend): there is no
+		// checkpoint state to bootstrap from, so start from ledger 1 with an
+		// empty database — balance state accumulates from the ledger stream.
+		// The cursor row must exist before the first guarded cursor update.
+		startLedger = 1
+		err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			return m.initializeCursors(ctx, dbTx, startLedger)
+		})
+		if err != nil {
+			return fmt.Errorf("initializing cursors without archive bootstrap: %w", err)
+		}
+		m.appMetrics.Ingestion.LatestLedger.Set(float64(startLedger))
+		m.appMetrics.Ingestion.OldestLedger.Set(float64(startLedger))
+	} else if latestIngestedLedger == 0 {
 		startLedger, err = m.archive.GetLatestLedgerSequence()
 		if err != nil {
 			return fmt.Errorf("getting latest ledger sequence: %w", err)
