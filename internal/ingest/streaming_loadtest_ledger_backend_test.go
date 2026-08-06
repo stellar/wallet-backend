@@ -1,0 +1,666 @@
+package ingest
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
+	"github.com/stellar/go-stellar-sdk/xdr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// streamTestTimeout bounds every test: the backend blocks on FIFO reads, so a
+// wiring mistake would otherwise hang the package.
+const streamTestTimeout = 10 * time.Second
+
+// reopenGrace is how long a test waits, after triggering a stream-epoch end,
+// before attaching the replacement writer. A FIFO is a single shared object:
+// a writer that attaches while the backend still holds the dead epoch's read
+// descriptor writes into a buffer that is discarded when that descriptor
+// closes, and the backend would then block forever on the reopened pipe.
+const reopenGrace = 250 * time.Millisecond
+
+// mkFIFOs creates n named pipes in one temp dir and returns their paths.
+func mkFIFOs(t *testing.T, n int) []string {
+	t.Helper()
+	dir := t.TempDir()
+	paths := make([]string, n)
+	for i := range paths {
+		paths[i] = filepath.Join(dir, fmt.Sprintf("meta-%d.pipe", i))
+		require.NoError(t, syscall.Mkfifo(paths[i], 0o600))
+	}
+	return paths
+}
+
+func newStreamingBackend(t *testing.T, paths []string, pace time.Duration) *StreamingLoadtestLedgerBackend {
+	t.Helper()
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePaths:       paths,
+		LedgerCloseDuration: pace,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
+	return backend
+}
+
+// pipeFeeder writes stream-framed records onto one FIFO from a background
+// goroutine. The goroutine is required: opening a FIFO for writing blocks
+// until a reader attaches, and the backend opens its read side lazily inside
+// GetLedger. Queued writes are delivered in order, so a send followed by a
+// close reaches the reader as data-then-EOF.
+type pipeFeeder struct {
+	t         *testing.T
+	path      string
+	jobs      chan []byte
+	closeOnce sync.Once
+}
+
+func newPipeFeeder(t *testing.T, path string) *pipeFeeder {
+	t.Helper()
+	f := &pipeFeeder{t: t, path: path, jobs: make(chan []byte, 256)}
+	go f.run()
+	t.Cleanup(f.close)
+	return f
+}
+
+func (p *pipeFeeder) run() {
+	file, err := os.OpenFile(p.path, os.O_WRONLY, 0)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	for job := range p.jobs {
+		if job == nil {
+			return
+		}
+		if _, err := file.Write(job); err != nil {
+			return // the backend closed its read side; nothing left to deliver
+		}
+	}
+}
+
+// send queues one stream frame per ledger. Marshalling happens on the calling
+// goroutine so a malformed fixture fails the test directly.
+func (p *pipeFeeder) send(ledgers ...xdr.LedgerCloseMeta) {
+	p.t.Helper()
+	for _, ledger := range ledgers {
+		var buf bytes.Buffer
+		require.NoError(p.t, xdr.MarshalFramed(&buf, ledger))
+		p.jobs <- buf.Bytes()
+	}
+}
+
+// sendRaw queues bytes verbatim, for fixtures that are not valid frames.
+func (p *pipeFeeder) sendRaw(b []byte) {
+	p.jobs <- b
+}
+
+// close flushes queued writes and then closes the write side, which the
+// backend observes as end of stream.
+func (p *pipeFeeder) close() {
+	p.closeOnce.Do(func() { p.jobs <- nil })
+}
+
+// truncatedFrame is a stream frame whose header promises 64 payload bytes but
+// which carries only 8, the way a killed writer leaves the pipe.
+func truncatedFrame() []byte {
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], 64|0x80000000)
+	return append(header[:], make([]byte, 8)...)
+}
+
+// makeStreamLedger builds a marshalable LedgerCloseMeta (version 1 or 2) with
+// the given header sequence, txCount transactions, and one ledger entry per
+// entrySeq value carried as an upgrade change. Close time is 0, matching what
+// apply-load emits. The transaction set is a generalized V1 set with one
+// phase, which is what loadtest.MergeLedgers requires of both sides.
+func makeStreamLedger(version int32, seq uint32, txCount int, entrySeqs ...uint32) xdr.LedgerCloseMeta {
+	header := xdr.LedgerHeaderHistoryEntry{
+		Header: xdr.LedgerHeader{
+			LedgerSeq: xdr.Uint32(seq),
+			ScpValue:  xdr.StellarValue{CloseTime: 0},
+		},
+	}
+	txSet := xdr.GeneralizedTransactionSet{
+		V: 1,
+		V1TxSet: &xdr.TransactionSetV1{
+			Phases: []xdr.TransactionPhase{{V: 0, V0Components: &[]xdr.TxSetComponent{}}},
+		},
+	}
+
+	if version == 2 {
+		txProcessing := make([]xdr.TransactionResultMetaV1, txCount)
+		for i := range txProcessing {
+			txProcessing[i] = xdr.TransactionResultMetaV1{
+				Result:            successfulTxResult(),
+				TxApplyProcessing: xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{}},
+			}
+		}
+		return xdr.LedgerCloseMeta{V: 2, V2: &xdr.LedgerCloseMetaV2{
+			LedgerHeader:       header,
+			TxSet:              txSet,
+			TxProcessing:       txProcessing,
+			UpgradesProcessing: entryUpgrades(entrySeqs),
+		}}
+	}
+
+	txProcessing := make([]xdr.TransactionResultMeta, txCount)
+	for i := range txProcessing {
+		txProcessing[i] = xdr.TransactionResultMeta{
+			Result:            successfulTxResult(),
+			TxApplyProcessing: xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{}},
+		}
+	}
+	return xdr.LedgerCloseMeta{V: 1, V1: &xdr.LedgerCloseMetaV1{
+		LedgerHeader:       header,
+		TxSet:              txSet,
+		TxProcessing:       txProcessing,
+		UpgradesProcessing: entryUpgrades(entrySeqs),
+	}}
+}
+
+// makeV0StreamLedger builds a V0 LedgerCloseMeta, the pre-generalized-txset
+// shape the backend refuses to renumber or merge.
+func makeV0StreamLedger(seq uint32) xdr.LedgerCloseMeta {
+	return xdr.LedgerCloseMeta{V: 0, V0: &xdr.LedgerCloseMetaV0{
+		LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+			Header: xdr.LedgerHeader{LedgerSeq: xdr.Uint32(seq)},
+		},
+	}}
+}
+
+func successfulTxResult() xdr.TransactionResultPair {
+	return xdr.TransactionResultPair{
+		Result: xdr.TransactionResult{
+			FeeCharged: 100,
+			Result: xdr.TransactionResultResult{
+				Code:    xdr.TransactionResultCodeTxSuccess,
+				Results: &[]xdr.OperationResult{},
+			},
+		},
+	}
+}
+
+// entryUpgrades parks one ledger entry per sequence in a base-fee upgrade's
+// changes. Upgrade changes are a convenient carrier because MergeLedgers
+// appends them in pipe order, so a merged ledger exposes each source stream's
+// entries separately.
+func entryUpgrades(entrySeqs []uint32) []xdr.UpgradeEntryMeta {
+	if len(entrySeqs) == 0 {
+		return nil
+	}
+	newBaseFee := xdr.Uint32(100)
+	changes := make(xdr.LedgerEntryChanges, 0, len(entrySeqs))
+	for _, seq := range entrySeqs {
+		changes = append(changes, xdr.LedgerEntryChange{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryState,
+			State: &xdr.LedgerEntry{
+				LastModifiedLedgerSeq: xdr.Uint32(seq),
+				Data: xdr.LedgerEntryData{
+					Type: xdr.LedgerEntryTypeTtl,
+					Ttl:  &xdr.TtlEntry{},
+				},
+			},
+		})
+	}
+	return []xdr.UpgradeEntryMeta{{
+		Upgrade: xdr.LedgerUpgrade{
+			Type:       xdr.LedgerUpgradeTypeLedgerUpgradeBaseFee,
+			NewBaseFee: &newBaseFee,
+		},
+		Changes: changes,
+	}}
+}
+
+// streamEntrySeqs returns the LastModifiedLedgerSeq of every entry the ledger
+// carries, in merge order (first pipe's entries first).
+func streamEntrySeqs(t *testing.T, lcm xdr.LedgerCloseMeta) []uint32 {
+	t.Helper()
+	var upgrades []xdr.UpgradeEntryMeta
+	switch lcm.V {
+	case 1:
+		upgrades = lcm.V1.UpgradesProcessing
+	case 2:
+		upgrades = lcm.V2.UpgradesProcessing
+	default:
+		t.Fatalf("unexpected ledger version %d", lcm.V)
+	}
+	var seqs []uint32
+	for _, upgrade := range upgrades {
+		for _, change := range upgrade.Changes {
+			require.NotNil(t, change.State)
+			seqs = append(seqs, uint32(change.State.LastModifiedLedgerSeq))
+		}
+	}
+	return seqs
+}
+
+func streamTxCount(t *testing.T, lcm xdr.LedgerCloseMeta) int {
+	t.Helper()
+	switch lcm.V {
+	case 1:
+		return len(lcm.V1.TxProcessing)
+	case 2:
+		return len(lcm.V2.TxProcessing)
+	}
+	t.Fatalf("unexpected ledger version %d", lcm.V)
+	return 0
+}
+
+func streamPhaseCount(t *testing.T, lcm xdr.LedgerCloseMeta) int {
+	t.Helper()
+	switch lcm.V {
+	case 1:
+		return len(lcm.V1.TxSet.V1TxSet.Phases)
+	case 2:
+		return len(lcm.V2.TxSet.V1TxSet.Phases)
+	}
+	t.Fatalf("unexpected ledger version %d", lcm.V)
+	return 0
+}
+
+func streamCloseTime(t *testing.T, lcm xdr.LedgerCloseMeta) xdr.TimePoint {
+	t.Helper()
+	switch lcm.V {
+	case 1:
+		return lcm.V1.LedgerHeader.Header.ScpValue.CloseTime
+	case 2:
+		return lcm.V2.LedgerHeader.Header.ScpValue.CloseTime
+	}
+	t.Fatalf("unexpected ledger version %d", lcm.V)
+	return 0
+}
+
+type getLedgerResult struct {
+	lcm xdr.LedgerCloseMeta
+	err error
+}
+
+// getLedgerAsync runs GetLedger on its own goroutine, for the cases where it
+// must block until the test attaches a new writer.
+func getLedgerAsync(backend *StreamingLoadtestLedgerBackend, ctx context.Context, sequence uint32) <-chan getLedgerResult {
+	ch := make(chan getLedgerResult, 1)
+	go func() {
+		lcm, err := backend.GetLedger(ctx, sequence)
+		ch <- getLedgerResult{lcm: lcm, err: err}
+	}()
+	return ch
+}
+
+func TestNewStreamingLoadtestLedgerBackend_RejectsBadConfig(t *testing.T) {
+	_, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{})
+	require.ErrorContains(t, err, "MetaPipePaths is required")
+
+	_, err = NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaPipePaths: []string{"/tmp/a.pipe", ""},
+	})
+	require.ErrorContains(t, err, "MetaPipePaths[1] is empty")
+}
+
+func TestStreamingLoadtestBackend_RenumbersFirstEpoch(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// apply-load starts each run at raw ledger 2 (genesis emits no meta) and
+	// tags genesis-created entries with lastModified 1.
+	feeder := newPipeFeeder(t, paths[0])
+	for raw := uint32(2); raw <= 4; raw++ {
+		feeder.send(makeStreamLedger(1, raw, 1, 1, raw+5))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2, 3} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.Equal(t, want, lcm.LedgerSequence())
+		// The epoch diff is -1. The genesis entry lands below the floor (the
+		// range's first ledger) and clamps to it; the other entry tracks the
+		// emitted sequence.
+		assert.Equal(t, []uint32{1, want + 5}, streamEntrySeqs(t, lcm))
+	}
+}
+
+func TestStreamingLoadtestBackend_MergesEveryPipe(t *testing.T) {
+	paths := mkFIFOs(t, 3)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// Different raw starting sequences per pipe: a single shared diff would
+	// renumber the three streams' entries to three different values, so the
+	// entries agreeing is what proves the diff is derived per pipe.
+	rawStarts := []uint32{2, 100, 7}
+	txCounts := []int{1, 2, 3}
+	for i, path := range paths {
+		feeder := newPipeFeeder(t, path)
+		for n := uint32(0); n < 2; n++ {
+			raw := rawStarts[i] + n
+			feeder.send(makeStreamLedger(1, raw, txCounts[i], raw+5))
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.Equal(t, want, lcm.LedgerSequence())
+		assert.Equal(t, 6, streamTxCount(t, lcm), "merged ledger holds every pipe's transactions")
+		assert.Equal(t, 3, streamPhaseCount(t, lcm), "merged ledger holds every pipe's txset phases")
+		assert.Equal(t, []uint32{want + 5, want + 5, want + 5}, streamEntrySeqs(t, lcm))
+	}
+}
+
+func TestStreamingLoadtestBackend_MergesV2Ledgers(t *testing.T) {
+	paths := mkFIFOs(t, 2)
+	backend := newStreamingBackend(t, paths, 0)
+
+	rawStarts := []uint32{2, 50}
+	for i, path := range paths {
+		feeder := newPipeFeeder(t, path)
+		feeder.send(makeStreamLedger(2, rawStarts[i], 2, rawStarts[i]+5))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(10)))
+
+	lcm, err := backend.GetLedger(ctx, 10)
+	require.NoError(t, err)
+	require.Equal(t, int32(2), lcm.V)
+	assert.Equal(t, uint32(10), lcm.LedgerSequence())
+	assert.Equal(t, 4, streamTxCount(t, lcm))
+	assert.Equal(t, []uint32{15, 15}, streamEntrySeqs(t, lcm))
+	assert.Greater(t, uint64(streamCloseTime(t, lcm)), uint64(0))
+}
+
+func TestStreamingLoadtestBackend_RestartsOnePipeOnly(t *testing.T) {
+	paths := mkFIFOs(t, 3)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// Pipes 0 and 2 run for the whole test. Pipe 1's writer exits after two
+	// ledgers and a fresh one attaches, the way a restarted apply-load does.
+	for _, i := range []int{0, 2} {
+		feeder := newPipeFeeder(t, paths[i])
+		for raw := uint32(2); raw <= 8; raw++ {
+			feeder.send(makeStreamLedger(1, raw, 1))
+		}
+	}
+	shortLived := newPipeFeeder(t, paths[1])
+	shortLived.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		require.Equal(t, want, lcm.LedgerSequence())
+		require.Equal(t, 3, streamTxCount(t, lcm))
+	}
+	shortLived.close()
+
+	// This call blocks: pipe 1 hits EOF, the backend drops that epoch and
+	// waits in open(2) for a new writer while pipes 0 and 2 hold their peeked
+	// frames.
+	pending := getLedgerAsync(backend, ctx, 3)
+	time.Sleep(reopenGrace)
+	restarted := newPipeFeeder(t, paths[1])
+	restarted.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	res := <-pending
+	require.NoError(t, res.err)
+	assert.Equal(t, uint32(3), res.lcm.LedgerSequence())
+	assert.Equal(t, 3, streamTxCount(t, res.lcm), "the restarted pipe's frame is merged in")
+
+	// The restarted pipe advances on its own diff (raw 3 -> 4) while the
+	// untouched pipes stay in lockstep on theirs (raw 5 -> 4).
+	lcm, err := backend.GetLedger(ctx, 4)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(4), lcm.LedgerSequence())
+	assert.Equal(t, 3, streamTxCount(t, lcm))
+}
+
+func TestStreamingLoadtestBackend_RecoversFromTruncatedFrame(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	killed := newPipeFeeder(t, paths[0])
+	killed.send(makeStreamLedger(1, 2, 1))
+	killed.sendRaw(truncatedFrame())
+	killed.close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	lcm, err := backend.GetLedger(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), lcm.LedgerSequence())
+
+	// The decode error must end the epoch and wait for a new writer, not
+	// surface to the consumer.
+	pending := getLedgerAsync(backend, ctx, 2)
+	time.Sleep(reopenGrace)
+	clean := newPipeFeeder(t, paths[0])
+	clean.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	res := <-pending
+	require.NoError(t, res.err)
+	assert.Equal(t, uint32(2), res.lcm.LedgerSequence())
+
+	lcm, err = backend.GetLedger(ctx, 3)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(3), lcm.LedgerSequence())
+}
+
+func TestStreamingLoadtestBackend_StampsAdvancingCloseTime(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	feeder := newPipeFeeder(t, paths[0])
+	for raw := uint32(2); raw <= 4; raw++ {
+		feeder.send(makeStreamLedger(1, raw, 1))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	var previous xdr.TimePoint
+	for _, want := range []uint32{1, 2, 3} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		closeTime := streamCloseTime(t, lcm)
+		assert.Greater(t, uint64(closeTime), uint64(0), "apply-load's closeTime 0 must be replaced")
+		assert.GreaterOrEqual(t, uint64(closeTime), uint64(previous))
+		previous = closeTime
+	}
+}
+
+func TestStreamingLoadtestBackend_RetryServesCachedLedger(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// Exactly one frame per emitted ledger: a retry that consumed another
+	// frame would leave nothing for the follow-up request.
+	feeder := newPipeFeeder(t, paths[0])
+	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	_, err := backend.GetLedger(ctx, 1)
+	require.NoError(t, err)
+	first, err := backend.GetLedger(ctx, 2)
+	require.NoError(t, err)
+
+	retried, err := backend.GetLedger(ctx, 2)
+	require.NoError(t, err)
+	assert.Equal(t, first, retried, "a repeat request replays the cached ledger verbatim")
+
+	feeder.send(makeStreamLedger(1, 4, 1))
+	lcm, err := backend.GetLedger(ctx, 3)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(3), lcm.LedgerSequence(), "the retry left the stream position untouched")
+}
+
+func TestStreamingLoadtestBackend_PacesEmits(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	pace := 100 * time.Millisecond
+	backend := newStreamingBackend(t, paths, pace)
+
+	feeder := newPipeFeeder(t, paths[0])
+	for raw := uint32(2); raw <= 4; raw++ {
+		feeder.send(makeStreamLedger(1, raw, 1))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	start := time.Now()
+	_, err := backend.GetLedger(ctx, 1)
+	require.NoError(t, err)
+	assert.Less(t, time.Since(start), pace, "the first emit has nothing to pace against")
+
+	for _, want := range []uint32{2, 3} {
+		start = time.Now()
+		_, err = backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, time.Since(start), pace-10*time.Millisecond,
+			"emit %d should wait out the close duration", want)
+	}
+}
+
+func TestStreamingLoadtestBackend_TracksLatestLedgerSequence(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	feeder := newPipeFeeder(t, paths[0])
+	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+
+	_, err := backend.GetLatestLedgerSequence(ctx)
+	require.ErrorContains(t, err, "before PrepareRange")
+
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(100)))
+	seq, err := backend.GetLatestLedgerSequence(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(100), seq, "before the first emit the range start is the tip")
+
+	for _, want := range []uint32{100, 101} {
+		_, err = backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		seq, err = backend.GetLatestLedgerSequence(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, want, seq)
+	}
+
+	prepared, err := backend.IsPrepared(ctx, ledgerbackend.UnboundedRange(100))
+	require.NoError(t, err)
+	assert.True(t, prepared)
+
+	prepared, err = backend.IsPrepared(ctx, ledgerbackend.BoundedRange(100, 101))
+	require.NoError(t, err)
+	assert.False(t, prepared, "the backend never serves a bounded range")
+}
+
+func TestStreamingLoadtestBackend_RejectsBadRequests(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+
+	t.Run("bounded range", func(t *testing.T) {
+		backend := newStreamingBackend(t, mkFIFOs(t, 1), 0)
+		err := backend.PrepareRange(ctx, ledgerbackend.BoundedRange(1, 5))
+		require.ErrorContains(t, err, "only supports unbounded ranges")
+	})
+
+	t.Run("get before prepare", func(t *testing.T) {
+		backend := newStreamingBackend(t, mkFIFOs(t, 1), 0)
+		_, err := backend.GetLedger(ctx, 1)
+		require.ErrorContains(t, err, "GetLedger called before PrepareRange")
+	})
+
+	t.Run("first request is not the range start", func(t *testing.T) {
+		backend := newStreamingBackend(t, mkFIFOs(t, 1), 0)
+		require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(5)))
+		_, err := backend.GetLedger(ctx, 6)
+		require.ErrorContains(t, err, "non-sequential ledger request: expected 5, got 6")
+	})
+
+	t.Run("request skips ahead after an emit", func(t *testing.T) {
+		paths := mkFIFOs(t, 1)
+		backend := newStreamingBackend(t, paths, 0)
+		feeder := newPipeFeeder(t, paths[0])
+		feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+		require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+		_, err := backend.GetLedger(ctx, 1)
+		require.NoError(t, err)
+		_, err = backend.GetLedger(ctx, 3)
+		require.ErrorContains(t, err, "non-sequential ledger request: expected 2, got 3")
+	})
+
+	t.Run("unsupported ledger version", func(t *testing.T) {
+		paths := mkFIFOs(t, 1)
+		backend := newStreamingBackend(t, paths, 0)
+		feeder := newPipeFeeder(t, paths[0])
+		feeder.send(makeV0StreamLedger(2))
+
+		require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+		_, err := backend.GetLedger(ctx, 1)
+		require.ErrorContains(t, err, "version")
+	})
+}
+
+func TestStreamingLoadtestBackend_RejectsSequenceGapWithinEpoch(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// A gap inside one writer's lifetime means frames were lost, which is not
+	// the same as the writer restarting and is not recoverable by reopening.
+	feeder := newPipeFeeder(t, paths[0])
+	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 5, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	_, err := backend.GetLedger(ctx, 1)
+	require.NoError(t, err)
+
+	_, err = backend.GetLedger(ctx, 2)
+	require.ErrorContains(t, err, "sequence mismatch within stream epoch")
+}
+
+func TestNewLedgerBackend_StreamingLoadtest(t *testing.T) {
+	backend, err := NewLedgerBackend(context.Background(), Configs{
+		LedgerBackendType:           LedgerBackendTypeStreamingLoadtest,
+		LoadtestMetaPipePaths:       mkFIFOs(t, 2),
+		LoadtestLedgerCloseDuration: 500 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, backend)
+	streaming, ok := backend.(*StreamingLoadtestLedgerBackend)
+	require.True(t, ok, "NewLedgerBackend should return a StreamingLoadtestLedgerBackend")
+	assert.Len(t, streaming.pipes, 2)
+	assert.Equal(t, 500*time.Millisecond, streaming.config.LedgerCloseDuration)
+	assert.NoError(t, backend.Close())
+}

@@ -79,11 +79,11 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "archive-url",
-			Usage:       "Archive URL for history archives",
+			Usage:       "Archive URL for history archives. Required for every backend except 'streaming-loadtest', which runs without a history archive.",
 			OptType:     types.String,
 			ConfigKey:   &cfg.ArchiveURL,
 			FlagDefault: "https://history.stellar.org/prd/core-testnet/core_testnet_001/",
-			Required:    true,
+			Required:    false,
 		},
 		{
 			Name:        "checkpoint-frequency",
@@ -95,11 +95,29 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc', 'datastore' (default), or 'streaming-loadtest' (dev-only; reads apply-load ledger meta from named pipes)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
 			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
 			Required:    false,
+		},
+		{
+			Name:           "loadtest-meta-pipe-paths",
+			Usage:          "Dev-only. Comma-separated named pipe (FIFO) paths carrying apply-load ledger meta, one per apply-load process. Required when ledger-backend-type is 'streaming-loadtest', ignored otherwise.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionStringList,
+			ConfigKey:      &cfg.LoadtestMetaPipePaths,
+			FlagDefault:    "",
+			Required:       false,
+		},
+		{
+			Name:           "loadtest-ledger-close-duration",
+			Usage:          "Dev-only. Minimum interval between ledgers in streaming-loadtest mode (Go duration string, e.g. \"5s\"). \"0s\" leaves the stream uncapped.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionDuration,
+			ConfigKey:      &cfg.LoadtestLedgerCloseDuration,
+			FlagDefault:    "0s",
+			Required:       false,
 		},
 		{
 			Name:        "chunk-interval",
@@ -167,8 +185,20 @@ func (c *ingestCmd) Command() *cobra.Command {
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			case string(ingest.LedgerBackendTypeStreamingLoadtest):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeStreamingLoadtest
 			default:
-				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
+				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc', 'datastore', or 'streaming-loadtest'", ledgerBackendType)
+			}
+
+			// The streaming-loadtest backend needs its pipes and runs without a history
+			// archive; every other backend reads a history archive to build initial state.
+			if cfg.LedgerBackendType == ingest.LedgerBackendTypeStreamingLoadtest {
+				if len(cfg.LoadtestMetaPipePaths) == 0 {
+					return fmt.Errorf("loadtest-meta-pipe-paths is required when ledger-backend-type is 'streaming-loadtest'")
+				}
+			} else if cfg.ArchiveURL == "" {
+				return fmt.Errorf("archive-url is required when ledger-backend-type is '%s'", ledgerBackendType)
 			}
 
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
