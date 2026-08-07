@@ -64,6 +64,33 @@ func (m *IngestStoreModel) Get(ctx context.Context, cursorName string) (uint32, 
 	return uint32(v), nil
 }
 
+// GetInTx reads a cursor inside dbTx, so the value is ordered with the
+// transaction's own cursor writes: a CompareAndSwap in dbTx that lost to a
+// concurrent winner waited on the winner's row lock before re-evaluating its
+// predicate, so by the time it reports false the winner's committed value is
+// exactly what this read returns — callers use that to learn how far the
+// winner has advanced. Missing-row semantics match Get (0, nil).
+func (m *IngestStoreModel) GetInTx(ctx context.Context, dbTx pgx.Tx, cursorName string) (uint32, error) {
+	start := time.Now()
+	valueStr, err := db.QueryOne[string](ctx, dbTx, `SELECT value FROM ingest_store WHERE key = $1`, cursorName)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetInTx", "ingest_store").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetInTx", "ingest_store").Inc()
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetInTx", "ingest_store", utils.GetDBErrorType(err)).Inc()
+		return 0, fmt.Errorf("getting cursor %s in transaction: %w", cursorName, err)
+	}
+
+	v, err := strconv.ParseUint(valueStr, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("parsing ingest_store value %q for cursor %s: %w", valueStr, cursorName, err)
+	}
+	return uint32(v), nil
+}
+
 func (m *IngestStoreModel) GetMany(ctx context.Context, keys []string) (map[string]uint32, error) {
 	if len(keys) == 0 {
 		return nil, nil
