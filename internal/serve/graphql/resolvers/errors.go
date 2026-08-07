@@ -11,4 +11,7 @@ const (
 
 	// Balance query processing errors
 	ErrMsgBalancesFetchFailed = "failed to process account balances"
+
+	// Blend pool address errors
+	ErrMsgInvalidPoolAddress = "invalid address format: must be a valid Stellar contract (C...) address"
 )

@@ -2,10 +2,12 @@ package resolvers
 
 import (
 	"context"
+	"crypto/rand"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	godbtest "github.com/stellar/go-stellar-sdk/support/db/dbtest"
 	"github.com/stretchr/testify/require"
 
@@ -60,4 +62,16 @@ func mustAddressBytes(t *testing.T, addr string) []byte {
 	b, ok := v.([]byte)
 	require.True(t, ok)
 	return b
+}
+
+// randomContractAddress generates a random valid C-address for testing
+// (e.g. token/pool contract identifiers, which are C-addresses, not G-addresses).
+func randomContractAddress(t *testing.T) string {
+	t.Helper()
+	var raw [32]byte
+	_, err := rand.Read(raw[:])
+	require.NoError(t, err)
+	addr, err := strkey.Encode(strkey.VersionByteContract, raw[:])
+	require.NoError(t, err)
+	return addr
 }

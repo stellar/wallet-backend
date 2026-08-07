@@ -50,6 +50,14 @@ func (m *ContractModelMock) GetSACContractsMissingMetadata(ctx context.Context, 
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *ContractModelMock) GetTokenMetadataByContractIDs(ctx context.Context, contractIDs []string) ([]Contract, error) {
+	args := m.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]Contract), args.Error(1)
+}
+
 func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
 	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
