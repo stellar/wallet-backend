@@ -1204,7 +1204,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		}
 	})
 
-	t.Run("ProtocolContracts membership refreshed per flushed window for requiring processors", func(t *testing.T) {
+	t.Run("ProtocolContracts membership refreshed at window start for requiring processors", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
@@ -1242,11 +1242,13 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// hex-decodes tracked contract IDs and fails the run on malformed ones.
 		contractA := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("aa", 32))}
 		contractB := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("bb", 32))}
-		// The requiring tracker's membership is re-read after every committed
-		// window (WindowSize defaults to 1, so after every ledger): the run-start
-		// snapshot returns only A, every refresh returns A+B — simulating live
-		// ingestion classifying B while the migration is in flight. The
-		// event-only tracker keeps the run-start snapshot: exactly one load.
+		// The requiring tracker's membership is re-read at the start of every
+		// window, after the window's first ledger has been fetched (WindowSize
+		// defaults to 1, so before every ledger's fold): the run-start snapshot
+		// returns only A, every window-start refresh returns A+B — simulating
+		// live ingestion classifying B between the snapshot and the first
+		// window. The event-only tracker keeps the run-start snapshot: exactly
+		// one load.
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
@@ -1270,12 +1272,16 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		err = svc.Run(ctx, []string{"cdproto", "noproto"})
 		require.NoError(t, err)
 
-		// Requiring processor: ledger 100 folded with the run-start snapshot,
-		// ledgers 101-102 with the refreshed membership including contract B.
+		// Requiring processor: every ledger — including the first — folds with
+		// the refreshed membership, because the refresh runs at window start,
+		// BEFORE the window's first fold, not after the previous window's
+		// commit. A post-commit refresh would fold ledger 100 with the stale
+		// run-start snapshot (one contract), so these assertions pin the
+		// ordering that closes the frontier race with live's classification
+		// commit.
 		require.Len(t, cdProc.processedInputs, 3)
-		assert.Len(t, cdProc.processedInputs[0].ProtocolContracts, 1, "ledger 100 folds with the run-start snapshot")
-		for _, input := range cdProc.processedInputs[1:] {
-			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: refreshed membership must include the newly classified contract", input.LedgerSequence)
+		for _, input := range cdProc.processedInputs {
+			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: window-start membership must include the newly classified contract", input.LedgerSequence)
 		}
 
 		// Event-only processor: the run-start snapshot is never refreshed (its
