@@ -301,12 +301,14 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 // TestGraphQLComplexityAccountingForBlendFields locks in the multipliers added for the Blend
 // v2 fields in addComplexityCalculation: every Blend list level carries its own cardinality
 // (catalog ×50, per-account lists ×10, reserves/bid/lot ×30, q4w ×20), so nested lists are
-// priced as the product of the levels, not folded into a single outer multiplier. Each case
-// selects a minimal field set so the expected complexity is easy to verify by hand and stays
-// stable across unrelated schema edits.
+// priced as the product of the levels, not folded into a single outer multiplier. On top of
+// that, blendPositions and blendPool carry a flat additive cost equal to the DB queries one
+// resolution issues (13 and 7), so a selection of a single scalar is never priced as if it
+// were cheap. Each case selects a minimal field set so the expected complexity is easy to
+// verify by hand and stays stable across unrelated schema edits.
 //
 // Worst case (every field selected, derived in the comment above the multipliers in
-// addComplexityCalculation): blendPools = 26,150 and blendPositions = 7,572 — both above a
+// addComplexityCalculation): blendPools = 26,150 and blendPositions = 7,584 — both above a
 // 6,000 complexity limit by design; admitting the full selections requires a deployment-side
 // limit raise. This does not touch AccountTransactionEdge.operations/stateChanges or any other
 // existing complexity entry, so the freighter full-detail account-history query budget is
@@ -344,19 +346,19 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 			expectedMessage: "operation has complexity 1550, which exceeds the limit of 1549",
 		},
 		{
-			name:  "blendPool (single) is left at the default, unmultiplied",
-			limit: 1,
+			name:  "blendPool (single) carries its flat per-resolution query cost",
+			limit: 7,
 			query: `query {
 				blendPool(address: "` + complexityTestAccountAddress + `") {
 					address
 				}
 			}`,
-			// default: 1 (blendPool itself) + 1 (address) = 2.
-			expectedMessage: "operation has complexity 2, which exceeds the limit of 1",
+			// address(1) + 7 (queries one blendPool resolution issues) = 8.
+			expectedMessage: "operation has complexity 8, which exceeds the limit of 7",
 		},
 		{
-			name:  "account blendPositions itself is default-priced; cardinality lives on its lists",
-			limit: 2,
+			name:  "account blendPositions carries its flat per-resolution query cost",
+			limit: 14,
 			query: `query {
 				accountByAddress(address: "` + complexityTestAccountAddress + `") {
 					blendPositions {
@@ -364,13 +366,13 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 					}
 				}
 			}`,
-			// blendPositions{backstopClaimedLp}: default 1+1=2.
-			// accountByAddress (default) = 1+2=3.
-			expectedMessage: "operation has complexity 3, which exceeds the limit of 2",
+			// blendPositions{backstopClaimedLp}: backstopClaimedLp(1) + 13 = 14.
+			// accountByAddress (default) = 1+14=15.
+			expectedMessage: "operation has complexity 15, which exceeds the limit of 14",
 		},
 		{
 			name:  "account blendPositions pools/backstop multiply per level",
-			limit: 522,
+			limit: 534,
 			query: `query {
 				accountByAddress(address: "` + complexityTestAccountAddress + `") {
 					blendPositions {
@@ -392,13 +394,13 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 			}`,
 			// reserves{assetContractId}=30*1=30; pools item=poolAddress(1)+reserves(30)=31; pools field=10*31=310.
 			// q4w{amount}=20*1=20; backstop item=poolAddress(1)+q4w(20)=21; backstop field=10*21=210.
-			// blendPositions childComplexity = pools(310)+backstop(210)+backstopClaimedLp(1)=521 => default 1+521=522.
-			// accountByAddress (default) = 1+522=523.
-			expectedMessage: "operation has complexity 523, which exceeds the limit of 522",
+			// blendPositions childComplexity = pools(310)+backstop(210)+backstopClaimedLp(1)=521 => 521+13=534.
+			// accountByAddress (default) = 1+534=535.
+			expectedMessage: "operation has complexity 535, which exceeds the limit of 534",
 		},
 		{
 			name:  "auction bid/lot amounts multiply under activeAuctions",
-			limit: 311,
+			limit: 323,
 			query: `query {
 				accountByAddress(address: "` + complexityTestAccountAddress + `") {
 					blendPositions {
@@ -412,8 +414,34 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 				}
 			}`,
 			// bid{amount}=30*1=30; auction item=poolAddress(1)+bid(30)=31; activeAuctions=10*31=310.
-			// blendPositions default = 1+310=311; accountByAddress = 1+311=312.
-			expectedMessage: "operation has complexity 312, which exceeds the limit of 311",
+			// blendPositions = 310+13=323; accountByAddress = 1+323=324.
+			expectedMessage: "operation has complexity 324, which exceeds the limit of 323",
+		},
+		{
+			// The amplification path the flat cost exists for: stateChanges is an unpaginated
+			// list of BaseStateChange, every one of which exposes account: Account!, so one
+			// blendPositions resolution (13 queries) runs per state-change row of the page.
+			name:  "blendPositions nested under an account-history page is priced per row",
+			limit: 1700,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					transactions(first: 100) {
+						edges {
+							stateChanges {
+								account {
+									blendPositions {
+										backstopClaimedLp
+									}
+								}
+							}
+						}
+					}
+				}
+			}`,
+			// blendPositions = backstopClaimedLp(1)+13 = 14; account = 1+14 = 15;
+			// stateChanges = 1+15 = 16; edges = 1+16 = 17; transactions(first:100) = 17*100 = 1700;
+			// accountByAddress = 1+1700 = 1701. Without the flat cost the same shape prices at 501.
+			expectedMessage: "operation has complexity 1701, which exceeds the limit of 1700",
 		},
 	}
 

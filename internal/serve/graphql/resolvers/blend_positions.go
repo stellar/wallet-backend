@@ -792,6 +792,10 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		auctions           []blenddata.Auction
 	)
 	accountGroup, accountCtx := errgroup.WithContext(ctx)
+	// Each wave is capped so one resolution can never hold more than a few of the
+	// shared pgxpool's connections (MaxConns defaults to 10) — a single query can
+	// select blendPositions on many accounts.
+	accountGroup.SetLimit(4)
 	accountGroup.Go(func() (err error) {
 		positions, err = r.models.Blend.Positions.GetByAccount(accountCtx, address)
 		if err != nil {
@@ -861,6 +865,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		backstopPools    []blenddata.BackstopPool
 	)
 	poolGroup, poolCtx := errgroup.WithContext(ctx)
+	poolGroup.SetLimit(4)
 	poolGroup.Go(func() (err error) {
 		pools, err = r.models.Blend.Pools.GetByIDs(poolCtx, poolIDs)
 		if err != nil {
@@ -926,6 +931,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		tokenMeta        []data.Contract
 	)
 	priceGroup, priceCtx := errgroup.WithContext(ctx)
+	priceGroup.SetLimit(3)
 	priceGroup.Go(func() (err error) {
 		oraclePrices, err = r.models.Blend.OraclePrices.GetByOracles(priceCtx, oracleIDs)
 		if err != nil {
