@@ -35,6 +35,14 @@ var (
 	metadataBatchSleep = 2 * time.Second
 )
 
+// metadataFailureBackoff is how long a contract whose metadata fetch failed
+// is skipped before being tried again. Claimed contracts re-enter the fetch
+// path on every ledger they are active in, so without this a contract whose
+// name()/symbol() simulation persistently fails (unreachable RPC, reverting
+// token) costs its full retry-with-backoff on every single ledger. A var so
+// tests can shorten it.
+var metadataFailureBackoff = 5 * time.Minute
+
 const (
 	// maxTokenDecimals caps SEP-41 decimals() at a realistic upper bound. Real
 	// tokens use ≤ 18; this also keeps the value inside Postgres INTEGER range,
@@ -70,10 +78,25 @@ func validateTokenString(fieldName, value string, maxLen int) error {
 
 // metadataFetcher resolves token metadata for newly classified SEP-41
 // contracts via RPC simulation. Holds an internal worker pool for parallel
-// fetches inside a single batch.
+// fetches inside a single batch, plus two caches that bound repeat work:
+// claimed contracts re-enter the fetch path on every ledger whose changes
+// touch them, and Prefetch deliberately has no database access to check what
+// is already persisted.
+//   - fetched: contracts resolved once in this process are never fetched
+//     again; their metadata is already persisted by Apply. A restart refetches
+//     each contract once, which doubles as the refresh path for tokens whose
+//     on-chain metadata changed.
+//   - failedUntil: contracts whose fetch failed are skipped until the
+//     metadataFailureBackoff deadline, so a persistently failing name()
+//     simulation (unreachable RPC, reverting token) does not cost its full
+//     retry-with-backoff on every single ledger.
 type metadataFetcher struct {
 	rpc  services.ContractMetadataService
 	pool pond.Pool
+
+	cacheMu     sync.Mutex
+	fetched     map[string]struct{}
+	failedUntil map[string]time.Time
 }
 
 // newMetadataFetcher returns a fetcher backed by the supplied
@@ -83,7 +106,48 @@ func newMetadataFetcher(rpc services.ContractMetadataService, pool pond.Pool) *m
 	if rpc == nil || pool == nil {
 		return nil
 	}
-	return &metadataFetcher{rpc: rpc, pool: pool}
+	return &metadataFetcher{
+		rpc:         rpc,
+		pool:        pool,
+		fetched:     map[string]struct{}{},
+		failedUntil: map[string]time.Time{},
+	}
+}
+
+// filterCached drops contracts already fetched in this process and contracts
+// still inside their failure-backoff window, pruning expired failure entries.
+func (f *metadataFetcher) filterCached(contractIDs []string) []string {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	now := time.Now()
+	kept := make([]string, 0, len(contractIDs))
+	for _, id := range contractIDs {
+		if _, done := f.fetched[id]; done {
+			continue
+		}
+		until, failed := f.failedUntil[id]
+		if failed && now.Before(until) {
+			continue
+		}
+		if failed {
+			delete(f.failedUntil, id)
+		}
+		kept = append(kept, id)
+	}
+	return kept
+}
+
+func (f *metadataFetcher) recordFailure(contractID string) {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	f.failedUntil[contractID] = time.Now().Add(metadataFailureBackoff)
+}
+
+func (f *metadataFetcher) recordSuccess(contractID string) {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	f.fetched[contractID] = struct{}{}
+	delete(f.failedUntil, contractID)
 }
 
 // FetchMetadata returns name/symbol/decimals for each contract, keyed by
@@ -91,6 +155,10 @@ func newMetadataFetcher(rpc services.ContractMetadataService, pool pond.Pool) *m
 // from the map; only context errors propagate.
 func (f *metadataFetcher) FetchMetadata(ctx context.Context, contractIDs []string) (map[string]*data.Contract, error) {
 	if f == nil || len(contractIDs) == 0 {
+		return map[string]*data.Contract{}, nil
+	}
+	contractIDs = f.filterCached(contractIDs)
+	if len(contractIDs) == 0 {
 		return map[string]*data.Contract{}, nil
 	}
 
@@ -112,9 +180,11 @@ func (f *metadataFetcher) FetchMetadata(ctx context.Context, contractIDs []strin
 			group.Submit(func() {
 				contract, err := f.fetchOne(ctx, contractID)
 				if err != nil {
-					log.Ctx(ctx).Warnf("sep41 metadata fetch failed for %s: %v", contractID, err)
+					f.recordFailure(contractID)
+					log.Ctx(ctx).Warnf("sep41 metadata fetch failed for %s (next attempt in %s): %v", contractID, metadataFailureBackoff, err)
 					return
 				}
+				f.recordSuccess(contractID)
 				mu.Lock()
 				out[contractID] = contract
 				mu.Unlock()
