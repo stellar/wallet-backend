@@ -520,6 +520,41 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.InDelta(t, 2.0, *poolAfter.SuppliedUsd, 1e-9)
 		require.NotNil(t, poolAfter.UsdValue)
 	})
+
+	t.Run("a position whose reserve row is missing nulls the pool totals, no error", func(t *testing.T) {
+		// A config-only staging window on a brand-new reserve writes no
+		// blend_reserves row while blend_positions can already carry one for it
+		// (see buildReservePosition's doc). The position can't be valued at
+		// all, so it drops out of reserves and the pool totals go nil rather
+		// than presenting r0's side alone as the whole pool.
+		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id = $1 AND reserve_index = 1`,
+			types.AddressBytea(poolAddr))
+		t.Cleanup(func() {
+			execTestDB(t, `
+				INSERT INTO blend_reserves (
+					pool_contract_id, reserve_index, asset_contract_id,
+					b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+					decimals, c_factor, l_factor, util, max_util,
+					r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled, last_modified_ledger
+				) VALUES
+				($1, 1, $2, '1000000000000', '1000000000000', '20000000', '10000000', '10000000', '0', $3,
+					6, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100)`,
+				types.AddressBytea(poolAddr), types.AddressBytea(assetB), futureLastTime)
+		})
+
+		got, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		require.Len(t, got.Pools, 1)
+
+		poolAfter := got.Pools[0]
+		require.Len(t, poolAfter.Reserves, 1)
+		assert.Equal(t, assetA, poolAfter.Reserves[0].AssetContractID)
+
+		assert.Nil(t, poolAfter.SuppliedUsd)
+		assert.Nil(t, poolAfter.BorrowedUsd)
+		assert.Nil(t, poolAfter.UsdValue)
+		assert.Nil(t, poolAfter.NetApy)
+	})
 }
 
 // TestFindBackstopPrices pins findBackstopPrices' selection contract over rows

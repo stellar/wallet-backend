@@ -379,8 +379,10 @@ func (d *blendAssembly) computeReserveRates(poolAddr string, reserve blenddata.R
 
 // buildReservePosition assembles one blend_positions row into a
 // BlendReservePosition. Returns (nil, nil) when the row's reserve config
-// can't be found — defensive only; every position is written against an
-// already-known reserve, so this shouldn't happen in practice.
+// can't be found: a staging window carrying a brand-new reserve's ResConfig
+// without its ResData writes no blend_reserves row at all (BatchUpdateConfig
+// is a plain UPDATE — see persistReserves' ResData-skip branch), so a position
+// can exist before its reserve does, until the data half arrives.
 //
 // A row whose token columns are all zero (a fully-exited position) still
 // produces an entry whenever net_supplied/net_borrowed is nonzero: the
@@ -505,12 +507,14 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 
 // buildPoolPosition rolls up one pool's reserve positions into a
 // BlendPoolPosition. suppliedUsd/borrowedUsd/usdValue/netApy become nil (not
-// a silently-understated sum) as soon as any contributing reserve's own
-// suppliedUsd/borrowedUsd is nil, since a missing price on one reserve makes
-// the pool-wide total genuinely uncomputable, not just smaller. netApy alone
-// additionally requires every priced reserve to carry a supplyApy/borrowApy:
-// a nil APY on a reserve that does hold USD would otherwise weight that
-// reserve in at 0% yield, which reads as a real number but isn't one.
+// a silently-understated sum) as soon as any of the pool's positions can't
+// contribute its USD — either its own suppliedUsd/borrowedUsd is nil for want
+// of a price, or it has no reserve row to resolve against and is left out of
+// reserves entirely. Both make the pool-wide total genuinely uncomputable,
+// not just smaller. netApy alone additionally requires every priced reserve
+// to carry a supplyApy/borrowApy: a nil APY on a reserve that does hold USD
+// would otherwise weight that reserve in at 0% yield, which reads as a real
+// number but isn't one.
 func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata.Position) (*graphql1.BlendPoolPosition, error) {
 	reservePositions := make([]*graphql1.BlendReservePosition, 0, len(positions))
 
@@ -524,6 +528,11 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 			return nil, err
 		}
 		if rp == nil {
+			// A position whose reserve can't be resolved makes the pool totals
+			// uncomputable, not smaller — the same rule a missing price
+			// follows. netApy needs no flag of its own here: it is gated on
+			// both USD sides being known.
+			suppliedKnown, borrowedKnown = false, false
 			continue
 		}
 		reservePositions = append(reservePositions, rp)
