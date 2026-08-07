@@ -4381,7 +4381,14 @@ type BlendBackstopPosition {
   poolAddress: String!
   poolName: String
   shares: String!
-  lpTokens: String!
+  """
+  The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
+  Null when that rate is unknown: the pool's blend_backstop_pools balance can
+  be absent or zeroed (an emissions-only write creates the row with zero
+  balance columns) while this account provably holds shares — a conversion
+  reported as "0" there would be indistinguishable from a closed position.
+  """
+  lpTokens: String
   usdValue: Float
   q4w: [BlendQ4W!]!
   emissionsEarnedBlnd: String!
@@ -4391,12 +4398,13 @@ type BlendBackstopPosition {
 """
 BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
 seconds). amount is in backstop shares; lpTokens/usdValue value those shares
-through the same shares→LP→USD conversion as the position's totals.
+through the same shares→LP→USD conversion as the position's totals, and go
+null under the same unknown-rate condition as the position's lpTokens.
 """
 type BlendQ4W {
   amount: String!
   expiration: Int64!
-  lpTokens: String!
+  lpTokens: String
   usdValue: Float
 }
 
@@ -10374,9 +10382,9 @@ func (ec *executionContext) _BlendBackstopPosition_lpTokens(ctx context.Context,
 			return obj.LpTokens, nil
 		},
 		nil,
-		ec.marshalNString2string,
+		ec.marshalOString2ᚖstring,
 		true,
-		true,
+		false,
 	)
 }
 
@@ -12794,9 +12802,9 @@ func (ec *executionContext) _BlendQ4W_lpTokens(ctx context.Context, field graphq
 			return obj.LpTokens, nil
 		},
 		nil,
-		ec.marshalNString2string,
+		ec.marshalOString2ᚖstring,
 		true,
-		true,
+		false,
 	)
 }
 
@@ -27329,9 +27337,6 @@ func (ec *executionContext) _BlendBackstopPosition(ctx context.Context, sel ast.
 			}
 		case "lpTokens":
 			out.Values[i] = ec._BlendBackstopPosition_lpTokens(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
 		case "usdValue":
 			out.Values[i] = ec._BlendBackstopPosition_usdValue(ctx, field, obj)
 		case "q4w":
@@ -28831,9 +28836,6 @@ func (ec *executionContext) _BlendQ4W(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "lpTokens":
 			out.Values[i] = ec._BlendQ4W_lpTokens(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
 		case "usdValue":
 			out.Values[i] = ec._BlendQ4W_usdValue(ctx, field, obj)
 		default:

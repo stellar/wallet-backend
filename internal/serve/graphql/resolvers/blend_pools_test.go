@@ -482,6 +482,41 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.Nil(t, alphaAfter.NetApy)
 	})
 
+	t.Run("an emissions-only backstop pool row nulls backstopUsd, a missing row stays a genuine 0", func(t *testing.T) {
+		// BatchUpsertEmissions creates blend_backstop_pools rows carrying only
+		// the emis_* columns (balance columns keep their '0' defaults), and
+		// backstop emissions only crank for reward-zone pools, which requires
+		// deposits — so a zero balance beside emission state means the balance
+		// half hasn't been folded yet, not an empty backstop. A pool with no
+		// row at all keeps the genuine $0.
+		execTestDB(t, `UPDATE blend_backstop_pools
+			SET shares = '0', tokens = '0', emis_eps = 999999999999, emis_index = '5000000000000',
+			    emis_expiration = 4102444800, emis_last_time = 4102444800
+			WHERE pool_contract_id = $1`, types.AddressBytea(poolB))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_backstop_pools
+				SET shares = '1000000', tokens = '4000000', emis_eps = NULL, emis_index = NULL,
+				    emis_expiration = NULL, emis_last_time = NULL
+				WHERE pool_contract_id = $1`, types.AddressBytea(poolB))
+		})
+		execTestDB(t, `DELETE FROM blend_backstop_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolA))
+		t.Cleanup(func() {
+			execTestDB(t, `INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, last_modified_ledger)
+				VALUES ($1, '10000000', '50000000', '0', 100)`, types.AddressBytea(poolA))
+		})
+
+		got, err := resolver.BlendPools(testCtx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		byAddr := map[string]*graphql1.BlendPool{}
+		for _, p := range got {
+			byAddr[p.Address] = p
+		}
+		require.NotNil(t, byAddr[poolA].BackstopUsd, "no row at all is a genuine $0")
+		assert.InDelta(t, 0.0, *byAddr[poolA].BackstopUsd, 1e-12)
+		assert.Nil(t, byAddr[poolB].BackstopUsd, "zero balances beside emission state are an unfolded balance half, not $0")
+	})
+
 	t.Run("stale Comet LP rows null backstopUsd", func(t *testing.T) {
 		execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint - 90000
 			WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))

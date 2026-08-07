@@ -692,10 +692,17 @@ func (d *blendAssembly) buildActiveAuction(ctx context.Context, a blenddata.Auct
 // Emissions are the one queued-share exception: they accrue on active
 // shares only, so claimableStream gets the active balance.
 //
-// When the pool's blend_backstop_pools row has not been ingested yet,
-// poolShares/poolTokens stay zero, so BackstopLPTokens returns 0 and lpTokens
-// reports "0" with usdValue 0 — a data-completeness gap that under-reports
-// (never over-reports) the deposit until that pool row lands.
+// The shares→LP conversion needs the pool's shares:tokens balance, and a user
+// who holds shares proves the pool has deposits — so zero poolShares alongside
+// nonzero user shares is a data gap, never an empty pool: the pool's
+// blend_backstop_pools row is either absent or carries only its emission half
+// (BatchUpsertEmissions inserts just the emis_* columns; the balance columns
+// default to '0') with the balance half not yet folded. lpTokens/usdValue go
+// nil (unknown) in that state rather than a confident "0" that reads as a
+// closed position, and each Q4W entry follows the same rule. Emission accrual
+// keeps the stored, unprojected index there (ProjectEmissionIndex returns it
+// unchanged at zero supply), so emissionsEarnedBlnd stays a floor of what is
+// claimable rather than going nil.
 func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*graphql1.BlendBackstopPosition, error) {
 	poolAddr := string(bp.PoolContractID)
 
@@ -720,6 +727,9 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 			return nil, err
 		}
 	}
+	// Zero converted from zero shares is genuine regardless of the rate, so
+	// only nonzero share balances demand a known shares:tokens rate.
+	rateKnown := poolShares.Sign() > 0
 
 	totalShares := new(big.Int).Set(shares)
 	q4w := make([]*graphql1.BlendQ4w, 0, len(bp.Q4W))
@@ -729,35 +739,40 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 			return nil, fmt.Errorf("parsing blend backstop Q4W amount: %w", parseErr)
 		}
 		totalShares.Add(totalShares, queuedShares)
-		queuedLP := blendrates.BackstopLPTokens(queuedShares, poolShares, poolTokens)
-		q4w = append(q4w, &graphql1.BlendQ4w{
+		entry := &graphql1.BlendQ4w{
 			Amount:     w.Amount,
 			Expiration: w.Expiration,
-			LpTokens:   queuedLP.String(),
-			UsdValue:   usdValueOrNil(queuedLP, backstopLPDecimals, d.lpPrice),
-		})
+		}
+		if rateKnown || queuedShares.Sign() == 0 {
+			queuedLP := blendrates.BackstopLPTokens(queuedShares, poolShares, poolTokens)
+			lp := queuedLP.String()
+			entry.LpTokens = &lp
+			entry.UsdValue = usdValueOrNil(queuedLP, backstopLPDecimals, d.lpPrice)
+		}
+		q4w = append(q4w, entry)
 	}
-
-	lpTokens := blendrates.BackstopLPTokens(totalShares, poolShares, poolTokens)
-	usdValue := usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
 
 	userEmission, hasUser := d.userEmissionByPoolToken[poolTokenKey(poolAddr, blenddata.BackstopEmissionTokenID)]
 	claimable, err := claimableStream(userEmission, hasUser, emisIndex, shares, backstopClaimScalar)
 	if err != nil {
 		return nil, err
 	}
-	emissionsEarnedUsd := usdValueOrNil(claimable, blndDecimals, d.blndPrice)
 
-	return &graphql1.BlendBackstopPosition{
+	out := &graphql1.BlendBackstopPosition{
 		PoolAddress:         poolAddr,
 		PoolName:            d.poolByID[poolAddr].Name,
 		Shares:              bp.Shares,
-		LpTokens:            lpTokens.String(),
-		UsdValue:            usdValue,
 		Q4w:                 q4w,
 		EmissionsEarnedBlnd: claimable.String(),
-		EmissionsEarnedUsd:  emissionsEarnedUsd,
-	}, nil
+		EmissionsEarnedUsd:  usdValueOrNil(claimable, blndDecimals, d.blndPrice),
+	}
+	if rateKnown || totalShares.Sign() == 0 {
+		lpTokens := blendrates.BackstopLPTokens(totalShares, poolShares, poolTokens)
+		lp := lpTokens.String()
+		out.LpTokens = &lp
+		out.UsdValue = usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
+	}
+	return out, nil
 }
 
 // getBlendPositions is the main implementation for Account.blendPositions: a
