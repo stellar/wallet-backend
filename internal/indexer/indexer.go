@@ -556,17 +556,21 @@ func ExtractContractDataChangesForLedger(ledgerMeta xdr.LedgerCloseMeta, tracked
 		if !resultPair.Result.Successful() {
 			continue
 		}
-		// A minimal LedgerTransaction: GetChanges touches only these fields
-		// (verified by the fixture equivalence test against the reader-based
-		// reference) — the envelope is deliberately absent. Result pairs and
-		// TxApplyProcessing share application order, the same index alignment
-		// ExtractContractEventsForLedger relies on.
+		// A minimal LedgerTransaction: GetChanges touches only these fields —
+		// the envelope is deliberately absent, while Hash mirrors the reader's
+		// value because GetChanges attaches this transaction to every Change
+		// it returns. The fixture equivalence test compares the change fields
+		// (type, reason, operation index, pre/post entries) against the
+		// reader-based reference; the attached transaction is not compared.
+		// Result pairs and TxApplyProcessing share application order, the same
+		// index alignment ExtractContractEventsForLedger relies on.
 		tx := ingest.LedgerTransaction{
 			Index:         uint32(i + 1),
 			Result:        resultPair,
 			UnsafeMeta:    ledgerMeta.TxApplyProcessing(i),
 			LedgerVersion: ledgerMeta.ProtocolVersion(),
 			Ledger:        ledgerMeta,
+			Hash:          resultPair.TransactionHash,
 		}
 		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
 			return nil, err
