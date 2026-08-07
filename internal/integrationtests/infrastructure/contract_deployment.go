@@ -34,7 +34,7 @@ func (s *SharedContainers) deployNativeAssetSAC(ctx context.Context, t *testing.
 	}
 
 	// Execute the deployment operation
-	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	_, err := s.executeSorobanOperation(ctx, t, deployOp, s.masterKeyPair, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy native asset SAC")
 }
 
@@ -85,7 +85,7 @@ func (s *SharedContainers) deployCreditAssetSAC(ctx context.Context, t *testing.
 	}
 
 	// Execute the deployment operation
-	_, err := executeSorobanOperation(ctx, t, s, deployOp, false, DefaultConfirmationRetries)
+	_, err := s.executeSorobanOperation(ctx, t, deployOp, s.masterKeyPair, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy credit asset SAC for %s", assetCode)
 }
 
@@ -117,7 +117,7 @@ func (s *SharedContainers) uploadContractWasm(ctx context.Context, t *testing.T,
 	}
 
 	// Execute the WASM upload operation
-	_, err := executeSorobanOperation(ctx, t, s, uploadOp, false, DefaultConfirmationRetries)
+	_, err := s.executeSorobanOperation(ctx, t, uploadOp, s.masterKeyPair, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to upload WASM")
 
 	// Compute and return WASM hash from the uploaded bytecode
@@ -218,7 +218,7 @@ func (s *SharedContainers) deployContractWithSalt(ctx context.Context, t *testin
 
 	// Execute the contract deployment operation
 	// requireAuth=true because CreateContractV2 with constructor requires deployer authorization
-	_, err := executeSorobanOperation(ctx, t, s, deployOp, true, DefaultConfirmationRetries)
+	_, err := s.executeSorobanOperation(ctx, t, deployOp, s.masterKeyPair, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to deploy contract with constructor")
 
 	// Calculate and return the contract address from the preimage
