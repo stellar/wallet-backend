@@ -480,6 +480,46 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.Nil(t, poolAfter.UsdValue)
 		assert.Nil(t, poolAfter.NetApy)
 	})
+
+	t.Run("an ir_mod that compounds past float64 nulls that reserve's APYs and the pool netApy, no error", func(t *testing.T) {
+		// Pool deployment and reserve config are permissionless, so nothing
+		// on-chain bounds ir_mod below i128 max. At this scale r0's borrowApr is
+		// ~3.4e29 and both sides overflow math.Pow — the APYs have no Float
+		// representation, and null is the only honest answer.
+		execTestDB(t, `UPDATE blend_reserves SET ir_mod = '170141183460469231731687303715884105727' WHERE pool_contract_id = $1 AND reserve_index = 0`,
+			types.AddressBytea(poolAddr))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_reserves SET ir_mod = '10000000' WHERE pool_contract_id = $1 AND reserve_index = 0`,
+				types.AddressBytea(poolAddr))
+		})
+
+		got, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		require.Len(t, got.Pools, 1)
+		require.Len(t, got.Pools[0].Reserves, 2)
+
+		r0After, r1After := got.Pools[0].Reserves[0], got.Pools[0].Reserves[1]
+
+		assert.Nil(t, r0After.SupplyApy)
+		assert.Nil(t, r0After.BorrowApy)
+
+		// Only the APYs are affected: the reserve's USD sides still price
+		// normally, since ProjectRates' deltaT<=0 branch leaves the rates alone.
+		require.NotNil(t, r0After.SuppliedUsd)
+		assert.InDelta(t, 2.0, *r0After.SuppliedUsd, 1e-9)
+
+		// r1 keeps its own ir_mod and is entirely unaffected.
+		require.NotNil(t, r1After.SupplyApy)
+		assert.InDelta(t, 0.00903983597743796, *r1After.SupplyApy, 1e-12)
+
+		// netApy propagates the nil rather than weighting r0 in at 0% yield;
+		// the USD rollups, which depend on no APY, still resolve.
+		poolAfter := got.Pools[0]
+		assert.Nil(t, poolAfter.NetApy)
+		require.NotNil(t, poolAfter.SuppliedUsd)
+		assert.InDelta(t, 2.0, *poolAfter.SuppliedUsd, 1e-9)
+		require.NotNil(t, poolAfter.UsdValue)
+	})
 }
 
 // TestFindBackstopPrices pins findBackstopPrices' selection contract over rows

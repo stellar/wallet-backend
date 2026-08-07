@@ -399,6 +399,53 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.InDelta(t, 0.01596366724981446, *betaAfter.NetApy, 1e-9)
 	})
 
+	t.Run("an ir_mod that compounds past float64 nulls that reserve's APYs and both pool aggregates, no error", func(t *testing.T) {
+		// Reserve config is permissionless, so nothing on-chain bounds ir_mod
+		// below i128 max. At this scale r0's borrowApr is ~1.7e29 and both sides
+		// overflow math.Pow, leaving the APYs with no Float representation.
+		execTestDB(t, `UPDATE blend_reserves SET ir_mod = '170141183460469231731687303715884105727' WHERE pool_contract_id = $1 AND reserve_index = 0`,
+			types.AddressBytea(poolA))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_reserves SET ir_mod = '10000000' WHERE pool_contract_id = $1 AND reserve_index = 0`,
+				types.AddressBytea(poolA))
+		})
+
+		got, err := resolver.BlendPools(testCtx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+
+		var alphaAfter, betaAfter *graphql1.BlendPool
+		for _, p := range got {
+			switch p.Address {
+			case poolA:
+				alphaAfter = p
+			case poolB:
+				betaAfter = p
+			}
+		}
+		require.NotNil(t, alphaAfter)
+		require.NotNil(t, betaAfter)
+
+		assert.Nil(t, alphaAfter.Reserves[0].SupplyApy)
+		assert.Nil(t, alphaAfter.Reserves[0].BorrowApy)
+
+		// r1 keeps its own ir_mod, and every non-APY field of r0 still resolves.
+		require.NotNil(t, alphaAfter.Reserves[1].SupplyApy)
+		require.NotNil(t, alphaAfter.Reserves[0].SuppliedUsd)
+		assert.InDelta(t, 25.0, *alphaAfter.Reserves[0].SuppliedUsd, 1e-9)
+
+		// Both supply-weighted means propagate the nil rather than weighting r0
+		// in at 0% yield; the USD rollups are untouched.
+		assert.Nil(t, alphaAfter.InterestApy)
+		assert.Nil(t, alphaAfter.NetApy)
+		require.NotNil(t, alphaAfter.SuppliedUsd)
+		assert.InDelta(t, 45.0, *alphaAfter.SuppliedUsd, 1e-9)
+
+		// Pool Beta has its own reserve and is entirely unaffected.
+		require.NotNil(t, betaAfter.NetApy)
+		assert.InDelta(t, 0.01596366724981446, *betaAfter.NetApy, 1e-9)
+	})
+
 	t.Run("a stale price is treated exactly like a missing one", func(t *testing.T) {
 		// Age r1's (assetA2) price past MaxPriceAge: the pool contract would
 		// reject it, so the API must null the same fields a deleted row does.

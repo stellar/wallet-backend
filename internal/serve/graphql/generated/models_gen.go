@@ -152,7 +152,9 @@ type BlendBackstopPosition struct {
 // and netApy are both supplied-USD-weighted means of each reserve's supplyApy
 // across reserves; netApy additionally folds in each reserve's
 // emissionsSupplyApr — i.e. it is the supply-side yield including BLND
-// emissions, not netted against the pool's borrow side.
+// emissions, not netted against the pool's borrow side. Both are nil if any
+// priced reserve's supplyApy is nil, since weighting that reserve in at 0%
+// yield would report a number that looks real and isn't.
 type BlendPool struct {
 	Address string  `json:"address"`
 	Name    *string `json:"name,omitempty"`
@@ -191,7 +193,8 @@ type BlendPoolPosition struct {
 	// PositionsEstimate convention shown by the Blend UI:
 	// (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
 	// 0 for a position with debt but no supply (bad debt is forgiven). Null when
-	// any contributing reserve is missing a fresh oracle price.
+	// any contributing reserve is missing a fresh oracle price, or has a null
+	// supplyApy/borrowApy of its own.
 	NetApy *float64 `json:"netApy,omitempty"`
 	// Lifetime BLND this account has claimed from this pool's reserve emissions.
 	ClaimedBlnd string                  `json:"claimedBlnd"`
@@ -213,12 +216,15 @@ type BlendQ4w struct {
 // token amounts, all as of "now" (rates are projected forward from the
 // reserve's last on-chain update).
 type BlendReserve struct {
-	AssetContractID    string   `json:"assetContractId"`
-	TokenName          *string  `json:"tokenName,omitempty"`
-	TokenSymbol        *string  `json:"tokenSymbol,omitempty"`
-	TokenDecimals      *int32   `json:"tokenDecimals,omitempty"`
-	Enabled            bool     `json:"enabled"`
-	Utilization        *float64 `json:"utilization,omitempty"`
+	AssetContractID string   `json:"assetContractId"`
+	TokenName       *string  `json:"tokenName,omitempty"`
+	TokenSymbol     *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals   *int32   `json:"tokenDecimals,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	Utilization     *float64 `json:"utilization,omitempty"`
+	// Compounded interest rate for each side. Null when the reserve's rate curve
+	// compounds past what a Float can hold — reserve config is permissionless, so
+	// an arbitrarily steep curve is representable on-chain but not here.
 	SupplyApy          *float64 `json:"supplyApy,omitempty"`
 	BorrowApy          *float64 `json:"borrowApy,omitempty"`
 	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
@@ -250,8 +256,11 @@ type BlendReservePosition struct {
 	BorrowedTokens   string   `json:"borrowedTokens"`
 	SuppliedUsd      *float64 `json:"suppliedUsd,omitempty"`
 	BorrowedUsd      *float64 `json:"borrowedUsd,omitempty"`
-	SupplyApy        *float64 `json:"supplyApy,omitempty"`
-	BorrowApy        *float64 `json:"borrowApy,omitempty"`
+	// Compounded interest rate for each side. Null when the reserve's rate curve
+	// compounds past what a Float can hold — reserve config is permissionless, so
+	// an arbitrarily steep curve is representable on-chain but not here.
+	SupplyApy *float64 `json:"supplyApy,omitempty"`
+	BorrowApy *float64 `json:"borrowApy,omitempty"`
 	// The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
 	// value over the side's pool-wide supplied USD, NOT scaled to this account's
 	// holding. 0 when no active stream (unconfigured or expired), null when the
