@@ -1,6 +1,7 @@
 package blend
 
 import (
+	"math"
 	"math/big"
 	"testing"
 
@@ -221,30 +222,73 @@ func TestSupplyAPR(t *testing.T) {
 
 func TestToAPY(t *testing.T) {
 	t.Run("zero APR", func(t *testing.T) {
-		assert.InDelta(t, 0.0, ToAPY(big.NewRat(0, 1), SupplyAPYCompoundingPeriods), 1e-12)
+		apy, ok := ToAPY(big.NewRat(0, 1), SupplyAPYCompoundingPeriods)
+		assert.True(t, ok)
+		assert.InDelta(t, 0.0, apy, 1e-12)
 	})
 
 	t.Run("small APR, weekly compounding (supply convention)", func(t *testing.T) {
 		// (1+0.05/52)^52 - 1 = 0.051245841927200164 (python math).
-		assert.InDelta(t, 0.051245841927200164, ToAPY(big.NewRat(5, 100), SupplyAPYCompoundingPeriods), 1e-9)
+		apy, ok := ToAPY(big.NewRat(5, 100), SupplyAPYCompoundingPeriods)
+		assert.True(t, ok)
+		assert.InDelta(t, 0.051245841927200164, apy, 1e-9)
 	})
 
 	t.Run("large APR, daily compounding (borrow convention)", func(t *testing.T) {
 		// (1+1.0/365)^365 - 1 = 1.7145674820219727 (python math).
-		assert.InDelta(t, 1.7145674820219727, ToAPY(big.NewRat(1, 1), BorrowAPYCompoundingPeriods), 1e-9)
+		apy, ok := ToAPY(big.NewRat(1, 1), BorrowAPYCompoundingPeriods)
+		assert.True(t, ok)
+		assert.InDelta(t, 1.7145674820219727, apy, 1e-9)
 	})
 
 	t.Run("negative guard: base exactly zero clamps to -1", func(t *testing.T) {
 		// apr = -periods makes base = 1 + (-periods)/periods = 0.
-		assert.Equal(t, -1.0, ToAPY(big.NewRat(-365, 1), 365))
+		apy, ok := ToAPY(big.NewRat(-365, 1), 365)
+		assert.True(t, ok)
+		assert.Equal(t, -1.0, apy)
 	})
 
 	t.Run("negative guard: base negative clamps to -1 instead of flipping sign", func(t *testing.T) {
 		// apr=-1000, periods=52: base = 1-1000/52 = -18.23... < 0. Without the
 		// guard, math.Pow(-18.23, 52) is a huge positive number (even
 		// exponent) — a nonsensical "APY" for a >1800% per-period loss.
-		assert.Equal(t, -1.0, ToAPY(big.NewRat(-1000, 1), 52))
+		apy, ok := ToAPY(big.NewRat(-1000, 1), 52)
+		assert.True(t, ok)
+		assert.Equal(t, -1.0, apy)
 	})
+
+	t.Run("largest APR that still compounds finitely", func(t *testing.T) {
+		// At 365 daily periods the overflow threshold sits between apr 2186 and
+		// 2187: (1+2186/365)^365 ≈ 1.63e308, just inside float64's ~1.80e308 max.
+		apy, ok := ToAPY(big.NewRat(2186, 1), BorrowAPYCompoundingPeriods)
+		require.True(t, ok)
+		assert.False(t, math.IsInf(apy, 0))
+	})
+
+	t.Run("Pow overflow is reported, not returned as +Inf", func(t *testing.T) {
+		// A reserve's ir_mod and curve rates are permissionless config with no
+		// on-chain ceiling, so a borrow APR one step past the threshold is
+		// reachable. math.Pow overflows here and the caller must render null
+		// rather than an unmarshallable Float.
+		_, ok := ToAPY(big.NewRat(2187, 1), BorrowAPYCompoundingPeriods)
+		assert.False(t, ok)
+	})
+
+	t.Run("APR beyond float64 range makes the base itself infinite", func(t *testing.T) {
+		// 10^400 exceeds float64's max, so apr.Float64 already returns +Inf and
+		// the overflow happens before Pow — a distinct path from the case above.
+		apr := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(400), nil))
+		require.True(t, math.IsInf(ratToFloat(apr), 1))
+		_, ok := ToAPY(apr, BorrowAPYCompoundingPeriods)
+		assert.False(t, ok)
+	})
+}
+
+// ratToFloat is the same lossy conversion ToAPY performs internally, used to
+// assert which overflow path a test vector exercises.
+func ratToFloat(r *big.Rat) float64 {
+	f, _ := r.Float64()
+	return f
 }
 
 func TestProjectRates(t *testing.T) {

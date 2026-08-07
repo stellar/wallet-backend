@@ -196,13 +196,25 @@ func SupplyAPR(borrowAPR, util *big.Rat, bstopRate int32) *big.Rat {
 // interpretation and can even flip sign depending on whether periods is
 // odd or even — ToAPY clamps to -1 (total loss) rather than propagate that
 // nonsensical result.
-func ToAPY(apr *big.Rat, periods int64) float64 {
+//
+// ok is false when the compounded result is not a finite float64, and the
+// APY is then unrepresentable rather than merely extreme: callers must
+// surface "no value" instead of the returned 0. Both directions of apr can
+// reach that state, since ir_mod and the curve rates are permissionless
+// per-reserve config with no on-chain ceiling — a borrow APR above ~2,186
+// overflows math.Pow at 365 daily periods, and an apr whose big.Rat exceeds
+// float64 range makes the base itself infinite before the power is taken.
+func ToAPY(apr *big.Rat, periods int64) (float64, bool) {
 	aprFloat, _ := apr.Float64()
 	base := 1 + aprFloat/float64(periods)
 	if base <= 0 {
-		return -1
+		return -1, true
 	}
-	return math.Pow(base, float64(periods)) - 1
+	apy := math.Pow(base, float64(periods)) - 1
+	if math.IsInf(apy, 0) || math.IsNaN(apy) {
+		return 0, false
+	}
+	return apy, true
 }
 
 // roundRat rounds r to the nearest big.Int, ties rounding away from zero —

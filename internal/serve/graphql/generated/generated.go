@@ -4285,7 +4285,8 @@ type BlendPoolPosition {
   PositionsEstimate convention shown by the Blend UI:
   (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
   0 for a position with debt but no supply (bad debt is forgiven). Null when
-  any contributing reserve is missing a fresh oracle price.
+  any contributing reserve is missing a fresh oracle price, or has a null
+  supplyApy/borrowApy of its own.
   """
   netApy: Float
   """Lifetime BLND this account has claimed from this pool's reserve emissions."""
@@ -4311,6 +4312,11 @@ type BlendReservePosition {
   borrowedTokens: String!
   suppliedUsd: Float
   borrowedUsd: Float
+  """
+  Compounded interest rate for each side. Null when the reserve's rate curve
+  compounds past what a Float can hold — reserve config is permissionless, so
+  an arbitrarily steep curve is representable on-chain but not here.
+  """
   supplyApy: Float
   borrowApy: Float
   """
@@ -4403,7 +4409,9 @@ the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
 and netApy are both supplied-USD-weighted means of each reserve's supplyApy
 across reserves; netApy additionally folds in each reserve's
 emissionsSupplyApr — i.e. it is the supply-side yield including BLND
-emissions, not netted against the pool's borrow side.
+emissions, not netted against the pool's borrow side. Both are nil if any
+priced reserve's supplyApy is nil, since weighting that reserve in at 0%
+yield would report a number that looks real and isn't.
 """
 type BlendPool {
   address: String!
@@ -4484,6 +4492,11 @@ type BlendReserve {
   tokenDecimals: Int
   enabled: Boolean!
   utilization: Float
+  """
+  Compounded interest rate for each side. Null when the reserve's rate curve
+  compounds past what a Float can hold — reserve config is permissionless, so
+  an arbitrarily steep curve is representable on-chain but not here.
+  """
   supplyApy: Float
   borrowApy: Float
   emissionsSupplyApr: Float

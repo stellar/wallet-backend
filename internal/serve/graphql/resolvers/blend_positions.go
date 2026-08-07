@@ -309,9 +309,22 @@ type reserveRates struct {
 	BRate, DRate     *big.Int // current (unprojected) on-chain rates
 	BSupply, DSupply *big.Int // pool-wide token supply, current on-chain
 	CurrentUtil      *big.Rat
-	SupplyApy        float64
-	BorrowApy        float64
+	SupplyApy        *float64 // nil when not finitely representable
+	BorrowApy        *float64 // nil when not finitely representable
 	PB, PD           *big.Int // b/dRate projected forward to "now"
+}
+
+// apyOrNil is the GraphQL boundary for blendrates.ToAPY's ok flag: a reserve
+// whose permissionless config compounds to a non-finite APY has no Float
+// representation at all, so the field is null (uncomputable) — the same
+// convention a missing oracle price follows. Returning the raw ±Inf/NaN
+// instead would fail gqlgen's Float marshalling and poison every USD-weighted
+// aggregate it feeds.
+func apyOrNil(apy float64, ok bool) *float64 {
+	if !ok {
+		return nil
+	}
+	return &apy
 }
 
 // computeReserveRates parses reserve's rate/curve columns and derives its
@@ -348,8 +361,8 @@ func (d *blendAssembly) computeReserveRates(poolAddr string, reserve blenddata.R
 
 	bstopRate := d.poolBackstopRate(poolAddr)
 	supplyAPR := blendrates.SupplyAPR(borrowAPR, currentUtil, bstopRate)
-	supplyApy := blendrates.ToAPY(supplyAPR, blendrates.SupplyAPYCompoundingPeriods)
-	borrowApy := blendrates.ToAPY(borrowAPR, blendrates.BorrowAPYCompoundingPeriods)
+	supplyApy := apyOrNil(blendrates.ToAPY(supplyAPR, blendrates.SupplyAPYCompoundingPeriods))
+	borrowApy := apyOrNil(blendrates.ToAPY(borrowAPR, blendrates.BorrowAPYCompoundingPeriods))
 
 	pB, pD := blendrates.ProjectRates(bRate, dRate, bSupply, dSupply, borrowAPR, bstopRate, reserve.LastTime, d.now)
 
@@ -478,8 +491,8 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 		BorrowedTokens:      borrowedTokens.String(),
 		SuppliedUsd:         suppliedUsd,
 		BorrowedUsd:         borrowedUsd,
-		SupplyApy:           &rr.SupplyApy,
-		BorrowApy:           &rr.BorrowApy,
+		SupplyApy:           rr.SupplyApy,
+		BorrowApy:           rr.BorrowApy,
 		EmissionsSupplyApr:  emissionsSupplyApr,
 		EmissionsBorrowApr:  emissionsBorrowApr,
 		InterestEarned:      interestEarned.String(),
@@ -494,13 +507,16 @@ func (d *blendAssembly) buildReservePosition(p blenddata.Position) (*graphql1.Bl
 // BlendPoolPosition. suppliedUsd/borrowedUsd/usdValue/netApy become nil (not
 // a silently-understated sum) as soon as any contributing reserve's own
 // suppliedUsd/borrowedUsd is nil, since a missing price on one reserve makes
-// the pool-wide total genuinely uncomputable, not just smaller.
+// the pool-wide total genuinely uncomputable, not just smaller. netApy alone
+// additionally requires every priced reserve to carry a supplyApy/borrowApy:
+// a nil APY on a reserve that does hold USD would otherwise weight that
+// reserve in at 0% yield, which reads as a real number but isn't one.
 func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata.Position) (*graphql1.BlendPoolPosition, error) {
 	reservePositions := make([]*graphql1.BlendReservePosition, 0, len(positions))
 
 	suppliedUsdSum, borrowedUsdSum := 0.0, 0.0
 	supplyApyNumerator, borrowApyNumerator := 0.0, 0.0
-	suppliedKnown, borrowedKnown := true, true
+	suppliedKnown, borrowedKnown, apyKnown := true, true, true
 
 	for _, p := range positions {
 		rp, err := d.buildReservePosition(p)
@@ -516,7 +532,9 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 			suppliedKnown = false
 		} else if suppliedKnown {
 			suppliedUsdSum += *rp.SuppliedUsd
-			if rp.SupplyApy != nil {
+			if rp.SupplyApy == nil {
+				apyKnown = false
+			} else {
 				supplyApyNumerator += *rp.SuppliedUsd * *rp.SupplyApy
 			}
 		}
@@ -524,7 +542,9 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 			borrowedKnown = false
 		} else if borrowedKnown {
 			borrowedUsdSum += *rp.BorrowedUsd
-			if rp.BorrowApy != nil {
+			if rp.BorrowApy == nil {
+				apyKnown = false
+			} else {
 				borrowApyNumerator += *rp.BorrowedUsd * *rp.BorrowApy
 			}
 		}
@@ -549,11 +569,13 @@ func (d *blendAssembly) buildPoolPosition(poolAddr string, positions []blenddata
 		// will be forgiven as bad debt so the net APY is still 0"). Dividing
 		// by net value would diverge from the Blend UI and blow up as a
 		// leveraged position's net value approaches 0.
-		apy := 0.0
-		if suppliedUsdSum != 0 {
-			apy = (supplyApyNumerator - borrowApyNumerator) / suppliedUsdSum
+		if apyKnown {
+			apy := 0.0
+			if suppliedUsdSum != 0 {
+				apy = (supplyApyNumerator - borrowApyNumerator) / suppliedUsdSum
+			}
+			netApy = &apy
 		}
-		netApy = &apy
 	}
 
 	claimed, ok := d.claimedByPool[poolAddr]

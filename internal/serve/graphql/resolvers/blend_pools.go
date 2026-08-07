@@ -87,8 +87,6 @@ func (d *blendAssembly) buildPoolReserve(poolAddr string, reserve blenddata.Rese
 	decimals := reserve.Decimals
 	cFactor := reserve.CFactor
 	lFactor := reserve.LFactor
-	supplyApy := rr.SupplyApy
-	borrowApy := rr.BorrowApy
 
 	return &graphql1.BlendReserve{
 		AssetContractID:    string(reserve.AssetContractID),
@@ -97,8 +95,8 @@ func (d *blendAssembly) buildPoolReserve(poolAddr string, reserve blenddata.Rese
 		TokenDecimals:      &decimals,
 		Enabled:            reserve.Enabled,
 		Utilization:        &utilization,
-		SupplyApy:          &supplyApy,
-		BorrowApy:          &borrowApy,
+		SupplyApy:          rr.SupplyApy,
+		BorrowApy:          rr.BorrowApy,
 		EmissionsSupplyApr: emissionsSupplyApr,
 		EmissionsBorrowApr: emissionsBorrowApr,
 		SuppliedTokens:     suppliedTokens.String(),
@@ -178,14 +176,16 @@ func blendPoolStatusEnum(status *int32) *graphql1.BlendPoolStatus {
 // become nil under the same missing-price/missing-emissions-price
 // propagation as suppliedUsd, and both are left nil (rather than a
 // division-by-zero) when total suppliedUsd is exactly 0 — there is nothing
-// to weight an average over.
+// to weight an average over. A priced reserve whose own supplyApy is nil
+// nils them too: weighting it in at 0% yield would report a number that
+// looks real and isn't.
 func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Reserve) (*graphql1.BlendPool, error) {
 	poolAddr := string(pool.PoolContractID)
 	reserveOut := make([]*graphql1.BlendReserve, 0, len(reserves))
 
 	suppliedUsdSum, borrowedUsdSum := 0.0, 0.0
 	interestApyNumerator, netApyNumerator := 0.0, 0.0
-	suppliedKnown, borrowedKnown, emissionsKnown := true, true, true
+	suppliedKnown, borrowedKnown, apyKnown, emissionsKnown := true, true, true, true
 
 	for _, reserve := range reserves {
 		rOut, err := d.buildPoolReserve(poolAddr, reserve)
@@ -199,7 +199,9 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 			suppliedKnown = false
 		case suppliedKnown:
 			suppliedUsdSum += *rOut.SuppliedUsd
-			if rOut.SupplyApy != nil {
+			if rOut.SupplyApy == nil {
+				apyKnown = false
+			} else {
 				interestApyNumerator += *rOut.SuppliedUsd * *rOut.SupplyApy
 				if rOut.EmissionsSupplyApr != nil {
 					netApyNumerator += *rOut.SuppliedUsd * (*rOut.SupplyApy + *rOut.EmissionsSupplyApr)
@@ -219,7 +221,7 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 	if suppliedKnown {
 		v := suppliedUsdSum
 		suppliedUsd = &v
-		if suppliedUsdSum != 0 {
+		if apyKnown && suppliedUsdSum != 0 {
 			ia := interestApyNumerator / suppliedUsdSum
 			interestApy = &ia
 			if emissionsKnown {
