@@ -308,12 +308,12 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 // minimal field set so the expected complexity is easy to verify by hand and stays stable
 // across unrelated schema edits.
 //
-// Worst case (every field selected, derived in the comment above the multipliers in
-// addComplexityCalculation): blendPools = 26,550 and blendPositions = 7,584 — both above a
-// 6,000 complexity limit by design; admitting the full selections requires a deployment-side
-// limit raise. This does not touch AccountTransactionEdge.operations/stateChanges or any other
-// existing complexity entry, so the freighter full-detail account-history query budget is
-// unchanged.
+// The full-selection cost of these fields is what the default GRAPHQL_COMPLEXITY_LIMIT is
+// sized for; complexity_regression_test.go prices the SDK's own documents against that default.
+// The pricing here leaves AccountTransactionEdge.operations/stateChanges and every other
+// pre-existing complexity entry untouched, so the account-history query is priced exactly as
+// before — its cost rose only because the SDK's state-change selection gained Blend fragments,
+// not because this accounting changed.
 func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 	testCases := []struct {
 		name            string
