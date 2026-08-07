@@ -606,6 +606,31 @@ func buildAccountBlendPositionsQuery() string {
 	`, blendAccountPositionsFields)
 }
 
+// Queries returns every GraphQL document this client sends, keyed by its operation name.
+// Builders that accept a caller-supplied field set are invoked with their defaults, exactly as
+// the client methods do when the caller passes none.
+//
+// It exists so the server-side guards (schema validation, complexity budgeting) measure the
+// documents the SDK actually ships rather than hand-maintained copies of them.
+func Queries() map[string]string {
+	return map[string]string{
+		"TransactionByHash":                         buildTransactionByHashQuery(nil),
+		"AccountByAddress":                          buildAccountByAddressQuery(nil),
+		"OperationByID":                             buildOperationByIDQuery(nil),
+		"AccountTransactions":                       buildAccountTransactionsQuery(nil),
+		"AccountOperations":                         buildAccountOperationsQuery(nil),
+		"TransactionOperations":                     buildTransactionOperationsQuery(nil),
+		"AccountBalances":                           buildAccountBalancesQuery(),
+		"AccountStateChanges":                       buildAccountStateChangesQuery(),
+		"TransactionStateChanges":                   buildTransactionStateChangesQuery(),
+		"OperationStateChanges":                     buildOperationStateChangesQuery(),
+		"AccountTransactionsWithOpsAndStateChanges": buildAccountTransactionsWithOpsAndStateChangesQuery(),
+		"BlendPools":                                buildBlendPoolsQuery(),
+		"BlendPool":                                 buildBlendPoolQuery(),
+		"AccountBlendPositions":                     buildAccountBlendPositionsQuery(),
+	}
+}
+
 // buildFieldList constructs a field list string from a slice of field names
 // If fields is nil or empty, returns the defaultFields
 func buildFieldList(fields []string, defaultFields string) string {

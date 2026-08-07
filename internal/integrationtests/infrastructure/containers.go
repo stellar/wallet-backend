@@ -482,18 +482,13 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"RPC_URL":      "http://stellar-rpc:8000",
 			"DATABASE_URL": "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
 			"PORT":         walletBackendContainerAPIPort,
-			// High enough for the SDK's full-selection Blend catalog query —
-			// blendPools costs 50 × (BlendPool scalars + 30 × BlendReserve
-			// scalars) ≈ 26k under the server's complexity accounting (see
-			// addComplexityCalculation in internal/serve/serve.go). The
-			// integration suite deliberately requests every field, so it needs
-			// more headroom than the production default.
-			"GRAPHQL_COMPLEXITY_LIMIT": "30000",
-			"LOG_LEVEL":                "DEBUG",
-			"NETWORK":                  "standalone",
-			"NETWORK_PASSPHRASE":       networkPassphrase,
-			"CLIENT_AUTH_PUBLIC_KEYS":  clientAuthKeyPair.Address(),
-			"STELLAR_ENVIRONMENT":      "integration-test",
+			// GRAPHQL_COMPLEXITY_LIMIT is deliberately left unset: the suite issues the SDK's
+			// full-selection queries, so it must prove they fit the shipped default.
+			"LOG_LEVEL":               "DEBUG",
+			"NETWORK":                 "standalone",
+			"NETWORK_PASSPHRASE":      networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS": clientAuthKeyPair.Address(),
+			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
