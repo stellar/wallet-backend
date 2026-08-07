@@ -464,6 +464,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
 func createWalletBackendAPIContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full,
+	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -478,18 +479,23 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
-			"RPC_URL":                  "http://stellar-rpc:8000",
-			"DATABASE_URL":             "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                     walletBackendContainerAPIPort,
-			"GRAPHQL_COMPLEXITY_LIMIT": "5000",
-			"LOG_LEVEL":                "DEBUG",
-			"NETWORK":                  "standalone",
-			"NETWORK_PASSPHRASE":       networkPassphrase,
-			"CLIENT_AUTH_PUBLIC_KEYS":  clientAuthKeyPair.Address(),
-			"STELLAR_ENVIRONMENT":      "integration-test",
+			"RPC_URL":      "http://stellar-rpc:8000",
+			"DATABASE_URL": "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
+			"PORT":         walletBackendContainerAPIPort,
+			// GRAPHQL_COMPLEXITY_LIMIT is deliberately left unset: the suite issues the SDK's
+			// full-selection queries, so it must prove they fit the shipped default.
+			"LOG_LEVEL":               "DEBUG",
+			"NETWORK":                 "standalone",
+			"NETWORK_PASSPHRASE":      networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS": clientAuthKeyPair.Address(),
+			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
+	}
+
+	for k, v := range extraEnv {
+		containerRequest.Env[k] = v
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

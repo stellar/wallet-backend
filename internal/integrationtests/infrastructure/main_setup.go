@@ -324,7 +324,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
@@ -410,6 +410,13 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// WaitForIngestCatchup blocks until live ingestion has caught up with the RPC tip. Exported so
+// tests that submit their own fixtures after initial setup (e.g. the Blend integration suite) can
+// wait for those fixtures to be indexed without reaching into the unexported waitForIngestSync.
+func (s *SharedContainers) WaitForIngestCatchup(ctx context.Context) error {
+	return s.waitForIngestSync(ctx)
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests
