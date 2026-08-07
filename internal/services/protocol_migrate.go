@@ -2,14 +2,17 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -221,7 +224,7 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 // less often than the progress-log interval.
 type stageTimers struct {
 	fetch   time.Duration // GetLedger wait (consumer stall, not download time); ≈0 while the datastore prefetch keeps up, rises only when it can't
-	extract time.Duration // ExtractContractEventsForLedger
+	extract time.Duration // ExtractContractEventsForLedger + ExtractContractDataChangesForLedger
 	process time.Duration // ProcessLedger across all trackers
 	flush   time.Duration // flushWindow (CAS + Persist), including tip flushes
 }
@@ -274,11 +277,18 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		})
 	}
 
-	// Load contracts once — all relevant contracts are in the DB before migration starts
-	// (validate() requires ClassificationStatus == StatusSuccess).
+	// Load each tracker's classified-contract membership. For event-only
+	// processors this run-start snapshot is final — validate() requires
+	// ClassificationStatus == StatusSuccess, so everything classified before
+	// the run is already here. Processors that require ContractData get their
+	// membership refreshed after every committed window instead (see
+	// refreshTrackerContracts): live ingestion's validator classifies newly
+	// deployed contracts concurrently with this run, and those processors
+	// interpret events and entries by membership, so folding the rest of the
+	// run against a stale snapshot would silently drop that contract's state.
 	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(trackers))
 	for _, t := range trackers {
-		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, t.protocolID)
+		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, s.db, t.protocolID)
 		if loadErr != nil {
 			return nil, fmt.Errorf("loading contracts for %s: %w", t.protocolID, loadErr)
 		}
@@ -369,16 +379,59 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		}
 		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 
+		// Refresh each tracker's classified-contract membership at window start —
+		// after the window's first ledger has been FETCHED, not after the previous
+		// window's commit. GetLedger blocks until seq has closed, so this read runs
+		// after any concurrent live-ingestion transaction for seq-1 — including the
+		// classification it commits — has finished; a post-commit refresh instead
+		// races that transaction and can fold seq with a membership missing a
+		// contract classified at seq-1, silently skipping its events and entries
+		// for this window (additive fold columns never heal from a missed ledger).
+		// Same cadence either way: once per window per requiring tracker.
+		for _, t := range trackers {
+			if t.handedOff || t.cursorValue+t.pending >= seq || t.pending != 0 {
+				continue
+			}
+			if refreshErr := s.refreshTrackerContracts(ctx, t, contractsByProtocol); refreshErr != nil {
+				return handedOffProtocolIDs(trackers), refreshErr
+			}
+		}
+
+		// Extract ContractData changes once per ledger, only when a tracker that
+		// will fold this ledger requires them; all trackers share the map. The
+		// union of those trackers' memberships gates the extraction: ledgers
+		// whose transaction footprints touch no tracked contract skip the
+		// change walk entirely (the overwhelmingly common case).
+		var ledgerContractDataChanges map[string][]ingest.Change
+		if trackersRequireContractData(trackers, seq) {
+			cdStart := time.Now()
+			tracked, trackErr := trackedContractIDSet(trackers, seq, contractsByProtocol)
+			if trackErr != nil {
+				return handedOffProtocolIDs(trackers), trackErr
+			}
+			var cdErr error
+			ledgerContractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ledgerMeta, tracked)
+			cdDur := time.Since(cdStart)
+			timers.extract += cdDur
+			// Distinct phase label: the events extraction already observes one
+			// "extract" sample per ledger, and dashboards assume that cardinality.
+			s.metrics.PhaseDuration.WithLabelValues("extract_contract_data").Observe(cdDur.Seconds())
+			if cdErr != nil {
+				return handedOffProtocolIDs(trackers), fmt.Errorf("extracting contract data changes for ledger %d: %w", seq, cdErr)
+			}
+		}
+
 		for _, t := range trackers {
 			if t.handedOff || t.cursorValue+t.pending >= seq {
 				continue
 			}
 			input := ProtocolProcessorInput{
-				LedgerSequence:    seq,
-				LedgerCloseTime:   ledgerCloseTime,
-				ContractEvents:    ledgerEvents,
-				ProtocolContracts: contractsByProtocol[t.protocolID],
-				StagingMode:       s.strategy.Mode,
+				LedgerSequence:      seq,
+				LedgerCloseTime:     ledgerCloseTime,
+				ContractEvents:      ledgerEvents,
+				ProtocolContracts:   contractsByProtocol[t.protocolID],
+				StagingMode:         s.strategy.Mode,
+				ContractDataChanges: ledgerContractDataChanges,
 			}
 			processStart := time.Now()
 			processErr := t.processor.ProcessLedger(ctx, input)
@@ -483,6 +536,27 @@ func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers 
 	return cachedTip, nil
 }
 
+// refreshTrackerContracts re-reads a tracker's classified-contract membership
+// at the start of each window — after the window's first ledger has been
+// fetched (see the call site in processAllProtocols for why that ordering is
+// load-bearing at the frontier) — but only for processors that require
+// ContractData: they interpret events and entries by classified-set
+// membership, so a contract classified mid-run (live ingestion's validator
+// runs concurrently) must reach them on the next window rather than never.
+// Event-only processors keep the cheaper run-start snapshot. Handed-off
+// trackers fold no further ledgers, so their membership no longer matters.
+func (s *protocolMigrateEngine) refreshTrackerContracts(ctx context.Context, t *protocolTracker, contractsByProtocol map[string][]data.ProtocolContracts) error {
+	if t.handedOff || !t.processor.RequiresContractData() {
+		return nil
+	}
+	contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, s.db, t.protocolID)
+	if err != nil {
+		return fmt.Errorf("refreshing contracts for %s: %w", t.protocolID, err)
+	}
+	contractsByProtocol[t.protocolID] = contracts
+	return nil
+}
+
 // flushWindow commits a tracker's open window [cursorValue+1, cursorValue+pending] in a
 // single transaction: CAS(winStart-1 -> winEnd) then merged Persist. A failed CAS means
 // live ingestion took winStart, so the whole window is discarded and the tracker hands off.
@@ -550,6 +624,43 @@ func allHandedOff(trackers []*protocolTracker) bool {
 		}
 	}
 	return true
+}
+
+// trackersRequireContractData reports whether any tracker that will fold this
+// ledger has a processor needing ContractData changes.
+func trackersRequireContractData(trackers []*protocolTracker, seq uint32) bool {
+	for _, t := range trackers {
+		if t.handedOff || t.cursorValue+t.pending >= seq {
+			continue
+		}
+		if t.processor.RequiresContractData() {
+			return true
+		}
+	}
+	return false
+}
+
+// trackedContractIDSet unions the classified-contract membership of every
+// ContractData-requiring tracker that will fold seq, as raw 32-byte contract
+// IDs — the footprint gate's lookup key. Rebuilt per ledger so a membership
+// refresh (refreshTrackerContracts) takes effect immediately; the sets are
+// small (a protocol requiring ContractData has bounded membership), so the
+// per-ledger cost is noise.
+func trackedContractIDSet(trackers []*protocolTracker, seq uint32, contractsByProtocol map[string][]data.ProtocolContracts) (map[xdr.ContractId]struct{}, error) {
+	tracked := map[xdr.ContractId]struct{}{}
+	for _, t := range trackers {
+		if t.handedOff || t.cursorValue+t.pending >= seq || !t.processor.RequiresContractData() {
+			continue
+		}
+		for _, c := range contractsByProtocol[t.protocolID] {
+			idBytes, err := hex.DecodeString(string(c.ContractID))
+			if err != nil || len(idBytes) != len(xdr.ContractId{}) {
+				return nil, fmt.Errorf("protocol %s contract id %q is not a 32-byte hex hash: %w", t.protocolID, c.ContractID, err)
+			}
+			tracked[xdr.ContractId(idBytes)] = struct{}{}
+		}
+	}
+	return tracked, nil
 }
 
 // handedOffProtocolIDs returns the IDs of trackers that have been handed off to live ingestion.
