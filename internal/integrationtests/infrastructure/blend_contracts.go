@@ -1,6 +1,6 @@
 // Package infrastructure provides Soroban transaction helpers for integration tests.
 //
-// This file adds thin, typed wrappers over executeSorobanOperationAs for each Blend v2 contract
+// This file adds thin, typed wrappers over executeSorobanOperation for each Blend v2 contract
 // call the integration tests need to drive. Each wrapper builds an InvokeHostFunction from a
 // contract address, function name, and ScVal args (using the builders in blend_operations.go),
 // executes it, and returns either the transaction hash or a decoded return value.
@@ -149,7 +149,7 @@ func (s *SharedContainers) PoolSubmit(ctx context.Context, t *testing.T, poolID 
 	args := []xdr.ScVal{userAddr, userAddr, userAddr, scRequestVec(t, requests)}
 	op := buildInvokeOp(t, poolID, "submit", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "submitting pool requests")
 	return hash
 }
@@ -162,7 +162,7 @@ func (s *SharedContainers) PoolClaim(ctx context.Context, t *testing.T, poolID s
 	args := []xdr.ScVal{userAddr, scU32Vec(reserveTokenIDs), userAddr}
 	op := buildInvokeOp(t, poolID, "claim", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "claiming pool emissions")
 	return hash
 }
@@ -175,7 +175,7 @@ func (s *SharedContainers) PoolNewAuction(ctx context.Context, t *testing.T, poo
 	args := []xdr.ScVal{scU32(auctionType), scAddr(t, user), scAddressVec(t, bid), scAddressVec(t, lot), scU32(percent)}
 	op := buildInvokeOp(t, poolID, "new_auction", args, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "creating pool auction")
 	return hash
 }
@@ -187,7 +187,7 @@ func (s *SharedContainers) PoolSetStatus(ctx context.Context, t *testing.T, pool
 	args := []xdr.ScVal{scU32(status)}
 	op := buildInvokeOp(t, poolID, "set_status", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting pool status")
 	return hash
 }
@@ -199,7 +199,7 @@ func (s *SharedContainers) PoolQueueSetReserve(ctx context.Context, t *testing.T
 	args := []xdr.ScVal{scAddr(t, asset), scReserveConfig(t, cfg)}
 	op := buildInvokeOp(t, poolID, "queue_set_reserve", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "queueing pool reserve config")
 	return hash
 }
@@ -212,7 +212,7 @@ func (s *SharedContainers) PoolSetReserve(ctx context.Context, t *testing.T, poo
 	args := []xdr.ScVal{scAddr(t, asset)}
 	op := buildInvokeOp(t, poolID, "set_reserve", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting pool reserve")
 	return hash
 }
@@ -225,7 +225,7 @@ func (s *SharedContainers) PoolSetEmissionsConfig(ctx context.Context, t *testin
 	args := []xdr.ScVal{scEmissionMetadataVec(t, metas)}
 	op := buildInvokeOp(t, poolID, "set_emissions_config", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting pool emissions config")
 	return hash
 }
@@ -237,7 +237,7 @@ func (s *SharedContainers) PoolGulpEmissions(ctx context.Context, t *testing.T, 
 
 	op := buildInvokeOp(t, poolID, "gulp_emissions", nil, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "gulping pool emissions")
 	return hash
 }
@@ -254,7 +254,7 @@ func (s *SharedContainers) BackstopDeposit(ctx context.Context, t *testing.T, ba
 	args := []xdr.ScVal{scAddr(t, user.Address()), scAddr(t, poolID), scI128(t, amount)}
 	op := buildInvokeOp(t, backstopID, "deposit", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "depositing into backstop")
 	return hash
 }
@@ -267,7 +267,7 @@ func (s *SharedContainers) BackstopQueueWithdrawal(ctx context.Context, t *testi
 	args := []xdr.ScVal{scAddr(t, user.Address()), scAddr(t, poolID), scI128(t, amount)}
 	op := buildInvokeOp(t, backstopID, "queue_withdrawal", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "queueing backstop withdrawal")
 	return hash
 }
@@ -280,7 +280,7 @@ func (s *SharedContainers) BackstopDequeueWithdrawal(ctx context.Context, t *tes
 	args := []xdr.ScVal{scAddr(t, user.Address()), scAddr(t, poolID), scI128(t, amount)}
 	op := buildInvokeOp(t, backstopID, "dequeue_withdrawal", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "dequeueing backstop withdrawal")
 	return hash
 }
@@ -293,7 +293,7 @@ func (s *SharedContainers) BackstopClaim(ctx context.Context, t *testing.T, back
 	args := []xdr.ScVal{scAddr(t, user.Address()), scAddressVec(t, poolIDs), scI128(t, minLPTokensOut)}
 	op := buildInvokeOp(t, backstopID, "claim", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "claiming backstop emissions")
 	return hash
 }
@@ -305,7 +305,7 @@ func (s *SharedContainers) BackstopDistribute(ctx context.Context, t *testing.T,
 
 	op := buildInvokeOp(t, backstopID, "distribute", nil, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "distributing backstop emissions")
 	return hash
 }
@@ -318,7 +318,7 @@ func (s *SharedContainers) BackstopAddReward(ctx context.Context, t *testing.T, 
 	args := []xdr.ScVal{scAddr(t, toAdd), scVoid()}
 	op := buildInvokeOp(t, backstopID, "add_reward", args, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "adding backstop reward")
 	return hash
 }
@@ -334,7 +334,7 @@ func (s *SharedContainers) EmitterDistribute(ctx context.Context, t *testing.T, 
 
 	op := buildInvokeOp(t, emitterID, "distribute", nil, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "distributing emitter emissions")
 	return hash
 }
@@ -347,7 +347,7 @@ func (s *SharedContainers) EmitterInitialize(ctx context.Context, t *testing.T, 
 	args := []xdr.ScVal{scAddr(t, blndToken), scAddr(t, backstop), scAddr(t, backstopToken)}
 	op := buildInvokeOp(t, emitterID, "initialize", args, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "initializing emitter")
 	return hash
 }
@@ -370,7 +370,7 @@ func (s *SharedContainers) OracleSetData(ctx context.Context, t *testing.T, orac
 	}
 	op := buildInvokeOp(t, oracleID, "set_data", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting oracle data")
 	return hash
 }
@@ -382,7 +382,7 @@ func (s *SharedContainers) OracleSetPriceStable(ctx context.Context, t *testing.
 	args := []xdr.ScVal{scI128Vec(t, prices)}
 	op := buildInvokeOp(t, oracleID, "set_price_stable", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting oracle stable prices")
 	return hash
 }
@@ -398,7 +398,7 @@ func (s *SharedContainers) CometFactoryInit(ctx context.Context, t *testing.T, f
 	args := []xdr.ScVal{scBytes32(wasmHash)}
 	op := buildInvokeOp(t, factoryID, "init", args, caller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, caller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, caller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "initializing comet factory")
 	return hash
 }
@@ -419,7 +419,7 @@ func (s *SharedContainers) CometFactoryNewPool(ctx context.Context, t *testing.T
 	}
 	op := buildInvokeOp(t, factoryID, "new_c_pool", args, controller.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, controller, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, controller, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "deploying comet pool")
 
 	poolAddr, err := s.invokeResultAddress(ctx, t, hash)
@@ -435,7 +435,7 @@ func (s *SharedContainers) CometJoinPool(ctx context.Context, t *testing.T, come
 	args := []xdr.ScVal{scI128(t, poolAmountOut), scI128Vec(t, maxAmountsIn), scAddr(t, user.Address())}
 	op := buildInvokeOp(t, cometID, "join_pool", args, user.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, user, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, user, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "joining comet pool")
 	return hash
 }
@@ -461,7 +461,7 @@ func (s *SharedContainers) PoolFactoryDeploy(ctx context.Context, t *testing.T, 
 	}
 	op := buildInvokeOp(t, factoryID, "deploy", args, admin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, admin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, admin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "deploying pool")
 
 	poolAddr, err := s.invokeResultAddress(ctx, t, hash)
@@ -474,18 +474,13 @@ func (s *SharedContainers) PoolFactoryDeploy(ctx context.Context, t *testing.T, 
 // ---------------------------------------------------------------------------------------------
 
 // SACSetAdmin invokes set_admin(new_admin) on a Stellar Asset Contract, signed by currentAdmin.
-//
-// Note: since currentAdmin is often the shared master account acting as an arbitrary
-// executeSorobanOperationAs source (rather than through executeSorobanOperation), the master
-// account's locally tracked sequence counter drifts from the ledger's view. Call
-// SyncMasterSequence before resuming master-account operations through executeSorobanOperation.
 func (s *SharedContainers) SACSetAdmin(ctx context.Context, t *testing.T, sacID string, currentAdmin *keypair.Full, newAdmin string) string {
 	t.Helper()
 
 	args := []xdr.ScVal{scAddr(t, newAdmin)}
 	op := buildInvokeOp(t, sacID, "set_admin", args, currentAdmin.Address())
 
-	hash, err := s.executeSorobanOperationAs(ctx, t, op, currentAdmin, nil, DefaultConfirmationRetries)
+	hash, err := s.executeSorobanOperation(ctx, t, op, currentAdmin, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "setting SAC admin")
 	return hash
 }

@@ -133,19 +133,8 @@ func nativeAssetContractAddress(t *testing.T) string {
 // s.usdcContractAddress and nativeAssetContractAddress) and deploys a new classic asset, BLND,
 // issued by the master account, asserting its SAC address matches the pin in
 // internal/services/blend/validator.go.
-//
-// Every wrapper call below that drives the shared master account (s.masterKeyPair) through
-// executeSorobanOperationAs — i.e. every blend_contracts.go wrapper with an admin/caller/
-// controller parameter set to master — fetches its sequence fresh from RPC and does not update
-// s.masterAccount's locally tracked counter (see executeSorobanOperationAs's doc comment). Any
-// subsequent call that goes through executeSorobanOperation or executeClassicOperation (upload,
-// deploy, classic ops), which DO rely on that local counter, would then submit with a stale
-// sequence and fail. SetupBlendStack calls s.SyncMasterSequence at each such transition; look for
-// the "re-sync" comments below.
 func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rpcService services.RPCService) *BlendStack {
 	t.Helper()
-
-	s.SyncMasterSequence(ctx, t)
 
 	// Capture the RPC latest ledger BEFORE any Blend transaction, so later tests know where
 	// Blend-specific history begins.
@@ -244,7 +233,6 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	// ---------------------------------------------------------------------------------------
 	// Mock SEP-40 oracle.
 	// ---------------------------------------------------------------------------------------
-	s.SyncMasterSequence(ctx, t) // re-sync before the next executeSorobanOperation-driven (master) call.
 
 	oracleWasmBytes, err := os.ReadFile(filepath.Join(dir, "oracle.wasm"))
 	require.NoError(t, err, "reading oracle.wasm")
@@ -263,7 +251,6 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	// ---------------------------------------------------------------------------------------
 	// Emitter (initialized with the backstop's precomputed address).
 	// ---------------------------------------------------------------------------------------
-	s.SyncMasterSequence(ctx, t) // re-sync: OracleSetData/OracleSetPriceStable drove master through executeSorobanOperationAs.
 
 	emitterWasmBytes, err := os.ReadFile(filepath.Join(dir, "emitter.wasm"))
 	require.NoError(t, err, "reading emitter.wasm")
@@ -284,7 +271,6 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	// ---------------------------------------------------------------------------------------
 	// Pool factory (constructed with PoolInitMeta, referencing the precomputed backstop).
 	// ---------------------------------------------------------------------------------------
-	s.SyncMasterSequence(ctx, t) // re-sync: EmitterInitialize drove master through executeSorobanOperationAs.
 
 	poolFactoryWasmBytes, err := os.ReadFile(filepath.Join(dir, "pool_factory.wasm"))
 	require.NoError(t, err, "reading pool_factory.wasm")
@@ -355,8 +341,6 @@ func (s *SharedContainers) SetupBlendStack(ctx context.Context, t *testing.T, rp
 	// The emitter must be able to mint BLND (1 BLND/sec on distribute).
 	s.SACSetAdmin(ctx, t, stack.BLNDTokenID, s.masterKeyPair, stack.EmitterID)
 	log.Ctx(ctx).Infof("✅ Transferred BLND SAC admin to emitter %s", stack.EmitterID)
-
-	s.SyncMasterSequence(ctx, t)
 
 	return stack
 }

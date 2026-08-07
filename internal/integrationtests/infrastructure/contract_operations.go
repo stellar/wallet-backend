@@ -70,7 +70,7 @@ func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, to
 	}
 
 	// Execute using helper with extended retries for mint operations
-	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, ExtendedConfirmationRetries)
+	_, err = s.executeSorobanOperation(ctx, t, invokeOp, s.masterKeyPair, nil, ExtendedConfirmationRetries)
 	require.NoError(t, err, "failed to mint SEP-41 tokens")
 }
 
@@ -130,6 +130,6 @@ func (s *SharedContainers) invokeContractTransfer(ctx context.Context, t *testin
 	}
 
 	// Execute using helper
-	_, err = executeSorobanOperation(ctx, t, s, invokeOp, true, DefaultConfirmationRetries)
+	_, err = s.executeSorobanOperation(ctx, t, invokeOp, s.masterKeyPair, nil, DefaultConfirmationRetries)
 	require.NoError(t, err, "failed to transfer tokens")
 }

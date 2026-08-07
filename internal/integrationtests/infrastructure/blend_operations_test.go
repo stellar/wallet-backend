@@ -439,11 +439,3 @@ func TestSignAuthEntriesAsNoMatchingSignerFailsNamingAddress(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), required.Address())
 }
-
-// executeSorobanOperationAs drives a live Soroban transaction (RPC sequence lookup, simulate,
-// sign, submit, poll for confirmation) and is exercised end-to-end by a later Blend
-// contract-wrapper task's container-backed integration run, which this package's plain unit tests
-// (no Docker containers, no RPC) cannot reach. This method-value reference exists solely so static
-// analysis sees it as intentionally-used infrastructure rather than dead code; it is never invoked
-// from this file.
-var _ = (*SharedContainers).executeSorobanOperationAs
