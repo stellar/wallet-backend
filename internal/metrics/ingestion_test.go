@@ -30,6 +30,7 @@ func TestIngestionMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.StateChangeProcessingDuration)
 	require.NotNil(t, m.StateChangesTotal)
 	require.NotNil(t, m.WasmClassificationFailuresTotal)
+	require.NotNil(t, m.ProtocolDecodeFailuresTotal)
 }
 
 func TestIngestionMetrics_WasmClassificationFailures(t *testing.T) {
@@ -46,6 +47,28 @@ func TestIngestionMetrics_WasmClassificationFailures(t *testing.T) {
 	assert.Equal(t, 1.0, testutil.ToFloat64(
 		m.WasmClassificationFailuresTotal.WithLabelValues("sep41", "classify_error"),
 	))
+}
+
+func TestIngestionMetrics_ProtocolDecodeFailures(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event").Inc()
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event").Inc()
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "entry").Inc()
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(
+		m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event"),
+	))
+	assert.Equal(t, 1.0, testutil.ToFloat64(
+		m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "entry"),
+	))
+
+	// Registered on the registry the collector was built with, under its
+	// documented name and both label series.
+	count, err := testutil.GatherAndCount(reg, "wallet_ingestion_protocol_decode_failures_total")
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
 }
 
 func TestIngestionMetrics_Gauges(t *testing.T) {
@@ -211,7 +234,7 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 		m.LagLedgers, m.LedgerFetchDuration,
 		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
-		m.WasmClassificationFailuresTotal,
+		m.WasmClassificationFailuresTotal, m.ProtocolDecodeFailuresTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)
