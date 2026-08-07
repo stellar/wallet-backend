@@ -325,10 +325,11 @@ func TestStreamingLoadtestBackend_RenumbersFirstEpoch(t *testing.T) {
 		lcm, err := backend.GetLedger(ctx, want)
 		require.NoError(t, err)
 		assert.Equal(t, want, lcm.LedgerSequence())
-		// The epoch diff is -1. The genesis entry lands below the floor (the
-		// range's first ledger) and clamps to it; the other entry tracks the
-		// emitted sequence.
-		assert.Equal(t, []uint32{1, want + 5}, streamEntrySeqs(t, lcm))
+		// Only the header is renumbered (raw 2..4 emitted as 1..3). Entry
+		// ledger-sequence references keep their raw values — nothing
+		// downstream reads them, and rewriting them costs a full XDR
+		// round trip per frame. Raw here is want+1 (the epoch diff is -1).
+		assert.Equal(t, []uint32{1, want + 1 + 5}, streamEntrySeqs(t, lcm))
 	}
 }
 
@@ -336,9 +337,10 @@ func TestStreamingLoadtestBackend_MergesEveryPipe(t *testing.T) {
 	paths := mkFIFOs(t, 3)
 	backend := newStreamingBackend(t, paths, 0)
 
-	// Different raw starting sequences per pipe: a single shared diff would
-	// renumber the three streams' entries to three different values, so the
-	// entries agreeing is what proves the diff is derived per pipe.
+	// Different raw starting sequences per pipe: nextFrame verifies every
+	// frame against its pipe's own diff, so the merge succeeding at all
+	// proves the diff is derived per pipe (a shared diff would trip the
+	// sequence-mismatch error on two of the three pipes).
 	rawStarts := []uint32{2, 100, 7}
 	txCounts := []int{1, 2, 3}
 	for i, path := range paths {
@@ -359,7 +361,8 @@ func TestStreamingLoadtestBackend_MergesEveryPipe(t *testing.T) {
 		assert.Equal(t, want, lcm.LedgerSequence())
 		assert.Equal(t, 6, streamTxCount(t, lcm), "merged ledger holds every pipe's transactions")
 		assert.Equal(t, 3, streamPhaseCount(t, lcm), "merged ledger holds every pipe's txset phases")
-		assert.Equal(t, []uint32{want + 5, want + 5, want + 5}, streamEntrySeqs(t, lcm))
+		// Entries keep each stream's raw sequence references (raw start + n + 5).
+		assert.Equal(t, []uint32{want + 6, want + 104, want + 11}, streamEntrySeqs(t, lcm))
 	}
 }
 
@@ -382,7 +385,7 @@ func TestStreamingLoadtestBackend_MergesV2Ledgers(t *testing.T) {
 	require.Equal(t, int32(2), lcm.V)
 	assert.Equal(t, uint32(10), lcm.LedgerSequence())
 	assert.Equal(t, 4, streamTxCount(t, lcm))
-	assert.Equal(t, []uint32{15, 15}, streamEntrySeqs(t, lcm))
+	assert.Equal(t, []uint32{7, 55}, streamEntrySeqs(t, lcm))
 	assert.Greater(t, uint64(streamCloseTime(t, lcm)), uint64(0))
 }
 

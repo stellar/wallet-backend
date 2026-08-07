@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
-	"github.com/stellar/go-stellar-sdk/ingest/loadtest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
@@ -72,10 +70,14 @@ type metaPipe struct {
 
 // StreamingLoadtestLedgerBackend reads stream-framed XDR LedgerCloseMeta from
 // one or more named pipes written by `stellar-core apply-load`, renumbers each
-// stream onto the consumer's requested sequence, merges the per-sequence
-// frames into one ledger, and stamps advancing close times. It implements
-// ledgerbackend.LedgerBackend. Dev-only: it exists so a load-test deployment
-// can exercise the standard ingestion path against synthetic traffic.
+// stream's ledger headers onto the consumer's requested sequence, merges the
+// per-sequence frames into one ledger, and stamps advancing close times. It
+// implements ledgerbackend.LedgerBackend. Dev-only: it exists so a load-test
+// deployment can exercise the standard ingestion path against synthetic
+// traffic.
+//
+// Only the header sequence is renumbered; ledger-sequence references inside
+// ledger entries keep their raw per-stream values (see appendLedger for why).
 //
 // Properties the renumbering provides:
 //   - The consumer's database survives generator restarts: a restarted
@@ -196,17 +198,13 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 		if err != nil {
 			return xdr.LedgerCloseMeta{}, fmt.Errorf("pipe %s: %w", p.path, err)
 		}
-		mapSeq := b.mapSeqFunc(p.seqDiff)
 		if i == 0 {
 			merged = frame
-			if err := loadtest.UpdateLedgerSeqInLedgerEntries(&merged, mapSeq); err != nil {
-				return xdr.LedgerCloseMeta{}, fmt.Errorf("renumbering entries from pipe %s: %w", p.path, err)
-			}
 			if err := setLedgerSeq(&merged, sequence); err != nil {
 				return xdr.LedgerCloseMeta{}, err
 			}
 		} else {
-			if err := loadtest.MergeLedgers(&merged, frame, mapSeq); err != nil {
+			if err := appendLedger(&merged, frame); err != nil {
 				return xdr.LedgerCloseMeta{}, fmt.Errorf("merging frame from pipe %s: %w", p.path, err)
 			}
 		}
@@ -330,24 +328,44 @@ func readFrames(f *os.File, frames chan<- pipeReadResult, done <-chan struct{}) 
 	}
 }
 
-// mapSeqFunc renumbers ledger sequence references inside ledger entries
-// (lastModified, TTLEntry liveUntil, account seqLedger) by the epoch diff.
-// References at or below the first emitted ledger clamp to it — on the very
-// first epoch the diff is negative (the raw stream starts at 2) and genesis-
-// created entries carry lastModified 1. References that overflow clamp to
-// MaxUint32 — apply-load's setup writes TTLs near the raw sequence horizon.
-func (b *StreamingLoadtestLedgerBackend) mapSeqFunc(diff int64) func(uint32) uint32 {
-	floor := b.preparedFrom
-	return func(old uint32) uint32 {
-		n := int64(old) + diff
-		if n <= int64(floor) {
-			return floor
-		}
-		if n > math.MaxUint32 {
-			return math.MaxUint32
-		}
-		return uint32(n)
+// appendLedger merges src's content into dst: transaction-set phases,
+// transaction results, upgrades, and evicted keys are appended, and dst's
+// header (already renumbered and stamped by the caller) stands for the merged
+// ledger. Both sides must be V1/V2 with generalized transaction sets.
+//
+// Unlike the SDK's loadtest.MergeLedgers, this deliberately does NOT rewrite
+// ledger-sequence references inside ledger entries (lastModifiedLedgerSeq,
+// TTL liveUntilLedgerSeq, account seqLedger). Nothing downstream reads those
+// fields, and the rewrite is a full marshal/parse/walk/re-marshal round trip
+// over every frame — measured at ~5x the entire ledger-processing cost at
+// full per-ledger volume, making it the stream's cadence bottleneck.
+func appendLedger(dst *xdr.LedgerCloseMeta, src xdr.LedgerCloseMeta) error {
+	if src.V != dst.V {
+		return fmt.Errorf("source ledger version %d is incompatible with destination version %d", src.V, dst.V)
 	}
+	switch dst.V {
+	case 1:
+		srcTxSet, ok := src.V1.TxSet.GetV1TxSet()
+		if !ok {
+			return fmt.Errorf("source ledger txset version %d is not supported", src.V1.TxSet.V)
+		}
+		dst.V1.TxSet.V1TxSet.Phases = append(dst.V1.TxSet.V1TxSet.Phases, srcTxSet.Phases...)
+		dst.V1.TxProcessing = append(dst.V1.TxProcessing, src.V1.TxProcessing...)
+		dst.V1.UpgradesProcessing = append(dst.V1.UpgradesProcessing, src.V1.UpgradesProcessing...)
+		dst.V1.EvictedKeys = append(dst.V1.EvictedKeys, src.V1.EvictedKeys...)
+	case 2:
+		srcTxSet, ok := src.V2.TxSet.GetV1TxSet()
+		if !ok {
+			return fmt.Errorf("source ledger txset version %d is not supported", src.V2.TxSet.V)
+		}
+		dst.V2.TxSet.V1TxSet.Phases = append(dst.V2.TxSet.V1TxSet.Phases, srcTxSet.Phases...)
+		dst.V2.TxProcessing = append(dst.V2.TxProcessing, src.V2.TxProcessing...)
+		dst.V2.UpgradesProcessing = append(dst.V2.UpgradesProcessing, src.V2.UpgradesProcessing...)
+		dst.V2.EvictedKeys = append(dst.V2.EvictedKeys, src.V2.EvictedKeys...)
+	default:
+		return fmt.Errorf("ledger version %d is not supported", dst.V)
+	}
+	return nil
 }
 
 // setLedgerSeq rewrites the ledger header sequence. Only V1/V2 are accepted:
