@@ -431,6 +431,37 @@ func TestPositionModel_ApplyAuctionAdjustments(t *testing.T) {
 		assert.Equal(t, int32(78), row.LastModifiedLedger, "ledger takes the MAX across the batch")
 	})
 
+	t.Run("aggregates before flooring, so folded fills round once not per-fill", func(t *testing.T) {
+		// Documents the rounding order. Flooring doesn't distribute over
+		// addition: at b_rate 1.1, two fills of 5 give trunc(10 * 1.1) = 11 here,
+		// where per-fill flooring would give trunc(5.5) * 2 = 10. Same 1-stroop
+		// skew on the negative (liquidated user) side. If the conversion ever moves
+		// inside the GROUP BY, these expectations become 10 / 20 and -10 / -20.
+		fillerAddr := keypair.MustRandom().Address()
+		userAddr := keypair.MustRandom().Address()
+		insertPosition(t, ctx, pool, poolAddr, fillerAddr, 4, "0", "0", "0", "0", "0")
+		insertPosition(t, ctx, pool, poolAddr, userAddr, 4, "0", "0", "0", "0", "0")
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.ApplyAuctionAdjustments(ctx, tx, []blend.PositionAuctionAdjustment{
+				{Pool: poolAddr, User: fillerAddr, Asset: assetAddr, LotBTokensDelta: "5", BidDTokensDelta: "10", LedgerNumber: 91},
+				{Pool: poolAddr, User: fillerAddr, Asset: assetAddr, LotBTokensDelta: "5", BidDTokensDelta: "10", LedgerNumber: 92},
+				{Pool: poolAddr, User: userAddr, Asset: assetAddr, LotBTokensDelta: "-5", BidDTokensDelta: "-10", LedgerNumber: 91},
+				{Pool: poolAddr, User: userAddr, Asset: assetAddr, LotBTokensDelta: "-5", BidDTokensDelta: "-10", LedgerNumber: 92},
+			}))
+		})
+
+		filler, ok := getPosition(t, ctx, pool, poolAddr, fillerAddr, 4)
+		require.True(t, ok)
+		assert.Equal(t, "11", filler.NetSupplied, "trunc((5+5) * 1.1) = 11, not trunc(5.5) * 2 = 10")
+		assert.Equal(t, "21", filler.NetBorrowed, "trunc((10+10) * 1.05) = 21, not trunc(10.5) * 2 = 20")
+
+		user, ok := getPosition(t, ctx, pool, poolAddr, userAddr, 4)
+		require.True(t, ok)
+		assert.Equal(t, "-11", user.NetSupplied, "same skew, more negative")
+		assert.Equal(t, "-21", user.NetBorrowed)
+	})
+
 	t.Run("is a no-op when no adjustments are staged", func(t *testing.T) {
 		require.NoError(t, m.ApplyAuctionAdjustments(ctx, nil, nil))
 	})

@@ -390,6 +390,16 @@ func (m *PositionModel) BatchApplyNetDeltas(ctx context.Context, dbTx pgx.Tx, de
 // UPDATE ... FROM applies only ONE matching source row per target row, so two
 // fills against the same position in one batch would otherwise silently drop
 // an adjustment. Auction deltas are purely additive, so summing is exact.
+//
+// Conversion happens after the GROUP BY, so a folded batch is floored once on
+// the summed delta rather than per fill. Flooring doesn't distribute over
+// addition, so n fills against one position overstate magnitude by at most
+// n-1 stroops (at b_rate 1.1, two fills of 5 give trunc(11.0) = 11, not
+// trunc(5.5) * 2 = 10). That is strictly smaller than the end-of-window rate
+// approximation quantified on ApplyAuctionAdjustments below, and affects the
+// same display-only cost-basis fields, so the cheaper single trunc is kept
+// deliberately. Moving trunc inside the subquery would restore per-fill
+// flooring if that ever matters.
 var applyAuctionAdjustmentsSQL = fmt.Sprintf(`
 	UPDATE blend_positions p SET
 		net_supplied = (p.net_supplied::numeric + trunc(u.lot_b * r.b_rate::numeric / %[1]s))::text,
