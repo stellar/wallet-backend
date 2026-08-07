@@ -441,16 +441,27 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.BlendAccountPositions.ActiveAuctions = blendPerAccountBound
 	config.Complexity.Query.BlendPools = accountsListComplexityFunc
 	// Query.blendPool (single pool by address) and Account.blendPositions (one object)
-	// stay at the default (1 + childComplexity): the cardinality now lives on the list
-	// fields inside them, so an outer multiplier would double-charge.
-	//
+	// each resolve in a single resolver call that issues a fixed number of DB queries no
+	// matter how few fields are selected — there is no dataloader behind either, by
+	// design — so that flat cost is charged here. The constants are that query count:
+	// blendPositions runs three errgroup waves of 6, 4 and 3 (13 queries); blendPool runs
+	// its own pool lookup plus the pool catalog's 5-query wave and the reserve-asset
+	// metadata read (7 queries). Pricing them means nested repetition — an account-history
+	// page selecting stateChanges → account → blendPositions resolves one of these per
+	// state-change row — is charged its real fan-out instead of the default 1. The cost is
+	// additive, not multiplicative, so list depth is still charged exactly once: the
+	// cardinality lives on the list fields inside these objects, and an outer multiplier
+	// would double-charge them.
+	config.Complexity.Account.BlendPositions = func(childComplexity int) int { return childComplexity + 13 }
+	config.Complexity.Query.BlendPool = func(childComplexity int, _ string) int { return childComplexity + 7 }
+
 	// Worst case with every field selected (complexity_test.go locks the multipliers;
 	// counts follow the schema: BlendReserve 17 scalars, BlendPool 13 scalars,
 	// BlendReservePosition 18, BlendPoolPosition 7, BlendBackstopPosition 7, BlendQ4W 4,
 	// BlendAuction 3 + bid/lot(2 each)):
 	//   blendPools:     50 × (13 + 30×17) = 50 × 523 = 26,150
-	//   blendPositions: 1 + 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1
-	//                   = 1 + 5,470 + 870 + 1,230 + 1 = 7,572
+	//   blendPositions: 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1 + 13
+	//                   = 5,470 + 870 + 1,230 + 1 + 13 = 7,584
 	// Both exceed a 6,000 complexity limit for the FULL selection — deliberate: the
 	// limit must be raised deployment-side to admit them (see the PR notes), or clients
 	// select fewer fields. None of this touches AccountTransactionEdge.operations/
