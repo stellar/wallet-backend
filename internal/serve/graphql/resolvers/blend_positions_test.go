@@ -417,7 +417,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		// interest-earning capital until withdrawn: totalShares = active
 		// (1_000_000) + queued (100_000 + 200_000) = 1_300_000; lpTokens =
 		// 1_300_000*poolTokens(50_000_000)/poolShares(10_000_000) = 6_500_000.
-		assert.Equal(t, "6500000", bp.LpTokens)
+		require.NotNil(t, bp.LpTokens)
+		assert.Equal(t, "6500000", *bp.LpTokens)
 		require.NotNil(t, bp.UsdValue)
 		assert.InDelta(t, 0.715, *bp.UsdValue, 1e-9)
 
@@ -425,12 +426,14 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		require.Len(t, bp.Q4w, 2)
 		assert.Equal(t, "100000", bp.Q4w[0].Amount)
 		assert.EqualValues(t, 1800000000, bp.Q4w[0].Expiration)
-		assert.Equal(t, "500000", bp.Q4w[0].LpTokens)
+		require.NotNil(t, bp.Q4w[0].LpTokens)
+		assert.Equal(t, "500000", *bp.Q4w[0].LpTokens)
 		require.NotNil(t, bp.Q4w[0].UsdValue)
 		assert.InDelta(t, 0.055, *bp.Q4w[0].UsdValue, 1e-9)
 		assert.Equal(t, "200000", bp.Q4w[1].Amount)
 		assert.EqualValues(t, 1900000000, bp.Q4w[1].Expiration)
-		assert.Equal(t, "1000000", bp.Q4w[1].LpTokens)
+		require.NotNil(t, bp.Q4w[1].LpTokens)
+		assert.Equal(t, "1000000", *bp.Q4w[1].LpTokens)
 		require.NotNil(t, bp.Q4w[1].UsdValue)
 		assert.InDelta(t, 0.11, *bp.Q4w[1].UsdValue, 1e-9)
 
@@ -441,6 +444,63 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.Equal(t, "31000", bp.EmissionsEarnedBlnd)
 		require.NotNil(t, bp.EmissionsEarnedUsd)
 		assert.InDelta(t, 0.000155, *bp.EmissionsEarnedUsd, 1e-12)
+	})
+
+	t.Run("an emissions-only backstop pool row nulls lpTokens/usdValue, keeps the emissions floor", func(t *testing.T) {
+		// BatchUpsertEmissions creates blend_backstop_pools rows with only the
+		// emis_* columns set — the balance columns keep their '0' defaults. A
+		// user holding shares proves the pool has deposits, so the zeroed
+		// shares:tokens rate is a data gap: the conversion must read unknown,
+		// not "0" (which is indistinguishable from a closed position).
+		// Emissions keep the stored-index floor.
+		execTestDB(t, `UPDATE blend_backstop_pools SET shares = '0', tokens = '0' WHERE pool_contract_id = $1`,
+			types.AddressBytea(poolAddr))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_backstop_pools SET shares = '10000000', tokens = '50000000' WHERE pool_contract_id = $1`,
+				types.AddressBytea(poolAddr))
+		})
+
+		after, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		require.Len(t, after.Backstop, 1)
+		bp := after.Backstop[0]
+
+		assert.Equal(t, "1000000", bp.Shares)
+		assert.Nil(t, bp.LpTokens)
+		assert.Nil(t, bp.UsdValue)
+		require.Len(t, bp.Q4w, 2)
+		for i := range bp.Q4w {
+			assert.Nil(t, bp.Q4w[i].LpTokens, "q4w[%d]", i)
+			assert.Nil(t, bp.Q4w[i].UsdValue, "q4w[%d]", i)
+		}
+		// ProjectEmissionIndex returns the stored index unchanged at zero
+		// supply, so the claimable floor matches the pinned-projection case.
+		assert.Equal(t, "31000", bp.EmissionsEarnedBlnd)
+	})
+
+	t.Run("a missing backstop pool row nulls lpTokens/usdValue the same way", func(t *testing.T) {
+		execTestDB(t, `DELETE FROM blend_backstop_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		t.Cleanup(func() {
+			execTestDB(t, `
+				INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, emis_eps, emis_index, emis_expiration, emis_last_time, last_modified_ledger)
+				VALUES ($1, '10000000', '50000000', '0', 999999999999, '5000000000000', 4102444800, 4102444800, 100)`,
+				types.AddressBytea(poolAddr))
+		})
+
+		after, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		require.Len(t, after.Backstop, 1)
+		bp := after.Backstop[0]
+
+		assert.Nil(t, bp.LpTokens)
+		assert.Nil(t, bp.UsdValue)
+		require.Len(t, bp.Q4w, 2)
+		for i := range bp.Q4w {
+			assert.Nil(t, bp.Q4w[i].LpTokens, "q4w[%d]", i)
+		}
+		// With no emission stream row at all, only the user's own accrued
+		// balance remains claimable.
+		assert.Equal(t, "1000", bp.EmissionsEarnedBlnd)
 	})
 
 	t.Run("dropping the reserve asset's price nulls only its USD fields, no error", func(t *testing.T) {

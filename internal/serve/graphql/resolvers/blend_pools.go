@@ -111,15 +111,35 @@ func (d *blendAssembly) buildPoolReserve(poolAddr string, reserve blenddata.Rese
 
 // backstopUsdForPool is blend_backstop_pools.tokens (the pool's backstop-LP
 // token balance, always 7-decimal) priced at the Comet LP rate. A pool with
-// no backstop_pools row yet (no backstop deposit ever observed) is treated
-// as a genuine 0 tokens, not missing data.
+// no backstop_pools row (no backstop write ever observed) is a genuine 0. A
+// row whose balance columns are all zero but whose emission half is populated
+// is unknown (nil) instead: BatchUpsertEmissions creates rows carrying only
+// the emis_* columns (the balance columns default to '0'), and backstop
+// emissions are cranked only for reward-zone pools, which requires deposits —
+// so a zero balance there means the balance half hasn't been folded yet, not
+// that the backstop is empty. A genuinely-emptied backstop that still carries
+// emission state also reads nil under this rule; the ambiguity resolves
+// toward nil because pricing a funded backstop at $0 is the costlier error.
+// Zero tokens with nonzero shares (a backstop fully drawn for bad debt)
+// stays a genuine $0.
 func (d *blendAssembly) backstopUsdForPool(poolAddr string) (*float64, error) {
-	tokens := big.NewInt(0)
-	if bp, ok := d.backstopPoolByID[poolAddr]; ok {
-		var err error
-		tokens, err = parseBigInt(bp.Tokens)
-		if err != nil {
-			return nil, fmt.Errorf("parsing blend backstop pool tokens: %w", err)
+	bp, ok := d.backstopPoolByID[poolAddr]
+	if !ok {
+		zero := 0.0
+		return &zero, nil
+	}
+	tokens, err := parseBigInt(bp.Tokens)
+	if err != nil {
+		return nil, fmt.Errorf("parsing blend backstop pool tokens: %w", err)
+	}
+	if tokens.Sign() == 0 {
+		shares, sharesErr := parseBigInt(bp.Shares)
+		if sharesErr != nil {
+			return nil, fmt.Errorf("parsing blend backstop pool shares: %w", sharesErr)
+		}
+		emissionOnly := bp.EmisEps != nil || bp.EmisIndex != nil || bp.EmisExpiration != nil || bp.EmisLastTime != nil
+		if shares.Sign() == 0 && emissionOnly {
+			return nil, nil
 		}
 	}
 	return usdValueOrNil(tokens, backstopLPDecimals, d.lpPrice), nil

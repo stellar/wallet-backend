@@ -134,10 +134,15 @@ type BlendAuctionAmount struct {
 // emission stream for this pool; it accrues on active shares only (queued
 // shares earn no emissions).
 type BlendBackstopPosition struct {
-	PoolAddress         string      `json:"poolAddress"`
-	PoolName            *string     `json:"poolName,omitempty"`
-	Shares              string      `json:"shares"`
-	LpTokens            string      `json:"lpTokens"`
+	PoolAddress string  `json:"poolAddress"`
+	PoolName    *string `json:"poolName,omitempty"`
+	Shares      string  `json:"shares"`
+	// The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
+	// Null when that rate is unknown: the pool's blend_backstop_pools balance can
+	// be absent or zeroed (an emissions-only write creates the row with zero
+	// balance columns) while this account provably holds shares — a conversion
+	// reported as "0" there would be indistinguishable from a closed position.
+	LpTokens            *string     `json:"lpTokens,omitempty"`
 	UsdValue            *float64    `json:"usdValue,omitempty"`
 	Q4w                 []*BlendQ4w `json:"q4w"`
 	EmissionsEarnedBlnd string      `json:"emissionsEarnedBlnd"`
@@ -203,11 +208,12 @@ type BlendPoolPosition struct {
 
 // BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
 // seconds). amount is in backstop shares; lpTokens/usdValue value those shares
-// through the same shares→LP→USD conversion as the position's totals.
+// through the same shares→LP→USD conversion as the position's totals, and go
+// null under the same unknown-rate condition as the position's lpTokens.
 type BlendQ4w struct {
 	Amount     string   `json:"amount"`
 	Expiration int64    `json:"expiration"`
-	LpTokens   string   `json:"lpTokens"`
+	LpTokens   *string  `json:"lpTokens,omitempty"`
 	UsdValue   *float64 `json:"usdValue,omitempty"`
 }
 
