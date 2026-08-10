@@ -25,12 +25,6 @@ SELECT enable_chunk_skipping('transactions', 'to_id');
 -- non-overlapping chunks at plan time.
 SELECT enable_chunk_skipping('transactions', 'ledger_number');
 
--- TimescaleDB's default single-column index on the partition column. Retention drops chunks by
--- range metadata, and no query path filters this table by bare ledger_created_at (reads go through
--- the primary key, idx_transactions_hash, or the transactions_accounts table), so it has zero
--- consumers.
-DROP INDEX IF EXISTS transactions_ledger_created_at_idx;
-
 CREATE INDEX idx_transactions_hash ON transactions(hash);
 
 -- Table: transactions_accounts (TimescaleDB hypertable for automatic cleanup with retention)

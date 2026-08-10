@@ -279,10 +279,19 @@ func (m *IngestStoreModel) GetLedgerGaps(ctx context.Context, startLedger, endLe
 	return ledgerGaps, nil
 }
 
+// GetOldestLedger returns the ledger_number of the oldest transaction still in the table, or 0
+// when it is empty. The hypertable's default partition-column index
+// (transactions_ledger_created_at_idx) gives every uncompressed chunk an ordered path, so the
+// planner serves this as an ordered ChunkAppend that opens the oldest chunk, takes one row and
+// stops instead of reading the first row of every chunk.
+// The sort key is ledger_created_at alone: stellar-core enforces strictly increasing ledger close
+// times, so every row sharing a ledger_created_at belongs to one ledger and carries the same
+// ledger_number. A to_id tie-break could not change the result, and would cost an incremental
+// sort on top of the index's pathkeys.
 func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) {
 	start := time.Now()
 	oldest, err := db.QueryOne[uint32](ctx, m.DB,
-		`SELECT ledger_number FROM transactions ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1`)
+		`SELECT ledger_number FROM transactions ORDER BY ledger_created_at ASC LIMIT 1`)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetOldestLedger", "transactions").Observe(duration)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
