@@ -218,6 +218,55 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job")
 	})
 
+	t.Run("reconciliation_job_advances_cursor_to_oldest_ledger", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		// One transaction per chunk, inserted out of ledger order, so the lookup inside
+		// reconcile_oldest_cursor has to order across chunks rather than take the first
+		// row it reaches.
+		for _, tx := range []struct {
+			toID         int64
+			ledgerNumber int32
+			createdAt    string
+		}{
+			{toID: 2, ledgerNumber: 150, createdAt: "2026-01-05T00:00:00Z"},
+			{toID: 3, ledgerNumber: 200, createdAt: "2026-01-09T00:00:00Z"},
+			{toID: 1, ledgerNumber: 100, createdAt: "2026-01-01T00:00:00Z"},
+		} {
+			_, err = dbConnectionPool.Exec(ctx,
+				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+				 VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, $4::timestamptz)`,
+				[]byte{byte(tx.toID)}, tx.toID, tx.ledgerNumber, tx.createdAt)
+			require.NoError(t, err)
+		}
+
+		_, err = dbConnectionPool.Exec(ctx,
+			`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', '50')`)
+		require.NoError(t, err)
+
+		jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+
+		// run_job invokes the job exactly as the background scheduler does.
+		_, err = dbConnectionPool.Exec(ctx, "CALL run_job($1)", jobID)
+		require.NoError(t, err)
+
+		cursor, err := db.QueryOne[string](ctx, dbConnectionPool,
+			`SELECT value FROM ingest_store WHERE key = 'oldest_ledger_cursor'`)
+		require.NoError(t, err)
+		assert.Equal(t, "100", cursor, "cursor should advance to the ledger of the oldest transaction")
+	})
+
 	t.Run("reconciliation_job_idempotent", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
