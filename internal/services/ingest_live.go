@@ -15,6 +15,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -431,23 +432,47 @@ func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
 	return float64(backendTip - latestIngested), true
 }
 
-// ingestLiveLedgers continuously processes ledgers starting from startLedger,
-// updating cursors and metrics after each successful ledger. checkLockSession
-// is called once per ledger to verify the advisory-lock-holding Postgres
-// session is still alive (see startLiveIngestion): a CNPG failover can kill
-// that session server-side without this process observing the disconnect, so
-// the lock is silently released while this loop keeps writing through other
-// pool connections. Failing this probe is treated as fatal so the process
-// exits and can re-acquire the lock cleanly on restart, rather than racing a
-// second instance that acquired it in the meantime.
-func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32, checkLockSession func(ctx context.Context) error) error {
-	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+// fetchedLedger is the fetch→process handoff: one ledger's raw close meta.
+type fetchedLedger struct {
+	seq  uint32
+	meta xdr.LedgerCloseMeta
+}
 
-	// Refresh the lag gauge off the consumer goroutine. GetLatestLedgerSequence contends on the
+// processedLedger is the process→persist handoff. transactions are the
+// materialized transactions from the staging pass, reused by the persist
+// stage for ContractData extraction. processDuration rides along so the
+// per-ledger Duration metric can sum the ledger's stage times instead of
+// counting the time it sat queued between stages.
+type processedLedger struct {
+	seq             uint32
+	meta            xdr.LedgerCloseMeta
+	transactions    []ingest.LedgerTransaction
+	buffer          *indexer.IndexerBuffer
+	processDuration time.Duration
+}
+
+// ingestLiveLedgers runs live ingestion as a three-stage pipeline — fetch ‖
+// process ‖ persist — over consecutive ledgers, connected by depth-1
+// channels: while ledger N persists, N+1 processes and N+2 is fetched. The
+// ledger time is therefore the slowest stage, not the sum of stages. Persist
+// is strictly sequential in ledger order (the guarded cursor and the
+// per-protocol CAS chain both advance N-1 → N), and any stage error cancels
+// the whole pipeline and returns: the process exits and re-acquires the
+// advisory lock cleanly on restart, resuming from the cursor.
+//
+// checkLockSession is probed before every persist to verify the
+// advisory-lock-holding Postgres session is still alive (see
+// startLiveIngestion): a CNPG failover can kill that session server-side
+// without this process observing the disconnect, silently releasing the lock
+// while writes keep flowing through other pool connections. Probing on the
+// persist stage — the only stage that writes — is what makes that safe.
+func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32, checkLockSession func(ctx context.Context) error) error {
+	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", startLedger)
+
+	// Refresh the lag gauge off the pipeline goroutines. GetLatestLedgerSequence contends on the
 	// datastore buffer's internal lock, which a download worker can hold while blocked on a full
-	// queue; calling it on this goroutine — the only one that drains that queue — would deadlock.
-	// A dedicated goroutine keeps the consumer draining, so the lock is always released promptly.
+	// queue; calling it on the goroutine that drains that queue would deadlock. A dedicated
+	// goroutine keeps the consumer draining, so the lock is always released promptly.
 	var latestIngested atomic.Uint32
 	latestIngested.Store(startLedger - 1)
 	lagCtx, cancelLag := context.WithCancel(ctx)
@@ -469,90 +494,178 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 	}()
 
-	// One buffer serves every ledger, cleared at the top of each iteration below. Reusing it keeps the
-	// asset-parse memo warm and the maps' backing arrays allocated across ledgers, the way backfill
-	// reuses its batch buffer. Nothing retains the buffer past an iteration — the persist retries run
-	// synchronously on this goroutine — so a single instance is safe.
-	buffer := indexer.NewIndexerBuffer()
+	g, gctx := errgroup.WithContext(ctx)
+	fetched := make(chan fetchedLedger, 1)
+	processed := make(chan processedLedger, 1)
 
+	// Two buffers rotate between the process and persist stages: process fills
+	// one while persist drains the other, and reuse keeps the asset-parse memo
+	// warm and the maps' backing arrays allocated across ledgers. Capacity 2
+	// means handing a buffer back never blocks.
+	freeBuffers := make(chan *indexer.IndexerBuffer, 2)
+	freeBuffers <- indexer.NewIndexerBuffer()
+	freeBuffers <- indexer.NewIndexerBuffer()
+
+	g.Go(func() error { return m.fetchLedgers(gctx, startLedger, fetched) })
+	g.Go(func() error { return m.processFetchedLedgers(gctx, fetched, freeBuffers, processed) })
+	g.Go(func() error {
+		return m.persistProcessedLedgers(gctx, processed, freeBuffers, checkLockSession, &latestIngested)
+	})
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("live ingestion pipeline: %w", err)
+	}
+	return nil
+}
+
+// fetchLedgers is the pipeline's fetch stage: it pulls consecutive ledgers
+// from the backend (with the transient-fetch retry ladder) and hands them to
+// the process stage.
+func (m *ingestService) fetchLedgers(ctx context.Context, startLedger uint32, fetched chan<- fetchedLedger) error {
+	defer close(fetched)
+	for seq := startLedger; ; seq++ {
+		fetchStart := time.Now()
+		ledgerMeta, err := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return m.ledgerBackend.GetLedger(ctx, seq)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					seq, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+			m.isPermanentFetchError,
+		)
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("fetching ledger %d: %w", seq, err)
+		}
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
+
+		select {
+		case fetched <- fetchedLedger{seq: seq, meta: ledgerMeta}:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+	}
+}
+
+// processFetchedLedgers is the pipeline's process stage: it stages each
+// fetched ledger into a rotating buffer and hands the result to the persist
+// stage.
+func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-chan fetchedLedger, freeBuffers <-chan *indexer.IndexerBuffer, processed chan<- processedLedger) error {
+	defer close(processed)
 	for {
+		var fl fetchedLedger
+		select {
+		case f, ok := <-fetched:
+			if !ok {
+				return nil
+			}
+			fl = f
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+
+		var buffer *indexer.IndexerBuffer
+		select {
+		case buffer = <-freeBuffers:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+		// Clear at take, not at hand-back: a buffer re-enters freeBuffers only
+		// once the persist stage is completely done with it, so clearing here
+		// can never tear a persist still reading the maps the buffer getters
+		// alias.
+		buffer.Clear()
+
+		processStart := time.Now()
+		transactions, err := m.processLedger(ctx, fl.meta, buffer)
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
+		}
+		processDuration := time.Since(processStart)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())
+
+		select {
+		case processed <- processedLedger{seq: fl.seq, meta: fl.meta, transactions: transactions, buffer: buffer, processDuration: processDuration}:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+	}
+}
+
+// persistProcessedLedgers is the pipeline's persist stage and the only stage
+// that writes to the database. It runs strictly sequentially in ledger order,
+// probes the advisory-lock session before each ledger, and returns each
+// buffer to the rotation once its ledger is fully persisted.
+func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <-chan processedLedger, freeBuffers chan<- *indexer.IndexerBuffer, checkLockSession func(ctx context.Context) error, latestIngested *atomic.Uint32) error {
+	for {
+		var pl processedLedger
+		select {
+		case p, ok := <-processed:
+			if !ok {
+				return nil
+			}
+			pl = p
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+
 		if probeErr := checkLockSession(ctx); probeErr != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
 		}
 
-		fetchStart := time.Now()
-		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
-			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
-				return m.ledgerBackend.GetLedger(ctx, currentLedger)
-			},
-			func(attempt int, err error, backoff time.Duration) {
-				m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
-				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-					currentLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
-			},
-			m.isPermanentFetchError,
-		)
-		if ledgerErr != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
-		}
-		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
-
-		totalStart := time.Now()
-		processStart := time.Now()
-		// Clearing here rather than after the persist keeps the reset unconditional: processLedger
-		// always starts from an empty buffer regardless of how the previous iteration ended.
-		buffer.Clear()
-		transactions, err := m.processLedger(ctx, ledgerMeta, buffer)
-		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
-		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
-
-		// Classification runs once here, entirely before any database
-		// transaction opens (RPC prefetch happens now, not while row locks are
-		// held), and the resulting plan is reused verbatim across every retry
-		// attempt below.
+		// Classification runs on this stage, not the process stage: its
+		// known-hash lookup is a non-transactional pool read of protocol_wasms
+		// whose correctness depends on the previous ledger's persist having
+		// committed — a contract deployed in ledger N+1 pointing at a wasm
+		// uploaded in N must see N's row. RPC prefetch still happens before
+		// any transaction opens, and the plan is reused verbatim across every
+		// retry attempt below.
 		classifyStart := time.Now()
-		plan, err := m.prepareClassificationPlan(ctx, buffer.GetProtocolWasms(), buffer.GetProtocolWasmBytecodes(), buffer.GetProtocolContracts())
+		plan, err := m.prepareClassificationPlan(ctx, pl.buffer.GetProtocolWasms(), pl.buffer.GetProtocolWasmBytecodes(), pl.buffer.GetProtocolContracts())
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("preparing classification plan for ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("preparing classification plan for ledger %d: %w", pl.seq, err)
 		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(time.Since(classifyStart).Seconds())
+		classifyDuration := time.Since(classifyStart)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(classifyDuration.Seconds())
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		if err := m.persistLedgerDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer); err != nil {
+		if err := m.persistLedgerDataWithRetry(ctx, pl.seq, pl.meta, plan, pl.transactions, pl.buffer); err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("persisting ledger %d: %w", pl.seq, err)
 		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(time.Since(dbStart).Seconds())
-		totalIngestionDuration := time.Since(totalStart).Seconds()
-		m.appMetrics.Ingestion.Duration.Observe(totalIngestionDuration)
-		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(buffer.GetNumberOfTransactions()))
-		m.appMetrics.Ingestion.OperationsTotal.Add(float64(buffer.GetNumberOfOperations()))
-		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
-		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
+		persistDuration := time.Since(dbStart)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
 
-		// Publish the just-ingested ledger for the lag updater goroutine started above.
-		latestIngested.Store(currentLedger)
+		ledgerDuration := pl.processDuration + classifyDuration + persistDuration
+		m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
+		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
+		m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
+		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
+		m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
+
+		// Publish the just-ingested ledger for the lag updater goroutine.
+		latestIngested.Store(pl.seq)
 
 		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
 		// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
 		// up a protocol-setup/migrate run that has initialized one since — see
 		// reprobeProtocolCursors).
-		if currentLedger%oldestLedgerSyncInterval == 0 {
+		if pl.seq%oldestLedgerSyncInterval == 0 {
 			if oldest, syncErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName); syncErr == nil {
 				m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
 			}
 			m.reprobeProtocolCursors(ctx)
 		}
 
-		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
-		currentLedger++
+		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", pl.seq, ledgerDuration.Seconds())
+
+		freeBuffers <- pl.buffer
 	}
 }
 
@@ -561,9 +674,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 // entry from missing to existing (see reprobeProtocolCursors) — a row
 // vanishing after having existed is the genuine incident casProtocolCursor's
 // error path handles, not something this snapshot demotes on its own. It is
-// read and mutated only from the single live-ingestion goroutine — including
-// retried persistLedgerData attempts, which run synchronously on it — so it
-// needs no locking.
+// read and mutated only from the pipeline's persist stage goroutine
+// (persistProcessedLedgers) — including retried persistLedgerData attempts,
+// which run synchronously on it — so it needs no locking.
 type protocolCursorSnapshot struct {
 	historyExists      map[string]bool
 	currentStateExists map[string]bool
