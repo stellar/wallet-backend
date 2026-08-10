@@ -275,7 +275,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:        cfg.IngestionMode,
 		Models:               models,
-		AppTracker:           cfg.AppTracker,
 		RPCService:           rpcService,
 		LedgerBackend:        ledgerBackend,
 		LedgerBackendFactory: ledgerBackendFactory,
@@ -285,7 +284,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
