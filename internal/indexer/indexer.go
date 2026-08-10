@@ -23,31 +23,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// IndexerBufferInterface is the buffer seam the indexer writes through and the
+// ingestion service's row inserts read through. Everything else the buffer
+// exposes is reached on the concrete *IndexerBuffer.
 type IndexerBufferInterface interface {
 	// IngestTransactionResult folds a worker's per-transaction result into the buffer.
 	IngestTransactionResult(result *TransactionResult)
-	GetTransactionsParticipants() map[int64]map[string]struct{}
-	GetOperationsParticipants() map[int64]map[string]struct{}
-	GetNumberOfTransactions() int
-	GetNumberOfOperations() int
 	GetTransactions() []*types.Transaction
+	GetTransactionsParticipants() map[int64]map[string]struct{}
 	GetOperations() []*types.Operation
+	GetOperationsParticipants() map[int64]map[string]struct{}
 	GetStateChanges() []types.StateChange
-	GetTrustlineChanges() map[TrustlineChangeKey]types.TrustlineChange
-	GetAccountChanges() map[string]types.AccountChange
-	GetSACBalanceChanges() map[SACBalanceChangeKey]types.SACBalanceChange
-	GetLiquidityPoolShareChanges() map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
-	GetLiquidityPoolChanges() map[string]types.LiquidityPoolChange
-	GetUniqueTrustlineAssets() []data.TrustlineAsset
-	GetSACContracts() map[string]*data.Contract
-	GetProtocolWasms() map[string]data.ProtocolWasms
-	// GetProtocolWasmBytecodes returns the wasmHash → bytecode map. The []byte values alias
-	// buffer-owned storage and MUST be treated as read-only; bytecode is content-addressed
-	// and immutable.
-	GetProtocolWasmBytecodes() map[string][]byte
-	GetProtocolContracts() map[string]data.ProtocolContracts
-	GetContractEvents() map[ContractEventKey][]xdr.ContractEvent
-	Clear()
 }
 
 type TokenTransferProcessorInterface interface {
