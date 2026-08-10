@@ -44,6 +44,7 @@ func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
 		}, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
+	assert.ErrorIs(t, err, ErrRetriesExhausted)
 	assert.Contains(t, err.Error(), "failed after 3 attempts")
 	assert.Equal(t, 3, attempts)
 }
@@ -58,6 +59,8 @@ func TestRetryWithBackoff_RespectsContextCancellation(t *testing.T) {
 		}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context cancelled")
+	assert.NotErrorIs(t, err, ErrRetriesExhausted,
+		"a cancelled context exits early — attempts were never exhausted")
 }
 
 func TestRetryWithBackoff_CallsOnRetry(t *testing.T) {
@@ -111,6 +114,8 @@ func TestRetryWithBackoff_StopsOnPermanentError(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
+	assert.NotErrorIs(t, err, ErrRetriesExhausted,
+		"a permanent error exits early — attempts were never exhausted")
 	assert.Contains(t, err.Error(), "permanent error on attempt 1")
 	assert.Equal(t, 1, attempts, "a permanent error must not be retried")
 	assert.Equal(t, 0, onRetryCalls, "onRetry must not fire for a permanent error")
