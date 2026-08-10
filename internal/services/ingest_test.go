@@ -1514,8 +1514,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		"latest cursor should remain unchanged when all batches fail")
 }
 
-// Test_ingestProcessedDataWithRetry tests the ingestProcessedDataWithRetry function covering success, failure, and retry scenarios.
-func Test_ingestProcessedDataWithRetry(t *testing.T) {
+// Test_persistLedgerDataWithRetry tests the persistLedgerDataWithRetry function covering success, failure, and retry scenarios.
+func Test_persistLedgerDataWithRetry(t *testing.T) {
 	t.Run("success - processes data and updates cursor", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -1578,9 +1578,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should succeed
+		// Call persistLedgerDataWithRetry - should succeed
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
 
 		// Verify success
 		require.NoError(t, err)
@@ -1657,9 +1657,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should fail after retries due to DB error
+		// Call persistLedgerDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -1745,9 +1745,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should succeed after retry
+		// Call persistLedgerDataWithRetry - should succeed after retry
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
 
 		// Verify success after retry
 		require.NoError(t, err)

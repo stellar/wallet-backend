@@ -37,7 +37,7 @@ const (
 // contractDataMemo lazily extracts ContractData changes from a ledger's
 // already-materialized transactions (from the processLedger staging pass) and
 // memoizes the result. Extraction is pure over (transactions, ledgerSeq), so
-// one memo shared across ingestProcessedDataWithRetry's attempts means the
+// one memo shared across persistLedgerDataWithRetry's attempts means the
 // extraction walk runs at most once per ledger — never inside a retried
 // attempt's open transaction — and only when a CAS-winning processor
 // requires it, so a protocol still backfilling costs nothing extra.
@@ -73,7 +73,7 @@ func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
 // data insertion, token changes, and cursor update. plan is this ledger's
 // classification plan, computed by prepareClassificationPlan before any
 // transaction opens (RPC calls already resolved); pass the same plan across
-// ingestProcessedDataWithRetry's retry attempts so a retry never re-issues
+// persistLedgerDataWithRetry's retry attempts so a retry never re-issues
 // RPC calls. plan may be nil when there was nothing to classify this ledger.
 // contractData carries the ledger's ContractData extraction memo; like plan,
 // the same memo is shared across retry attempts so a retry never re-runs the
@@ -315,7 +315,7 @@ func (m *ingestService) stageAndPersistProtocolLedger(
 		StagingMode:         StagingModeBoth,
 		ContractDataChanges: contractDataChanges,
 	}
-	// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
+	// Reset before staging so a retried transaction (persistLedgerDataWithRetry)
 	// re-stages cleanly; the processor is long-lived and accumulates across
 	// ProcessLedger calls.
 	processor.Reset()
@@ -761,7 +761,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		if err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer); err != nil {
+		if err := m.persistLedgerDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer); err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
@@ -954,13 +954,14 @@ func getEffectiveProtocolContracts(
 	return out
 }
 
-// ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
-// plan was computed once by the caller before this loop started and is reused
+// persistLedgerDataWithRetry wraps persistLedgerData with retry logic.
+// plan was computed once by the caller before this call and is reused
 // verbatim across every attempt, so a retried attempt never re-issues the
 // classification RPC calls plan already resolved. The ContractData extraction
-// memo is likewise shared across attempts, so a retry never re-runs the
-// extraction walk over the ledger's transactions.
-func (m *ingestService) ingestProcessedDataWithRetry(
+// memo is built here, outside the retried function, so it too is shared across
+// attempts and a retry never re-runs the extraction walk over the ledger's
+// transactions.
+func (m *ingestService) persistLedgerDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
@@ -969,44 +970,31 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 	buffer *indexer.IndexerBuffer,
 ) error {
 	contractData := newContractDataMemo(transactions, currentLedger)
-	var lastErr error
-	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled: %w", ctx.Err())
-		default:
-		}
-
-		err := m.persistLedgerData(ctx, currentLedger, ledgerMeta, plan, contractData, buffer)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-		if isPermanentPersistError(err) {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-			return fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
-		}
-		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
-		if attempt == maxIngestProcessedDataRetries-1 {
-			break
-		}
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxIngestProcessedDataRetryBackoff {
-			backoff = maxIngestProcessedDataRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error ingesting data for ledger %d (attempt %d/%d): %v, retrying in %v...",
-			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
+	_, err := utils.RetryWithBackoff(ctx, maxIngestProcessedDataRetries, maxIngestProcessedDataRetryBackoff,
+		func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, m.persistLedgerData(ctx, currentLedger, ledgerMeta, plan, contractData, buffer)
+		},
+		func(attempt int, err error, backoff time.Duration) {
+			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
+			log.Ctx(ctx).Warnf("Error ingesting data for ledger %d (attempt %d/%d): %v, retrying in %v...",
+				currentLedger, attempt+1, maxIngestProcessedDataRetries, err, backoff)
+		},
+		isPermanentPersistError,
+	)
+	if err == nil {
+		return nil
 	}
-	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
-	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-	return fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
+	switch {
+	case errors.Is(err, utils.ErrRetriesExhausted):
+		m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
+	case isPermanentPersistError(err):
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
+		return fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
+	}
+	// The remaining exit is context cancellation — a shutdown, not an ingestion fault, so it
+	// counts against neither counter.
+	return fmt.Errorf("ingesting processed data for ledger %d: %w", currentLedger, err)
 }
 
 // isPermanentPersistError classifies a persistLedgerData failure using its PostgreSQL SQLSTATE,
