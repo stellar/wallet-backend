@@ -52,15 +52,11 @@ func newContractDataMemo(transactions []ingest.LedgerTransaction, ledgerSeq uint
 	return &contractDataMemo{transactions: transactions, ledgerSeq: ledgerSeq}
 }
 
-// get returns the memoized extraction, running it on first use. A nil
-// receiver yields an empty result — callers with no materialized
-// transactions pass a nil memo, and a RequiresContractData processor must
-// still receive a non-nil (empty) ContractDataChanges map, same as an
-// extraction over zero transactions produces.
+// get returns the memoized extraction, running it on first use. The result is
+// always non-nil, including over zero transactions, because a
+// RequiresContractData processor must receive a ContractDataChanges map it can
+// range over unconditionally.
 func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
-	if c == nil {
-		return map[string][]ingest.Change{}, nil
-	}
 	if !c.extracted {
 		changes, err := indexer.ExtractContractDataChangesFromTransactions(c.transactions, c.ledgerSeq)
 		if err != nil {
@@ -81,18 +77,15 @@ func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
 // RPC calls. plan may be nil when there was nothing to classify this ledger.
 // contractData carries the ledger's ContractData extraction memo; like plan,
 // the same memo is shared across retry attempts so a retry never re-runs the
-// extraction walk. It is nil exactly when ledgerMeta is.
+// extraction walk.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
-	ledgerMeta *xdr.LedgerCloseMeta,
+	ledgerMeta xdr.LedgerCloseMeta,
 	plan *ClassificationPlan,
 	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
-	cursorName string,
-) (int, int, error) {
-	var numTxs, numOps int
-
+) error {
 	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
 		uniqueAssets := buffer.GetUniqueTrustlineAssets()
@@ -114,7 +107,7 @@ func (m *ingestService) persistLedgerData(
 			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 		}
 
-		// 2.5: Apply protocol classification (black-box per protocol). plan was
+		// 3. Apply protocol classification (black-box per protocol). plan was
 		// computed by prepareClassificationPlan before this transaction opened,
 		// so any RPC calls (e.g. SEP-41 metadata) already happened;
 		// ApplyClassificationPlan only performs each validator's DB writes
@@ -159,12 +152,12 @@ func (m *ingestService) persistLedgerData(
 			}
 		}
 
-		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
+		// 4. Per-protocol CAS-gated state production. The compare-and-swap on each
 		// protocol cursor is the authoritative gate — exactly one of live ingestion or
 		// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
 		// run only for cursors that win the swap, so a protocol still backfilling (its
 		// cursor behind tip) costs a single CAS and a continue.
-		if ledgerMeta != nil && ledgerSeq != 0 && len(m.protocolProcessors) > 0 {
+		if len(m.protocolProcessors) > 0 {
 			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 			contractEvents := buffer.GetContractEvents()
 			expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
@@ -240,13 +233,12 @@ func (m *ingestService) persistLedgerData(
 			}
 		}
 
-		// 3. Insert transactions/operations/state_changes
-		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
-		if txErr != nil {
+		// 5. Insert transactions/operations/state_changes
+		if txErr = m.insertIntoDB(ctx, dbTx, buffer); txErr != nil {
 			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		// 4. Process token changes (trustline add/remove/update, native balance, SAC balance)
+		// 6. Process token changes (trustline add/remove/update, native balance, SAC balance)
 		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
 			buffer.GetTrustlineChanges(),
 			buffer.GetAccountChanges(),
@@ -257,26 +249,21 @@ func (m *ingestService) persistLedgerData(
 			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
 		}
 
-		// 6. Update the specified cursor. The live latest-ledger cursor is guarded: a session
-		// that silently lost its advisory lock (server-side failover, see startLiveIngestion's
+		// 7. Advance the latest-ledger cursor. The update is guarded: a session that
+		// silently lost its advisory lock (server-side failover, see startLiveIngestion's
 		// checkLockSession) must not blindly overwrite a value a second instance already
-		// advanced, or the cursor could regress. All other cursors keep the plain blind
-		// upsert — only one process ever owns them by construction.
-		if cursorName == data.LatestLedgerCursorName {
-			if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
-			}
-		} else if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
+		// advanced, or the cursor could regress.
+		if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, data.LatestLedgerCursorName, ledgerSeq); txErr != nil {
 			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 		}
 
 		return nil
 	})
 	if err != nil {
-		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
+		return fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
 	}
 
-	return numTxs, numOps, nil
+	return nil
 }
 
 // stageAndPersistProtocolLedger runs the CAS-winning path for one protocol at
@@ -774,16 +761,15 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer)
-		if err != nil {
+		if err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer); err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
 		}
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(time.Since(dbStart).Seconds())
 		totalIngestionDuration := time.Since(totalStart).Seconds()
 		m.appMetrics.Ingestion.Duration.Observe(totalIngestionDuration)
-		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(numTransactionProcessed))
-		m.appMetrics.Ingestion.OperationsTotal.Add(float64(numOperationProcessed))
+		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(buffer.GetNumberOfTransactions()))
+		m.appMetrics.Ingestion.OperationsTotal.Add(float64(buffer.GetNumberOfOperations()))
 		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
 
@@ -981,24 +967,24 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 	plan *ClassificationPlan,
 	transactions []ingest.LedgerTransaction,
 	buffer *indexer.IndexerBuffer,
-) (int, int, error) {
+) error {
 	contractData := newContractDataMemo(transactions, currentLedger)
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
 		case <-ctx.Done():
-			return 0, 0, fmt.Errorf("context cancelled: %w", ctx.Err())
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, contractData, buffer, data.LatestLedgerCursorName)
+		err := m.persistLedgerData(ctx, currentLedger, ledgerMeta, plan, contractData, buffer)
 		if err == nil {
-			return numTxs, numOps, nil
+			return nil
 		}
 		lastErr = err
 		if isPermanentPersistError(err) {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-			return 0, 0, fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
+			return fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
 		}
 		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
 		if attempt == maxIngestProcessedDataRetries-1 {
@@ -1014,13 +1000,13 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 
 		select {
 		case <-ctx.Done():
-			return 0, 0, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
+			return fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
 		case <-time.After(backoff):
 		}
 	}
 	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
 	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
+	return fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
 }
 
 // isPermanentPersistError classifies a persistLedgerData failure using its PostgreSQL SQLSTATE,
