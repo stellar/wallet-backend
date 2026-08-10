@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -40,8 +39,6 @@ var (
 )
 
 const (
-	defaultGetLedgersLimit = 50
-
 	// Test hash constants for ingest tests (64-char hex strings for BYTEA storage)
 	flushTxHash1 = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f101"
 	flushTxHash2 = "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f202"
@@ -361,7 +358,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 			mockLedgerBackend := &LedgerBackendMock{}
@@ -370,11 +366,9 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &mockAppTracker,
 				RPCService:        &mockRPCService,
 				LedgerBackend:     mockLedgerBackend,
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           mockArchive,
@@ -467,7 +461,6 @@ func Test_startBackfilling_Validation(t *testing.T) {
 			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
-			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 			mockLedgerBackend := &LedgerBackendMock{}
@@ -482,12 +475,10 @@ func Test_startBackfilling_Validation(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &mockAppTracker,
 				RPCService:           &mockRPCService,
 				LedgerBackend:        mockLedgerBackend,
 				LedgerBackendFactory: mockBackendFactory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              mockArchive,
@@ -687,12 +678,10 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: tc.setupFactory(),
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -763,11 +752,9 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -830,11 +817,9 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeLive,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -891,11 +876,9 @@ func Test_ingestService_Run(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     tc.mode,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -1029,11 +1012,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -1185,12 +1166,10 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: factory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -1321,12 +1300,10 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: factory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -1417,12 +1394,10 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
-		AppTracker:                &apptracker.MockAppTracker{},
 		RPCService:                mockRPCService,
 		LedgerBackend:             &LedgerBackendMock{},
 		LedgerBackendFactory:      factory,
 		Metrics:                   m,
-		GetLedgersLimit:           defaultGetLedgersLimit,
 		Network:                   network.TestNetworkPassphrase,
 		NetworkPassphrase:         network.TestNetworkPassphrase,
 		Archive:                   &HistoryArchiveMock{},
@@ -1499,12 +1474,10 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:        IngestionModeBackfill,
 		Models:               models,
-		AppTracker:           &apptracker.MockAppTracker{},
 		RPCService:           mockRPCService,
 		LedgerBackend:        &LedgerBackendMock{},
 		LedgerBackendFactory: factory,
 		Metrics:              m,
-		GetLedgersLimit:      defaultGetLedgersLimit,
 		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
@@ -1574,12 +1547,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1654,12 +1625,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1743,12 +1712,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1821,12 +1788,10 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:        IngestionModeBackfill,
 		Models:               models,
-		AppTracker:           &apptracker.MockAppTracker{},
 		RPCService:           mockRPCService,
 		LedgerBackend:        &LedgerBackendMock{},
 		LedgerBackendFactory: factory,
 		Metrics:              m,
-		GetLedgersLimit:      defaultGetLedgersLimit,
 		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
@@ -1944,12 +1909,10 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            &RPCServiceMock{},
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -2670,12 +2633,10 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            &RPCServiceMock{},
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -2856,12 +2817,10 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:         IngestionModeLive,
 		Models:                models,
-		AppTracker:            &apptracker.MockAppTracker{},
 		RPCService:            &RPCServiceMock{},
 		LedgerBackend:         mockBackend,
 		TokenIngestionService: mockTokenIngestionService,
 		Metrics:               m,
-		GetLedgersLimit:       defaultGetLedgersLimit,
 		Network:               network.TestNetworkPassphrase,
 		NetworkPassphrase:     network.TestNetworkPassphrase,
 		Archive:               &HistoryArchiveMock{},
@@ -2922,11 +2881,9 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:     IngestionModeLive,
 		Models:            models,
-		AppTracker:        &apptracker.MockAppTracker{},
 		RPCService:        &RPCServiceMock{},
 		LedgerBackend:     mockBackend,
 		Metrics:           m,
-		GetLedgersLimit:   defaultGetLedgersLimit,
 		Network:           network.TestNetworkPassphrase,
 		NetworkPassphrase: network.TestNetworkPassphrase,
 		Archive:           &HistoryArchiveMock{},
