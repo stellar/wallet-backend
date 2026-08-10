@@ -34,9 +34,12 @@ type DBMetrics struct {
 func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 	m := &DBMetrics{
 		QueryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_db_query_duration_seconds",
-			Help:    "Duration of database queries.",
-			Buckets: prometheus.ExponentialBuckets(0.0001, 2.5, 10),
+			Name: "wallet_db_query_duration_seconds",
+			Help: "Duration of database queries.",
+			// 0.1ms .. ~17.7s: the top buckets must cover multi-second bulk
+			// COPYs (transactions/operations/state_changes at high tx volume),
+			// or histogram_quantile clips every bulk write into +Inf.
+			Buckets: prometheus.ExponentialBuckets(0.0001, 3, 12),
 		}, []string{"query_type", "table"}),
 		QueriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_db_queries_total",
