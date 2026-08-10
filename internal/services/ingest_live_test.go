@@ -144,6 +144,12 @@ func Test_isPermanentPersistError(t *testing.T) {
 			err:           pgErrWithCode("57014"),
 			wantPermanent: false,
 		},
+		{name: "partial_persist_is_permanent", err: ErrPartialPersist, wantPermanent: true},
+		{
+			name:          "wrapped_partial_persist_is_permanent",
+			err:           fmt.Errorf("committing operations for ledger 100: %w: connection reset", ErrPartialPersist),
+			wantPermanent: true,
+		},
 	}
 
 	for _, tc := range testCases {
