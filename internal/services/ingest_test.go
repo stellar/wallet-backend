@@ -2868,10 +2868,10 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 // Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally is a regression test for
 // ING-05: a CNPG failover can kill the Postgres session holding the advisory lock without this
 // process observing the disconnect, silently releasing the lock while pgxpool never destroys the
-// (now server-dead) pooled connection. checkLockSession must be probed every ledger and, on
+// (now server-dead) pooled connection. checkLockSession is probed before every persist and, on
 // failure, ingestLiveLedgers must return immediately — not after exhausting the ledger-fetch
-// retry ladder (maxLedgerFetchRetries attempts, up to ~2.5 minutes) — so the process can exit and
-// re-acquire the lock cleanly on restart.
+// retry ladder (maxLedgerFetchRetries attempts, up to ~2.5 minutes) — and without having advanced
+// the cursor, so the process can exit and re-acquire the lock cleanly on restart.
 func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -2888,9 +2888,11 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	models, err := data.NewModels(pool, m.DB)
 	require.NoError(t, err)
 
-	// GetLedger must never be reached: the liveness probe is checked at the top of the loop,
-	// before any ledger fetch.
+	// The fetch stage legitimately runs ahead of the persist-stage probe, so ledgers may be
+	// fetched and processed; the probe must still stop the pipeline before anything is written.
 	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(dummyLedgerMeta(1), nil).Maybe()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).Return(uint32(0), context.Canceled).Maybe()
 
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:          IngestionModeLive,
@@ -2915,5 +2917,86 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	require.Error(t, runErr)
 	assert.ErrorIs(t, runErr, sessionDeadErr)
 	assert.Less(t, elapsed, time.Second, "a dead lock session must fail fast, not after the ledger-fetch retry ladder")
-	mockBackend.AssertNotCalled(t, "GetLedger", mock.Anything, mock.Anything)
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(startLedger-1), 10), cursor,
+		"a failed lock probe must not let any ledger persist")
+}
+
+// Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline pins the pipeline's fail-fast
+// contract: a permanent fetch error cancels every stage and ingestLiveLedgers returns it, with
+// the cursor resting on the last fully persisted ledger so a restart resumes exactly there.
+func Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const startLedger = uint32(51)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTokenChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	cursorReached := func(target uint32) bool {
+		var s string
+		if qErr := pool.QueryRow(context.Background(),
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s); qErr != nil {
+			return false
+		}
+		v, parseErr := strconv.ParseUint(s, 10, 32)
+		return parseErr == nil && uint32(v) >= target
+	}
+
+	permanentFetchErr := fmt.Errorf("ledger source is permanently gone")
+	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, startLedger).Return(dummyLedgerMeta(1), nil).Once()
+	mockBackend.On("GetLedger", mock.Anything, startLedger+1).Return(dummyLedgerMeta(1), nil).Once()
+	// The failing fetch waits for ledger startLedger+1 to be fully persisted first, so the
+	// pipeline's final state is deterministic: without this, the cancellation could beat the
+	// in-flight persists and the cursor could rest on any of the earlier ledgers.
+	mockBackend.On("GetLedger", mock.Anything, startLedger+2).Run(func(mock.Arguments) {
+		for i := 0; i < 500 && !cursorReached(startLedger+1); i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}).Return(xdr.LedgerCloseMeta{}, permanentFetchErr).Once()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).Return(uint32(0), context.Canceled).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeLive,
+		Models:                 models,
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          mockBackend,
+		TokenIngestionService:  mockTokenIngestionService,
+		Metrics:                m,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+		IsPermanentFetchError:  func(err error) bool { return errors.Is(err, permanentFetchErr) },
+	})
+	require.NoError(t, err)
+
+	noopCheckLockSession := func(context.Context) error { return nil }
+	runErr := svc.ingestLiveLedgers(ctx, startLedger, noopCheckLockSession)
+
+	require.Error(t, runErr)
+	assert.ErrorIs(t, runErr, permanentFetchErr)
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(startLedger+1), 10), cursor,
+		"the cursor must rest on the last fully persisted ledger")
 }
