@@ -2984,3 +2984,73 @@ func Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline(t *testing.T) 
 	assert.Equal(t, strconv.FormatUint(uint64(startLedger+1), 10), cursor,
 		"the cursor must rest on the last fully persisted ledger")
 }
+
+// Test_persistLedgerData_SiblingFailureRollsBackEverything pins the commit barrier's pre-commit
+// contract: when one sibling COPY fails (here: a primary-key collision on transactions), no
+// sibling and no coordinated write may be durable — commits are held until every stream
+// succeeds, so a pre-commit failure leaves the database exactly as it was and the ledger fully
+// retryable.
+func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const ledgerSeq = uint32(100)
+	setupDBCursors(t, ctx, pool, ledgerSeq-1, ledgerSeq-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTokenChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         &LedgerBackendMock{},
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+	ingestSvc := svc
+
+	tx := createTestTransaction("collision-hash", 100)
+	op := createTestOperation(101)
+	buffer := indexer.NewIndexerBuffer()
+	buffer.PushTransaction(testAddr1, &tx)
+	buffer.PushOperation(testAddr1, &op, &tx)
+
+	// Pre-insert a row with the transaction's exact primary key (to_id, ledger_created_at) so
+	// the transactions sibling's COPY fails after the other siblings have streamed their rows.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		 VALUES ($1, $2, 1, 'TransactionResultCodeTxSuccess', $3, $4)`,
+		[]byte("preexisting-hash"), tx.ToID, ledgerSeq, tx.LedgerCreatedAt)
+	require.NoError(t, err)
+
+	err = ingestSvc.persistLedgerData(ctx, ledgerSeq, dummyLedgerMeta(1), nil, newContractDataMemo(nil, ledgerSeq), buffer)
+	require.Error(t, err)
+
+	var txCount, opCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txCount))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM operations`).Scan(&opCount))
+	assert.Equal(t, 1, txCount, "only the pre-existing row may remain — the failed COPY must not be durable")
+	assert.Equal(t, 0, opCount, "the operations sibling streamed successfully but must not have committed")
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(ledgerSeq-1), 10), cursor,
+		"the coordinating transaction (and its cursor update) must roll back with the siblings")
+}
