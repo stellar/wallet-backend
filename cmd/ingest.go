@@ -21,7 +21,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 	var sentryDSN string
 	var stellarEnvironment string
 	var ledgerBackendType string
-	var deprecatedLatestLedgerCursorName string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
@@ -44,14 +43,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.IngestionMode,
 			FlagDefault: services.IngestionModeLive,
 			Required:    true,
-		},
-		{
-			Name:        "latest-ledger-cursor-name",
-			Usage:       "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded and no longer configurable.",
-			OptType:     types.String,
-			ConfigKey:   &deprecatedLatestLedgerCursorName,
-			FlagDefault: "",
-			Required:    false,
 		},
 		{
 			Name:        "backfill-workers",
@@ -155,10 +146,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			}
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
-			}
-
-			if deprecatedLatestLedgerCursorName != "" {
-				log.Warnf("--latest-ledger-cursor-name (LATEST_LEDGER_CURSOR_NAME) is deprecated and ignored; the cursor name is now hard-coded.")
 			}
 
 			// Convert ledger backend type string to typed value
