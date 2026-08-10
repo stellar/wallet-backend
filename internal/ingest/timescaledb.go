@@ -214,7 +214,7 @@ func configureReconciliationJob(ctx context.Context, pool *pgxpool.Pool, retenti
 			stored    INTEGER;
 		BEGIN
 			SELECT ledger_number INTO actual_min FROM transactions
-				ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1;
+				ORDER BY ledger_created_at ASC LIMIT 1;
 			IF actual_min IS NULL THEN RETURN; END IF;
 			SELECT value::integer INTO stored FROM ingest_store WHERE key = config->>'cursor_name';
 			IF stored IS NULL OR actual_min <= stored THEN RETURN; END IF;
@@ -231,9 +231,10 @@ func configureReconciliationJob(ctx context.Context, pool *pgxpool.Pool, retenti
 	).Scan(&jobID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Runs every 1 hour: cheap enough (oldest chunk metadata + 1 row from
-		// ingest_store) to not need coordination with the retention job's own
-		// schedule, and idempotent — a no-op once the cursor is already correct.
+		// Runs every 1 hour: cheap enough (an ordered ChunkAppend LIMIT 1 backed by the
+		// hypertable's partition-column index, plus 1 row from ingest_store) to not need
+		// coordination with the retention job's own schedule, and idempotent — a no-op
+		// once the cursor is already correct.
 		if _, err = pool.Exec(ctx, `
 			SELECT add_job(
 				'reconcile_oldest_cursor',
