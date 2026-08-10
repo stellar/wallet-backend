@@ -130,6 +130,12 @@ func Test_isPermanentPersistError(t *testing.T) {
 			err:           fmt.Errorf("persisting ledger data for ledger 100: comparing and swapping protocol cursor blend: %w", data.ErrCASCursorMissing),
 			wantPermanent: true,
 		},
+		{name: "partial_persist_is_permanent", err: ErrPartialPersist, wantPermanent: true},
+		{
+			name:          "wrapped_partial_persist_is_permanent",
+			err:           fmt.Errorf("committing operations for ledger 100: %w: connection reset", ErrPartialPersist),
+			wantPermanent: true,
+		},
 	}
 
 	for _, tc := range testCases {
