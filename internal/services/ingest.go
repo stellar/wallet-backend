@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -16,7 +15,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -49,7 +47,6 @@ type IngestServiceConfig struct {
 	// === Core ===
 	IngestionMode string
 	Models        *data.Models
-	AppTracker    apptracker.AppTracker
 	Metrics       *metrics.Metrics
 
 	// === Stellar Network ===
@@ -87,9 +84,6 @@ type IngestServiceConfig struct {
 	// dispatcher uses it to extract spec entries from candidate wasm bytecode.
 	WasmSpecExtractor WasmSpecExtractor
 
-	// === Processing Options ===
-	GetLedgersLimit int
-
 	// === Backfill Tuning ===
 	BackfillWorkers           int
 	BackfillBatchSize         int
@@ -116,7 +110,6 @@ type ingestService struct {
 	ingestionMode             string
 	models                    *data.Models
 	advisoryLockID            int
-	appTracker                apptracker.AppTracker
 	rpcService                RPCService
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
@@ -125,14 +118,12 @@ type ingestService struct {
 	checkpointService         CheckpointService
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
-	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
 	ledgerIndexerPool         pond.Pool
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
-	knownContractIDs          set.Set[string]
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
@@ -184,7 +175,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
 		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
@@ -193,7 +183,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		checkpointService:         cfg.CheckpointService,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
 		ledgerIndexer:             ledgerIndexer,
 		ledgerIndexerPool:         ledgerIndexerPool,
 		protocolValidators:        cfg.ProtocolValidators,
@@ -202,7 +191,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		knownContractIDs:          set.NewSet[string](),
 		protocolProcessors:        ppMap,
 		protocolCursors: &protocolCursorSnapshot{
 			historyExists:      make(map[string]bool, len(ppMap)),

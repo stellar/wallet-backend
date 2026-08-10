@@ -103,8 +103,6 @@ type Indexer struct {
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
-	ingestionMetrics           *metrics.IngestionMetrics
-	networkPassphrase          string
 }
 
 // NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
@@ -134,9 +132,7 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
 			contract_processors.NewSACEventsProcessor(networkPassphrase, ingestionMetrics),
 		},
-		pool:              pool,
-		ingestionMetrics:  ingestionMetrics,
-		networkPassphrase: networkPassphrase,
+		pool: pool,
 	}
 	if err := validateStateChangeSubBases(indexer.processors); err != nil {
 		return nil, fmt.Errorf("validating state_change_id sub-bases: %w", err)

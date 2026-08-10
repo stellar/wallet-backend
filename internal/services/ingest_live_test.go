@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -59,12 +58,10 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:     IngestionModeLive,
 		Models:            models,
-		AppTracker:        &apptracker.MockAppTracker{},
 		RPCService:        &RPCServiceMock{},
 		LedgerBackend:     mockBackend,
 		CheckpointService: checkpointMock,
 		Metrics:           m,
-		GetLedgersLimit:   defaultGetLedgersLimit,
 		Network:           testNetwork,
 		NetworkPassphrase: network.TestNetworkPassphrase,
 		Archive:           &HistoryArchiveMock{},
