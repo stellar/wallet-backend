@@ -2,9 +2,19 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrRetriesExhausted marks a RetryWithBackoff failure as exhaustion: every one
+// of maxRetries attempts ran and the last still failed. The returned error wraps
+// both this sentinel and the final underlying error, so callers can tell
+// exhaustion apart from the other two failure exits — a permanent error (match
+// it with the same classifier passed as isPermanent) and context cancellation
+// (errors.Is against context.Canceled/DeadlineExceeded) — which usually warrant
+// different metrics and log levels.
+var ErrRetriesExhausted = errors.New("retries exhausted")
 
 // RetryWithBackoff calls fn up to maxRetries times with exponential backoff
 // capped at maxBackoff. It respects context cancellation between attempts.
@@ -69,5 +79,5 @@ func RetryWithBackoff[T any](
 		case <-time.After(backoff):
 		}
 	}
-	return zero, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+	return zero, fmt.Errorf("%w: failed after %d attempts: %w", ErrRetriesExhausted, maxRetries, lastErr)
 }
