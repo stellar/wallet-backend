@@ -256,7 +256,7 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 }
 
 // insertIntoDB persists the processed data from the buffer to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) error {
 	txs := buffer.GetTransactions()
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
@@ -264,16 +264,16 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	stateChanges := buffer.GetStateChanges()
 
 	if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
-		return 0, 0, err
+		return err
 	}
 	if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
-		return 0, 0, err
+		return err
 	}
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
-		return 0, 0, err
+		return err
 	}
 	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
-	return len(txs), len(ops), nil
+	return nil
 }
 
 // insertTransactions batch inserts transactions with their participants into the database.
