@@ -21,8 +21,8 @@ const (
 	// siblings + the coordinator), plus the advisory-lock session and
 	// pool-side classification reads; 12 leaves headroom so no persist-path
 	// Acquire queues behind an unrelated consumer.
-	DefaultMaxConns int32 = 12
-	DefaultMinConns int32 = 5
+	DefaultMaxConns        int32         = 12
+	DefaultMinConns        int32         = 5
 	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
 )
 
