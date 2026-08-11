@@ -75,7 +75,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 		return participants, nil
 	}
 
-	changes, err := op.Transaction.GetOperationChanges(op.Index)
+	changes, err := op.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
