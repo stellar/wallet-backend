@@ -102,10 +102,10 @@ func batchLabel(items []persistItem) string {
 }
 
 // persistLedgerData persists a batch of consecutive ledgers in one commit
-// set. The three bulk COPY families — transactions(+accounts),
-// operations(+accounts), state_changes — stream concurrently on sibling
-// connections, each in its own transaction covering every ledger in the
-// batch, while the coordinating transaction stages everything else (assets,
+// set. The five bulk COPY families — transactions, transactions_accounts,
+// operations, operations_accounts, state_changes — stream concurrently on
+// sibling connections, each in its own transaction covering every ledger in
+// the batch, while the coordinating transaction stages everything else (assets,
 // contracts, classification, protocol state, token changes, cursor) ledger
 // by ledger in order — the per-protocol CAS chain advances N-1 → N inside
 // the transaction, and the guarded cursor's final value is the batch's last
@@ -143,10 +143,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
 	}{
 		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactions(ctx, dbTx, it.buffer.GetTransactions(), it.buffer.GetTransactionsParticipants())
+			return m.insertTransactions(ctx, dbTx, it.buffer.GetTransactions())
+		}},
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactionsAccounts(ctx, dbTx, it.buffer.GetTransactions(), it.buffer.GetTransactionsParticipants())
 		}},
 		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperations(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
+			return m.insertOperations(ctx, dbTx, it.buffer.GetOperations())
+		}},
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperationsAccounts(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
 		}},
 		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
@@ -182,9 +188,10 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	}
 
 	// Stream the COPY families and stage the coordinated writes concurrently.
-	// The table sets are disjoint (no FKs among them), and the goroutines only
-	// read the quiescent buffers, so the four transactions never contend.
-	// Within each transaction the batch's ledgers run in order.
+	// Every sibling owns exactly one table and the table sets are disjoint (no
+	// FKs among them), and the goroutines only read the quiescent buffers, so
+	// the six transactions never contend. Within each transaction the batch's
+	// ledgers run in order.
 	g, gctx := errgroup.WithContext(ctx)
 	for i, s := range siblings {
 		g.Go(func() error {
@@ -206,7 +213,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		return nil
 	})
 	if err = g.Wait(); err != nil {
-		// Nothing has committed: the deferred rollbacks discard all four
+		// Nothing has committed: the deferred rollbacks discard all six
 		// transactions and the batch is cleanly retryable.
 		return fmt.Errorf("persisting ledger data for %s: %w", label, err)
 	}
@@ -234,7 +241,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	return nil
 }
 
-// stageCoordinatedWrites runs every per-ledger write except the three bulk
+// stageCoordinatedWrites runs every per-ledger write except the five bulk
 // COPY families on the coordinating transaction: trustline assets, SAC
 // contract tokens, protocol classification and wasm/contract rows,
 // CAS-gated protocol state, token changes, and finally the guarded cursor.
