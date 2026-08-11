@@ -166,7 +166,7 @@ func (p *ContractDeployProcessor) emitTopLevel(preimage xdr.ContractIdPreimage, 
 // createdContractInstances returns the C-addresses whose contract instance entry this
 // operation created, per the ledger entry changes in its meta.
 func createdContractInstances(op *TransactionOperationWrapper) (map[string]struct{}, error) {
-	changes, err := op.Transaction.GetOperationChanges(op.Index)
+	changes, err := op.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
