@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -1539,6 +1540,93 @@ func Test_persistBatchCut(t *testing.T) {
 	// A different, unseen contract still cuts.
 	pending[2] = processedLedger{seq: 3, buffer: bufferWithContract("cafe02")}
 	assert.Equal(t, 2, svc.persistBatchCut(pending))
+}
+
+// Test_ingestLiveLedgers_batchReachesConfiguredCap pins the sizing of the
+// process↔persist buffer rotation. A buffer stays checked out until the batch
+// carrying it commits, so sustaining a full batch takes the cap's worth of
+// buffers for the batch in flight plus the cap's worth for the process stage to
+// refill behind it. Sized any tighter, process starves on freeBuffers before the
+// queue refills and the batch settles strictly below livePersistMaxBatchSize no
+// matter how deep the backlog — leaving the configured cap unreachable at every
+// load, which the batch-size histogram reports as a suspiciously constant value.
+func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
+	const batchCap = 3
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const startLedger = uint32(51) // not a multiple of oldestLedgerSyncInterval (100)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTokenChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // trustlineChangesByTrustlineKey
+		mock.Anything, // accountChangesByAccountID
+		mock.Anything, // sacBalanceChangesByKey
+		mock.Anything, // lpShareChangesByKey
+		mock.Anything, // lpChangesByPoolID
+	).Return(nil).Maybe()
+
+	// Supply is unbounded and every ledger is empty, so fetch and process both
+	// outrun the persist stage's commit round-trip: a backlog is always present
+	// for the batch to coalesce.
+	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(dummyLedgerMeta(1), nil).Maybe()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).
+		Return(uint32(0), errors.New("lag gauge unused in this test")).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:           IngestionModeLive,
+		Models:                  models,
+		RPCService:              &RPCServiceMock{},
+		LedgerBackend:           mockBackend,
+		TokenIngestionService:   mockTokenIngestionService,
+		Metrics:                 m,
+		Network:                 network.TestNetworkPassphrase,
+		NetworkPassphrase:       network.TestNetworkPassphrase,
+		Archive:                 &HistoryArchiveMock{},
+		LivePersistMaxBatchSize: batchCap,
+	})
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger, func(context.Context) error { return nil }) }()
+
+	// Grade the mean over many commits, not a single observation: while the
+	// rotation is still filling at startup the process stage can hand off more
+	// than the steady state sustains, so one large batch proves nothing.
+	var h *dto.Histogram
+	require.Eventually(t, func() bool {
+		var mt dto.Metric
+		require.NoError(t, m.Ingestion.PersistBatchSize.Write(&mt))
+		h = mt.GetHistogram()
+		return h.GetSampleCount() >= 20
+	}, 30*time.Second, 50*time.Millisecond, "pipeline did not reach 20 persist commits")
+
+	mean := h.GetSampleSum() / float64(h.GetSampleCount())
+	assert.Greaterf(t, mean, float64(batchCap)-0.5,
+		"mean persist batch %.2f over %d commits fell short of the configured cap %d: the process↔persist buffer rotation cannot refill a full batch",
+		mean, h.GetSampleCount(), batchCap)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ingestLiveLedgers did not return after context cancellation")
+	}
 }
 
 // oneLedger wraps a single ledger's persist payload as the batch slice
