@@ -3,10 +3,12 @@ package ingest
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +44,7 @@ func TestStreamingLoadtestBackendRealCorpus(t *testing.T) {
 		MetaSources: paths,
 	})
 	require.NoError(t, err)
+	pool := pond.NewPool(runtime.NumCPU())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -65,7 +68,9 @@ func TestStreamingLoadtestBackendRealCorpus(t *testing.T) {
 
 		// The production read path: this is what live ingestion runs on every
 		// ledger, so a merged ledger it cannot parse would fail here first.
-		txs, err := indexer.GetLedgerTransactions(ctx, passphrase, lcm)
+		// Merged ledgers can repeat a transaction, which is the case the
+		// envelope↔meta pairing has to survive.
+		txs, err := indexer.GetLedgerTransactions(ctx, passphrase, lcm, pool)
 		require.NoError(t, err, "reading transactions of ledger %d", seq)
 		totalTxs += len(txs)
 	}
