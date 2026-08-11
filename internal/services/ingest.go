@@ -138,6 +138,13 @@ type ingestService struct {
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
 	livePersistMaxBatchSize   int
+	// classifiedWasms / classifiedContracts are the persist batch cut's
+	// seen-sets: classification inputs already applied by a COMMITTED batch
+	// this process. Owned exclusively by the persist goroutine
+	// (persistProcessedLedgers) — no synchronization. See
+	// hasUnclassifiedInputs in ingest_live.go.
+	classifiedWasms     map[string]struct{}
+	classifiedContracts map[string]struct{}
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
@@ -212,6 +219,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
 		livePersistMaxBatchSize:   livePersistMaxBatchSize,
+		classifiedWasms:           make(map[string]struct{}),
+		classifiedContracts:       make(map[string]struct{}),
 		protocolProcessors:        ppMap,
 		protocolCursors: &protocolCursorSnapshot{
 			historyExists:      make(map[string]bool, len(ppMap)),
