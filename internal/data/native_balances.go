@@ -3,9 +3,11 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -85,14 +87,11 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	start := time.Now()
 
 	if len(upserts) > 0 {
-		accountIDs := make([][]byte, len(upserts))
-		balances := make([]int64, len(upserts))
-		minimumBalances := make([]int64, len(upserts))
-		buyingLiabilities := make([]int64, len(upserts))
-		sellingLiabilities := make([]int64, len(upserts))
-		numSubentries := make([]int32, len(upserts))
-		ledgerNumbers := make([]int64, len(upserts))
-
+		type upsertRow struct {
+			accountID []byte
+			nb        NativeBalance
+		}
+		rows := make([]upsertRow, len(upserts))
 		for i, nb := range upserts {
 			raw, err := nb.AccountID.Value()
 			if err != nil {
@@ -102,15 +101,35 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			if !ok {
 				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
 			}
-			accountIDs[i] = rawBytes
-			balances[i] = nb.Balance
-			minimumBalances[i] = nb.MinimumBalance
-			buyingLiabilities[i] = nb.BuyingLiabilities
-			sellingLiabilities[i] = nb.SellingLiabilities
-			numSubentries[i] = int32(nb.NumSubEntries)
-			ledgerNumbers[i] = int64(nb.LedgerNumber)
+			rows[i] = upsertRow{accountID: rawBytes, nb: nb}
+		}
+		// Upserts arrive in Go map-iteration order; sorting by the PK column
+		// descends the btree and touches heap pages in key order instead of
+		// scattering thousands of random probes across the relation.
+		slices.SortFunc(rows, func(a, b upsertRow) int {
+			return bytes.Compare(a.accountID, b.accountID)
+		})
+
+		accountIDs := make([][]byte, len(rows))
+		balances := make([]int64, len(rows))
+		minimumBalances := make([]int64, len(rows))
+		buyingLiabilities := make([]int64, len(rows))
+		sellingLiabilities := make([]int64, len(rows))
+		numSubentries := make([]int32, len(rows))
+		ledgerNumbers := make([]int64, len(rows))
+		for i, row := range rows {
+			accountIDs[i] = row.accountID
+			balances[i] = row.nb.Balance
+			minimumBalances[i] = row.nb.MinimumBalance
+			buyingLiabilities[i] = row.nb.BuyingLiabilities
+			sellingLiabilities[i] = row.nb.SellingLiabilities
+			numSubentries[i] = int32(row.nb.NumSubEntries)
+			ledgerNumbers[i] = int64(row.nb.LedgerNumber)
 		}
 
+		// The WHERE clause turns updates that would rewrite an identical row
+		// into no-ops: no new tuple version, no dead tuple, no WAL, no index
+		// churn — the update fires only when some column actually differs.
 		const upsertQuery = `
 			INSERT INTO native_balances (account_id, balance, minimum_balance, buying_liabilities, selling_liabilities, num_subentries, last_modified_ledger)
 			SELECT * FROM UNNEST($1::bytea[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::int[], $7::bigint[])
@@ -120,7 +139,12 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 				buying_liabilities = EXCLUDED.buying_liabilities,
 				selling_liabilities = EXCLUDED.selling_liabilities,
 				num_subentries = EXCLUDED.num_subentries,
-				last_modified_ledger = EXCLUDED.last_modified_ledger`
+				last_modified_ledger = EXCLUDED.last_modified_ledger
+			WHERE (native_balances.balance, native_balances.minimum_balance, native_balances.buying_liabilities,
+			       native_balances.selling_liabilities, native_balances.num_subentries, native_balances.last_modified_ledger)
+			      IS DISTINCT FROM
+			      (EXCLUDED.balance, EXCLUDED.minimum_balance, EXCLUDED.buying_liabilities,
+			       EXCLUDED.selling_liabilities, EXCLUDED.num_subentries, EXCLUDED.last_modified_ledger)`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, balances, minimumBalances, buyingLiabilities, sellingLiabilities, numSubentries, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())
