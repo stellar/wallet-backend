@@ -145,9 +145,9 @@ type ingestService struct {
 	// hasUnclassifiedInputs in ingest_live.go.
 	classifiedWasms     map[string]struct{}
 	classifiedContracts map[string]struct{}
-	protocolProcessors        map[string]ProtocolProcessor
-	protocolValidators        []ProtocolValidator
-	wasmSpecExtractor         WasmSpecExtractor
+	protocolProcessors  map[string]ProtocolProcessor
+	protocolValidators  []ProtocolValidator
+	wasmSpecExtractor   WasmSpecExtractor
 	// protocolCursors tracks, per protocol, whether its history/current-state
 	// ingest_store cursor rows exist. See casProtocolCursor and
 	// snapshotProtocolCursors in ingest_live.go. Always non-nil; empty maps
