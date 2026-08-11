@@ -276,10 +276,16 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	opParticipants := buffer.GetOperationsParticipants()
 	stateChanges := buffer.GetStateChanges()
 
-	if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
+	if err := m.insertTransactions(ctx, dbTx, txs); err != nil {
 		return err
 	}
-	if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
+	if err := m.insertTransactionsAccounts(ctx, dbTx, txs, txParticipants); err != nil {
+		return err
+	}
+	if err := m.insertOperations(ctx, dbTx, ops); err != nil {
+		return err
+	}
+	if err := m.insertOperationsAccounts(ctx, dbTx, ops, opParticipants); err != nil {
 		return err
 	}
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
@@ -289,26 +295,50 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	return nil
 }
 
-// insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]map[string]struct{}) error {
+// insertTransactions batch inserts transactions into the database.
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByToID)
+	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs)
 	if err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
 	}
 	return nil
 }
 
-// insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]map[string]struct{}) error {
+// insertTransactionsAccounts batch inserts the transactions_accounts links into the database.
+func (m *ingestService) insertTransactionsAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]map[string]struct{}) error {
+	if len(stellarAddressesByToID) == 0 {
+		return nil
+	}
+	_, err := m.models.Transactions.BatchCopyAccounts(ctx, pgxTx, txs, stellarAddressesByToID)
+	if err != nil {
+		return fmt.Errorf("batch inserting transactions accounts: %w", err)
+	}
+	return nil
+}
+
+// insertOperations batch inserts operations into the database.
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation) error {
 	if len(ops) == 0 {
 		return nil
 	}
-	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
+	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops)
 	if err != nil {
 		return fmt.Errorf("batch inserting operations: %w", err)
+	}
+	return nil
+}
+
+// insertOperationsAccounts batch inserts the operations_accounts links into the database.
+func (m *ingestService) insertOperationsAccounts(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]map[string]struct{}) error {
+	if len(stellarAddressesByOpID) == 0 {
+		return nil
+	}
+	_, err := m.models.Operations.BatchCopyAccounts(ctx, pgxTx, ops, stellarAddressesByOpID)
+	if err != nil {
+		return fmt.Errorf("batch inserting operations accounts: %w", err)
 	}
 	return nil
 }
