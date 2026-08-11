@@ -67,6 +67,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
+			Name:        "live-persist-max-batch-size",
+			Usage:       "Maximum consecutive ledgers coalesced into one persist commit when live ingestion falls behind. 1 persists every ledger in its own commit; larger values amortize inserts across a backlog at the cost of coarser crash recovery and visibility latency under load.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.LivePersistMaxBatchSize,
+			FlagDefault: 5,
+			Required:    false,
+		},
+		{
 			Name:        "archive-url",
 			Usage:       "Archive URL for history archives",
 			OptType:     types.String,
