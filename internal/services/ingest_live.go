@@ -168,6 +168,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 				log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
 			}
 		}(s.name, tx)
+		// Sibling commits skip the WAL-flush wait. Durability is untouched:
+		// the coordinating transaction commits synchronously and strictly
+		// last, and its flush covers all earlier WAL — including these
+		// commit records — so a durable cursor implies durable siblings. A
+		// crash inside the window can only lose rows the cursor never
+		// acknowledged, exactly what startup reconciliation
+		// (DeleteRowsAboveLedger) removes anyway.
+		if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
+			return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+		}
 	}
 
 	// Stream the COPY families and stage the coordinated writes concurrently.
