@@ -178,8 +178,22 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
 }
 
+// Every strkey version byte is a multiple of 8, so its top five bits — which
+// are exactly what the first base32 character encodes — determine it. A strkey
+// that does not start with these characters cannot decode to the corresponding
+// version byte, which lets the checks below skip a base32 decode and a CRC
+// validation for the account and contract addresses that make up nearly every
+// transfer endpoint.
+const (
+	liquidityPoolStrkeyPrefix    = 'L' // strkey.VersionByteLiquidityPool
+	claimableBalanceStrkeyPrefix = 'B' // strkey.VersionByteClaimableBalance
+)
+
 // isLiquidityPool checks if the given account ID is a liquidity pool
 func isLiquidityPool(accountID string) bool {
+	if len(accountID) == 0 || accountID[0] != liquidityPoolStrkeyPrefix {
+		return false
+	}
 	// Try to decode the account ID as a strkey
 	versionByte, _, err := strkey.DecodeAny(accountID)
 	if err != nil {
@@ -191,6 +205,9 @@ func isLiquidityPool(accountID string) bool {
 
 // isClaimableBalance checks if the given ID is a claimable balance
 func isClaimableBalance(id string) bool {
+	if len(id) == 0 || id[0] != claimableBalanceStrkeyPrefix {
+		return false
+	}
 	versionByte, _, err := strkey.DecodeAny(id)
 	if err != nil {
 		return false
