@@ -25,6 +25,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
@@ -1106,7 +1107,7 @@ func TestIndexer_GetLedgerTransactions(t *testing.T) {
 			var xdrLedgerCloseMeta xdr.LedgerCloseMeta
 			err := xdr.SafeUnmarshalBase64(tc.inputLedgerCloseMetaStr, &xdrLedgerCloseMeta)
 			require.NoError(t, err)
-			transactions, err := GetLedgerTransactions(ctx, network.TestNetworkPassphrase, xdrLedgerCloseMeta)
+			transactions, err := GetLedgerTransactions(ctx, network.TestNetworkPassphrase, xdrLedgerCloseMeta, testPool())
 
 			// Verify results
 			if tc.wantErrContains != "" {
@@ -1127,14 +1128,70 @@ func TestIndexer_GetLedgerTransactions(t *testing.T) {
 	}
 }
 
+// testPool is the worker pool the transaction-hashing fan-out runs on in tests.
+func testPool() pond.Pool {
+	return pond.NewPool(runtime.NumCPU())
+}
+
+// getLedgerTransactionsViaReader is the SDK-reader reference implementation of
+// GetLedgerTransactions, kept as the oracle for the differential equivalence
+// test and as the independent leaf under the other reader-based oracles below.
+// It drives ingest.LedgerTransactionReader, which hashes every envelope
+// serially, so it shares no code with the production fan-out.
+func getLedgerTransactionsViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
+	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledgerMeta)
+	if err != nil {
+		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
+	}
+	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
+
+	transactions := make([]ingest.LedgerTransaction, 0)
+	for {
+		tx, readErr := ledgerTxReader.Read()
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("reading ledger: %w", readErr)
+		}
+		transactions = append(transactions, tx)
+	}
+	return transactions, nil
+}
+
+// TestGetLedgerTransactions_EquivalenceOnRealLedgers is the merge gate on the
+// parallel envelope hashing: the fan-out must reproduce the SDK reader's output
+// exactly, transaction for transaction, on every committed pubnet fixture.
+func TestGetLedgerTransactions_EquivalenceOnRealLedgers(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			want, err := getLedgerTransactionsViaReader(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, err)
+			require.NotEmpty(t, want, "fixture has no transactions")
+
+			got, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm, testPool())
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
 // extractContractEventsViaReader is the reader-based reference implementation of
 // ExtractContractEventsForLedger, kept as the oracle for the differential
-// equivalence test. It constructs a LedgerTransactionReader (which re-hashes
-// every transaction envelope) and reads events through the resulting
-// LedgerTransaction values. The production function must produce output equal to
+// equivalence test. It reads events through the LedgerTransaction values the
+// SDK reader produces (getLedgerTransactionsViaReader, which re-hashes every
+// transaction envelope). The production function must produce output equal to
 // this oracle for every committed ledger fixture.
 func extractContractEventsViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) (map[ContractEventKey][]xdr.ContractEvent, error) {
-	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	transactions, err := getLedgerTransactionsViaReader(ctx, networkPassphrase, ledgerMeta)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
@@ -1448,7 +1505,7 @@ func projectContractDataChanges(m map[string][]ingest.Change) map[string][]contr
 // from those. Kept test-only as the merge gate for the production meta-based
 // path, mirroring extractContractEventsViaReader.
 func extractContractDataChangesViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, map[string][]ingest.Change, error) {
-	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	transactions, err := getLedgerTransactionsViaReader(ctx, networkPassphrase, ledgerMeta)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1660,7 +1717,7 @@ func TestIndexer_ProcessLedgerTransactions_RealLedgerParallel(t *testing.T) {
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			lcm := loadLedgerFixture(t, path)
-			txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+			txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm, testPool())
 			require.NoError(t, err)
 			if len(txs) < 2 {
 				t.Skipf("fixture has %d transaction(s); need ≥2 to exercise parallelism", len(txs))
