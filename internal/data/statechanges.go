@@ -389,13 +389,21 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support,
 // pinned to the parent operation's ledger_created_at for partition-column chunk exclusion.
+//
+// to_id is pinned as well, derived from the operation ID by TOID bit masking:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// (see the TOID doc comment in operations.go). Binding it makes (ledger_created_at, to_id,
+// operation_id) a prefix of the state_changes primary key, so this probes the PK rather than
+// needing an index on operation_id alone.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
-		WHERE operation_id = $1 AND ledger_created_at = $2
+		WHERE operation_id = $1 AND to_id = ($1 & (~x'FFF'::bigint)) AND ledger_created_at = $2
 	`, columns)
 
 	args := []interface{}{operationID, ledgerCreatedAt}
@@ -505,6 +513,14 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 // Callers supply each operation's parent ledger_created_at so the LATERAL can pin the partition
 // column, giving per-key runtime chunk exclusion instead of a hash join across the whole
 // hypertable.
+//
+// Each probe also pins to_id, derived from that key's operation ID by TOID bit masking:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// (see the TOID doc comment in operations.go). Binding it makes (ledger_created_at, to_id,
+// operation_id) a prefix of the state_changes primary key, so each probe reads the PK rather
+// than needing an index on operation_id alone.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	if len(operationIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
@@ -525,10 +541,10 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	// BY/LIMIT, which would otherwise force a Merge Append probing every chunk's sparse index —
 	// O(chunk count) instead of O(1) with retention. After the fence, ORDER BY reads the
 	// subquery's bare output column names, not "sc."-qualified ones — there is no "sc" in scope
-	// at that level, only the fenced derived table. ledger_created_at and operation_id are
-	// dropped from the ORDER BY (not just unqualified): both are pinned to a single constant by
-	// the WHERE clause within one lateral probe, so they're no-op leading sort keys; to_id and
-	// state_change_id are the only columns that actually vary among a probe's matched rows.
+	// at that level, only the fenced derived table. ledger_created_at, to_id and operation_id are
+	// dropped from the ORDER BY (not just unqualified): all three are pinned to a single constant
+	// by the WHERE clause within one lateral probe, so they're no-op leading sort keys;
+	// state_change_id is the only column that actually varies among a probe's matched rows.
 	args := []interface{}{operationIDs, ledgerCreatedAts}
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
@@ -537,10 +553,10 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		CROSS JOIN LATERAL (
 			SELECT * FROM (
 				SELECT %s FROM state_changes sc
-				WHERE sc.operation_id = k.operation_id AND sc.ledger_created_at = k.ledger_created_at
+				WHERE sc.operation_id = k.operation_id AND sc.to_id = (k.operation_id & (~x'FFF'::bigint)) AND sc.ledger_created_at = k.ledger_created_at
 				OFFSET 0
 			) sub
-			ORDER BY to_id %s, state_change_id %s`, columns, columns, sortOrder, sortOrder)
+			ORDER BY state_change_id %s`, columns, columns, sortOrder)
 	if limit != nil {
 		queryBuilder.WriteString(" LIMIT $3")
 		args = append(args, *limit)
