@@ -42,7 +42,7 @@ func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWra
 		}
 	}()
 
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
