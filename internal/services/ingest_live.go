@@ -698,12 +698,19 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 	// Buffers rotate between the process and persist stages: process fills
 	// one while persist drains the others, and reuse keeps the asset-parse
-	// memo warm and the maps' backing arrays allocated across ledgers. The
-	// rotation holds one more buffer than the persist batch cap — a full
-	// batch in flight still leaves one for process to fill — and the
-	// channel's capacity matches, so handing a buffer back never blocks.
-	freeBuffers := make(chan *indexer.IndexerBuffer, batchCap+1)
-	for range batchCap + 1 {
+	// memo warm and the maps' backing arrays allocated across ledgers.
+	//
+	// A buffer stays checked out from the moment process takes it until the
+	// batch carrying it commits, so sustaining a full batch needs batchCap
+	// buffers for the in-flight batch, cap(processed) for the queue, and one
+	// for process to fill — 2*batchCap+1 covers every batch cap, and the
+	// channel's capacity matches the buffer count so handing one back never
+	// blocks. Sizing the rotation any tighter caps the batch below batchCap
+	// no matter how deep the backlog — process runs out of buffers before the
+	// queue can refill, and the batch settles at the size where held and
+	// refillable buffers balance.
+	freeBuffers := make(chan *indexer.IndexerBuffer, 2*batchCap+1)
+	for range 2*batchCap + 1 {
 		freeBuffers <- indexer.NewIndexerBuffer()
 	}
 
