@@ -1504,6 +1504,43 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 }
 
 // Test_persistLedgerDataWithRetry tests the persistLedgerDataWithRetry function covering success, failure, and retry scenarios.
+// Test_persistBatchCut verifies the classification-safety cut only isolates
+// ledgers carrying UNSEEN classification inputs: re-observations of contracts
+// a committed batch already classified ride mid-batch (synthetic loadtest
+// traffic re-observes the same contracts every ledger, which must not
+// degrade every batch to size one), while a genuinely new contract still
+// opens its own batch.
+func Test_persistBatchCut(t *testing.T) {
+	bufferWithContract := func(contractID string) *indexer.IndexerBuffer {
+		b := indexer.NewIndexerBuffer()
+		b.PushProtocolContracts(data.ProtocolContracts{ContractID: types.HashBytea(contractID)})
+		return b
+	}
+	plain := indexer.NewIndexerBuffer()
+
+	svc := &ingestService{
+		classifiedWasms:     map[string]struct{}{},
+		classifiedContracts: map[string]struct{}{},
+	}
+
+	pending := []processedLedger{
+		{seq: 1, buffer: plain},
+		{seq: 2, buffer: bufferWithContract("cafe01")},
+		{seq: 3, buffer: plain},
+	}
+
+	// Unseen contract at index 1 opens its own batch.
+	assert.Equal(t, 1, svc.persistBatchCut(pending))
+
+	// Once its batch commits, the same contract rides mid-batch.
+	svc.markClassificationInputsSeen(pending[1:2])
+	assert.Equal(t, 3, svc.persistBatchCut(pending))
+
+	// A different, unseen contract still cuts.
+	pending[2] = processedLedger{seq: 3, buffer: bufferWithContract("cafe02")}
+	assert.Equal(t, 2, svc.persistBatchCut(pending))
+}
+
 // oneLedger wraps a single ledger's persist payload as the batch slice
 // persistLedgerData and persistLedgerDataWithRetry consume.
 func oneLedger(seq uint32, meta xdr.LedgerCloseMeta, plan *ClassificationPlan, contractData *contractDataMemo, buffer *indexer.IndexerBuffer) []persistItem {

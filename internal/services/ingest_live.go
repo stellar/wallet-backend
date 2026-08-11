@@ -780,23 +780,60 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 	}
 }
 
-// hasClassificationInputs reports whether the ledger staged anything the
-// classification plan would act on. A ledger for which this is false gets a
-// nil plan from prepareClassificationPlan, so it can ride behind other
-// ledgers in a persist batch.
-func hasClassificationInputs(buffer *indexer.IndexerBuffer) bool {
-	return len(buffer.GetProtocolWasms()) > 0 ||
-		len(buffer.GetProtocolWasmBytecodes()) > 0 ||
-		len(buffer.GetProtocolContracts()) > 0
+// hasUnclassifiedInputs reports whether the ledger staged classification
+// inputs this process has not yet seen COMMIT. Only such a ledger needs to
+// open its own persist batch: the classification plan's pool reads are sound
+// for anything a committed batch already classified, and re-observations of
+// known wasms/contracts are the overwhelmingly common case — synthetic
+// loadtest traffic re-observes the same token contracts every single ledger,
+// which would otherwise cut every batch to size one and disable batching
+// entirely.
+func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) bool {
+	for hash := range buffer.GetProtocolWasms() {
+		if _, seen := m.classifiedWasms[hash]; !seen {
+			return true
+		}
+	}
+	for hash := range buffer.GetProtocolWasmBytecodes() {
+		if _, seen := m.classifiedWasms[hash]; !seen {
+			return true
+		}
+	}
+	for contractID := range buffer.GetProtocolContracts() {
+		if _, seen := m.classifiedContracts[contractID]; !seen {
+			return true
+		}
+	}
+	return false
+}
+
+// markClassificationInputsSeen folds a successfully COMMITTED batch's
+// classification inputs into the seen-sets consulted by the batch cut. Only
+// committed inputs count: a rolled-back batch must keep cutting until its
+// classification actually lands. The sets are owned by the persist goroutine
+// and start empty each process — a restart just cuts conservatively until
+// re-warmed.
+func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
+	for _, pl := range batch {
+		for hash := range pl.buffer.GetProtocolWasms() {
+			m.classifiedWasms[hash] = struct{}{}
+		}
+		for hash := range pl.buffer.GetProtocolWasmBytecodes() {
+			m.classifiedWasms[hash] = struct{}{}
+		}
+		for contractID := range pl.buffer.GetProtocolContracts() {
+			m.classifiedContracts[contractID] = struct{}{}
+		}
+	}
 }
 
 // persistBatchCut returns how many leading pending ledgers form the next
 // persist batch: everything before the first non-head ledger carrying
-// classification inputs, which must instead open the following batch — its
-// plan's pool reads are only sound once this batch has committed.
-func persistBatchCut(pending []processedLedger) int {
+// UNSEEN classification inputs, which must instead open the following batch —
+// its plan's pool reads are only sound once this batch has committed.
+func (m *ingestService) persistBatchCut(pending []processedLedger) int {
 	for i := 1; i < len(pending); i++ {
-		if hasClassificationInputs(pending[i].buffer) {
+		if m.hasUnclassifiedInputs(pending[i].buffer) {
 			return i
 		}
 	}
@@ -844,7 +881,7 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 				break drain
 			}
 		}
-		cut := persistBatchCut(pending)
+		cut := m.persistBatchCut(pending)
 		batch := pending[:cut]
 
 		if probeErr := checkLockSession(ctx); probeErr != nil {
@@ -855,7 +892,10 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		// Classification runs on this stage, not the process stage: its
 		// known-hash lookup is a non-transactional pool read of protocol_wasms
 		// whose correctness depends on the previous batch's persist having
-		// committed. Only the batch head can need a plan (the cut above), and
+		// committed. Only the batch head can need a plan: the cut opens a new
+		// batch for any ledger with unseen inputs, while a ledger whose inputs
+		// were all classified by an earlier committed batch rides mid-batch —
+		// its re-observations were already applied then, so it needs no plan.
 		// RPC prefetch still happens before any transaction opens; the plan is
 		// reused verbatim across every retry attempt below.
 		classifyStart := time.Now()
@@ -887,6 +927,7 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		}
 		persistDuration := time.Since(dbStart)
 		m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
+		m.markClassificationInputsSeen(batch)
 
 		// Per-ledger phase observations record each ledger's amortized share
 		// of the batch, so the histograms keep per-ledger semantics and stay
