@@ -147,7 +147,10 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations)
+			if err == nil {
+				_, err = m.BatchCopyAccounts(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+			}
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -739,10 +742,15 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, ops, addressesByOpID)
+				_, err = m.BatchCopy(ctx, pgxTx, ops)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)
+				}
+				_, err = m.BatchCopyAccounts(ctx, pgxTx, ops, addressesByOpID)
+				if err != nil {
+					pgxTx.Rollback(ctx)
+					b.Fatalf("BatchCopyAccounts failed: %v", err)
 				}
 
 				b.StopTimer()
