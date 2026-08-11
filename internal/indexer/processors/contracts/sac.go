@@ -85,7 +85,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	}
 
 	// Get operation changes to access previous trustline flag state
-	changes, err := tx.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes for operation %d: %w", opWrapper.ID(), err)
 	}
