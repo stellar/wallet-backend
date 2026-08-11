@@ -31,6 +31,30 @@ type TransactionOperationWrapper struct {
 	LedgerSequence uint32
 	Network        string
 	LedgerClosed   time.Time
+
+	// Memo backing Changes, valid only for Index.
+	changes    []ingest.Change
+	changesErr error
+	changesSet bool
+}
+
+// Changes returns the ledger entry changes the operation produced, decoding them on
+// the first call and serving the memo on every later one. All of an operation's
+// processors share a single wrapper, so the decode, the allocations, and the sort
+// the SDK accessor performs happen once per operation rather than once per processor.
+//
+// The wrapper is used from a single goroutine — the per-transaction worker walks its
+// operations sequentially — so the memo needs no synchronization.
+//
+// Callers must not mutate the returned slice or the entries it points at: sorting it,
+// filtering it in place, or writing through a change's Pre/Post would corrupt every
+// other processor's view of the operation.
+func (operation *TransactionOperationWrapper) Changes() ([]ingest.Change, error) {
+	if !operation.changesSet {
+		operation.changes, operation.changesErr = operation.Transaction.GetOperationChanges(operation.Index)
+		operation.changesSet = true
+	}
+	return operation.changes, operation.changesErr
 }
 
 // ID returns the ID for the operation.
@@ -101,7 +125,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 }
 
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -154,6 +178,9 @@ func (operation *TransactionOperationWrapper) findInitatingBeginSponsoringOp() *
 			result := *operation
 			result.Index = uint32(i)
 			result.Operation = operations[i]
+			// The copy describes a different operation, so it starts with an empty
+			// change memo instead of inheriting one keyed to the source's index.
+			result.changes, result.changesErr, result.changesSet = nil, nil, false
 			return &result
 		}
 	}

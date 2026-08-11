@@ -53,7 +53,7 @@ func (p *ProtocolWasmProcessor) ProcessOperation(_ context.Context, opWrapper *T
 		}
 	}()
 
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
