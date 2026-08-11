@@ -1,9 +1,11 @@
 package ingest
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -310,8 +312,6 @@ func (b *StreamingLoadtestLedgerBackend) openPipe(ctx context.Context, p *metaPi
 }
 
 func (b *StreamingLoadtestLedgerBackend) resetPipe(p *metaPipe) {
-	// The xdr.Stream closes the descriptor itself on every read error
-	// (including plain EOF), so this close usually finds it already closed.
 	if p.file != nil {
 		if err := p.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 			log.Warnf("streaming-loadtest: closing pipe %s: %v", p.path, err)
@@ -322,20 +322,94 @@ func (b *StreamingLoadtestLedgerBackend) resetPipe(p *metaPipe) {
 	p.diffValid = false
 }
 
-// readFrames decodes frames off the pipe and hands them over in order,
-// running up to the channel's buffer ahead of the consumer. It exits after
-// delivering a read error (the epoch is over) or when the backend closes.
+// rawFrame is one framed XDR record's payload, or the drain error that ends
+// the epoch — always the last element sent, so decoded frames before it
+// remain valid.
+type rawFrame struct {
+	payload []byte
+	err     error
+}
+
+// readFrames drains and decodes frames off the pipe in two stages, in order:
+// this goroutine reads each record's raw bytes at pipe-transfer speed, and a
+// decode goroutine unmarshals them. apply-load's meta write is synchronous —
+// core does not start generating its next ledger until the consumer has
+// drained the current frame — so draining at transfer speed instead of
+// decode speed takes the decoder out of every producer's ledger cycle;
+// decoding overlaps the producer's next apply. It exits after forwarding a
+// read error (the epoch is over) or when the backend closes.
 func readFrames(f *os.File, frames chan<- pipeReadResult, done <-chan struct{}) {
-	stream := xdr.NewStream(f)
+	// Depth 1 is all the decoupling needs: the drain runs one frame ahead of
+	// the decoder, so the producer's next write never waits on a decode.
+	raw := make(chan rawFrame, 1)
+	go decodeFrames(raw, frames, done)
+
+	reader := bufio.NewReaderSize(f, 1<<20)
 	for {
-		var lcm xdr.LedgerCloseMeta
-		err := stream.ReadOne(&lcm)
+		payload, err := drainFrame(reader)
 		select {
-		case frames <- pipeReadResult{lcm: lcm, err: err}:
+		case raw <- rawFrame{payload: payload, err: err}:
 		case <-done:
 			return
 		}
 		if err != nil {
+			return
+		}
+	}
+}
+
+// drainFrame reads one framed XDR record's payload: a 4-byte length header
+// (last-fragment bit always set — the SDK writes single-fragment records)
+// followed by that many payload bytes.
+func drainFrame(r io.Reader) ([]byte, error) {
+	nbytes, err := xdr.ReadFrameLength(r)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			// Not wrapped: plain EOF is the normal end of a writer's epoch.
+			return nil, io.EOF
+		}
+		return nil, fmt.Errorf("reading frame header: %w", err)
+	}
+	if nbytes == 0 {
+		return nil, io.EOF
+	}
+	if nbytes > xdr.DefaultMaxXDRStreamRecordSize {
+		return nil, fmt.Errorf("frame of %d bytes exceeds the %d-byte record cap", nbytes, xdr.DefaultMaxXDRStreamRecordSize)
+	}
+	payload := make([]byte, nbytes)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, fmt.Errorf("reading %d-byte frame payload: %w", nbytes, err)
+	}
+	return payload, nil
+}
+
+// decodeFrames unmarshals drained frames in order and hands them over,
+// running up to the frames channel's buffer ahead of the consumer. A drain
+// error arrives as the raw channel's last element and is forwarded as the
+// frames channel's last element; a decode error likewise ends the epoch.
+func decodeFrames(raw <-chan rawFrame, frames chan<- pipeReadResult, done <-chan struct{}) {
+	decoder := xdr.NewBytesDecoder()
+	for {
+		var rf rawFrame
+		select {
+		case rf = <-raw:
+		case <-done:
+			return
+		}
+
+		result := pipeReadResult{err: rf.err}
+		if rf.err == nil {
+			if _, err := decoder.DecodeBytes(&result.lcm, rf.payload); err != nil {
+				result = pipeReadResult{err: fmt.Errorf("decoding %d-byte frame: %w", len(rf.payload), err)}
+			}
+		}
+
+		select {
+		case frames <- result:
+		case <-done:
+			return
+		}
+		if result.err != nil {
 			return
 		}
 	}
@@ -448,7 +522,6 @@ func (b *StreamingLoadtestLedgerBackend) Close() error {
 	close(b.done)
 	for _, p := range b.pipes {
 		if p.file != nil {
-			// Already closed by the xdr.Stream when the last read errored.
 			if err := p.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 				log.Warnf("streaming-loadtest: closing pipe %s: %v", p.path, err)
 			}
