@@ -35,6 +35,18 @@ type pipeReadResult struct {
 	err error
 }
 
+// pipeLookaheadFrames is how many decoded frames each pipe's reader may run
+// ahead of GetLedger. Streaming one full frame through a FIFO takes the
+// writer a large fraction of the ledger interval (the kernel pipe buffer is
+// tiny next to a frame), so with no lookahead every GetLedger waits for the
+// slowest writer's in-flight frame; lookahead lets that streaming overlap
+// the consumer's processing of earlier ledgers. Each buffered frame is a
+// fully decoded LedgerCloseMeta — tens of MB at full per-ledger volume — so
+// the depth stays small: the reader holds one more in flight, giving
+// (1+pipeLookaheadFrames) frames per pipe, and FIFO backpressure still
+// reaches the writer with that much slack.
+const pipeLookaheadFrames = 2
+
 type openPipeResult struct {
 	file *os.File
 	err  error
@@ -52,10 +64,11 @@ type metaPipe struct {
 	// retained across a context cancellation so a retried GetLedger reuses
 	// the pending open instead of leaking the file descriptor.
 	opening chan openPipeResult
-	// frames delivers one decoded frame at a time from the reader goroutine.
-	// The channel is unbuffered and the goroutine holds at most one frame,
-	// so consumption stays lockstep with GetLedger and FIFO backpressure
-	// reaches the writer.
+	// frames delivers decoded frames in order from the reader goroutine. The
+	// channel buffers pipeLookaheadFrames so the reader decodes ahead of
+	// GetLedger, hiding the writer's per-frame FIFO streaming time; an epoch's
+	// terminating error is always the last element the reader sends, so
+	// buffered frames before it remain valid.
 	frames chan pipeReadResult
 	// peeked holds a frame that was consumed from the reader but not yet
 	// emitted, so that a GetLedger attempt that fails partway through a
@@ -290,7 +303,7 @@ func (b *StreamingLoadtestLedgerBackend) openPipe(ctx context.Context, p *metaPi
 			return fmt.Errorf("opening meta pipe: %w", res.err)
 		}
 		p.file = res.file
-		p.frames = make(chan pipeReadResult)
+		p.frames = make(chan pipeReadResult, pipeLookaheadFrames)
 		go readFrames(res.file, p.frames, b.done)
 		return nil
 	}
@@ -309,9 +322,9 @@ func (b *StreamingLoadtestLedgerBackend) resetPipe(p *metaPipe) {
 	p.diffValid = false
 }
 
-// readFrames decodes frames off the pipe and hands them over one at a time.
-// It exits after delivering a read error (the epoch is over) or when the
-// backend closes.
+// readFrames decodes frames off the pipe and hands them over in order,
+// running up to the channel's buffer ahead of the consumer. It exits after
+// delivering a read error (the epoch is over) or when the backend closes.
 func readFrames(f *os.File, frames chan<- pipeReadResult, done <-chan struct{}) {
 	stream := xdr.NewStream(f)
 	for {
