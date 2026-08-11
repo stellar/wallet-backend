@@ -782,4 +782,19 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 	for table, c := range countRows(t) {
 		assert.Equal(t, [2]int{1, 0}, c, "%s must be unchanged by a reconciliation no-op", table)
 	}
+
+	// The close-time bound comes from the cursor ledger's own transactions
+	// rows. With no such row the bound is unresolvable and the deletes fall
+	// back to scanning unbounded — slower, but orphans must still go.
+	seedLedger(t, cursorLedger+2, "2026-01-01T00:00:10Z")
+	_, delErr := dbConnectionPool.Exec(ctx, `DELETE FROM transactions`)
+	require.NoError(t, delErr)
+	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
+	for table, c := range countRows(t) {
+		if table == "transactions" {
+			assert.Equal(t, [2]int{0, 0}, c, "transactions was emptied by the test itself")
+			continue
+		}
+		assert.Equal(t, [2]int{1, 0}, c, "%s must lose its orphan even without a resolvable close-time bound", table)
+	}
 }
