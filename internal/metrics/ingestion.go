@@ -22,6 +22,11 @@ type IngestionMetrics struct {
 	// LedgersProcessed counts total ledgers ingested.
 	// PromQL: rate(wallet_ingestion_ledgers_total[5m])
 	LedgersProcessed prometheus.Counter
+	// PersistBatchSize observes how many ledgers each persist commit coalesced.
+	// Sits at 1 while the pipeline keeps pace; larger values mean the persist
+	// stage found a backlog and amortized it into one commit.
+	// PromQL: histogram_quantile(0.5, rate(wallet_ingestion_persist_batch_size_bucket[5m]))
+	PersistBatchSize prometheus.Histogram
 	// TransactionsTotal counts total transactions ingested.
 	// PromQL: rate(wallet_ingestion_transactions_total[5m])
 	TransactionsTotal prometheus.Counter
@@ -100,6 +105,11 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_ledgers_total",
 			Help: "Total number of ledgers processed during ingestion.",
 		}),
+		PersistBatchSize: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_persist_batch_size",
+			Help:    "Ledgers coalesced into one persist commit. 1 while the pipeline keeps pace; larger under backlog.",
+			Buckets: []float64{1, 2, 3, 4, 5, 8, 12, 16},
+		}),
 		TransactionsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_transactions_total",
 			Help: "Total number of transactions processed during ingestion.",
@@ -163,6 +173,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.Duration,
 		m.PhaseDuration,
 		m.LedgersProcessed,
+		m.PersistBatchSize,
 		m.TransactionsTotal,
 		m.OperationsTotal,
 		m.ParticipantsCount,
