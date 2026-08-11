@@ -308,14 +308,34 @@ func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) 
 // one from the five bulk-COPY tables, in one transaction. It is live
 // ingestion's startup reconciliation: sibling COPY transactions commit before
 // the coordinating transaction that carries the cursor, so a crash between
-// those commits leaves orphaned bulk rows for (at most) the single ledger past
-// the committed cursor — and they must be cleared before that ledger is
+// those commits leaves orphaned bulk rows for (at most) the persist batch past
+// the committed cursor — and they must be cleared before those ledgers are
 // re-ingested, because COPY has no ON CONFLICT and would collide on the
 // primary keys. Rows of ledgers > ledger are exactly rows whose TOID column is
-// >= the first TOID of ledger+1; each table has chunk skipping on its TOID
-// column, so the deletes stay bounded to the newest chunks.
+// >= the first TOID of ledger+1.
+//
+// The deletes also bound ledger_created_at by the cursor ledger's own close
+// time: close times are monotone, so every orphan carries a timestamp at or
+// after it, and the partition-column predicate statically excludes all older
+// chunks — including uncompressed ones, which TOID chunk-skipping stats do
+// not cover — instead of sequentially scanning them on the tables whose PK
+// does not lead with the TOID column. Without a resolvable bound (the cursor
+// ledger left no transactions row) the deletes scan unbounded, which is the
+// correct-but-slow degenerate case.
 func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uint32) error {
 	minTOID := toid.New(int32(ledger+1), 0, 0).ToInt64()
+
+	// The cursor ledger's close time, from its own transactions rows
+	// ([first TOID of ledger, first TOID of ledger+1)) — a PK-prefix seek.
+	var bound time.Time
+	boundErr := m.DB.QueryRow(ctx,
+		`SELECT ledger_created_at FROM transactions WHERE to_id >= $1 AND to_id < $2 LIMIT 1`,
+		toid.New(int32(ledger), 0, 0).ToInt64(), minTOID,
+	).Scan(&bound)
+	if boundErr != nil && !errors.Is(boundErr, pgx.ErrNoRows) {
+		return fmt.Errorf("resolving close-time bound for ledger %d: %w", ledger, boundErr)
+	}
+
 	targets := []struct {
 		table  string
 		column string
@@ -328,8 +348,14 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 	}
 	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 		for _, target := range targets {
+			query := fmt.Sprintf(`DELETE FROM %s WHERE %s >= $1`, target.table, target.column)
+			args := []any{minTOID}
+			if !bound.IsZero() {
+				query = fmt.Sprintf(`DELETE FROM %s WHERE ledger_created_at >= $2 AND %s >= $1`, target.table, target.column)
+				args = append(args, bound)
+			}
 			start := time.Now()
-			tag, execErr := dbTx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE %s >= $1`, target.table, target.column), minTOID)
+			tag, execErr := dbTx.Exec(ctx, query, args...)
 			m.Metrics.QueryDuration.WithLabelValues("DeleteRowsAboveLedger", target.table).Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsAboveLedger", target.table).Inc()
 			if execErr != nil {
