@@ -305,7 +305,13 @@ func (m *TransactionModel) BatchCopyAccounts(
 	// ensures that account address is not NULL here.
 	var taRows [][]any
 	for toID, addresses := range stellarAddressesByToID {
-		ledgerCreatedAt := ledgerCreatedAtByToID[toID]
+		ledgerCreatedAt, ok := ledgerCreatedAtByToID[toID]
+		if !ok {
+			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
+			// the hypertable — and means the caller's transactions and
+			// participants disagree about which ToIDs exist.
+			return 0, fmt.Errorf("no transaction supplies ledger_created_at for to_id %d", toID)
+		}
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 		for addr := range addresses {
