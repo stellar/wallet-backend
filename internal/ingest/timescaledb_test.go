@@ -539,6 +539,88 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("compression_schedule_staggered", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		// Each policy job must sit on its own slot of the hour grid: job i's
+		// next_start minus i/5 of the interval lands exactly on an hour
+		// boundary, and the run is in the future.
+		for i, table := range hypertables {
+			onSlot, err := db.QueryOne[bool](ctx, dbConnectionPool,
+				`SELECT j.fixed_schedule
+				    AND js.next_start > now()
+				    AND js.next_start - '1 hour'::interval * $2::float8
+				        = date_bin('1 hour'::interval, js.next_start - '1 hour'::interval * $2::float8, 'epoch'::timestamptz)
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table, float64(i)/float64(len(hypertables)),
+			)
+			require.NoError(t, err, "querying stagger slot for %s", table)
+			assert.True(t, onSlot, "compression job for %s should sit on slot %d of the hour grid", table, i)
+		}
+
+		// All five slots are distinct, so no two policies come due together.
+		distinctStarts, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT COUNT(DISTINCT js.next_start)
+			 FROM timescaledb_information.jobs j
+			 JOIN timescaledb_information.job_stats js USING (job_id)
+			 WHERE j.proc_name = 'policy_compression'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, len(hypertables), distinctStarts, "each compression policy should own a distinct slot")
+	})
+
+	t.Run("compression_schedule_stagger_idempotent", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		startsBefore := make(map[string]string)
+		for _, table := range hypertables {
+			nextStart, err := db.QueryOne[string](ctx, dbConnectionPool,
+				`SELECT js.next_start::text
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying next_start for %s", table)
+			startsBefore[table] = nextStart
+		}
+
+		// A job already on its slot is left untouched, so a restart must not
+		// move next_start (which would postpone compression by a cycle).
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		for _, table := range hypertables {
+			nextStart, err := db.QueryOne[string](ctx, dbConnectionPool,
+				`SELECT js.next_start::text
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying next_start for %s", table)
+			assert.Equal(t, startsBefore[table], nextStart, "re-application should not move %s's slot", table)
+		}
+	})
+
 	t.Run("reconciliation_job_scheduled_after_retention", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
