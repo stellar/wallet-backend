@@ -46,7 +46,7 @@ func (p *LiquidityPoolSharesProcessor) ProcessOperation(ctx context.Context, opW
 		}
 	}()
 
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -129,7 +129,7 @@ func (p *LiquidityPoolsProcessor) ProcessOperation(ctx context.Context, opWrappe
 		}
 	}()
 
-	changes, err := opWrapper.Transaction.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
