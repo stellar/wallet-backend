@@ -51,6 +51,30 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 		// Assert GetAllTransactions
 		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
 	})
+
+	t.Run("🟢 same hash at two ToIDs keeps both transactions", func(t *testing.T) {
+		// The streaming-loadtest backend's merged bootstrap ledgers can carry
+		// the same envelope at several tx-set positions: distinct ToIDs, one
+		// hash. Every ToID with a participant entry must have its canonical
+		// transaction row, or the participant link is COPYed with a zero
+		// ledger_created_at and the transaction row is silently dropped.
+		indexerBuffer := NewIndexerBuffer()
+
+		const sharedHash = "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"
+		tx1 := types.Transaction{Hash: sharedHash, ToID: 1}
+		tx2 := types.Transaction{Hash: sharedHash, ToID: 2}
+
+		indexerBuffer.PushTransaction("alice", &tx1)
+		indexerBuffer.PushTransaction("bob", &tx2)
+
+		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
+		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
+
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
+		for toID := range txParticipants {
+			assert.Contains(t, []int64{tx1.ToID, tx2.ToID}, toID)
+		}
+	})
 }
 
 func TestIndexerBuffer_PushOperation(t *testing.T) {
