@@ -21,7 +21,7 @@ import (
 //
 // ARCHITECTURE:
 // 1. Canonical Storage Layer:
-//   - txByHash: Single pointer per unique transaction (keyed by hash)
+//   - txByToID: Single pointer per unique transaction (keyed by ToID)
 //   - opByID: Single pointer per unique operation (keyed by ID)
 //   - This layer owns the actual data and ensures only ONE copy exists in memory
 //
@@ -29,6 +29,12 @@ import (
 //   - participantsByToID: Maps each transaction ToID to a set of participant IDs (a map used as a set)
 //   - participantsByOpID: Maps each operation ID to a set of participant IDs (a map used as a set)
 //   - Efficiently tracks which participants interacted with each tx/op
+//
+// Both layers of each pair share one key domain (ToID for transactions, ID for
+// operations), so a participant entry can never exist without its canonical
+// row. Keying transactions by hash instead would break that invariant on the
+// streaming-loadtest backend, whose merged bootstrap ledgers can carry the
+// same envelope at several tx-set positions — distinct ToIDs, one hash.
 //
 // MEMORY OPTIMIZATION:
 // When multiple participants interact with the same transaction or operation, they all point
@@ -67,7 +73,7 @@ type ContractEventKey struct {
 }
 
 type IndexerBuffer struct {
-	txByHash                       map[string]*types.Transaction
+	txByToID                       map[int64]*types.Transaction
 	participantsByToID             map[int64]map[string]struct{}
 	opByID                         map[int64]*types.Operation
 	participantsByOpID             map[int64]map[string]struct{}
@@ -103,7 +109,7 @@ type IndexerBuffer struct {
 // All maps are pre-allocated to avoid nil map access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		txByHash:                       make(map[string]*types.Transaction),
+		txByToID:                       make(map[int64]*types.Transaction),
 		participantsByToID:             make(map[int64]map[string]struct{}),
 		opByID:                         make(map[int64]*types.Operation),
 		participantsByOpID:             make(map[int64]map[string]struct{}),
@@ -129,7 +135,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 }
 
 // PushTransaction adds a transaction and associates it with a participant.
-// Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
+// Uses canonical pointer pattern: stores one copy of each transaction (by ToID) and tracks
 // which participants interacted with it. Multiple participants can reference the same transaction.
 func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.Transaction) {
 	b.recordTransaction(participant, transaction)
@@ -138,17 +144,16 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.T
 // recordTransaction is the shared internal helper that stores a transaction pointer and
 // records the participant:
 //
-// 1. Check if transaction already exists in txByHash
+// 1. Check if transaction already exists in txByToID
 // 2. If not, store the transaction pointer
 // 3. Add participant to this transaction's participant set in participantsByToID
 func (b *IndexerBuffer) recordTransaction(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash.String()
-	if _, exists := b.txByHash[txHash]; !exists {
-		b.txByHash[txHash] = transaction
+	toID := transaction.ToID
+	if _, exists := b.txByToID[toID]; !exists {
+		b.txByToID[toID] = transaction
 	}
 
 	// Track this participant by ToID
-	toID := transaction.ToID
 	participants, exists := b.participantsByToID[toID]
 	if !exists {
 		participants = make(map[string]struct{})
@@ -161,7 +166,7 @@ func (b *IndexerBuffer) recordTransaction(participant string, transaction *types
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
-	return len(b.txByHash)
+	return len(b.txByToID)
 }
 
 // GetNumberOfOperations returns the count of unique operations in the buffer.
@@ -171,8 +176,8 @@ func (b *IndexerBuffer) GetNumberOfOperations() int {
 
 // GetTransactions returns all unique transactions.
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
-	txs := make([]*types.Transaction, 0, len(b.txByHash))
-	for _, txPtr := range b.txByHash {
+	txs := make([]*types.Transaction, 0, len(b.txByToID))
+	for _, txPtr := range b.txByToID {
 		txs = append(txs, txPtr)
 	}
 
@@ -521,7 +526,7 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 // key, so changes from two different ledgers must never coexist in those maps.
 func (b *IndexerBuffer) Clear() {
 	// Clear maps (keep allocated backing arrays)
-	clear(b.txByHash)
+	clear(b.txByToID)
 	clear(b.participantsByToID)
 	clear(b.opByID)
 	clear(b.participantsByOpID)
