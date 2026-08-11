@@ -454,7 +454,13 @@ func (m *OperationModel) BatchCopyAccounts(
 	// that account address is not NULL here.
 	var oaRows [][]any
 	for opID, addresses := range stellarAddressesByOpID {
-		ledgerCreatedAt := ledgerCreatedAtByOpID[opID]
+		ledgerCreatedAt, ok := ledgerCreatedAtByOpID[opID]
+		if !ok {
+			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
+			// the hypertable — and means the caller's operations and
+			// participants disagree about which IDs exist.
+			return 0, fmt.Errorf("no operation supplies ledger_created_at for operation_id %d", opID)
+		}
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 		for addr := range addresses {
