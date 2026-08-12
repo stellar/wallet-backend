@@ -370,6 +370,16 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
+	// Collect ContractData changes off the wrappers' memoized change slices, so
+	// the persist stage reads them from the ledger buffer instead of rebuilding
+	// (and re-sorting) every operation's changes via tx.GetChanges on the serial
+	// persist goroutine.
+	contractDataChanges, cdErr := transactionContractDataChanges(&tx, opsParticipants)
+	if cdErr != nil {
+		return nil, fmt.Errorf("collecting contract data changes: %w", cdErr)
+	}
+	result.ContractDataChanges = contractDataChanges
+
 	// Collect state changes, dropping those whose operation is missing. Empty-AccountID entries
 	// are already filtered (and IDs assigned per processor stream) by getTransactionStateChanges.
 	// The fold resolves each change's operation from result.Operations by OperationID.
@@ -764,26 +774,6 @@ func ledgerTouchesTrackedContractData(ledgerMeta xdr.LedgerCloseMeta, trackedCon
 	return false
 }
 
-// ExtractContractDataChangesFromTransactions extracts the same
-// contract-grouped ContractData changes as ExtractContractDataChangesForLedger
-// over already-materialized transactions, ungated — live ingestion's main
-// pipeline has the transactions in hand and processes one ledger per close,
-// so a footprint gate buys nothing there. ledgerSeq is used only for error
-// context.
-func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTransaction, ledgerSeq uint32) (map[string][]ingest.Change, error) {
-	out := make(map[string][]ingest.Change)
-	for i := range transactions {
-		tx := transactions[i]
-		if !tx.Result.Successful() {
-			continue
-		}
-		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
-
 // collectContractDataChanges appends tx's ContractData changes into out,
 // grouped by the owning contract's C-address strkey.
 //
@@ -797,52 +787,192 @@ func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, 
 		return fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
 	}
 	for _, change := range changes {
-		if change.Type != xdr.LedgerEntryTypeContractData {
-			continue
+		if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+			return err
 		}
-		entry := change.Post
-		if entry == nil {
-			entry = change.Pre
-		}
-		if entry == nil {
-			continue
-		}
-		contractData, ok := entry.Data.GetContractData()
-		if !ok {
-			continue
-		}
-		contractIDBytes, ok := contractData.Contract.GetContractId()
-		if !ok {
-			continue
-		}
-		addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
-		if encErr != nil {
-			// Callers rely on this function returning every ContractData
-			// change; silently dropping one would corrupt downstream state.
-			return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, tx.Index, encErr)
-		}
-		out[addr] = append(out[addr], change)
 	}
 	return nil
 }
 
+// appendIfContractDataChange appends change into out under its owning
+// contract's C-address strkey when it is a ContractData change carrying an
+// entry; every other change is ignored.
+func appendIfContractDataChange(out map[string][]ingest.Change, change ingest.Change, ledgerSeq uint32, txIndex uint32) error {
+	if change.Type != xdr.LedgerEntryTypeContractData {
+		return nil
+	}
+	entry := change.Post
+	if entry == nil {
+		entry = change.Pre
+	}
+	if entry == nil {
+		return nil
+	}
+	contractData, ok := entry.Data.GetContractData()
+	if !ok {
+		return nil
+	}
+	contractIDBytes, ok := contractData.Contract.GetContractId()
+	if !ok {
+		return nil
+	}
+	addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+	if encErr != nil {
+		// Callers rely on receiving every ContractData change; silently
+		// dropping one would corrupt downstream state.
+		return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, txIndex, encErr)
+	}
+	out[addr] = append(out[addr], change)
+	return nil
+}
+
+// ledgerEntryChangesContainContractData reports whether any element of the
+// group references a ContractData entry or key. It lets the transaction-level
+// segments of transactionContractDataChanges skip the Change build (and its
+// per-change ledger-key sort) entirely — for almost every transaction those
+// segments hold only fee-account entries.
+func ledgerEntryChangesContainContractData(changes xdr.LedgerEntryChanges) bool {
+	for _, c := range changes {
+		switch c.Type {
+		case xdr.LedgerEntryChangeTypeLedgerEntryCreated:
+			if c.MustCreated().Data.Type == xdr.LedgerEntryTypeContractData {
+				return true
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryUpdated:
+			if c.MustUpdated().Data.Type == xdr.LedgerEntryTypeContractData {
+				return true
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryRemoved:
+			if c.MustRemoved().Type == xdr.LedgerEntryTypeContractData {
+				return true
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryState:
+			if c.MustState().Data.Type == xdr.LedgerEntryTypeContractData {
+				return true
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryRestored:
+			if c.MustRestored().Data.Type == xdr.LedgerEntryTypeContractData {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// transactionContractDataChanges returns tx's ContractData changes grouped by
+// the owning contract's C-address strkey — the same sequence
+// collectContractDataChanges derives from tx.GetChanges() — while serving
+// every operation segment from the wrappers' memoized Changes() slices, so
+// each operation's meta is materialized and ledger-key-sorted once for the
+// whole pipeline instead of a second time here. Only the small
+// transaction-level segments are built in place, and only when their raw
+// change groups mention a ContractData entry at all.
+//
+// Composition mirrors ingest.LedgerTransaction.GetChanges per meta version:
+// transaction-level changes before, each operation's changes in operation
+// order, then (V2+) transaction-level changes after. Returns nil when the
+// transaction is unsuccessful or contributes no ContractData changes.
+func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) (map[string][]ingest.Change, error) {
+	if !tx.Result.Successful() {
+		return nil, nil
+	}
+	ledgerSeq := tx.Ledger.LedgerSequence()
+
+	var before, after xdr.LedgerEntryChanges
+	var opCount int
+	switch tx.UnsafeMeta.V {
+	case 1:
+		meta := tx.UnsafeMeta.MustV1()
+		before = meta.TxChanges
+		opCount = len(meta.Operations)
+	case 2:
+		meta := tx.UnsafeMeta.MustV2()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	case 3:
+		meta := tx.UnsafeMeta.MustV3()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	case 4:
+		meta := tx.UnsafeMeta.MustV4()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	default:
+		return nil, fmt.Errorf("unsupported TransactionMeta version %d in ledger %d tx %d", tx.UnsafeMeta.V, ledgerSeq, tx.Index)
+	}
+
+	out := map[string][]ingest.Change{}
+	txLevel := func(ledgerEntryChanges xdr.LedgerEntryChanges) error {
+		if !ledgerEntryChangesContainContractData(ledgerEntryChanges) {
+			return nil
+		}
+		changes := ingest.GetChangesFromLedgerEntryChanges(ledgerEntryChanges)
+		for i := range changes {
+			changes[i].Reason = ingest.LedgerEntryChangeReasonTransaction
+			changes[i].Transaction = tx
+			changes[i].Ledger = &tx.Ledger
+		}
+		for _, change := range changes {
+			if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := txLevel(before); err != nil {
+		return nil, err
+	}
+
+	wrappersByIndex := make(map[uint32]*processors.TransactionOperationWrapper, len(opsParticipants))
+	for _, opParticipants := range opsParticipants {
+		wrappersByIndex[opParticipants.OpWrapper.Index] = opParticipants.OpWrapper
+	}
+	for opIdx := 0; opIdx < opCount; opIdx++ {
+		var changes []ingest.Change
+		var chErr error
+		if wrapper := wrappersByIndex[uint32(opIdx)]; wrapper != nil {
+			changes, chErr = wrapper.Changes()
+		} else {
+			// Every operation normally has a wrapper — its source account is
+			// always a participant — so this is a correctness backstop for an
+			// operation filtered out of opsParticipants, not a hot path.
+			changes, chErr = tx.GetOperationChanges(uint32(opIdx))
+		}
+		if chErr != nil {
+			return nil, fmt.Errorf("getting operation %d changes for ledger %d tx %d: %w", opIdx, ledgerSeq, tx.Index, chErr)
+		}
+		for _, change := range changes {
+			if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := txLevel(after); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
 // ProcessLedger extracts transactions from a ledger and indexes them.
-// Returns the participant count for optional metrics recording, plus the
-// materialized transactions so callers with further per-transaction work
-// (live ingestion's ContractData extraction) can reuse them instead of
-// paying for a second LedgerTransactionReader build — its constructor
-// re-hashes every transaction envelope.
-func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, []ingest.LedgerTransaction, error) {
+// Returns the participant count for optional metrics recording. Everything a
+// downstream stage needs — including the ledger's ContractData changes — is
+// folded into the buffer.
+func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
 	ledgerSeq := ledgerMeta.LedgerSequence()
 	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta, ledgerIndexer.pool)
 	if err != nil {
-		return 0, nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
 	participantCount, err := ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
 	if err != nil {
-		return 0, nil, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	return participantCount, transactions, nil
+	return participantCount, nil
 }
