@@ -270,15 +270,26 @@ func (operation *TransactionOperationWrapper) Participants() ([]xdr.AccountId, e
 	return dedupeParticipants(participants), nil
 }
 
-// dedupeParticipants remove any duplicate ids from `in`
-func dedupeParticipants(in []xdr.AccountId) (out []xdr.AccountId) {
-	set := map[string]xdr.AccountId{}
-	for _, id := range in {
-		set[id.Address()] = id
+// dedupeParticipants removes duplicates from `in` in place by raw ed25519 key,
+// keeping first-seen order; an operation carries a handful of participants at most,
+// so the scan over the kept prefix stays linear. Callers hand over ownership of `in`.
+func dedupeParticipants(in []xdr.AccountId) []xdr.AccountId {
+	if len(in) <= 1 {
+		return in
 	}
 
-	for _, id := range set {
-		out = append(out, id)
+	out := in[:1]
+	for _, id := range in[1:] {
+		isDuplicate := false
+		for _, kept := range out {
+			if *kept.Ed25519 == *id.Ed25519 {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			out = append(out, id)
+		}
 	}
-	return
+	return out
 }
