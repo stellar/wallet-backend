@@ -154,6 +154,9 @@ func (m *StateChangeModel) BatchCopy(
 
 	start := time.Now()
 
+	// One memo shared by every row of this COPY, used only from pgx's single row-callback goroutine.
+	memo := make(types.AddressByteaMemo)
+
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -174,29 +177,29 @@ func (m *StateChangeModel) BatchCopy(
 			sc := stateChanges[i]
 
 			// Convert account_id to BYTEA (required field)
-			accountBytes, err := sc.AccountID.Value()
+			accountBytes, err := memo.Bytes(sc.AccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting account_id: %w", err)
 			}
 
 			// Convert nullable account_id fields to BYTEA
-			signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+			signerBytes, err := memo.NullBytes(sc.SignerAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting signer_account_id: %w", err)
 			}
-			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+			spenderBytes, err := memo.NullBytes(sc.SpenderAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting spender_account_id: %w", err)
 			}
-			creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
+			creatorBytes, err := memo.NullBytes(sc.CreatorAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting creator_account_id: %w", err)
 			}
-			destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
+			destinationBytes, err := memo.NullBytes(sc.DestinationAccountID)
 			if err != nil {
 				return nil, fmt.Errorf("converting destination_account_id: %w", err)
 			}
-			tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+			tokenBytes, err := memo.NullBytes(sc.TokenID)
 			if err != nil {
 				return nil, fmt.Errorf("converting token_id: %w", err)
 			}
