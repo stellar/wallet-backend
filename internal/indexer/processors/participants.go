@@ -188,16 +188,10 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		return participants, nil
 	}
 
-	// 2. Soroban participants, from the operation body and the executed meta
-	sorobanParticipants, err := participantsForSorobanOp(op)
-	if err != nil {
+	// 2. Soroban participants, from the operation body and the executed meta, added
+	// into the same accumulator so the Soroban path allocates no set of its own.
+	if err := participantsForSorobanOp(op, participants); err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
-
-	// Merged element-wise rather than with Union, which would allocate a third set.
-	sorobanParticipants.Each(func(participant string) bool {
-		participants.Add(participant)
-		return false
-	})
 	return participants, nil
 }
