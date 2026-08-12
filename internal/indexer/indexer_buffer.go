@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -103,6 +104,11 @@ type IndexerBuffer struct {
 	wasmBytecodesByHash   map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
 	protocolContractsByID map[string]data.ProtocolContracts // contractID → ProtocolContracts
 	contractEventsByKey   map[ContractEventKey][]xdr.ContractEvent
+	// contractDataChangesByContract groups the ledger's ContractData changes by the owning
+	// contract's C-address strkey. Within a contract, changes arrive in transaction application
+	// order (the fold is serial in transaction order), so last-write-wins folding per entry key
+	// stays deterministic for the protocol processors that consume this at persist time.
+	contractDataChangesByContract map[string][]ingest.Change
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -131,6 +137,7 @@ func NewIndexerBuffer() *IndexerBuffer {
 		wasmBytecodesByHash:            make(map[string][]byte),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 		contractEventsByKey:            make(map[ContractEventKey][]xdr.ContractEvent),
+		contractDataChangesByContract:  make(map[string][]ingest.Change),
 	}
 }
 
@@ -453,7 +460,11 @@ type TransactionResult struct {
 	ProtocolWasmBytecodes map[string][]byte
 	ProtocolContracts     []data.ProtocolContracts
 	ContractEvents        map[ContractEventKey][]xdr.ContractEvent
-	ParticipantCount      int
+	// ContractDataChanges groups the transaction's ContractData changes by owning contract
+	// C-address, composed in GetChanges order (tx-level before, operations ascending, tx-level
+	// after); nil when the transaction is unsuccessful or touches no ContractData.
+	ContractDataChanges map[string][]ingest.Change
+	ParticipantCount    int
 }
 
 // IngestTransactionResult folds a single transaction's result into the buffer, applying the same
@@ -515,6 +526,20 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	for key, events := range r.ContractEvents {
 		b.PushContractEvents(key, events)
 	}
+
+	// Random map order over contract addresses is fine here: each per-address
+	// slice is appended as one unit, and the fold itself runs in transaction
+	// application order, which is the only ordering consumers rely on.
+	for addr, changes := range r.ContractDataChanges {
+		b.contractDataChangesByContract[addr] = append(b.contractDataChangesByContract[addr], changes...)
+	}
+}
+
+// GetContractDataChanges returns the buffer's ContractData changes grouped by
+// owning contract C-address, in transaction application order within each
+// contract; callers must not modify it.
+func (b *IndexerBuffer) GetContractDataChanges() map[string][]ingest.Change {
+	return b.contractDataChangesByContract
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity. Both
@@ -539,6 +564,7 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.wasmBytecodesByHash)
 	clear(b.protocolContractsByID)
 	clear(b.contractEventsByKey)
+	clear(b.contractDataChangesByContract)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]
