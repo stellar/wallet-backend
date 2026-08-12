@@ -124,16 +124,18 @@ type OperationParticipants struct {
 // This function processes ALL operations regardless of transaction success.
 func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]OperationParticipants, error) {
 	ledgerSequence := transaction.Ledger.LedgerSequence()
-	operationsParticipants := map[int64]OperationParticipants{}
+	ledgerClosed := transaction.Ledger.ClosedAt()
+	ops := transaction.Envelope.Operations()
+	operationsParticipants := make(map[int64]OperationParticipants, len(ops))
 
-	for opi, xdrOp := range transaction.Envelope.Operations() {
+	for opi, xdrOp := range ops {
 		// 1. Build op wrapper, so we can use its methods
 		op := &TransactionOperationWrapper{
 			Index:          uint32(opi),
 			Transaction:    transaction,
 			Operation:      xdrOp,
 			LedgerSequence: ledgerSequence,
-			LedgerClosed:   transaction.Ledger.ClosedAt(),
+			LedgerClosed:   ledgerClosed,
 		}
 		opID := op.ID()
 
@@ -145,14 +147,11 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 			continue
 		}
 
-		// 3. Add participants to the map
-		if _, ok := operationsParticipants[opID]; !ok {
-			operationsParticipants[opID] = OperationParticipants{
-				OpWrapper:    op,
-				Participants: participants,
-			}
-		} else {
-			operationsParticipants[opID].Participants.Append(participants.ToSlice()...)
+		// 3. Add participants to the map. opID embeds the operation index, so every iteration
+		// writes a distinct key and no merge with an existing entry is possible.
+		operationsParticipants[opID] = OperationParticipants{
+			OpWrapper:    op,
+			Participants: participants,
 		}
 	}
 
@@ -179,7 +178,7 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 	if err != nil {
 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
 	}
-	participants := set.NewThreadUnsafeSet[string]()
+	participants := set.NewThreadUnsafeSetWithSize[string](len(participantsAccountIDs))
 	for _, accountID := range participantsAccountIDs {
 		participants.Add(accountID.Address())
 	}
