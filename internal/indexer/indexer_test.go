@@ -244,7 +244,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -350,7 +350,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -366,7 +366,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			2: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx2,
+					Transaction:    &testTx2,
 					Operation:      paymentOp,
 					LedgerSequence: 12345,
 				},
@@ -630,7 +630,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -690,7 +690,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -843,7 +843,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -954,7 +954,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -1034,7 +1034,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
-					Transaction:    testTx,
+					Transaction:    &testTx,
 					Operation:      createAccountOp,
 					LedgerSequence: 12345,
 				},
@@ -1814,7 +1814,7 @@ func TestTransactionContractDataChanges(t *testing.T) {
 
 	t.Run("operation and transaction-level segments both contribute", func(t *testing.T) {
 		tx := contractDataTx(true, opContract, &afterContract)
-		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: tx}
+		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: &tx}
 
 		got, err := transactionContractDataChanges(&tx, map[int64]processors.OperationParticipants{
 			wrapper.ID(): {OpWrapper: wrapper},
@@ -1834,7 +1834,7 @@ func TestTransactionContractDataChanges(t *testing.T) {
 	t.Run("operation segment is served from the wrapper memo", func(t *testing.T) {
 		tx := contractDataTx(true, opContract, nil)
 		wrapperTx := contractDataTx(true, wrapperContract, nil)
-		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: wrapperTx, LedgerSequence: tx.Ledger.LedgerSequence()}
+		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: &wrapperTx, LedgerSequence: tx.Ledger.LedgerSequence()}
 
 		got, err := transactionContractDataChanges(&tx, map[int64]processors.OperationParticipants{
 			wrapper.ID(): {OpWrapper: wrapper},
@@ -1980,7 +1980,7 @@ func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 		opID := int64(i)
 		wrapper := &processors.TransactionOperationWrapper{
 			Index:          uint32(i - 1),
-			Transaction:    testTx,
+			Transaction:    &testTx,
 			Operation:      createAccountOp,
 			LedgerSequence: 12345,
 		}

@@ -42,7 +42,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -140,7 +140,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -164,7 +164,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -208,7 +208,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -252,7 +252,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -291,7 +291,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -333,7 +333,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -371,7 +371,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -413,7 +413,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -451,7 +451,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)

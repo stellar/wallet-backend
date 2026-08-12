@@ -38,7 +38,7 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 			Operation: xdr.Operation{
 				Body: xdr.OperationBody{Type: xdr.OperationTypePayment},
 			},
-			Transaction: ingest.LedgerTransaction{
+			Transaction: &ingest.LedgerTransaction{
 				Envelope: xdr.TransactionEnvelope{
 					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 					V1: &xdr.TransactionV1Envelope{
@@ -97,7 +97,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 		return &TransactionOperationWrapper{
 			LedgerClosed: time.Now(),
 			Operation:    xdr.Operation{},
-			Transaction: ingest.LedgerTransaction{
+			Transaction: &ingest.LedgerTransaction{
 				Envelope: xdr.TransactionEnvelope{
 					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 					V1: &xdr.TransactionV1Envelope{
@@ -723,7 +723,7 @@ func Test_participantsForSorobanOp_realTestnetMeta(t *testing.T) {
 		LedgerSequence: 4679347,
 		LedgerClosed:   closeTime,
 		Operation:      envelope.Operations()[0],
-		Transaction: ingest.LedgerTransaction{
+		Transaction: &ingest.LedgerTransaction{
 			Index:      1,
 			Envelope:   envelope,
 			Result:     xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxSuccess, Results: &[]xdr.OperationResult{}}}},

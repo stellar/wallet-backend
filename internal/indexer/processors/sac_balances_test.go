@@ -177,7 +177,7 @@ func TestSACBalancesProcessor_ProcessOperation(t *testing.T) {
 			tx := createTx(op, tc.changes, nil, false)
 			wrapper := &TransactionOperationWrapper{
 				Index:          0,
-				Transaction:    tx,
+				Transaction:    &tx,
 				Operation:      op,
 				LedgerSequence: 12345,
 			}
@@ -230,7 +230,7 @@ func TestSACBalancesProcessor_ProcessOperation_WithInt128Balance(t *testing.T) {
 	tx := createTx(op, changes, nil, false)
 	wrapper := &TransactionOperationWrapper{
 		Index:          0,
-		Transaction:    tx,
+		Transaction:    &tx,
 		Operation:      op,
 		LedgerSequence: 12345,
 	}
@@ -298,7 +298,7 @@ func TestSACBalancesProcessor_SkipsGAddressHolders(t *testing.T) {
 	tx := createTx(op, changes, nil, false)
 	wrapper := &TransactionOperationWrapper{
 		Index:          0,
-		Transaction:    tx,
+		Transaction:    &tx,
 		Operation:      op,
 		LedgerSequence: 12345,
 	}
