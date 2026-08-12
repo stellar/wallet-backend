@@ -613,7 +613,7 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				Index:          0,
 				Operation:      op,
 				Network:        network.TestNetworkPassphrase,
-				Transaction:    ingestTx,
+				Transaction:    &ingestTx,
 				LedgerSequence: 4873,
 				LedgerClosed:   ingestTx.Ledger.ClosedAt(),
 			}

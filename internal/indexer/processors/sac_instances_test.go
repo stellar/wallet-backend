@@ -183,7 +183,7 @@ func TestSACInstanceProcessor_ProcessOperation(t *testing.T) {
 			tx := createTx(op, tc.changes, nil, false)
 			wrapper := &TransactionOperationWrapper{
 				Index:          0,
-				Transaction:    tx,
+				Transaction:    &tx,
 				Operation:      op,
 				LedgerSequence: 12345,
 				Network:        networkPassphrase,
@@ -235,7 +235,7 @@ func TestSACInstanceProcessor_ProcessOperation_AlphaNum12(t *testing.T) {
 	tx := createTx(op, changes, nil, false)
 	wrapper := &TransactionOperationWrapper{
 		Index:          0,
-		Transaction:    tx,
+		Transaction:    &tx,
 		Operation:      op,
 		LedgerSequence: 12345,
 		Network:        networkPassphrase,

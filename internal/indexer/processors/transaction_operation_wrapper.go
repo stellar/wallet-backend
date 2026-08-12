@@ -26,7 +26,7 @@ var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found
 // TransactionOperationWrapper represents the data for a single operation within a transaction
 type TransactionOperationWrapper struct {
 	Index          uint32
-	Transaction    ingest.LedgerTransaction
+	Transaction    *ingest.LedgerTransaction
 	Operation      xdr.Operation
 	LedgerSequence uint32
 	Network        string
