@@ -57,7 +57,7 @@ func makeBasicSorobanOp() *TransactionOperationWrapper {
 		LedgerClosed:   closeTime,
 		LedgerSequence: 12345,
 		Operation:      xdr.Operation{},
-		Transaction: ingest.LedgerTransaction{
+		Transaction: &ingest.LedgerTransaction{
 			Envelope: xdr.TransactionEnvelope{
 				Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 				V1: &xdr.TransactionV1Envelope{
@@ -136,6 +136,10 @@ func setFrom(op *TransactionOperationWrapper, hostFnType xdr.HostFunctionType, p
 // makeFeeBumpOp updates the envelope type to a fee bump envelope and sets the fee source account.
 func makeFeeBumpOp(feeBumpSourceAccount string, baseOp *TransactionOperationWrapper) *TransactionOperationWrapper {
 	op := *baseOp
+	// The wrapper copy shares baseOp's transaction, so the fee bump envelope is built on a
+	// copy of it: the InnerTx fields below read baseOp's envelope after these writes.
+	transaction := *baseOp.Transaction
+	op.Transaction = &transaction
 	op.Transaction.Envelope.V0 = nil
 	op.Transaction.Envelope.V1 = nil
 	op.Transaction.Envelope.Type = xdr.EnvelopeTypeEnvelopeTypeTxFeeBump

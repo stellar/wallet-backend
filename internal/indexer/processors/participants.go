@@ -128,11 +128,14 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 	ops := transaction.Envelope.Operations()
 	operationsParticipants := make(map[int64]OperationParticipants, len(ops))
 
+	// Every operation's wrapper points at the one transaction rather than copying it.
+	tx := &transaction
+
 	for opi, xdrOp := range ops {
 		// 1. Build op wrapper, so we can use its methods
 		op := &TransactionOperationWrapper{
 			Index:          uint32(opi),
-			Transaction:    transaction,
+			Transaction:    tx,
 			Operation:      xdrOp,
 			LedgerSequence: ledgerSequence,
 			Network:        p.networkPassphrase,
