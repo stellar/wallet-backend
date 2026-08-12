@@ -170,9 +170,12 @@ func (m *StateChangeModel) BatchCopy(
 	// deterministic, so they are wrapped in ErrRowEncoding and classified as
 	// permanent by callers. Failing here also keeps the pgx transaction usable:
 	// once a COPY stream aborts, the whole transaction is doomed.
+	// One memo shared by every row of this COPY: addresses repeat heavily within a
+	// batch, and the rows are encoded sequentially on this goroutine.
+	memo := make(types.AddressByteaMemo)
 	rows := make([][]any, len(stateChanges))
 	for i, sc := range stateChanges {
-		row, err := stateChangeCopyRow(sc)
+		row, err := stateChangeCopyRow(sc, memo)
 		if err != nil {
 			duration := time.Since(start).Seconds()
 			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
@@ -229,9 +232,9 @@ func (m *StateChangeModel) BatchCopy(
 
 // stateChangeCopyRow converts one state change into the COPY column values,
 // in the same order as BatchCopy's column list.
-func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
+func stateChangeCopyRow(sc types.StateChange, memo types.AddressByteaMemo) ([]any, error) {
 	// Convert account_id to BYTEA (required field)
-	accountBytes, err := sc.AccountID.Value()
+	accountBytes, err := memo.Bytes(sc.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting account_id: %w", err)
 	}
@@ -241,19 +244,19 @@ func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("converting signer_account_id: %w", err)
 	}
-	spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+	spenderBytes, err := memo.NullBytes(sc.SpenderAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting spender_account_id: %w", err)
 	}
-	creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
+	creatorBytes, err := memo.NullBytes(sc.CreatorAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting creator_account_id: %w", err)
 	}
-	destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
+	destinationBytes, err := memo.NullBytes(sc.DestinationAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting destination_account_id: %w", err)
 	}
-	tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+	tokenBytes, err := memo.NullBytes(sc.TokenID)
 	if err != nil {
 		return nil, fmt.Errorf("converting token_id: %w", err)
 	}
