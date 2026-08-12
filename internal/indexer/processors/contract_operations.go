@@ -148,7 +148,8 @@ func participantsForSorobanOp(op *TransactionOperationWrapper, participants set.
 
 	// The op source is the one participant every Soroban op shape shares; adding it
 	// here keeps the sub-processors source-free and encodes the address once.
-	participants.Add(op.SourceAccount().Address())
+	sourceAccount := op.SourceAccount()
+	participants.Add(sourceAccount.Address())
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
