@@ -228,20 +228,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		return nil, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Counts unique participants across tx, ops, and state changes for metrics.
+	// Counts unique participants across tx, ops, and state changes for metrics. The tx-level
+	// slice is snapshotted first, so folding the op and state-change accounts into the set
+	// leaves the reported tx participants untouched.
 	txParticipantsSlice := txParticipants.ToSlice()
-	allParticipants := make(map[string]struct{}, len(txParticipantsSlice))
-	for _, participant := range txParticipantsSlice {
-		allParticipants[participant] = struct{}{}
-	}
 	for _, opParticipants := range opsParticipants {
 		opParticipants.Participants.Each(func(participant string) bool {
-			allParticipants[participant] = struct{}{}
+			txParticipants.Add(participant)
 			return false
 		})
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants[string(stateChange.AccountID)] = struct{}{}
+		txParticipants.Add(string(stateChange.AccountID))
 	}
 
 	result := &TransactionResult{
@@ -249,7 +247,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		TxParticipants:   txParticipantsSlice,
 		Operations:       make(map[int64]*types.Operation, len(opsParticipants)),
 		OpParticipants:   make(map[int64][]string, len(opsParticipants)),
-		ParticipantCount: len(allParticipants),
+		ParticipantCount: txParticipants.Cardinality(),
 	}
 
 	// Get operation results for extracting result codes
