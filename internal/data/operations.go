@@ -443,6 +443,8 @@ func (m *OperationModel) BatchCopyAccounts(
 
 	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures
 	// that account address is not NULL here.
+	// Participants are deduplicated per operation upstream, so a busy account repeats once per operation here.
+	memo := make(types.AddressByteaMemo)
 	var oaRows [][]any
 	for opID, addresses := range stellarAddressesByOpID {
 		ledgerCreatedAt, ok := ledgerCreatedAtByOpID[opID]
@@ -455,7 +457,7 @@ func (m *OperationModel) BatchCopyAccounts(
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
 		for addr := range addresses {
-			addrBytes, addrErr := types.AddressBytea(addr).Value()
+			addrBytes, addrErr := memo.Bytes(types.AddressBytea(addr))
 			if addrErr != nil {
 				return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 			}
