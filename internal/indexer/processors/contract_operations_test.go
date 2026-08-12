@@ -74,7 +74,8 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErrContains)
 			assert.Empty(t, participants)
@@ -202,7 +203,8 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
@@ -257,11 +259,53 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
 		})
 	}
+}
+
+func Test_participantsFromInvocationAndSubInvocations_zeroValueInvocation(t *testing.T) {
+	// A zero-value invocation carries the ContractFn arm tag with a nil pointer; the
+	// walk must skip it instead of dereferencing (GetContractFn would panic).
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsFromInvocationAndSubInvocations(network.TestNetworkPassphrase, &xdr.SorobanAuthorizedInvocation{}, participants)
+	require.NoError(t, err)
+	assert.True(t, participants.IsEmpty())
+}
+
+func Test_participantsForSorobanOp_muxedOpSourceKeepsMuxedForm(t *testing.T) {
+	op := makeBasicSorobanOp()
+	op.Operation = xdr.Operation{
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+				HostFunction: xdr.HostFunction{
+					Type: xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm,
+					Wasm: &[]byte{1, 2, 3, 4, 5},
+				},
+			},
+		},
+	}
+	muxedSource := xdr.MuxedAccount{
+		Type: xdr.CryptoKeyTypeKeyTypeMuxedEd25519,
+		Med25519: &xdr.MuxedAccountMed25519{
+			Id:      123,
+			Ed25519: xdr.Uint256{1, 2, 3},
+		},
+	}
+	op.Operation.SourceAccount = &muxedSource
+
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsForSorobanOp(op, participants)
+	require.NoError(t, err)
+
+	// The Soroban path reports the source in its muxed (M...) form; the classic
+	// Participants() path separately reports the underlying G-account.
+	assert.Equal(t, set.NewThreadUnsafeSet(muxedSource.Address()), participants)
+	assert.NotEqual(t, muxedSource.ToAccountId().Address(), muxedSource.Address())
 }
 
 // makeAuthEntries receives a []xdr.ScAddress and returns a []xdr.SorobanAuthorizationEntry. It also populates the
@@ -479,7 +523,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
@@ -582,7 +627,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)

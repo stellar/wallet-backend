@@ -182,16 +182,11 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		return participants, nil
 	}
 
-	// 2. Get Soroban participants
-	sorobanParticipants, err := participantsForSorobanOp(op)
-	if err != nil {
+	// 2. Add Soroban participants into the same accumulator: the entire Soroban path
+	// folds into this one set instead of allocating and merging its own.
+	if err := participantsForSorobanOp(op, participants); err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
 
-	// Merged element-wise rather than with Union, which would allocate a third set.
-	sorobanParticipants.Each(func(participant string) bool {
-		participants.Add(participant)
-		return false
-	})
 	return participants, nil
 }
