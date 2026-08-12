@@ -35,40 +35,6 @@ const (
 	advisoryUnlockTimeout = 10 * time.Second
 )
 
-// contractDataMemo lazily extracts ContractData changes from a ledger's
-// already-materialized transactions (from the processLedger staging pass) and
-// memoizes the result. Extraction is pure over (transactions, ledgerSeq), so
-// one memo shared across persistLedgerDataWithRetry's attempts means the
-// extraction walk runs at most once per ledger — never inside a retried
-// attempt's open transaction — and only when a CAS-winning processor
-// requires it, so a protocol still backfilling costs nothing extra.
-type contractDataMemo struct {
-	transactions []ingest.LedgerTransaction
-	ledgerSeq    uint32
-	changes      map[string][]ingest.Change
-	extracted    bool
-}
-
-func newContractDataMemo(transactions []ingest.LedgerTransaction, ledgerSeq uint32) *contractDataMemo {
-	return &contractDataMemo{transactions: transactions, ledgerSeq: ledgerSeq}
-}
-
-// get returns the memoized extraction, running it on first use. The result is
-// always non-nil, including over zero transactions, because a
-// RequiresContractData processor must receive a ContractDataChanges map it can
-// range over unconditionally.
-func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
-	if !c.extracted {
-		changes, err := indexer.ExtractContractDataChangesFromTransactions(c.transactions, c.ledgerSeq)
-		if err != nil {
-			return nil, fmt.Errorf("extracting contract data changes for ledger %d: %w", c.ledgerSeq, err)
-		}
-		c.changes = changes
-		c.extracted = true
-	}
-	return c.changes, nil
-}
-
 // ErrPartialPersist marks a persist failure that occurred after the first
 // sibling commit succeeded: some of the ledger's tables are durable and the
 // rest are not, the transaction set can no longer roll back atomically, and no
@@ -81,15 +47,15 @@ var ErrPartialPersist = errors.New("ledger persist partially committed")
 // persistItem is one ledger's persist payload: its classification plan
 // (computed by prepareClassificationPlan before any transaction opens, RPC
 // calls already resolved; nil when the ledger had nothing to classify) and
-// its ContractData extraction memo. Both are shared verbatim across
+// its buffer, which carries the ledger's ContractData changes collected by
+// the process stage. Both are shared verbatim across
 // persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
-// calls or re-runs the extraction walk.
+// calls or re-collects changes.
 type persistItem struct {
-	seq          uint32
-	meta         xdr.LedgerCloseMeta
-	plan         *ClassificationPlan
-	contractData *contractDataMemo
-	buffer       *indexer.IndexerBuffer
+	seq    uint32
+	meta   xdr.LedgerCloseMeta
+	plan   *ClassificationPlan
+	buffer *indexer.IndexerBuffer
 }
 
 // batchLabel names a batch in errors and logs: "ledger N" for a single
@@ -206,7 +172,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	g.Go(func() error {
 		for j := range items {
 			it := &items[j]
-			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, it.seq, it.meta, it.plan, it.contractData, it.buffer); stageErr != nil {
+			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, it.seq, it.meta, it.plan, it.buffer); stageErr != nil {
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
 		}
@@ -251,7 +217,6 @@ func (m *ingestService) stageCoordinatedWrites(
 	ledgerSeq uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
 	plan *ClassificationPlan,
-	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
 ) error {
 	// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
@@ -378,7 +343,7 @@ func (m *ingestService) stageCoordinatedWrites(
 
 			if historySwapped || currentStateSwapped {
 				if stageErr := m.stageAndPersistProtocolLedger(ctx, dbTx, protocolID, processor, ledgerSeq, ledgerCloseTime,
-					contractEvents, committedByProtocol[protocolID], bufferedContracts, classification, contractData,
+					contractEvents, committedByProtocol[protocolID], bufferedContracts, classification, buffer.GetContractDataChanges(),
 					historySwapped, currentStateSwapped); stageErr != nil {
 					return stageErr
 				}
@@ -386,7 +351,7 @@ func (m *ingestService) stageCoordinatedWrites(
 
 			if lostHistory || lostCurrentState {
 				if repairErr := m.repairClassificationGap(ctx, dbTx, protocolID, processor, ledgerSeq, ledgerCloseTime,
-					contractEvents, bufferedContracts, classification, contractData,
+					contractEvents, bufferedContracts, classification, buffer.GetContractDataChanges(),
 					lostHistory, lostCurrentState); repairErr != nil {
 					return repairErr
 				}
@@ -438,16 +403,12 @@ func (m *ingestService) stageAndPersistProtocolLedger(
 	committed []data.ProtocolContracts,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
-	contractData *contractDataMemo,
+	ledgerContractData map[string][]ingest.Change,
 	historySwapped, currentStateSwapped bool,
 ) error {
 	var contractDataChanges map[string][]ingest.Change
 	if processor.RequiresContractData() {
-		var cdErr error
-		contractDataChanges, cdErr = contractData.get()
-		if cdErr != nil {
-			return cdErr
-		}
+		contractDataChanges = ledgerContractData
 
 		// ContractData-driven processors need the protocol's FULL committed
 		// membership, not just this ledger's event emitters: entries can
@@ -538,7 +499,7 @@ func (m *ingestService) repairClassificationGap(
 	contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
-	contractData *contractDataMemo,
+	ledgerContractData map[string][]ingest.Change,
 	lostHistory, lostCurrentState bool,
 ) error {
 	// Almost every ledger classifies nothing, making a lost swap the ordinary
@@ -611,10 +572,7 @@ func (m *ingestService) repairClassificationGap(
 
 	var contractDataChanges map[string][]ingest.Change
 	if processor.RequiresContractData() {
-		contractDataChanges, err = contractData.get()
-		if err != nil {
-			return err
-		}
+		contractDataChanges = ledgerContractData
 	}
 
 	// Reset discards any staging left from this ledger's swapped-half run; the
@@ -839,15 +797,14 @@ type fetchedLedger struct {
 	meta xdr.LedgerCloseMeta
 }
 
-// processedLedger is the process→persist handoff. transactions are the
-// materialized transactions from the staging pass, reused by the persist
-// stage for ContractData extraction. processDuration rides along so the
-// per-ledger Duration metric can sum the ledger's stage times instead of
-// counting the time it sat queued between stages.
+// processedLedger is the process→persist handoff. The buffer carries
+// everything the persist stage consumes, including the ledger's ContractData
+// changes. processDuration rides along so the per-ledger Duration metric can
+// sum the ledger's stage times instead of counting the time it sat queued
+// between stages.
 type processedLedger struct {
 	seq             uint32
 	meta            xdr.LedgerCloseMeta
-	transactions    []ingest.LedgerTransaction
 	buffer          *indexer.IndexerBuffer
 	processDuration time.Duration
 }
@@ -997,8 +954,7 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 		buffer.Clear()
 
 		processStart := time.Now()
-		transactions, err := m.processLedger(ctx, fl.meta, buffer)
-		if err != nil {
+		if err := m.processLedger(ctx, fl.meta, buffer); err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
 		}
@@ -1006,7 +962,7 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())
 
 		select {
-		case processed <- processedLedger{seq: fl.seq, meta: fl.meta, transactions: transactions, buffer: buffer, processDuration: processDuration}:
+		case processed <- processedLedger{seq: fl.seq, meta: fl.meta, buffer: buffer, processDuration: processDuration}:
 		case <-ctx.Done():
 			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
 		}
@@ -1144,10 +1100,9 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		items := make([]persistItem, len(batch))
 		for i, pl := range batch {
 			items[i] = persistItem{
-				seq:          pl.seq,
-				meta:         pl.meta,
-				contractData: newContractDataMemo(pl.transactions, pl.seq),
-				buffer:       pl.buffer,
+				seq:    pl.seq,
+				meta:   pl.meta,
+				buffer: pl.buffer,
 			}
 		}
 		items[0].plan = plan

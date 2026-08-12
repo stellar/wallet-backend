@@ -244,6 +244,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -350,6 +351,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -366,6 +368,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			2: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx2,
 					Operation:      paymentOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -630,6 +633,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -690,6 +694,7 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -843,6 +848,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -954,6 +960,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -1034,6 +1041,7 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 			1: {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
+					Transaction:    testTx,
 					Operation:      createAccountOp,
 					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
@@ -1502,15 +1510,26 @@ func projectContractDataChanges(m map[string][]ingest.Change) map[string][]contr
 // extractContractDataChangesViaReader is the reader-based reference
 // implementation: materialize transactions through the
 // LedgerTransactionReader (envelope↔meta pairing via hashing) and extract
-// from those. Kept test-only as the merge gate for the production meta-based
-// path, mirroring extractContractEventsViaReader.
+// each successful transaction's changes through tx.GetChanges (the SDK's own
+// composition). Kept test-only as the merge gate for both production paths —
+// the footprint-gated meta-based extraction and the wrapper-memo collection
+// in processTransaction — mirroring extractContractEventsViaReader.
 func extractContractDataChangesViaReader(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, map[string][]ingest.Change, error) {
 	transactions, err := getLedgerTransactionsViaReader(ctx, networkPassphrase, ledgerMeta)
 	if err != nil {
 		return nil, nil, err
 	}
-	changes, err := ExtractContractDataChangesFromTransactions(transactions, ledgerMeta.LedgerSequence())
-	return transactions, changes, err
+	changes := make(map[string][]ingest.Change)
+	for i := range transactions {
+		tx := transactions[i]
+		if !tx.Result.Successful() {
+			continue
+		}
+		if err := collectContractDataChanges(&tx, ledgerMeta.LedgerSequence(), changes); err != nil {
+			return nil, nil, err
+		}
+	}
+	return transactions, changes, nil
 }
 
 // TestExtractContractDataChangesForLedger_Fixtures checks the ContractData
@@ -1644,6 +1663,175 @@ func TestExtractContractDataChangesForLedger_Fixtures(t *testing.T) {
 	require.Greater(t, totalChanges, 0, "fixture corpus must produce at least one ContractData change")
 }
 
+// TestProcessLedgerTransactions_ContractDataChangesMatchReaderExtraction is the
+// merge gate for collecting ContractData changes during the process stage: what
+// ProcessLedgerTransactions folds into the buffer must equal what the
+// reader-based reference derives, for every fixture in the corpus.
+//
+// The two sides are independent by construction. The reference composes each
+// transaction's changes through the SDK's own tx.GetChanges(); the production
+// side composes them per meta version from the operation wrappers' memoized
+// Changes() plus the transaction-level segments, then folds the per-transaction
+// results into the buffer. Both are handed the same reader-materialized
+// transactions, so composition is the only thing that differs.
+func TestProcessLedgerTransactions_ContractDataChangesMatchReaderExtraction(t *testing.T) {
+	ctx := context.Background()
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no ledger fixtures under testdata/ — regenerate per the loadLedgerFixture recipe")
+
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	require.NoError(t, err)
+
+	totalChanges := 0
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			lcm := loadLedgerFixture(t, path)
+
+			transactions, want, refErr := extractContractDataChangesViaReader(ctx, network.PublicNetworkPassphrase, lcm)
+			require.NoError(t, refErr)
+
+			buffer := NewIndexerBuffer()
+			_, procErr := idx.ProcessLedgerTransactions(ctx, transactions, buffer)
+			require.NoError(t, procErr)
+
+			assert.Equal(t, projectContractDataChanges(want), projectContractDataChanges(buffer.GetContractDataChanges()),
+				"buffer's ContractData changes must match the reader-based reference")
+
+			for _, changes := range want {
+				totalChanges += len(changes)
+			}
+		})
+	}
+
+	require.Greater(t, totalChanges, 0, "fixture corpus must produce at least one ContractData change")
+}
+
+// contractDataCreateChanges is a one-entry CREATE change group owning a
+// ContractData entry under contractID — the minimal shape the ContractData
+// grouping keys on.
+func contractDataCreateChanges(contractID xdr.ContractId) xdr.LedgerEntryChanges {
+	return xdr.LedgerEntryChanges{
+		{
+			Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+			Created: &xdr.LedgerEntry{
+				Data: xdr.LedgerEntryData{
+					Type: xdr.LedgerEntryTypeContractData,
+					ContractData: &xdr.ContractDataEntry{
+						Contract:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
+						Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+						Durability: xdr.ContractDataDurabilityPersistent,
+						Val:        xdr.ScVal{Type: xdr.ScValTypeScvVoid},
+					},
+				},
+			},
+		},
+	}
+}
+
+// contractDataTx builds a synthetic V3-meta transaction whose single operation
+// and (optionally) transaction-level-after segment carry ContractData changes.
+func contractDataTx(successful bool, opContract xdr.ContractId, afterContract *xdr.ContractId) ingest.LedgerTransaction {
+	code := xdr.TransactionResultCodeTxSuccess
+	if !successful {
+		code = xdr.TransactionResultCodeTxFailed
+	}
+	meta := xdr.TransactionMetaV3{
+		Operations: []xdr.OperationMeta{{Changes: contractDataCreateChanges(opContract)}},
+	}
+	if afterContract != nil {
+		meta.TxChangesAfter = contractDataCreateChanges(*afterContract)
+	}
+	return ingest.LedgerTransaction{
+		Index:  1,
+		Ledger: testLcm,
+		Result: xdr.TransactionResultPair{
+			Result: xdr.TransactionResult{
+				Result: xdr.TransactionResultResult{Code: code, Results: &[]xdr.OperationResult{}},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &meta},
+	}
+}
+
+func mustContractAddress(t *testing.T, contractID xdr.ContractId) string {
+	t.Helper()
+	addr, err := strkey.Encode(strkey.VersionByteContract, contractID[:])
+	require.NoError(t, err)
+	return addr
+}
+
+func TestTransactionContractDataChanges(t *testing.T) {
+	opContract := xdr.ContractId{0xaa}
+	afterContract := xdr.ContractId{0xbb}
+	wrapperContract := xdr.ContractId{0xcc}
+
+	t.Run("unsuccessful transaction contributes nothing", func(t *testing.T) {
+		tx := contractDataTx(false, opContract, &afterContract)
+		// Guard against a vacuous pass: the meta really does carry ContractData
+		// changes, so the nil result can only come from the success check.
+		require.True(t, ledgerEntryChangesContainContractData(tx.UnsafeMeta.MustV3().Operations[0].Changes))
+
+		got, err := transactionContractDataChanges(&tx, nil)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("meta version 0 errors", func(t *testing.T) {
+		tx := contractDataTx(true, opContract, nil)
+		tx.UnsafeMeta = xdr.TransactionMeta{V: 0}
+
+		_, err := transactionContractDataChanges(&tx, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported TransactionMeta version")
+	})
+
+	t.Run("operation and transaction-level segments both contribute", func(t *testing.T) {
+		tx := contractDataTx(true, opContract, &afterContract)
+		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: tx}
+
+		got, err := transactionContractDataChanges(&tx, map[int64]processors.OperationParticipants{
+			1: {OpWrapper: wrapper},
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Len(t, got[mustContractAddress(t, opContract)], 1)
+		assert.Len(t, got[mustContractAddress(t, afterContract)], 1)
+	})
+
+	// The operation segment must be served from the wrapper's memoized
+	// Changes(), not re-derived via tx.GetOperationChanges — that memo is the
+	// whole point of collecting here rather than in a later stage. To make the
+	// source observable, the wrapper is given a transaction whose operation meta
+	// disagrees with the one being walked; only a wrapper-served walk can
+	// return the wrapper's contract.
+	t.Run("operation segment is served from the wrapper memo", func(t *testing.T) {
+		tx := contractDataTx(true, opContract, nil)
+		wrapperTx := contractDataTx(true, wrapperContract, nil)
+		wrapper := &processors.TransactionOperationWrapper{Index: 0, Transaction: wrapperTx}
+
+		got, err := transactionContractDataChanges(&tx, map[int64]processors.OperationParticipants{
+			1: {OpWrapper: wrapper},
+		})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Contains(t, got, mustContractAddress(t, wrapperContract))
+		assert.NotContains(t, got, mustContractAddress(t, opContract))
+	})
+
+	// An operation with no wrapper in opsParticipants still has to contribute:
+	// the walk falls back to the SDK accessor rather than dropping the segment.
+	t.Run("operation without a wrapper falls back to the SDK accessor", func(t *testing.T) {
+		tx := contractDataTx(true, opContract, nil)
+
+		got, err := transactionContractDataChanges(&tx, nil)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Len(t, got[mustContractAddress(t, opContract)], 1)
+	})
+}
+
 func TestAssignStateChangeStream_SubNamespaces(t *testing.T) {
 	effects := []types.StateChange{
 		{OperationID: 42, AccountID: "GA"},
@@ -1766,6 +1954,7 @@ func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 		opID := int64(i)
 		wrapper := &processors.TransactionOperationWrapper{
 			Index:          uint32(i - 1),
+			Transaction:    testTx,
 			Operation:      createAccountOp,
 			Network:        network.TestNetworkPassphrase,
 			LedgerSequence: 12345,

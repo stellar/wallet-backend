@@ -346,7 +346,7 @@ func (m *ingestService) processLedgersInBatch(
 		}
 		endTime = ledgerTime
 
-		if _, err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
+		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
 			return ledgersProcessed, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 		}
 		ledgersProcessed++
