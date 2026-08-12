@@ -58,14 +58,11 @@ func (operation *TransactionOperationWrapper) TransactionID() int64 {
 }
 
 // SourceAccount returns the operation's source account.
-func (operation *TransactionOperationWrapper) SourceAccount() *xdr.MuxedAccount {
-	sourceAccount := operation.Operation.SourceAccount
-	if sourceAccount != nil {
-		return sourceAccount
-	} else {
-		ret := operation.Transaction.Envelope.SourceAccount()
-		return &ret
+func (operation *TransactionOperationWrapper) SourceAccount() xdr.MuxedAccount {
+	if sourceAccount := operation.Operation.SourceAccount; sourceAccount != nil {
+		return *sourceAccount
 	}
+	return operation.Transaction.Envelope.SourceAccount()
 }
 
 // OperationType returns the operation type.
