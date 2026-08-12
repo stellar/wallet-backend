@@ -77,14 +77,11 @@ func (operation *TransactionOperationWrapper) TransactionID() int64 {
 }
 
 // SourceAccount returns the operation's source account.
-func (operation *TransactionOperationWrapper) SourceAccount() *xdr.MuxedAccount {
-	sourceAccount := operation.Operation.SourceAccount
-	if sourceAccount != nil {
-		return sourceAccount
-	} else {
-		ret := operation.Transaction.Envelope.SourceAccount()
-		return &ret
+func (operation *TransactionOperationWrapper) SourceAccount() xdr.MuxedAccount {
+	if sourceAccount := operation.Operation.SourceAccount; sourceAccount != nil {
+		return *sourceAccount
 	}
+	return operation.Transaction.Envelope.SourceAccount()
 }
 
 // OperationType returns the operation type.
@@ -243,7 +240,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 			}
 			details["trustee"] = details["asset_issuer"]
 		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustor"); err != nil {
+		if err := AddAccountAndMuxedAccountDetails(details, source, "trustor"); err != nil {
 			return nil, err
 		}
 		details["limit"] = amount.String(op.Limit)
@@ -252,7 +249,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		if err := AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), ""); err != nil {
 			return nil, err
 		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustee"); err != nil {
+		if err := AddAccountAndMuxedAccountDetails(details, source, "trustee"); err != nil {
 			return nil, err
 		}
 		details["trustor"] = op.Trustor.Address()
@@ -280,7 +277,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		beginSponsorshipOp := operation.findInitatingBeginSponsoringOp()
 		if beginSponsorshipOp != nil {
 			beginSponsorshipSource := beginSponsorshipOp.SourceAccount()
-			if err := AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor"); err != nil {
+			if err := AddAccountAndMuxedAccountDetails(details, beginSponsorshipSource, "begin_sponsor"); err != nil {
 				return nil, err
 			}
 		}

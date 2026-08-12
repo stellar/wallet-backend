@@ -338,10 +338,12 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 			details["asset"] = tl.Asset.ToAsset().StringCanonical()
 		}
 	case xdr.LedgerEntryTypeData:
-		muxedAccount = e.operation.SourceAccount()
+		sourceAccount := e.operation.SourceAccount()
+		muxedAccount = &sourceAccount
 		details["data_name"] = string(data.MustData().DataName)
 	case xdr.LedgerEntryTypeClaimableBalance:
-		muxedAccount = e.operation.SourceAccount()
+		sourceAccount := e.operation.SourceAccount()
+		muxedAccount = &sourceAccount
 		var err error
 		details["balance_id"], err = xdr.MarshalHex(data.MustClaimableBalance().BalanceId)
 		if err != nil {
@@ -381,7 +383,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	op := e.operation.Operation.Body.MustSetOptionsOp()
 
 	if op.HomeDomain != nil {
-		e.addMuxed(source, EffectAccountHomeDomainUpdated,
+		e.addMuxed(&source, EffectAccountHomeDomainUpdated,
 			map[string]interface{}{
 				"home_domain": string(*op.HomeDomain),
 			},
@@ -403,7 +405,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	}
 
 	if len(thresholdDetails) > 0 {
-		e.addMuxed(source, EffectAccountThresholdsUpdated, thresholdDetails)
+		e.addMuxed(&source, EffectAccountThresholdsUpdated, thresholdDetails)
 	}
 
 	flagDetails := map[string]interface{}{}
@@ -415,7 +417,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	}
 
 	if len(flagDetails) > 0 {
-		e.addMuxed(source, EffectAccountFlagsUpdated, flagDetails)
+		e.addMuxed(&source, EffectAccountFlagsUpdated, flagDetails)
 	}
 
 	changes, err := e.operation.Changes()
@@ -448,14 +450,14 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 		for _, addy := range beforeSortedSigners {
 			weight, ok := after[addy]
 			if !ok {
-				e.addMuxed(source, EffectSignerRemoved, map[string]interface{}{
+				e.addMuxed(&source, EffectSignerRemoved, map[string]interface{}{
 					"public_key": addy,
 				})
 				continue
 			}
 
 			if weight != before[addy] {
-				e.addMuxed(source, EffectSignerUpdated, map[string]interface{}{
+				e.addMuxed(&source, EffectSignerUpdated, map[string]interface{}{
 					"public_key": addy,
 					"weight":     weight,
 				})
@@ -477,7 +479,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 				continue
 			}
 
-			e.addMuxed(source, EffectSignerCreated, map[string]interface{}{
+			e.addMuxed(&source, EffectSignerCreated, map[string]interface{}{
 				"public_key": addy,
 				"weight":     weight,
 			})
@@ -541,7 +543,7 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 			}
 		}
 
-		e.addMuxed(source, effect, details)
+		e.addMuxed(&source, effect, details)
 		break
 	}
 
@@ -562,24 +564,24 @@ func (e *effectsWrapper) addAllowTrustEffects() {
 
 	switch {
 	case xdr.TrustLineFlags(op.Authorize).IsAuthorized():
-		e.addMuxed(source, EffectTrustlineFlagsUpdated, details)
+		e.addMuxed(&source, EffectTrustlineFlagsUpdated, details)
 		// Forward compatibility
 		setFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, &setFlags, nil)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, &setFlags, nil)
 	case xdr.TrustLineFlags(op.Authorize).IsAuthorizedToMaintainLiabilitiesFlag():
 		e.addMuxed(
-			source,
+			&source,
 			EffectTrustlineFlagsUpdated,
 			details,
 		)
 		// Forward compatibility
 		setFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, &setFlags, nil)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, &setFlags, nil)
 	default:
-		e.addMuxed(source, EffectTrustlineFlagsUpdated, details)
+		e.addMuxed(&source, EffectTrustlineFlagsUpdated, details)
 		// Forward compatibility, show both as cleared
 		clearFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, nil, &clearFlags)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, nil, &clearFlags)
 	}
 }
 
@@ -620,14 +622,14 @@ func (e *effectsWrapper) addManageDataEffects() error {
 		break
 	}
 
-	e.addMuxed(source, effect, details)
+	e.addMuxed(&source, effect, details)
 	return nil
 }
 
 func (e *effectsWrapper) addSetTrustLineFlagsEffects() {
 	source := e.operation.SourceAccount()
 	op := e.operation.Operation.Body.MustSetTrustLineFlagsOp()
-	e.addTrustLineFlagsEffect(source, &op.Trustor, op.Asset, &op.SetFlags, &op.ClearFlags)
+	e.addTrustLineFlagsEffect(&source, &op.Trustor, op.Asset, &op.SetFlags, &op.ClearFlags)
 }
 
 func (e *effectsWrapper) addTrustLineFlagsEffect(

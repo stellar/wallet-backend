@@ -626,7 +626,8 @@ func Test_participantsForSorobanOp_muxedSource(t *testing.T) {
 				op := makeBasicSorobanOp()
 				op.Operation = xdr.Operation{Body: b.body}
 				s.apply(op)
-				require.Equal(t, muxedSource.Address(), op.SourceAccount().Address(), "the op source must resolve to the muxed account")
+				opSource := op.SourceAccount()
+				require.Equal(t, muxedSource.Address(), opSource.Address(), "the op source must resolve to the muxed account")
 
 				participants := set.NewThreadUnsafeSet[string]()
 				err := participantsForSorobanOp(op, participants)
