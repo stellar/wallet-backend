@@ -223,6 +223,147 @@ func TestAddressBytea_String(t *testing.T) {
 	}
 }
 
+func TestAddressBytea_Value_rejectsNon32BytePayloads(t *testing.T) {
+	// A CAP-40 signed-payload key (P...) decodes to more than 32 bytes; the 33-byte storage
+	// format fits exactly one 32-byte key, so Value must reject it rather than truncate.
+	// A muxed M-address is not a rejection case: Value reduces it to its 32-byte base key.
+	var ed25519 xdr.Uint256
+	copy(ed25519[:], strkey.MustDecode(strkey.VersionByteAccountID, keypair.MustRandom().Address()))
+	signerKey := xdr.SignerKey{
+		Type:                 xdr.SignerKeyTypeSignerKeyTypeEd25519SignedPayload,
+		Ed25519SignedPayload: &xdr.SignerKeyEd25519SignedPayload{Ed25519: ed25519, Payload: []byte{1, 2, 3, 4}},
+	}
+	signedPayloadAddress, err := signerKey.GetAddress()
+	require.NoError(t, err)
+
+	_, err = AddressBytea(signedPayloadAddress).Value()
+	assert.ErrorContains(t, err, "32-byte")
+}
+
+func TestAddressByteaMemo_Bytes_matchesValue(t *testing.T) {
+	kp := keypair.MustRandom()
+
+	testCases := []struct {
+		name  string
+		input AddressBytea
+	}{
+		{name: "🟢valid G address", input: AddressBytea(kp.Address())},
+		{name: "🟢valid C address", input: AddressBytea("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")},
+		{name: "🟢empty string", input: ""},
+		{name: "🔴invalid address", input: "not-a-valid-address"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := make(AddressByteaMemo)
+			wantVal, wantErr := tc.input.Value()
+
+			// Repeated calls must keep matching Value exactly, hit or miss.
+			for range 2 {
+				got, err := memo.Bytes(tc.input)
+				if wantErr != nil {
+					require.Error(t, err)
+					assert.Equal(t, wantErr.Error(), err.Error())
+					assert.Nil(t, got)
+				} else {
+					require.NoError(t, err)
+					if wantVal == nil {
+						assert.Nil(t, got)
+					} else {
+						assert.Equal(t, wantVal, driver.Value(got))
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAddressByteaMemo_Bytes_sharesTheSliceAcrossHits(t *testing.T) {
+	kp := keypair.MustRandom()
+	memo := make(AddressByteaMemo)
+
+	first, err := memo.Bytes(AddressBytea(kp.Address()))
+	require.NoError(t, err)
+	second, err := memo.Bytes(AddressBytea(kp.Address()))
+	require.NoError(t, err)
+
+	// The memo's whole point is skipping the decode and the 33-byte allocation on a
+	// hit, so both calls must return the same backing array.
+	assert.Same(t, &first[0], &second[0])
+}
+
+func TestAddressByteaMemo_Bytes_cachesOnlySuccesses(t *testing.T) {
+	memo := make(AddressByteaMemo)
+
+	_, err := memo.Bytes("not-a-valid-address")
+	assert.Error(t, err)
+
+	_, err = memo.Bytes("")
+	assert.NoError(t, err)
+
+	assert.Empty(t, memo)
+}
+
+func TestAddressByteaMemo_NullBytes(t *testing.T) {
+	kp := keypair.MustRandom()
+	validAddress := AddressBytea(kp.Address())
+	wantBytes, err := validAddress.Value()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name  string
+		input NullAddressBytea
+		want  []byte
+	}{
+		{name: "🟢invalid (NULL)", input: NullAddressBytea{Valid: false}, want: nil},
+		{name: "🟢valid address", input: NullAddressBytea{AddressBytea: validAddress, Valid: true}, want: wantBytes.([]byte)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := make(AddressByteaMemo)
+			got, err := memo.NullBytes(tc.input)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func BenchmarkAddressBytea_Value(b *testing.B) {
+	addresses := benchmarkAddresses()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		_, err := addresses[i%len(addresses)].Value()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressByteaMemo_Bytes(b *testing.B) {
+	addresses := benchmarkAddresses()
+	memo := make(AddressByteaMemo)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		_, err := memo.Bytes(addresses[i%len(addresses)])
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// benchmarkAddresses mirrors the repetition the persist COPY builds see: a small
+// working set of unique addresses converted over and over within one batch.
+func benchmarkAddresses() []AddressBytea {
+	addresses := make([]AddressBytea, 8)
+	for i := range addresses {
+		addresses[i] = AddressBytea(keypair.MustRandom().Address())
+	}
+	return addresses
+}
+
 func TestNullableJSONB_Value(t *testing.T) {
 	testCases := []struct {
 		name            string

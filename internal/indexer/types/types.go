@@ -275,6 +275,44 @@ func (n NullSignerKeyBytea) String() string {
 	return string(n.SignerKeyBytea)
 }
 
+// AddressByteaMemo caches strkey→BYTEA conversions across the rows of one batch
+// build. Addresses repeat heavily within a single COPY — every transfer of a token
+// shares its token_id, an account's rows share its account_id — so a hit skips the
+// whole strkey decode (base32 + CRC16) and the 33-byte allocation.
+//
+// The memo is a plain map for use by exactly one goroutine, and hits return the
+// SAME []byte every time: callers must treat the slice as read-only. Both contracts
+// hold in the persist COPY builders, which are single-goroutine per call and hand
+// the slices to pgx, which only reads them while encoding its own buffer.
+type AddressByteaMemo map[string][]byte
+
+// Bytes returns the 33-byte BYTEA form of a, converting on the first sight of an
+// address and serving the shared slice afterwards. Output and errors match
+// AddressBytea.Value exactly ("" → nil, invalid → error); failures are not cached.
+func (m AddressByteaMemo) Bytes(a AddressBytea) ([]byte, error) {
+	if a == "" {
+		return nil, nil
+	}
+	if cached, ok := m[string(a)]; ok {
+		return cached, nil
+	}
+	val, err := a.Value()
+	if err != nil {
+		return nil, err
+	}
+	bytes := val.([]byte)
+	m[string(a)] = bytes
+	return bytes, nil
+}
+
+// NullBytes is Bytes for the nullable wrapper: NULL → (nil, nil).
+func (m AddressByteaMemo) NullBytes(n NullAddressBytea) ([]byte, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return m.Bytes(n.AddressBytea)
+}
+
 // HashBytea represents a transaction hash stored as BYTEA in the database.
 // Storage format: 32 bytes (raw SHA-256 hash)
 // Go representation: hex string (64 characters)
