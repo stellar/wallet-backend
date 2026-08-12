@@ -627,17 +627,29 @@ func (operation *TransactionOperationWrapper) Participants() ([]xdr.AccountId, e
 	return dedupeParticipants(participants), nil
 }
 
-// dedupeParticipants remove any duplicate ids from `in`
-func dedupeParticipants(in []xdr.AccountId) (out []xdr.AccountId) {
-	set := map[string]xdr.AccountId{}
-	for _, id := range in {
-		set[id.Address()] = id
+// dedupeParticipants removes duplicate ids from `in`, comparing raw ed25519 keys and
+// keeping first-seen order. An operation carries a handful of participants at most,
+// so a linear scan over the kept prefix beats a map — and by filtering in place it
+// allocates nothing. Callers hand over ownership of `in`.
+func dedupeParticipants(in []xdr.AccountId) []xdr.AccountId {
+	if len(in) <= 1 {
+		return in
 	}
 
-	for _, id := range set {
-		out = append(out, id)
+	out := in[:1]
+	for _, id := range in[1:] {
+		isDuplicate := false
+		for _, kept := range out {
+			if *kept.Ed25519 == *id.Ed25519 {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			out = append(out, id)
+		}
 	}
-	return
+	return out
 }
 
 func serializeParameters(args []xdr.ScVal) ([]map[string]string, []map[string]string) {
