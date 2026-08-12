@@ -81,6 +81,11 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
+	// The 33-byte storage format fits exactly one 32-byte key. Larger payloads exist
+	// (an M-address decodes to 40 bytes) and must fail here rather than truncate.
+	if len(rawBytes) != 32 {
+		return nil, fmt.Errorf("decoding stellar address %s: expected 32-byte payload, got %d", a, len(rawBytes))
+	}
 	result := make([]byte, 33)
 	result[0] = byte(versionByte)
 	copy(result[1:], rawBytes)
@@ -123,6 +128,44 @@ func (n NullAddressBytea) Value() (driver.Value, error) {
 // String returns the Stellar address as a string (convenience accessor).
 func (n NullAddressBytea) String() string {
 	return string(n.AddressBytea)
+}
+
+// AddressByteaMemo caches strkey→BYTEA conversions across the rows of one batch
+// build. Addresses repeat heavily within a single COPY — every transfer of a token
+// shares its token_id, an account's rows share its account_id — so a hit skips the
+// whole strkey decode (base32 + CRC16) and the 33-byte allocation.
+//
+// The memo is a plain map for use by exactly one goroutine, and hits return the
+// SAME []byte every time: callers must treat the slice as read-only. Both contracts
+// hold in the persist COPY builders, which are single-goroutine per call and hand
+// the slices to pgx, which only reads them while encoding its own buffer.
+type AddressByteaMemo map[string][]byte
+
+// Bytes returns the 33-byte BYTEA form of a, converting on the first sight of an
+// address and serving the shared slice afterwards. Output and errors match
+// AddressBytea.Value exactly ("" → nil, invalid → error); failures are not cached.
+func (m AddressByteaMemo) Bytes(a AddressBytea) ([]byte, error) {
+	if a == "" {
+		return nil, nil
+	}
+	if cached, ok := m[string(a)]; ok {
+		return cached, nil
+	}
+	val, err := a.Value()
+	if err != nil {
+		return nil, err
+	}
+	bytes := val.([]byte)
+	m[string(a)] = bytes
+	return bytes, nil
+}
+
+// NullBytes is Bytes for the nullable wrapper: NULL → (nil, nil).
+func (m AddressByteaMemo) NullBytes(n NullAddressBytea) ([]byte, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return m.Bytes(n.AddressBytea)
 }
 
 // HashBytea represents a transaction hash stored as BYTEA in the database.
