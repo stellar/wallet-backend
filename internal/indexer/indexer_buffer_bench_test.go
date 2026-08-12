@@ -18,7 +18,7 @@ import (
 // benchIndexer builds an Indexer with the real processors. nil metrics is accepted (see
 // TestIndexer_ProcessLedgerTransactions_FeePhaseBalances).
 func benchIndexer(tb testing.TB) *Indexer {
-	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil, true)
 	if err != nil {
 		tb.Fatal(err)
 	}
