@@ -90,7 +90,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 		return nil, fmt.Errorf("getting operation changes for operation %d: %w", opWrapper.ID(), err)
 	}
 
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opWrapper.ID())
 	stateChanges, err := p.processCreatedTrustlines(changes, builder)
 	if err != nil {
 		return nil, fmt.Errorf("processing created trustlines for operation %d: %w", opWrapper.ID(), err)
@@ -209,11 +209,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				// Contract authorization: handle AUTHORIZED state
 				if isAuthorized != wasAuthorized {
 					if isAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							Build())
 					} else {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							Build())
 					}
@@ -222,14 +222,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				if isAuthorized {
 					// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
 					if !wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
 					if wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())
@@ -237,14 +237,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				} else {
 					// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
 					if wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
 					if !wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())
@@ -260,7 +260,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	return stateChanges, nil
 }
 
-func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, builder *processors.StateChangeBuilder) ([]types.StateChange, error) {
+func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, builder processors.StateChangeBuilder) ([]types.StateChange, error) {
 	stateChanges := make([]types.StateChange, 0)
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeTrustline || change.Pre != nil || change.Post == nil {
@@ -285,11 +285,11 @@ func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, b
 
 		contractID := strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])
 		account := trustline.AccountId.Address()
-		baseBuilder := builder.Clone().WithAccount(account).WithToken(contractID)
+		baseBuilder := builder.WithAccount(account).WithToken(contractID)
 		limit := amount.String(trustline.Limit)
 		trustlineFlags := xdr.TrustLineFlags(trustline.Flags)
 		stateChanges = append(stateChanges,
-			baseBuilder.Clone().
+			baseBuilder.
 				WithCategory(types.StateChangeCategoryTrustline).
 				WithReason(types.StateChangeReasonAdd).
 				WithTrustlineLimit(nil, &limit).
