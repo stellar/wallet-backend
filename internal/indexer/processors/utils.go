@@ -70,6 +70,10 @@ type assetContractIDMemo struct {
 	m sync.Map // "<type>\x00<code>\x00<issuer>" → strkey-encoded contract ID
 }
 
+// operationXDRBuffers recycles XDR encoding buffers across ConvertOperation
+// calls, which run on every indexer pool worker concurrently.
+var operationXDRBuffers = sync.Pool{New: func() any { return xdr.NewEncodingBuffer() }}
+
 func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	key := assetType + "\x00" + assetCode + "\x00" + assetIssuer
 	if id, ok := memo.m.Load(key); ok {
@@ -209,7 +213,11 @@ func ConvertOperation(
 	opIndex uint32,
 	opResults []xdr.OperationResult,
 ) (*types.Operation, error) {
-	xdrBytes, err := op.MarshalBinary()
+	// A pooled encoder reuses its scratch across calls and pool workers;
+	// MarshalBinary returns the owned, exact-size copy the row retains.
+	buf := operationXDRBuffers.Get().(*xdr.EncodingBuffer)
+	xdrBytes, err := buf.MarshalBinary(op)
+	operationXDRBuffers.Put(buf)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
 	}
