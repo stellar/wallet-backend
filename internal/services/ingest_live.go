@@ -102,19 +102,20 @@ func batchLabel(items []persistItem) string {
 
 // persistLedgerData persists a batch of consecutive ledgers in one commit
 // set. The five bulk COPY families — transactions, transactions_accounts,
-// operations, operations_accounts, state_changes — plus the FK-free balance
-// upserts stream concurrently on sibling connections, each in its own
+// operations, operations_accounts, state_changes — plus the balance
+// families (native/pool on one sibling, trustline assets and balances on
+// another) stream concurrently on sibling connections, each in its own
 // transaction covering every ledger in the batch, while the coordinating
-// transaction stages everything else (assets, contracts, classification,
-// protocol state, trustline/SAC balances, cursor) ledger by ledger in order
-// — the per-protocol CAS chain advances N-1 → N inside the transaction, and
-// the guarded cursor's final value is the batch's last ledger. All the slow
-// work happens uncommitted and invisible; only after every stream and the
+// transaction stages everything else (contracts, classification, protocol
+// state, SAC balances, cursor) ledger by ledger in order — the per-protocol
+// CAS chain advances N-1 → N inside the transaction, and the guarded
+// cursor's final value is the batch's last ledger. All the slow work
+// happens uncommitted and invisible; only after every stream and the
 // coordinator succeed do the commits fire, siblings first and the
 // coordinating transaction strictly last. The cursor it carries is the
 // authority: the only crash state this ordering can produce is sibling rows
 // above the committed cursor — DeleteRowsAboveLedger removes the bulk
-// families' at startup, and the balances sibling's idempotent upserts simply
+// families' at startup, and the balance siblings' idempotent upserts simply
 // reapply when those ledgers re-ingest. A failure before the first commit
 // rolls everything back and the whole batch is cleanly retryable; a failure
 // after it wraps ErrPartialPersist and is fatal.
@@ -158,17 +159,26 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
 		}},
-		// The FK-free balance upserts ride their own sibling so the coordinating
-		// transaction's serial path stays short. Their tables have no foreign
-		// keys, so nothing here can observe the coordinator's uncommitted rows;
-		// the trustline and SAC balances, whose parents the coordinator stages,
-		// remain with it in stageCoordinatedWrites.
+		// Each balance family rides the transaction that stages its FK parents,
+		// so the coordinating transaction's serial path stays short and every
+		// foreign key is checked within one commit. The SAC balances remain in
+		// stageCoordinatedWrites: their parent (contract_tokens) is also written
+		// by the classification path there, and a same-key insert from two
+		// concurrent transactions could deadlock at the commit barrier.
 		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
 				it.buffer.GetAccountChanges(),
 				it.buffer.GetLiquidityPoolShareChanges(),
 				it.buffer.GetLiquidityPoolChanges(),
 			)
+		}},
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+					return fmt.Errorf("inserting trustline assets: %w", err)
+				}
+			}
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
 		}},
 	}
 	siblingTxs := make([]pgx.Tx, len(siblings))
@@ -268,9 +278,9 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 }
 
 // stageCoordinatedWrites runs every per-ledger write the siblings don't own
-// on the coordinating transaction: trustline assets, SAC contract tokens,
-// protocol classification and wasm/contract rows, CAS-gated protocol state,
-// the trustline and SAC balance changes, and finally the guarded cursor.
+// on the coordinating transaction: SAC contract tokens, protocol
+// classification and wasm/contract rows, CAS-gated protocol state, the SAC
+// balance changes, and finally the guarded cursor.
 func (m *ingestService) stageCoordinatedWrites(
 	ctx context.Context,
 	dbTx pgx.Tx,
@@ -280,15 +290,7 @@ func (m *ingestService) stageCoordinatedWrites(
 	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
 ) error {
-	// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
-	uniqueAssets := buffer.GetUniqueTrustlineAssets()
-	if len(uniqueAssets) > 0 {
-		if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-			return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
-		}
-	}
-
-	// 2. Insert new SAC contract tokens (filter existing, insert)
+	// 1. Insert new SAC contract tokens (filter existing, insert)
 	contracts, txErr := m.prepareNewSACContracts(ctx, dbTx, buffer.GetSACContracts())
 	if txErr != nil {
 		return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
@@ -300,7 +302,7 @@ func (m *ingestService) stageCoordinatedWrites(
 		log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 	}
 
-	// 3. Apply protocol classification (black-box per protocol). plan was
+	// 2. Apply protocol classification (black-box per protocol). plan was
 	// computed by prepareClassificationPlan before this transaction opened,
 	// so any RPC calls (e.g. SEP-41 metadata) already happened;
 	// ApplyClassificationPlan only performs each validator's DB writes
@@ -337,7 +339,7 @@ func (m *ingestService) stageCoordinatedWrites(
 		}
 	}
 
-	// 4. Per-protocol CAS-gated state production. The compare-and-swap on each
+	// 3. Per-protocol CAS-gated state production. The compare-and-swap on each
 	// protocol cursor is the authoritative gate — exactly one of live ingestion or
 	// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
 	// run only for cursors that win the swap, so a protocol still backfilling (its
@@ -470,18 +472,17 @@ func (m *ingestService) stageCoordinatedWrites(
 		}
 	}
 
-	// 5. Apply the FK-bound balance changes. Trustline and SAC balance rows
-	// reference the trustline_assets and contract_tokens rows staged in steps
-	// 1-2 of this same transaction, so they cannot leave it; the FK-free
-	// balance families run on the "balances" sibling instead.
-	if txErr = m.tokenIngestionService.ProcessTrustlineAndSACChanges(ctx, dbTx,
-		buffer.GetTrustlineChanges(),
+	// 4. Apply the SAC balance changes. Their rows reference the
+	// contract_tokens rows staged in step 1 of this same transaction, so they
+	// cannot leave it; the other balance families run on the "balances" and
+	// "trustlines" siblings, each alongside its own foreign-key parents.
+	if txErr = m.tokenIngestionService.ProcessSACBalanceChanges(ctx, dbTx,
 		buffer.GetSACBalanceChanges(),
 	); txErr != nil {
 		return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
 	}
 
-	// 6. Advance the latest-ledger cursor. The update is guarded: a session that
+	// 5. Advance the latest-ledger cursor. The update is guarded: a session that
 	// silently lost its advisory lock (server-side failover, see startLiveIngestion's
 	// checkLockSession) must not blindly overwrite a value a second instance already
 	// advanced, or the cursor could regress.

@@ -370,8 +370,11 @@ func TestProcessBalanceChanges(t *testing.T) {
 		})
 
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			if tlErr := service.ProcessTrustlineAndSACChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)); tlErr != nil {
+			if tlErr := service.ProcessTrustlineChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}); tlErr != nil {
 				return tlErr
+			}
+			if sacErr := service.ProcessSACBalanceChanges(ctx, dbTx, make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)); sacErr != nil {
+				return sacErr
 			}
 			return service.ProcessNativeAndPoolChanges(ctx, dbTx, make(map[string]types.AccountChange), make(map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange), make(map[string]types.LiquidityPoolChange))
 		})
@@ -434,7 +437,7 @@ func TestProcessSACBalanceChanges_GatesOnVerifiedSAC(t *testing.T) {
 	}
 
 	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-		return service.ProcessTokenChanges(ctx, dbTx, nil, nil, changes, nil, nil)
+		return service.ProcessSACBalanceChanges(ctx, dbTx, changes)
 	})
 	require.NoError(t, err, "the unverified balance must be skipped without a foreign-key violation")
 
