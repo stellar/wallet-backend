@@ -5,6 +5,7 @@ package processors
 import (
 	"encoding/hex"
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/hash"
@@ -154,6 +155,31 @@ func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags
 
 	result[prefix+"_flags"] = n
 	result[prefix+"_flags_s"] = s
+}
+
+// assetContractIDMemo caches asset→contract-ID derivations — each one a
+// SHA-256 over the asset's contract-ID preimage plus a strkey encode —
+// which processors otherwise recompute for the same few assets on every
+// event. Results are content-derived (the processor's network passphrase is
+// fixed at construction), so entries never invalidate and the memo is
+// bounded by the distinct assets a process sees. sync.Map because one
+// processor instance serves every indexer pool worker concurrently, and the
+// workload is read-mostly once warm.
+type assetContractIDMemo struct {
+	m sync.Map // "<type>\x00<code>\x00<issuer>" → strkey-encoded contract ID
+}
+
+func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+	key := assetType + "\x00" + assetCode + "\x00" + assetIssuer
+	if id, ok := memo.m.Load(key); ok {
+		return id.(string), nil
+	}
+	id, err := getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+	if err != nil {
+		return "", err
+	}
+	memo.m.Store(key, id)
+	return id, nil
 }
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
