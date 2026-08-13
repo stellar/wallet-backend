@@ -90,7 +90,7 @@ func (p *AccountsProcessor) ProcessOperation(ctx context.Context, opWrapper *Tra
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 
-	return p.buildAccountChanges(changes, opWrapper.Transaction.Ledger.LedgerSequence(), accountSortKey(phaseOperation, opWrapper.Transaction.Index, opWrapper.Index))
+	return p.buildAccountChanges(changes, opWrapper.Transaction.Ledger.LedgerSequence(), accountSortKey(phaseOperation, opWrapper.Transaction.Index, opWrapper.Index)), nil
 }
 
 // ProcessTransactionFees extracts native balance changes from a transaction's fee
@@ -116,33 +116,22 @@ func (p *AccountsProcessor) ProcessTransactionFees(ctx context.Context, tx inges
 
 	ledgerSeq := tx.Ledger.LedgerSequence()
 
-	feeChanges, err := p.buildAccountChanges(tx.GetFeeChanges(), ledgerSeq, accountSortKey(phaseFee, tx.Index, 0))
-	if err != nil {
-		return nil, err
-	}
-
-	refundChanges, err := p.buildAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, accountSortKey(phaseRefund, tx.Index, 0))
-	if err != nil {
-		return nil, err
-	}
-
+	feeChanges := p.buildAccountChanges(tx.GetFeeChanges(), ledgerSeq, accountSortKey(phaseFee, tx.Index, 0))
+	refundChanges := p.buildAccountChanges(tx.GetPostApplyFeeChanges(), ledgerSeq, accountSortKey(phaseRefund, tx.Index, 0))
 	return append(feeChanges, refundChanges...), nil
 }
 
 // buildAccountChanges converts the account-typed entries in a ledger change set into
 // AccountChanges stamped with the given sort key. The per-operation and fee-phase paths share
 // it; they differ only in that sort key, which is constant across all changes in one call.
-func (p *AccountsProcessor) buildAccountChanges(changes []ingest.Change, ledgerSeq uint32, sortKey int64) ([]types.AccountChange, error) {
+func (p *AccountsProcessor) buildAccountChanges(changes []ingest.Change, ledgerSeq uint32, sortKey int64) []types.AccountChange {
 	var accountChanges []types.AccountChange
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeAccount {
 			continue
 		}
 
-		accChange, skip, err := p.buildAccountChange(change, ledgerSeq, sortKey)
-		if err != nil {
-			return nil, err
-		}
+		accChange, skip := p.buildAccountChange(change, ledgerSeq, sortKey)
 		if skip {
 			continue
 		}
@@ -150,22 +139,113 @@ func (p *AccountsProcessor) buildAccountChanges(changes []ingest.Change, ledgerS
 		accountChanges = append(accountChanges, accChange)
 	}
 
-	return accountChanges, nil
+	return accountChanges
+}
+
+// accountChangedExceptSigners reports whether anything about the account changed
+// other than its signer list. It mirrors the byte-comparison semantics of the
+// SDK's ingest.Change.AccountChangedExceptSigners — only the Signers slice is
+// ignored, so side effects of signer changes (NumSubEntries, the V2
+// signer-sponsoring IDs) still count as changes, a missing extension compares
+// equal to a V1 extension with zero liabilities, and a differing
+// LastModifiedLedgerSeq counts on its own — without the two full XDR marshals
+// the byte comparison pays on every account change. The SDK function stays as
+// the differential oracle in the tests.
+func accountChangedExceptSigners(change ingest.Change) bool {
+	if change.Pre == nil || change.Post == nil {
+		return true
+	}
+	if change.Pre.LastModifiedLedgerSeq != change.Post.LastModifiedLedgerSeq {
+		return true
+	}
+	pre := change.Pre.Data.MustAccount()
+	post := change.Post.Data.MustAccount()
+	if !pre.AccountId.Equals(post.AccountId) ||
+		pre.Balance != post.Balance ||
+		pre.SeqNum != post.SeqNum ||
+		pre.NumSubEntries != post.NumSubEntries ||
+		pre.Flags != post.Flags ||
+		pre.HomeDomain != post.HomeDomain ||
+		pre.Thresholds != post.Thresholds {
+		return true
+	}
+	if !accountIDPtrEqual(pre.InflationDest, post.InflationDest) {
+		return true
+	}
+	return !accountExtEqual(pre.Ext, post.Ext)
+}
+
+func accountIDPtrEqual(a, b *xdr.AccountId) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || a.Equals(*b)
+}
+
+// accountExtEqual compares account extensions with a V0 extension reading as a
+// V1 extension carrying zero liabilities, exactly as the SDK normalizes before
+// its byte comparison.
+func accountExtEqual(a, b xdr.AccountEntryExt) bool {
+	if accountLiabilities(a) != accountLiabilities(b) {
+		return false
+	}
+	av2, bv2 := accountExtV2(a), accountExtV2(b)
+	if (av2 == nil) != (bv2 == nil) {
+		return false
+	}
+	if av2 == nil {
+		return true
+	}
+	if av2.NumSponsored != bv2.NumSponsored ||
+		av2.NumSponsoring != bv2.NumSponsoring ||
+		!sponsoringIDsEqual(av2.SignerSponsoringIDs, bv2.SignerSponsoringIDs) {
+		return false
+	}
+	av3, bv3 := av2.Ext.V3, bv2.Ext.V3
+	if (av3 == nil) != (bv3 == nil) {
+		return false
+	}
+	return av3 == nil || (av3.SeqLedger == bv3.SeqLedger && av3.SeqTime == bv3.SeqTime)
+}
+
+func accountLiabilities(ext xdr.AccountEntryExt) xdr.Liabilities {
+	if ext.V1 == nil {
+		return xdr.Liabilities{}
+	}
+	return ext.V1.Liabilities
+}
+
+func accountExtV2(ext xdr.AccountEntryExt) *xdr.AccountEntryExtensionV2 {
+	if ext.V1 == nil {
+		return nil
+	}
+	return ext.V1.Ext.V2
+}
+
+func sponsoringIDsEqual(a, b []xdr.SponsorshipDescriptor) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if (a[i] == nil) != (b[i] == nil) {
+			return false
+		}
+		if a[i] != nil && !a[i].Equals(*b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // buildAccountChange converts a ledger change to an AccountChange, stamped with the
-// given ledger sequence and sort key. Returns (change, skip, error) where
+// given ledger sequence and sort key. Returns (change, skip) where
 // skip=true means the change should be ignored.
-func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq uint32, sortKey int64) (types.AccountChange, bool, error) {
+func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq uint32, sortKey int64) (types.AccountChange, bool) {
 	var accChange types.AccountChange
 
 	// Skip if only signers changed (no balance/state change)
-	changed, err := change.AccountChangedExceptSigners()
-	if err != nil {
-		return accChange, false, fmt.Errorf("checking account changes: %w", err)
-	}
-	if !changed {
-		return accChange, true, nil
+	if !accountChangedExceptSigners(change) {
+		return accChange, true
 	}
 
 	// Determine operation type and get the relevant entry
@@ -184,7 +264,7 @@ func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq u
 		accChange.Operation = types.AccountOpRemove
 		entry = change.Pre
 	default:
-		return accChange, true, nil // Invalid change, skip
+		return accChange, true // Invalid change, skip
 	}
 
 	account := entry.Data.MustAccount()
@@ -201,5 +281,5 @@ func (p *AccountsProcessor) buildAccountChange(change ingest.Change, ledgerSeq u
 	accChange.NumSubEntries = uint32(account.NumSubEntries)
 	accChange.MinimumBalance = MinimumBalance(account)
 
-	return accChange, false, nil
+	return accChange, false
 }
