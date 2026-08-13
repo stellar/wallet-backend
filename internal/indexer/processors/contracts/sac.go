@@ -90,7 +90,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opWrapper.ID())
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
@@ -201,11 +201,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				// Contract authorization: handle AUTHORIZED state
 				if isAuthorized != wasAuthorized {
 					if isAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							Build())
 					} else {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							Build())
 					}
@@ -214,14 +214,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				if isAuthorized {
 					// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
 					if !wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
 					if wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())
@@ -229,14 +229,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				} else {
 					// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
 					if wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
 					if !wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())

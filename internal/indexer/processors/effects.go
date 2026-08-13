@@ -130,10 +130,10 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	}
 
 	var stateChanges []types.StateChange
-	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	masterBuilder := NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opWrapper.ID())
 	// Process each effect and convert to our internal state change representation
 	for _, effect := range effectOutputs {
-		changeBuilder := masterBuilder.Clone().WithAccount(effect.Address)
+		changeBuilder := masterBuilder.WithAccount(effect.Address)
 
 		effectType := EffectType(effect.Type)
 		// Process different types of effects based on what account property they modify
@@ -191,7 +191,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			// but the trustline flags are actually being set on the trustor's account.
 			// We need to extract the trustor address from effect.Details instead.
 			if trustorAddr, err := safeStringFromDetails(effect.Details, "trustor"); err == nil {
-				changeBuilder = changeBuilder.Clone().WithAccount(trustorAddr)
+				changeBuilder = changeBuilder.WithAccount(trustorAddr)
 			}
 			// Build the asset contract ID from the trustline effect
 			_, _, assetContractID, err := p.buildAssetContractIDFromTrustlineEffect(&effect)
@@ -205,7 +205,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 		// Change trust effects
 		case EffectTrustlineCreated, EffectTrustlineRemoved, EffectTrustlineUpdated:
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
-			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
+			trustlineChange, trustlineBuilder, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
 			if err != nil {
 				log.Warnf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
@@ -215,7 +215,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			// Generate balance authorization state change for new trustline.
 			// We will extract the authorization flags directly from the trustline entry in the changes.
 			if effectType == EffectTrustlineCreated {
-				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect, changes)
+				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(trustlineBuilder, &effect, changes)
 				if err != nil {
 					log.Warnf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 					continue
@@ -246,32 +246,35 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 	return stateChanges, nil
 }
 
-func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) (types.StateChange, error) {
+// parseTrustline builds the trustline state change and returns the builder it was
+// built from: the asset (or pool) it resolved and the trustline limits it recorded
+// also belong to the balance-authorization change a trustline creation emits.
+func (p *EffectsProcessor) parseTrustline(baseBuilder StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) (types.StateChange, StateChangeBuilder, error) {
 	var assetCode, assetIssuer string
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
-		return types.StateChange{}, fmt.Errorf("extracting asset type from effect details: %w", err)
+		return types.StateChange{}, baseBuilder, fmt.Errorf("extracting asset type from effect details: %w", err)
 	}
 	if assetType == "liquidity_pool_shares" {
 		var poolID string
 		poolID, err = safeStringFromDetails(effect.Details, "liquidity_pool_id")
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
+			return types.StateChange{}, baseBuilder, fmt.Errorf("extracting liquidity pool ID from effect details: %w", err)
 		}
 
 		baseBuilder = baseBuilder.WithLiquidityPoolID(poolID)
 	} else {
 		assetCode, err = safeStringFromDetails(effect.Details, "asset_code")
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("extracting asset code from effect details: %w", err)
+			return types.StateChange{}, baseBuilder, fmt.Errorf("extracting asset code from effect details: %w", err)
 		}
 		assetIssuer, err = safeStringFromDetails(effect.Details, "asset_issuer")
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
+			return types.StateChange{}, baseBuilder, fmt.Errorf("extracting asset issuer from effect details: %w", err)
 		}
 		assetContractID, err := p.assetContractIDs.fromDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
 		if err != nil {
-			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
+			return types.StateChange{}, baseBuilder, fmt.Errorf("parsing asset: %w", err)
 		}
 		baseBuilder = baseBuilder.WithToken(assetContractID)
 	}
@@ -282,34 +285,35 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	switch effectType {
 	case EffectTrustlineCreated:
 		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).
-			WithTrustlineLimit(nil, &newLimit).
-			Build()
+		baseBuilder = baseBuilder.WithReason(types.StateChangeReasonAdd).
+			WithTrustlineLimit(nil, &newLimit)
+		stateChange = baseBuilder.Build()
 
 	case EffectTrustlineRemoved:
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonRemove).Build()
+		baseBuilder = baseBuilder.WithReason(types.StateChangeReasonRemove)
+		stateChange = baseBuilder.Build()
 
 	case EffectTrustlineUpdated:
 		// The GraphQL schema declares oldLimit non-null, so the trustline
 		// pre-image is required; an update effect without one is malformed.
 		prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeTrustline, changes)
 		if prevLedgerEntryState == nil {
-			return types.StateChange{}, fmt.Errorf("no previous trustline state for trustline update on account %s (opID %d)", effect.Address, effect.OperationID)
+			return types.StateChange{}, baseBuilder, fmt.Errorf("no previous trustline state for trustline update on account %s (opID %d)", effect.Address, effect.OperationID)
 		}
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
 		oldLimit := strconv.FormatInt(int64(prevTrustline.Limit), 10)
 		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
-		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).
-			WithTrustlineLimit(&oldLimit, &newLimit).
-			Build()
+		baseBuilder = baseBuilder.WithReason(types.StateChangeReasonUpdate).
+			WithTrustlineLimit(&oldLimit, &newLimit)
+		stateChange = baseBuilder.Build()
 	}
 
-	return stateChange, nil
+	return stateChange, baseBuilder, nil
 }
 
 // generateBalanceAuthorizationForNewTrustline generates balance authorization state changes
 // for newly created trustlines by reading the trustline flags directly from transaction changes
-func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) (types.StateChange, error) {
+func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuilder StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) (types.StateChange, error) {
 	// Skip native assets as they don't have authorization
 	assetType, err := safeStringFromDetails(effect.Details, "asset_type")
 	if err != nil {
@@ -344,7 +348,7 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 	}
 
 	// Generate state changes for each flag that should be set
-	return baseBuilder.Clone().
+	return baseBuilder.
 		WithCategory(types.StateChangeCategoryBalanceAuthorization).
 		WithReason(types.StateChangeReasonSet).
 		WithFlags(defaultFlags).
@@ -524,7 +528,7 @@ func (p *EffectsProcessor) parseDataEntryValues(effect *EffectOutput, effectType
 
 // parseFlags processes flag-related effects and creates separate state changes for set and cleared flags.
 // Stellar flags can be either set (true) or cleared (false), and we track each change separately.
-func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChangeBuilder, effect *EffectOutput) []types.StateChange {
+func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder StateChangeBuilder, effect *EffectOutput) []types.StateChange {
 	var setFlags, clearFlags []string
 
 	for _, flag := range flags {
@@ -540,14 +544,12 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	var changes []types.StateChange
 	if len(setFlags) > 0 {
 		changes = append(changes, changeBuilder.
-			Clone().
 			WithReason(types.StateChangeReasonSet).
 			WithFlags(setFlags).
 			Build())
 	}
 	if len(clearFlags) > 0 {
 		changes = append(changes, changeBuilder.
-			Clone().
 			WithReason(types.StateChangeReasonClear).
 			WithFlags(clearFlags).
 			Build())
@@ -556,7 +558,7 @@ func (p *EffectsProcessor) parseFlags(flags []string, changeBuilder *StateChange
 	return changes
 }
 
-func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) ([]types.StateChange, error) {
+func (p *EffectsProcessor) parseSigners(changeBuilder StateChangeBuilder, effect *EffectOutput, effectType EffectType, changes []ingest.Change) ([]types.StateChange, error) {
 	signerPublicKey := effect.Details["public_key"].(string)
 	weight, err := convertToInt32(effect.Details["weight"])
 	if err != nil {
@@ -601,7 +603,7 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.
 // It extracts both old and new threshold values from the ledger entry changes. The GraphQL schema
 // declares oldThreshold non-null, so a threshold effect without an account pre-image is malformed.
-func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
+func (p *EffectsProcessor) parseThresholds(changeBuilder StateChangeBuilder, effect *EffectOutput, changes []ingest.Change) ([]types.StateChange, error) {
 	// Find the account entry change to get old threshold values
 	prevLedgerEntryState := p.getPrevLedgerEntryState(effect, xdr.LedgerEntryTypeAccount, changes)
 	if prevLedgerEntryState == nil {
@@ -629,7 +631,6 @@ func (p *EffectsProcessor) parseThresholds(changeBuilder *StateChangeBuilder, ef
 			}
 
 			thresholdChanges = append(thresholdChanges, changeBuilder.
-				Clone().
 				WithReason(types.StateChangeReasonUpdate).
 				WithThresholdLevel(level).
 				WithThreshold(&oldVal, &newValue).
