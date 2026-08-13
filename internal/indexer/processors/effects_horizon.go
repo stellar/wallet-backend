@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"time"
 
-	"github.com/guregu/null"
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -19,16 +17,11 @@ import (
 
 // EffectOutput is a representation of an operation that aligns with the BigQuery table history_effects
 type EffectOutput struct {
-	Address        string                 `json:"address"`
-	AddressMuxed   null.String            `json:"address_muxed,omitempty"`
-	OperationID    int64                  `json:"operation_id"`
-	Details        map[string]interface{} `json:"details"`
-	Type           int32                  `json:"type"`
-	TypeString     string                 `json:"type_string"`
-	LedgerClosed   time.Time              `json:"closed_at"`
-	LedgerSequence uint32                 `json:"ledger_sequence"`
-	EffectIndex    uint32                 `json:"index"`
-	EffectID       string                 `json:"id"`
+	Address     string                 `json:"address"`
+	OperationID int64                  `json:"operation_id"`
+	Details     map[string]interface{} `json:"details"`
+	Type        int32                  `json:"type"`
+	TypeString  string                 `json:"type_string"`
 }
 
 // EffectType is the numeric type for an effect
@@ -99,13 +92,6 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 		return nil, err
 	}
 
-	for i := range wrapper.effects {
-		wrapper.effects[i].LedgerClosed = operation.LedgerClosed
-		wrapper.effects[i].LedgerSequence = operation.LedgerSequence
-		wrapper.effects[i].EffectIndex = uint32(i)
-		wrapper.effects[i].EffectID = fmt.Sprintf("%d-%d", wrapper.effects[i].OperationID, wrapper.effects[i].EffectIndex)
-	}
-
 	return wrapper.effects, nil
 }
 
@@ -114,28 +100,23 @@ type effectsWrapper struct {
 	operation *TransactionOperationWrapper
 }
 
-func (e *effectsWrapper) add(address string, addressMuxed null.String, effectType EffectType, details map[string]interface{}) {
+func (e *effectsWrapper) add(address string, effectType EffectType, details map[string]interface{}) {
 	e.effects = append(e.effects, EffectOutput{
-		Address:      address,
-		AddressMuxed: addressMuxed,
-		OperationID:  e.operation.ID(),
-		TypeString:   EffectTypeNames[effectType],
-		Type:         int32(effectType),
-		Details:      details,
+		Address:     address,
+		OperationID: e.operation.ID(),
+		TypeString:  EffectTypeNames[effectType],
+		Type:        int32(effectType),
+		Details:     details,
 	})
 }
 
 func (e *effectsWrapper) addUnmuxed(address *xdr.AccountId, effectType EffectType, details map[string]interface{}) {
-	e.add(address.Address(), null.String{}, effectType, details)
+	e.add(address.Address(), effectType, details)
 }
 
 func (e *effectsWrapper) addMuxed(address *xdr.MuxedAccount, effectType EffectType, details map[string]interface{}) {
-	var addressMuxed null.String
-	if address.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		addressMuxed = null.StringFrom(address.Address())
-	}
 	accID := address.ToAccountId()
-	e.add(accID.Address(), addressMuxed, effectType, details)
+	e.add(accID.Address(), effectType, details)
 }
 
 func (e *effectsWrapper) addAccountCreatedEffects() {

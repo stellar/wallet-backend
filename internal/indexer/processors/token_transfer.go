@@ -83,13 +83,12 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 
 	ledgerCloseTime := tx.Ledger.LedgerCloseTime()
 	ledgerNumber := tx.Ledger.LedgerSequence()
-	txHash := tx.Result.TransactionHash.HexString()
 	txID := tx.ID()
 
 	// Extract token transfer events from the transaction using Stellar SDK
 	txEvents, err := p.eventsProcessor.EventsFromTransaction(tx)
 	if err != nil {
-		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", txHash, err)
+		return nil, fmt.Errorf("processing token transfer events for transaction hash: %s, err: %w", tx.Result.TransactionHash.HexString(), err)
 	}
 
 	stateChanges := make([]types.StateChange, 0, len(txEvents.OperationEvents)+1)
@@ -98,7 +97,7 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 	// Process fee events
 	feeChange, err := p.processFeeEvents(builder.Clone(), txEvents.FeeEvents)
 	if err != nil {
-		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", txHash, err)
+		return nil, fmt.Errorf("processing fee events for transaction hash: %s, err: %w", tx.Result.TransactionHash.HexString(), err)
 	}
 	if feeChange.AccountID != "" {
 		stateChanges = append(stateChanges, feeChange)
