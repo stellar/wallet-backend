@@ -77,6 +77,7 @@ var (
 type EffectsProcessor struct {
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
+	assetContractIDs  assetContractIDMemo
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
@@ -268,7 +269,7 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("extracting asset issuer from effect details: %w", err)
 		}
-		assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+		assetContractID, err := p.assetContractIDs.fromDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("parsing asset: %w", err)
 		}
@@ -363,7 +364,7 @@ func (p *EffectsProcessor) buildAssetContractIDFromTrustlineEffect(effect *Effec
 	if err != nil {
 		return "", "", "", fmt.Errorf("extracting asset issuer from effect details: %w", err)
 	}
-	assetContractID, err := getContractIDFromAssetDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
+	assetContractID, err := p.assetContractIDs.fromDetails(p.networkPassphrase, assetType, assetCode, assetIssuer)
 	if err != nil {
 		return "", "", "", fmt.Errorf("getting asset contract ID: %w", err)
 	}
