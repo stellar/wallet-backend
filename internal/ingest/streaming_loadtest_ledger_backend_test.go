@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,7 +45,7 @@ func mkFIFOs(t *testing.T, n int) []string {
 func newStreamingBackend(t *testing.T, paths []string, pace time.Duration) *StreamingLoadtestLedgerBackend {
 	t.Helper()
 	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
-		MetaPipePaths:       paths,
+		MetaSources:         paths,
 		LedgerCloseDuration: pace,
 	})
 	require.NoError(t, err)
@@ -298,12 +299,17 @@ func getLedgerAsync(backend *StreamingLoadtestLedgerBackend, ctx context.Context
 
 func TestNewStreamingLoadtestLedgerBackend_RejectsBadConfig(t *testing.T) {
 	_, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{})
-	require.ErrorContains(t, err, "MetaPipePaths is required")
+	require.ErrorContains(t, err, "MetaSources is required")
 
 	_, err = NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
-		MetaPipePaths: []string{"/tmp/a.pipe", ""},
+		MetaSources: []string{"/tmp/a.pipe", ""},
 	})
-	require.ErrorContains(t, err, "MetaPipePaths[1] is empty")
+	require.ErrorContains(t, err, "MetaSources[1] is empty")
+
+	_, err = NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaSources: []string{"tcp-listen://127.0.0.1:notaport"},
+	})
+	require.ErrorContains(t, err, "MetaSources[0]: listening on")
 }
 
 func TestStreamingLoadtestBackend_RenumbersFirstEpoch(t *testing.T) {
@@ -656,14 +662,175 @@ func TestStreamingLoadtestBackend_RejectsSequenceGapWithinEpoch(t *testing.T) {
 func TestNewLedgerBackend_StreamingLoadtest(t *testing.T) {
 	backend, err := NewLedgerBackend(context.Background(), Configs{
 		LedgerBackendType:           LedgerBackendTypeStreamingLoadtest,
-		LoadtestMetaPipePaths:       mkFIFOs(t, 2),
+		LoadtestMetaSources:         mkFIFOs(t, 2),
 		LoadtestLedgerCloseDuration: 500 * time.Millisecond,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, backend)
 	streaming, ok := backend.(*StreamingLoadtestLedgerBackend)
 	require.True(t, ok, "NewLedgerBackend should return a StreamingLoadtestLedgerBackend")
-	assert.Len(t, streaming.pipes, 2)
+	assert.Len(t, streaming.sources, 2)
 	assert.Equal(t, 500*time.Millisecond, streaming.config.LedgerCloseDuration)
 	assert.NoError(t, backend.Close())
+}
+
+// newTCPStreamingBackend builds a backend with a single tcp-listen source on
+// an ephemeral loopback port and returns it with the resolved listener
+// address to dial. (Multi-source TCP coverage rides on the mixed-sources
+// test.)
+func newTCPStreamingBackend(t *testing.T) (*StreamingLoadtestLedgerBackend, string) {
+	t.Helper()
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaSources: []string{"tcp-listen://127.0.0.1:0"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
+	source := backend.sources[0]
+	require.NotNil(t, source.listener, "tcp-listen source must hold a listener")
+	return backend, source.listener.Addr().String()
+}
+
+// tcpFeeder writes stream-framed records over one dialed connection, the way
+// an apply-load producer streams through the dialer shim's socket. Dialing
+// succeeds as soon as the backend's listener exists (the constructor binds it
+// eagerly), even before the backend accepts: the connection waits in the
+// accept backlog.
+type tcpFeeder struct {
+	t    *testing.T
+	conn net.Conn
+}
+
+func newTCPFeeder(t *testing.T, addr string) *tcpFeeder {
+	t.Helper()
+	conn, err := net.Dial("tcp", addr)
+	require.NoError(t, err)
+	f := &tcpFeeder{t: t, conn: conn}
+	t.Cleanup(f.close)
+	return f
+}
+
+func (f *tcpFeeder) send(ledgers ...xdr.LedgerCloseMeta) {
+	f.t.Helper()
+	for _, ledger := range ledgers {
+		var buf bytes.Buffer
+		require.NoError(f.t, xdr.MarshalFramed(&buf, ledger))
+		_, err := f.conn.Write(buf.Bytes())
+		require.NoError(f.t, err)
+	}
+}
+
+// close closes the connection, which the backend observes as end of stream —
+// the TCP equivalent of an apply-load process exiting.
+func (f *tcpFeeder) close() {
+	_ = f.conn.Close()
+}
+
+func TestStreamingLoadtestBackend_TCPStreamsFrames(t *testing.T) {
+	backend, addr := newTCPStreamingBackend(t)
+
+	feeder := newTCPFeeder(t, addr)
+	for raw := uint32(2); raw <= 4; raw++ {
+		feeder.send(makeStreamLedger(1, raw, 1, 1, raw+5))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2, 3} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.Equal(t, want, lcm.LedgerSequence())
+		assert.Equal(t, []uint32{1, want + 1 + 5}, streamEntrySeqs(t, lcm))
+	}
+}
+
+func TestStreamingLoadtestBackend_TCPReconnectStartsNewEpoch(t *testing.T) {
+	backend, addr := newTCPStreamingBackend(t)
+
+	first := newTCPFeeder(t, addr)
+	first.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		require.Equal(t, want, lcm.LedgerSequence())
+	}
+	first.close()
+
+	// This call blocks: the connection's close ends the epoch and the backend
+	// re-accepts on the same listener. Unlike a FIFO there is no shared-object
+	// reopen hazard — the replacement dial is a distinct connection, so no
+	// grace delay is needed before attaching it.
+	pending := getLedgerAsync(backend, ctx, 3)
+	restarted := newTCPFeeder(t, addr)
+	restarted.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+
+	res := <-pending
+	require.NoError(t, res.err)
+	assert.Equal(t, uint32(3), res.lcm.LedgerSequence(), "the reconnect's raw ledger 2 re-anchors onto the requested sequence")
+
+	lcm, err := backend.GetLedger(ctx, 4)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(4), lcm.LedgerSequence(), "the new epoch advances on its own diff")
+}
+
+func TestStreamingLoadtestBackend_MergesMixedSources(t *testing.T) {
+	fifo := mkFIFOs(t, 1)[0]
+	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
+		MetaSources: []string{fifo, "tcp-listen://127.0.0.1:0"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
+
+	pipeSide := newPipeFeeder(t, fifo)
+	pipeSide.send(makeStreamLedger(1, 2, 1, 7), makeStreamLedger(1, 3, 1, 8))
+	tcpSide := newTCPFeeder(t, backend.sources[1].listener.Addr().String())
+	tcpSide.send(makeStreamLedger(1, 50, 2, 55), makeStreamLedger(1, 51, 2, 56))
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.Equal(t, want, lcm.LedgerSequence())
+		assert.Equal(t, 3, streamTxCount(t, lcm), "merged ledger holds both sources' transactions")
+		assert.Equal(t, []uint32{want + 6, want + 54}, streamEntrySeqs(t, lcm), "FIFO entries merge before TCP entries (source order)")
+	}
+}
+
+func TestStreamingLoadtestBackend_TCPAdoptsPendingAcceptAfterCancel(t *testing.T) {
+	backend, addr := newTCPStreamingBackend(t)
+
+	prepCtx, prepCancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer prepCancel()
+	require.NoError(t, backend.PrepareRange(prepCtx, ledgerbackend.UnboundedRange(1)))
+
+	// No producer has dialed: GetLedger parks in the accept and the context
+	// cancellation surfaces, leaving the accept pending on the source.
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shortCancel()
+	_, err := backend.GetLedger(shortCtx, 1)
+	require.ErrorContains(t, err, "waiting for stream writer")
+
+	// The retried call adopts the pending accept instead of stacking another.
+	feeder := newTCPFeeder(t, addr)
+	feeder.send(makeStreamLedger(1, 2, 1))
+	lcm, err := backend.GetLedger(prepCtx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(1), lcm.LedgerSequence())
+}
+
+func TestStreamingLoadtestBackend_CloseStopsListening(t *testing.T) {
+	backend, addr := newTCPStreamingBackend(t)
+	require.NoError(t, backend.Close())
+
+	_, err := net.Dial("tcp", addr)
+	require.Error(t, err, "a closed backend's listener refuses producer dials")
 }

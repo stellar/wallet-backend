@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,67 +17,87 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
+// tcpListenScheme prefixes a meta source entry that is a TCP listen address
+// rather than a FIFO path.
+const tcpListenScheme = "tcp-listen://"
+
 // StreamingLoadtestBackendConfig configures the StreamingLoadtestLedgerBackend.
 type StreamingLoadtestBackendConfig struct {
-	// MetaPipePaths are filesystem paths of FIFOs carrying stream-framed XDR
-	// LedgerCloseMeta records, each written by a `stellar-core apply-load`
-	// process via its METADATA_OUTPUT_STREAM setting. With more than one path,
-	// each emitted ledger is the per-sequence merge of one frame from every
-	// pipe (union of their transaction sets), so N apply-load processes with
-	// different transaction profiles combine into a single mixed-traffic
-	// ledger stream.
-	MetaPipePaths []string
+	// MetaSources are the sources of stream-framed XDR LedgerCloseMeta
+	// records, each written by a `stellar-core apply-load` process via its
+	// METADATA_OUTPUT_STREAM setting. An entry is either a filesystem path of
+	// a named pipe (FIFO) or a "tcp-listen://HOST:PORT" address the backend
+	// listens on for one producer connection (the producer points core at the
+	// connected socket with METADATA_OUTPUT_STREAM="fd:N"). With more than
+	// one source, each emitted ledger is the per-sequence merge of one frame
+	// from every source (union of their transaction sets), so N apply-load
+	// processes with different transaction profiles combine into a single
+	// mixed-traffic ledger stream. Entry order defines merge order.
+	MetaSources []string
 	// LedgerCloseDuration is the minimum interval between GetLedger emits.
 	// 0 = uncapped: the consumer ingests as fast as the generators produce.
-	// Because apply-load blocks on FIFO writes once the kernel pipe buffer
-	// fills, this pacing propagates back and throttles the generators too.
+	// Because apply-load's meta write is synchronous and the transport's
+	// in-flight window (kernel pipe buffer, or TCP socket buffers) is small
+	// next to a frame, this pacing propagates back and throttles the
+	// generators too.
 	LedgerCloseDuration time.Duration
 }
 
-type pipeReadResult struct {
+type sourceReadResult struct {
 	lcm xdr.LedgerCloseMeta
 	err error
 }
 
-// pipeLookaheadFrames is how many decoded frames each pipe's reader may run
-// ahead of GetLedger. Streaming one full frame through a FIFO takes the
-// writer a large fraction of the ledger interval (the kernel pipe buffer is
-// tiny next to a frame), so with no lookahead every GetLedger waits for the
+// sourceLookaheadFrames is how many decoded frames each source's reader may
+// run ahead of GetLedger. Streaming one full frame takes the writer a large
+// fraction of the ledger interval (the transport's in-flight window is tiny
+// next to a frame), so with no lookahead every GetLedger waits for the
 // slowest writer's in-flight frame; lookahead lets that streaming overlap
 // the consumer's processing of earlier ledgers. Each buffered frame is a
 // fully decoded LedgerCloseMeta — tens of MB at full per-ledger volume — so
 // the depth stays small: the reader holds one more in flight, giving
-// (1+pipeLookaheadFrames) frames per pipe, and FIFO backpressure still
-// reaches the writer with that much slack.
-const pipeLookaheadFrames = 2
+// (1+sourceLookaheadFrames) frames per source, and transport backpressure
+// still reaches the writer with that much slack.
+const sourceLookaheadFrames = 2
 
-type openPipeResult struct {
-	file *os.File
-	err  error
+type openSourceResult struct {
+	stream io.ReadCloser
+	err    error
 }
 
-// metaPipe tracks one FIFO and the renumbering state of its current stream
-// epoch. An epoch is one apply-load process lifetime: apply-load always starts
-// a fresh chain at ledger sequence 1 (genesis emits no meta, so the first
-// frame is sequence 2), so every time the writer restarts, the raw sequences
-// reset and a new seqDiff must be derived from the next requested ledger.
-type metaPipe struct {
-	path string
-	file *os.File
-	// opening carries the result of an in-flight blocking FIFO open. It is
-	// retained across a context cancellation so a retried GetLedger reuses
-	// the pending open instead of leaking the file descriptor.
-	opening chan openPipeResult
+// metaSource tracks one meta source and the renumbering state of its current
+// stream epoch. An epoch is one apply-load process lifetime: apply-load always
+// starts a fresh chain at ledger sequence 1 (genesis emits no meta, so the
+// first frame is sequence 2), so every time the writer restarts, the raw
+// sequences reset and a new seqDiff must be derived from the next requested
+// ledger. A FIFO source observes a restart as EOF and reopen; a tcp-listen
+// source observes it as the connection closing and a fresh dial-in.
+type metaSource struct {
+	// source is the configured entry: a FIFO path or a tcp-listen:// address.
+	// It labels the source in logs and errors.
+	source string
+	// listener accepts producer connections for a tcp-listen source; nil for
+	// a FIFO source. It outlives stream epochs: a producer restart is served
+	// by the next Accept. Extra queued connections sit in the accept backlog
+	// — only one connection per source is ever live.
+	listener net.Listener
+	// stream is the current epoch's byte stream: an open FIFO or an accepted
+	// connection.
+	stream io.ReadCloser
+	// opening carries the result of an in-flight blocking open (FIFO open or
+	// TCP accept). It is retained across a context cancellation so a retried
+	// GetLedger reuses the pending open instead of leaking the descriptor.
+	opening chan openSourceResult
 	// frames delivers decoded frames in order from the reader goroutine. The
-	// channel buffers pipeLookaheadFrames so the reader decodes ahead of
-	// GetLedger, hiding the writer's per-frame FIFO streaming time; an epoch's
+	// channel buffers sourceLookaheadFrames so the reader decodes ahead of
+	// GetLedger, hiding the writer's per-frame streaming time; an epoch's
 	// terminating error is always the last element the reader sends, so
 	// buffered frames before it remain valid.
-	frames chan pipeReadResult
+	frames chan sourceReadResult
 	// peeked holds a frame that was consumed from the reader but not yet
 	// emitted, so that a GetLedger attempt that fails partway through a
-	// multi-pipe merge (context cancelled, another pipe mid-reopen) can be
-	// retried without this pipe skipping a frame.
+	// multi-source merge (context cancelled, another source mid-reopen) can
+	// be retried without this source skipping a frame.
 	peeked *xdr.LedgerCloseMeta
 	// seqDiff maps this epoch's raw frame sequences onto emitted ledger
 	// sequences: emitted = raw + seqDiff.
@@ -84,12 +106,14 @@ type metaPipe struct {
 }
 
 // StreamingLoadtestLedgerBackend reads stream-framed XDR LedgerCloseMeta from
-// one or more named pipes written by `stellar-core apply-load`, renumbers each
-// stream's ledger headers onto the consumer's requested sequence, merges the
-// per-sequence frames into one ledger, and stamps advancing close times. It
-// implements ledgerbackend.LedgerBackend. Dev-only: it exists so a load-test
-// deployment can exercise the standard ingestion path against synthetic
-// traffic.
+// one or more sources — named pipes, or TCP connections accepted on
+// tcp-listen:// addresses — each written by `stellar-core apply-load`,
+// renumbers each stream's ledger headers onto the consumer's requested
+// sequence, merges the per-sequence frames into one ledger, and stamps
+// advancing close times. It implements ledgerbackend.LedgerBackend. Dev-only:
+// it exists so a load-test deployment can exercise the standard ingestion
+// path against synthetic traffic, with producers either colocated (FIFOs) or
+// in their own pods (TCP).
 //
 // Only the header sequence is renumbered; ledger-sequence references inside
 // ledger entries keep their raw per-stream values (see appendLedger for why).
@@ -112,7 +136,7 @@ type StreamingLoadtestLedgerBackend struct {
 	config StreamingLoadtestBackendConfig
 
 	mu            sync.Mutex
-	pipes         []*metaPipe
+	sources       []*metaSource
 	prepared      bool
 	preparedFrom  uint32
 	latestEmitted uint32
@@ -128,21 +152,44 @@ type StreamingLoadtestLedgerBackend struct {
 // Verify interface implementation at compile time.
 var _ ledgerbackend.LedgerBackend = (*StreamingLoadtestLedgerBackend)(nil)
 
+// NewStreamingLoadtestLedgerBackend validates the sources and binds every
+// tcp-listen listener eagerly, so a bad address fails startup and producers
+// can dial in while the consumer is still bootstrapping. FIFO sources open
+// lazily in GetLedger.
 func NewStreamingLoadtestLedgerBackend(cfg StreamingLoadtestBackendConfig) (*StreamingLoadtestLedgerBackend, error) {
-	if len(cfg.MetaPipePaths) == 0 {
-		return nil, fmt.Errorf("MetaPipePaths is required")
+	if len(cfg.MetaSources) == 0 {
+		return nil, fmt.Errorf("MetaSources is required")
 	}
-	pipes := make([]*metaPipe, len(cfg.MetaPipePaths))
-	for i, path := range cfg.MetaPipePaths {
-		if path == "" {
-			return nil, fmt.Errorf("MetaPipePaths[%d] is empty", i)
+	sources := make([]*metaSource, len(cfg.MetaSources))
+	closeListeners := func() {
+		for _, s := range sources {
+			if s != nil && s.listener != nil {
+				if err := s.listener.Close(); err != nil {
+					log.Warnf("streaming-loadtest: closing source %s listener: %v", s.source, err)
+				}
+			}
 		}
-		pipes[i] = &metaPipe{path: path}
+	}
+	for i, entry := range cfg.MetaSources {
+		if entry == "" {
+			closeListeners()
+			return nil, fmt.Errorf("MetaSources[%d] is empty", i)
+		}
+		s := &metaSource{source: entry}
+		if addr, ok := strings.CutPrefix(entry, tcpListenScheme); ok {
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				closeListeners()
+				return nil, fmt.Errorf("MetaSources[%d]: listening on %q: %w", i, addr, err)
+			}
+			s.listener = listener
+		}
+		sources[i] = s
 	}
 	return &StreamingLoadtestLedgerBackend{
-		config: cfg,
-		pipes:  pipes,
-		done:   make(chan struct{}),
+		config:  cfg,
+		sources: sources,
+		done:    make(chan struct{}),
 	}, nil
 }
 
@@ -158,9 +205,10 @@ func (b *StreamingLoadtestLedgerBackend) PrepareRange(ctx context.Context, ledge
 	if ledgerRange.Bounded() {
 		return fmt.Errorf("streaming-loadtest backend only supports unbounded ranges")
 	}
-	// Pipes open lazily in GetLedger: opening a FIFO read side blocks until
-	// the writer attaches, and PrepareRange should not stall startup on
-	// generators that are still booting.
+	// Streams open lazily in GetLedger: a FIFO read-side open blocks until
+	// the writer attaches and a tcp-listen accept blocks until a producer
+	// dials, and PrepareRange should not stall startup on generators that
+	// are still booting.
 	b.preparedFrom = ledgerRange.From()
 	b.prepared = true
 	return nil
@@ -179,7 +227,7 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 
 	// Re-serving the last emitted ledger keeps a retrying consumer (its
 	// GetLedger call sits inside a retry-with-backoff wrapper) from
-	// desynchronizing the pipes: the frames for that ledger are already
+	// desynchronizing the sources: the frames for that ledger are already
 	// consumed and must not be read twice.
 	if b.latestEmitted != 0 && sequence == b.latestEmitted {
 		return b.cached, nil
@@ -208,10 +256,10 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 	}
 
 	var merged xdr.LedgerCloseMeta
-	for i, p := range b.pipes {
+	for i, p := range b.sources {
 		frame, err := b.nextFrame(ctx, p, sequence)
 		if err != nil {
-			return xdr.LedgerCloseMeta{}, fmt.Errorf("pipe %s: %w", p.path, err)
+			return xdr.LedgerCloseMeta{}, fmt.Errorf("source %s: %w", p.source, err)
 		}
 		if i == 0 {
 			merged = frame
@@ -220,7 +268,7 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 			}
 		} else {
 			if err := appendLedger(&merged, frame); err != nil {
-				return xdr.LedgerCloseMeta{}, fmt.Errorf("merging frame from pipe %s: %w", p.path, err)
+				return xdr.LedgerCloseMeta{}, fmt.Errorf("merging frame from source %s: %w", p.source, err)
 			}
 		}
 	}
@@ -230,7 +278,7 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 
 	// The merge succeeded: only now release the peeked frames so a failed
 	// attempt above replays the same frames on retry.
-	for _, p := range b.pipes {
+	for _, p := range b.sources {
 		p.peeked = nil
 	}
 	b.cached = merged
@@ -240,16 +288,16 @@ func (b *StreamingLoadtestLedgerBackend) GetLedger(ctx context.Context, sequence
 }
 
 // nextFrame returns the frame of p that must merge into the requested
-// sequence, (re)opening the pipe and deriving the epoch's sequence diff as
-// needed. The returned frame stays parked in p.peeked until the caller
+// sequence, (re)opening the source's stream and deriving the epoch's sequence
+// diff as needed. The returned frame stays parked in p.peeked until the caller
 // completes the whole merge.
-func (b *StreamingLoadtestLedgerBackend) nextFrame(ctx context.Context, p *metaPipe, sequence uint32) (xdr.LedgerCloseMeta, error) {
+func (b *StreamingLoadtestLedgerBackend) nextFrame(ctx context.Context, p *metaSource, sequence uint32) (xdr.LedgerCloseMeta, error) {
 	if p.peeked != nil {
 		return *p.peeked, nil
 	}
 	for {
 		if p.frames == nil {
-			if err := b.openPipe(ctx, p); err != nil {
+			if err := b.openSource(ctx, p); err != nil {
 				return xdr.LedgerCloseMeta{}, err
 			}
 		}
@@ -262,15 +310,15 @@ func (b *StreamingLoadtestLedgerBackend) nextFrame(ctx context.Context, p *metaP
 				// exited (normal end of an apply-load run), and a decode error
 				// means a killed writer left a truncated frame. Either way the
 				// only recovery is a fresh stream from the restarted writer.
-				log.Warnf("streaming-loadtest: pipe %s stream ended (%v); reopening and waiting for writer", p.path, res.err)
-				b.resetPipe(p)
+				log.Warnf("streaming-loadtest: source %s stream ended (%v); waiting for a new writer", p.source, res.err)
+				b.resetSource(p)
 				continue
 			}
 			frameSeq := res.lcm.LedgerSequence()
 			if !p.diffValid {
 				p.seqDiff = int64(sequence) - int64(frameSeq)
 				p.diffValid = true
-				log.Infof("streaming-loadtest: pipe %s new epoch: raw ledger %d maps to %d (diff %d)", p.path, frameSeq, sequence, p.seqDiff)
+				log.Infof("streaming-loadtest: source %s new epoch: raw ledger %d maps to %d (diff %d)", p.source, frameSeq, sequence, p.seqDiff)
 			} else if int64(frameSeq)+p.seqDiff != int64(sequence) {
 				// apply-load emits every ledger it closes, in order, with no
 				// gaps. A mismatch inside an epoch means frames were lost or
@@ -285,39 +333,68 @@ func (b *StreamingLoadtestLedgerBackend) nextFrame(ctx context.Context, p *metaP
 	}
 }
 
-// openPipe blocking-opens the FIFO read side (the open(2) itself blocks until
-// a writer attaches) and starts the reader goroutine. Cancellation-safe: a
-// cancelled open stays pending on p.opening and is adopted by the next call.
-func (b *StreamingLoadtestLedgerBackend) openPipe(ctx context.Context, p *metaPipe) error {
+// openSource blocking-opens the source's next stream epoch — a FIFO read-side
+// open (the open(2) itself blocks until a writer attaches) or a TCP accept
+// (blocks until a producer dials) — and starts the reader goroutine.
+// Cancellation-safe: a cancelled open stays pending on p.opening and is
+// adopted by the next call.
+func (b *StreamingLoadtestLedgerBackend) openSource(ctx context.Context, p *metaSource) error {
 	if p.opening == nil {
-		p.opening = make(chan openPipeResult, 1)
-		go func(path string, ch chan<- openPipeResult) {
-			f, err := os.OpenFile(path, os.O_RDONLY, 0)
-			ch <- openPipeResult{file: f, err: err}
-		}(p.path, p.opening)
+		p.opening = make(chan openSourceResult, 1)
+		go func(source string, listener net.Listener, ch chan<- openSourceResult) {
+			if listener != nil {
+				conn, err := listener.Accept()
+				if err != nil {
+					ch <- openSourceResult{err: err}
+					return
+				}
+				if tcpConn, ok := conn.(*net.TCPConn); ok {
+					// Keepalive turns a peer that vanished without a FIN
+					// (producer node death) into a read error, ending the
+					// epoch the same way FIFO EOF does; without it the
+					// backend would wait on a dead connection forever.
+					if err := tcpConn.SetKeepAlive(true); err != nil {
+						log.Warnf("streaming-loadtest: source %s: enabling keepalive: %v", source, err)
+					} else if err := tcpConn.SetKeepAlivePeriod(30 * time.Second); err != nil {
+						log.Warnf("streaming-loadtest: source %s: setting keepalive period: %v", source, err)
+					}
+				}
+				ch <- openSourceResult{stream: conn}
+				return
+			}
+			f, err := os.OpenFile(source, os.O_RDONLY, 0)
+			if err != nil {
+				ch <- openSourceResult{err: err}
+				return
+			}
+			ch <- openSourceResult{stream: f}
+		}(p.source, p.listener, p.opening)
 	}
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("waiting for pipe writer: %w", ctx.Err())
+		return fmt.Errorf("waiting for stream writer: %w", ctx.Err())
 	case res := <-p.opening:
 		p.opening = nil
 		if res.err != nil {
-			return fmt.Errorf("opening meta pipe: %w", res.err)
+			return fmt.Errorf("opening meta source: %w", res.err)
 		}
-		p.file = res.file
-		p.frames = make(chan pipeReadResult, pipeLookaheadFrames)
-		go readFrames(res.file, p.frames, b.done)
+		p.stream = res.stream
+		p.frames = make(chan sourceReadResult, sourceLookaheadFrames)
+		go readFrames(res.stream, p.frames, b.done)
 		return nil
 	}
 }
 
-func (b *StreamingLoadtestLedgerBackend) resetPipe(p *metaPipe) {
-	if p.file != nil {
-		if err := p.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-			log.Warnf("streaming-loadtest: closing pipe %s: %v", p.path, err)
+// resetSource ends the current stream epoch: the stream closes but a
+// tcp-listen source's listener stays open, so the restarted producer's next
+// dial (or FIFO reopen) starts the next epoch.
+func (b *StreamingLoadtestLedgerBackend) resetSource(p *metaSource) {
+	if p.stream != nil {
+		if err := p.stream.Close(); err != nil && !errors.Is(err, os.ErrClosed) && !errors.Is(err, net.ErrClosed) {
+			log.Warnf("streaming-loadtest: closing source %s stream: %v", p.source, err)
 		}
 	}
-	p.file = nil
+	p.stream = nil
 	p.frames = nil
 	p.diffValid = false
 }
@@ -330,21 +407,21 @@ type rawFrame struct {
 	err     error
 }
 
-// readFrames drains and decodes frames off the pipe in two stages, in order:
-// this goroutine reads each record's raw bytes at pipe-transfer speed, and a
-// decode goroutine unmarshals them. apply-load's meta write is synchronous —
+// readFrames drains and decodes frames off the stream in two stages, in
+// order: this goroutine reads each record's raw bytes at transfer speed, and
+// a decode goroutine unmarshals them. apply-load's meta write is synchronous —
 // core does not start generating its next ledger until the consumer has
 // drained the current frame — so draining at transfer speed instead of
 // decode speed takes the decoder out of every producer's ledger cycle;
 // decoding overlaps the producer's next apply. It exits after forwarding a
 // read error (the epoch is over) or when the backend closes.
-func readFrames(f *os.File, frames chan<- pipeReadResult, done <-chan struct{}) {
+func readFrames(r io.Reader, frames chan<- sourceReadResult, done <-chan struct{}) {
 	// Depth 1 is all the decoupling needs: the drain runs one frame ahead of
 	// the decoder, so the producer's next write never waits on a decode.
 	raw := make(chan rawFrame, 1)
 	go decodeFrames(raw, frames, done)
 
-	reader := bufio.NewReaderSize(f, 1<<20)
+	reader := bufio.NewReaderSize(r, 1<<20)
 	for {
 		payload, err := drainFrame(reader)
 		select {
@@ -387,7 +464,7 @@ func drainFrame(r io.Reader) ([]byte, error) {
 // running up to the frames channel's buffer ahead of the consumer. A drain
 // error arrives as the raw channel's last element and is forwarded as the
 // frames channel's last element; a decode error likewise ends the epoch.
-func decodeFrames(raw <-chan rawFrame, frames chan<- pipeReadResult, done <-chan struct{}) {
+func decodeFrames(raw <-chan rawFrame, frames chan<- sourceReadResult, done <-chan struct{}) {
 	decoder := xdr.NewBytesDecoder()
 	for {
 		var rf rawFrame
@@ -397,10 +474,10 @@ func decodeFrames(raw <-chan rawFrame, frames chan<- pipeReadResult, done <-chan
 			return
 		}
 
-		result := pipeReadResult{err: rf.err}
+		result := sourceReadResult{err: rf.err}
 		if rf.err == nil {
 			if _, err := decoder.DecodeBytes(&result.lcm, rf.payload); err != nil {
-				result = pipeReadResult{err: fmt.Errorf("decoding %d-byte frame: %w", len(rf.payload), err)}
+				result = sourceReadResult{err: fmt.Errorf("decoding %d-byte frame: %w", len(rf.payload), err)}
 			}
 		}
 
@@ -520,13 +597,21 @@ func (b *StreamingLoadtestLedgerBackend) Close() error {
 	}
 	b.closed = true
 	close(b.done)
-	for _, p := range b.pipes {
-		if p.file != nil {
-			if err := p.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-				log.Warnf("streaming-loadtest: closing pipe %s: %v", p.path, err)
+	for _, p := range b.sources {
+		if p.stream != nil {
+			if err := p.stream.Close(); err != nil && !errors.Is(err, os.ErrClosed) && !errors.Is(err, net.ErrClosed) {
+				log.Warnf("streaming-loadtest: closing source %s stream: %v", p.source, err)
 			}
-			p.file = nil
+			p.stream = nil
 			p.frames = nil
+		}
+		if p.listener != nil {
+			// Closing the listener also unblocks a pending Accept, whose
+			// error lands on p.opening and is discarded with the backend.
+			if err := p.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				log.Warnf("streaming-loadtest: closing source %s listener: %v", p.source, err)
+			}
+			p.listener = nil
 		}
 	}
 	return nil
