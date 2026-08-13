@@ -71,9 +71,11 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
 	Datastore DatastoreConfig
-	// LoadtestMetaPipePaths are the FIFO paths for the streaming-loadtest
-	// backend, one per apply-load process (their frames are merged per ledger).
-	LoadtestMetaPipePaths []string
+	// LoadtestMetaSources are the streaming-loadtest backend's meta sources,
+	// one per apply-load process (their frames are merged per ledger). Each
+	// entry is a named-pipe (FIFO) path or a tcp-listen://HOST:PORT address
+	// to accept one producer connection on.
+	LoadtestMetaSources []string
 	// LoadtestLedgerCloseDuration is the minimum interval between ledgers in
 	// streaming-loadtest mode. 0 = uncapped.
 	LoadtestLedgerCloseDuration time.Duration

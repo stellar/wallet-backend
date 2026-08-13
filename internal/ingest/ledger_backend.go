@@ -18,7 +18,7 @@ func NewLedgerBackend(ctx context.Context, cfg Configs) (ledgerbackend.LedgerBac
 		return newRPCLedgerBackend(cfg)
 	case LedgerBackendTypeStreamingLoadtest:
 		return NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
-			MetaPipePaths:       cfg.LoadtestMetaPipePaths,
+			MetaSources:         cfg.LoadtestMetaSources,
 			LedgerCloseDuration: cfg.LoadtestLedgerCloseDuration,
 		})
 	default:

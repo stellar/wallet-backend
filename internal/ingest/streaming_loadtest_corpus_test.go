@@ -41,7 +41,7 @@ func TestStreamingLoadtestBackendRealCorpus(t *testing.T) {
 	const ledgersToRead = 200
 
 	backend, err := NewStreamingLoadtestLedgerBackend(StreamingLoadtestBackendConfig{
-		MetaPipePaths: paths,
+		MetaSources: paths,
 	})
 	require.NoError(t, err)
 	pool := pond.NewPool(runtime.NumCPU())

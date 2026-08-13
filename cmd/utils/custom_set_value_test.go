@@ -256,7 +256,7 @@ func TestSetConfigOptionStringList(t *testing.T) {
 	opts := struct{ paths []string }{}
 
 	co := config.ConfigOption{
-		Name:           "loadtest-meta-pipe-paths",
+		Name:           "loadtest-meta-sources",
 		OptType:        types.String,
 		CustomSetValue: SetConfigOptionStringList,
 		ConfigKey:      &opts.paths,
@@ -269,12 +269,12 @@ func TestSetConfigOptionStringList(t *testing.T) {
 		},
 		{
 			name:       "handles a single value through the CLI flag",
-			args:       []string{"--loadtest-meta-pipe-paths", "/tmp/a.pipe"},
+			args:       []string{"--loadtest-meta-sources", "/tmp/a.pipe"},
 			wantResult: []string{"/tmp/a.pipe"},
 		},
 		{
 			name:       "trims whitespace and drops empty elements",
-			args:       []string{"--loadtest-meta-pipe-paths", " /tmp/a.pipe , ,/tmp/b.pipe,"},
+			args:       []string{"--loadtest-meta-sources", " /tmp/a.pipe , ,/tmp/b.pipe,"},
 			wantResult: []string{"/tmp/a.pipe", "/tmp/b.pipe"},
 		},
 		{
