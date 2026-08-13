@@ -54,11 +54,13 @@ type sourceReadResult struct {
 // next to a frame), so with no lookahead every GetLedger waits for the
 // slowest writer's in-flight frame; lookahead lets that streaming overlap
 // the consumer's processing of earlier ledgers. Each buffered frame is a
-// fully decoded LedgerCloseMeta — tens of MB at full per-ledger volume — so
-// the depth stays small: the reader holds one more in flight, giving
+// fully decoded LedgerCloseMeta — tens of MB at full per-ledger volume,
+// pointer-dense enough to dominate the GC's resident scan mass across all
+// sources — so the depth stays at the minimum that overlaps streaming with
+// processing: the reader holds one more in flight, giving
 // (1+sourceLookaheadFrames) frames per source, and transport backpressure
 // still reaches the writer with that much slack.
-const sourceLookaheadFrames = 2
+const sourceLookaheadFrames = 1
 
 type openSourceResult struct {
 	stream io.ReadCloser
