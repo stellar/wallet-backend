@@ -30,23 +30,23 @@ type signerSponsor struct {
 	sponsor string
 }
 
-// sponsorshipAccountEntry builds a bare account ledger entry: no extensions on
+// sponsorshipAccountEntry builds a bare sponsoredAccount ledger entry: no extensions on
 // either the ledger entry or the account, so neither sponsorship reader sees a
 // sponsor.
-func sponsorshipAccountEntry(accountID string) *xdr.LedgerEntry {
+func sponsorshipAccountEntry() *xdr.LedgerEntry {
 	return &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
 		Type: xdr.LedgerEntryTypeAccount,
 		Account: &xdr.AccountEntry{
-			AccountId: xdr.MustAddress(accountID),
+			AccountId: xdr.MustAddress(sponsoredAccount),
 		},
 	}}
 }
 
-// signerSponsorshipEntry builds an account entry carrying the given signers and
-// their sponsors. SponsorPerSigner zips Signers against SignerSponsoringIDs by
-// position, so the two slices are written in lockstep.
-func signerSponsorshipEntry(accountID string, pairs ...signerSponsor) *xdr.LedgerEntry {
-	entry := sponsorshipAccountEntry(accountID)
+// signerSponsorshipEntry builds a sponsoredAccount entry carrying the given
+// signers and their sponsors. SponsorPerSigner zips Signers against
+// SignerSponsoringIDs by position, so the two slices are written in lockstep.
+func signerSponsorshipEntry(pairs ...signerSponsor) *xdr.LedgerEntry {
+	entry := sponsorshipAccountEntry()
 	if len(pairs) == 0 {
 		return entry
 	}
@@ -117,14 +117,13 @@ func newSponsorshipEffectsWrapper(t *testing.T) *effectsWrapper {
 func TestEffects_SignerSponsorshipPredicate(t *testing.T) {
 	// An account extended to V2 but with every sponsoring slot empty: two signers,
 	// neither sponsored.
-	unsponsored := signerSponsorshipEntry(sponsoredAccount,
-		signerSponsor{signer: sponsoredSigner},
+	unsponsored := signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner},
 		signerSponsor{signer: otherSigner},
 	)
 
 	// V1 extension present, V2 absent: the reader must stop at the missing V2
 	// rather than dereference it.
-	v1Only := sponsorshipAccountEntry(sponsoredAccount)
+	v1Only := sponsorshipAccountEntry()
 	v1Only.Data.Account.Ext = xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{}}
 
 	// A non-account entry reaches the predicate through the type switch in Effects,
@@ -154,7 +153,7 @@ func TestEffects_SignerSponsorshipPredicate(t *testing.T) {
 		},
 		{
 			name:  "an account with no extensions sponsors nothing",
-			entry: sponsorshipAccountEntry(sponsoredAccount),
+			entry: sponsorshipAccountEntry(),
 			want:  false,
 		},
 		{
@@ -169,8 +168,7 @@ func TestEffects_SignerSponsorshipPredicate(t *testing.T) {
 		},
 		{
 			name: "a single non-nil sponsoring ID is enough",
-			entry: signerSponsorshipEntry(sponsoredAccount,
-				signerSponsor{signer: sponsoredSigner},
+			entry: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner},
 				signerSponsor{signer: otherSigner, sponsor: firstSponsor},
 			),
 			want: true,
@@ -192,8 +190,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeTrustline,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}),
 		})
 		assert.Empty(t, wrapper.effects)
 	})
@@ -202,8 +200,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}, signerSponsor{signer: otherSigner}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}, signerSponsor{signer: otherSigner}),
 		})
 		assert.Empty(t, wrapper.effects)
 	})
@@ -212,7 +210,7 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}),
 		})
 		assert.Empty(t, wrapper.effects)
 	})
@@ -221,8 +219,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
 		})
 
 		require.Len(t, wrapper.effects, 1)
@@ -241,8 +239,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner}),
 		})
 
 		require.Len(t, wrapper.effects, 1)
@@ -260,7 +258,7 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
 		})
 
 		require.Len(t, wrapper.effects, 1)
@@ -275,8 +273,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
 		})
 		assert.Empty(t, wrapper.effects)
 	})
@@ -285,8 +283,8 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
-			Post: signerSponsorshipEntry(sponsoredAccount, signerSponsor{signer: sponsoredSigner, sponsor: secondSponsor}),
+			Pre:  signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: firstSponsor}),
+			Post: signerSponsorshipEntry(signerSponsor{signer: sponsoredSigner, sponsor: secondSponsor}),
 		})
 
 		require.Len(t, wrapper.effects, 1)
@@ -303,7 +301,7 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 	// therefore passes the guard and still yields nothing, which is the safe
 	// direction: the guard may over-admit, never over-reject.
 	t.Run("a sponsoring ID with no matching signer yields no effects", func(t *testing.T) {
-		post := sponsorshipAccountEntry(sponsoredAccount)
+		post := sponsorshipAccountEntry()
 		sponsorID := xdr.MustAddress(firstSponsor)
 		post.Data.Account.Ext = xdr.AccountEntryExt{
 			V: 1,
@@ -319,7 +317,7 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  sponsorshipAccountEntry(sponsoredAccount),
+			Pre:  sponsorshipAccountEntry(),
 			Post: post,
 		})
 		assert.Empty(t, wrapper.effects)
@@ -331,12 +329,10 @@ func TestEffects_AddSignerSponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		wrapper.addSignerSponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre: signerSponsorshipEntry(sponsoredAccount,
-				signerSponsor{signer: otherSigner, sponsor: firstSponsor},
+			Pre: signerSponsorshipEntry(signerSponsor{signer: otherSigner, sponsor: firstSponsor},
 				signerSponsor{signer: sponsoredSigner},
 			),
-			Post: signerSponsorshipEntry(sponsoredAccount,
-				signerSponsor{signer: otherSigner},
+			Post: signerSponsorshipEntry(signerSponsor{signer: otherSigner},
 				signerSponsor{signer: sponsoredSigner, sponsor: secondSponsor},
 			),
 		})
@@ -357,8 +353,8 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  sponsorshipAccountEntry(sponsoredAccount),
-			Post: withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
+			Pre:  sponsorshipAccountEntry(),
+			Post: withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
 		})
 		require.NoError(t, err)
 
@@ -375,7 +371,7 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Post: withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
+			Post: withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
 		})
 		require.NoError(t, err)
 
@@ -388,8 +384,8 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
-			Post: sponsorshipAccountEntry(sponsoredAccount),
+			Pre:  withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
+			Post: sponsorshipAccountEntry(),
 		})
 		require.NoError(t, err)
 
@@ -407,7 +403,7 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
+			Pre:  withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
 		})
 		require.NoError(t, err)
 
@@ -421,8 +417,8 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
-			Post: withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), secondSponsor),
+			Pre:  withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
+			Post: withSponsoringID(sponsorshipAccountEntry(), secondSponsor),
 		})
 		require.NoError(t, err)
 
@@ -438,8 +434,8 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
-			Post: withSponsoringID(sponsorshipAccountEntry(sponsoredAccount), firstSponsor),
+			Pre:  withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
+			Post: withSponsoringID(sponsorshipAccountEntry(), firstSponsor),
 		})
 		require.NoError(t, err)
 		assert.Empty(t, wrapper.effects)
@@ -449,8 +445,8 @@ func TestEffects_AddLedgerEntrySponsorshipEffects(t *testing.T) {
 		wrapper := newSponsorshipEffectsWrapper(t)
 		err := wrapper.addLedgerEntrySponsorshipEffects(ingest.Change{
 			Type: xdr.LedgerEntryTypeAccount,
-			Pre:  sponsorshipAccountEntry(sponsoredAccount),
-			Post: sponsorshipAccountEntry(sponsoredAccount),
+			Pre:  sponsorshipAccountEntry(),
+			Post: sponsorshipAccountEntry(),
 		})
 		require.NoError(t, err)
 		assert.Empty(t, wrapper.effects)
