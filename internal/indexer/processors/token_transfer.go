@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/asset"
@@ -33,17 +34,24 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 		return types.ContractTypeNative
 	}
 
-	// Convert to XDR asset
-	xdrAsset := asset.ToXdrAsset()
+	// The SAC contract ID is a SHA-256 over the asset's contract-ID preimage
+	// plus a strkey encode, recomputed for the same few assets on every event,
+	// so it is memoized by asset identity. sacContractIDs is a sync.Map
+	// because one processor instance serves every pool worker concurrently.
+	issued := asset.GetIssuedAsset()
+	memoKey := issued.GetAssetCode() + "\x00" + issued.GetIssuer()
 
-	// Compute the SAC contract ID for this asset
-	sacContractID, err := xdrAsset.ContractID(p.networkPassphrase)
-	if err != nil {
-		return types.ContractTypeUnknown
+	var sacContractIDStr string
+	if cached, ok := p.sacContractIDs.Load(memoKey); ok {
+		sacContractIDStr = cached.(string)
+	} else {
+		sacContractID, err := asset.ToXdrAsset().ContractID(p.networkPassphrase)
+		if err != nil {
+			return types.ContractTypeUnknown
+		}
+		sacContractIDStr = strkey.MustEncode(strkey.VersionByteContract, sacContractID[:])
+		p.sacContractIDs.Store(memoKey, sacContractIDStr)
 	}
-
-	// Encode as Stellar contract address (C...)
-	sacContractIDStr := strkey.MustEncode(strkey.VersionByteContract, sacContractID[:])
 
 	// Compare with the actual contract address
 	if sacContractIDStr == contractAddress {
@@ -58,6 +66,7 @@ type TokenTransferProcessor struct {
 	eventsProcessor   *ttp.EventsProcessor
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
+	sacContractIDs    sync.Map // asset "<code>\x00<issuer>" → strkey-encoded SAC contract ID
 }
 
 // NewTokenTransferProcessor creates a new token transfer processor for the specified Stellar network.
