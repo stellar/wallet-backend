@@ -126,8 +126,13 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) ProcessTrustlineAndSACChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
-	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, sacBalanceChangesByKey)
+func (m *TokenIngestionServiceMock) ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, sacBalanceChangesByKey)
 	return args.Error(0)
 }
 
