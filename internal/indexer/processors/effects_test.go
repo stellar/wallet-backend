@@ -479,7 +479,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 func TestGenerateBalanceAuthorizationForNewTrustline(t *testing.T) {
 	processor := NewEffectsProcessor(networkPassphrase, nil)
-	builder := NewStateChangeBuilder(12345, 1234500, 1, nil).WithAccount(someTxAccount.Address())
+	builder := NewStateChangeBuilder(12345, 1234500, 1).WithAccount(someTxAccount.Address())
 	effect := &EffectOutput{Details: map[string]interface{}{
 		"asset_type":        "liquidity_pool_shares",
 		"liquidity_pool_id": "pool-id",
@@ -501,7 +501,7 @@ func TestGenerateBalanceAuthorizationForNewTrustline(t *testing.T) {
 func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 	const address = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
 	processor := NewEffectsProcessor(networkPassphrase, nil)
-	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64()).
 		WithAccount(address).
 		WithCategory(types.StateChangeCategorySignatureThreshold)
 	effect := &EffectOutput{
@@ -789,7 +789,7 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 	processor := NewEffectsProcessor(networkPassphrase, nil)
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+			changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64()).
 				WithAccount(accountAddress).
 				WithCategory(types.StateChangeCategorySigner)
 			effect := &EffectOutput{
@@ -810,7 +810,7 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 	}
 
 	t.Run("a P signer missing from the pre-image is an error", func(t *testing.T) {
-		changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+		changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64()).
 			WithAccount(accountAddress).
 			WithCategory(types.StateChangeCategorySigner)
 		effect := &EffectOutput{

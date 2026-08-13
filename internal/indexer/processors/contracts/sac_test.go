@@ -119,7 +119,7 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 				TrustLine: &trustline,
 			}},
 		}}
-		builder := processors.NewStateChangeBuilder(12345, 1234500, 1, nil)
+		builder := processors.NewStateChangeBuilder(12345, 1234500, 1)
 
 		stateChanges, err := processor.processCreatedTrustlines(changes, builder)
 		require.NoError(t, err)
