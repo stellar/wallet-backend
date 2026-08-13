@@ -8,54 +8,53 @@ import (
 	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
-// StateChangeBuilder provides a fluent interface for creating state changes
+// StateChangeBuilder provides a fluent interface for creating state changes.
+// It is used by value: every With* method mutates its own copy and returns it,
+// so a builder can be branched by plain assignment and stays on the stack.
 type StateChangeBuilder struct {
-	base           types.StateChange
-	metricsService *metrics.IngestionMetrics
+	base types.StateChange
 }
 
 // NewStateChangeBuilder creates a new builder with base state change fields
-func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64, metricsService *metrics.IngestionMetrics) *StateChangeBuilder {
-	return &StateChangeBuilder{
+func NewStateChangeBuilder(ledgerNumber uint32, ledgerCloseTime int64, txID int64) StateChangeBuilder {
+	return StateChangeBuilder{
 		base: types.StateChange{
 			LedgerNumber:    ledgerNumber,
 			LedgerCreatedAt: time.Unix(ledgerCloseTime, 0),
 			ToID:            txID,
 		},
-		metricsService: metricsService,
 	}
 }
 
 // WithCategory sets the state change category
-func (b *StateChangeBuilder) WithCategory(category types.StateChangeCategory) *StateChangeBuilder {
+func (b StateChangeBuilder) WithCategory(category types.StateChangeCategory) StateChangeBuilder {
 	b.base.StateChangeCategory = category
 	return b
 }
 
 // WithReason sets the state change reason
-func (b *StateChangeBuilder) WithReason(reason types.StateChangeReason) *StateChangeBuilder {
+func (b StateChangeBuilder) WithReason(reason types.StateChangeReason) StateChangeBuilder {
 	b.base.StateChangeReason = reason
 	return b
 }
 
 // WithDataEntryName sets the name of the changed data entry
-func (b *StateChangeBuilder) WithDataEntryName(name string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithDataEntryName(name string) StateChangeBuilder {
 	b.base.DataEntryName = sql.NullString{String: name, Valid: true}
 	return b
 }
 
 // WithThresholdLevel records which of the account's signature thresholds this change refers to
-func (b *StateChangeBuilder) WithThresholdLevel(level types.ThresholdLevel) *StateChangeBuilder {
+func (b StateChangeBuilder) WithThresholdLevel(level types.ThresholdLevel) StateChangeBuilder {
 	b.base.Threshold = sql.NullString{String: string(level), Valid: true}
 	return b
 }
 
 // WithThreshold sets the threshold old and new values directly
-func (b *StateChangeBuilder) WithThreshold(oldValue, newValue *int16) *StateChangeBuilder {
+func (b StateChangeBuilder) WithThreshold(oldValue, newValue *int16) StateChangeBuilder {
 	if oldValue != nil {
 		b.base.ThresholdOld = sql.NullInt16{Int16: *oldValue, Valid: true}
 	}
@@ -66,7 +65,7 @@ func (b *StateChangeBuilder) WithThreshold(oldValue, newValue *int16) *StateChan
 }
 
 // WithTrustlineLimit sets the trustline limit old and new values directly
-func (b *StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) StateChangeBuilder {
 	if oldValue != nil {
 		b.base.TrustlineLimitOld = utils.SQLNullString(*oldValue)
 	}
@@ -77,7 +76,7 @@ func (b *StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) *Sta
 }
 
 // WithFlags sets the flags as a bitmask from a slice of flag names
-func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithFlags(flags []string) StateChangeBuilder {
 	if len(flags) > 0 {
 		bitmask := types.EncodeFlagsToBitmask(flags)
 		b.base.Flags = sql.NullInt16{Int16: bitmask, Valid: true}
@@ -86,13 +85,13 @@ func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
 }
 
 // WithAccount sets the account ID
-func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithAccount(accountID string) StateChangeBuilder {
 	b.base.AccountID = types.AddressBytea(accountID)
 	return b
 }
 
 // WithSigner sets the signer account ID and the weights directly
-func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) *StateChangeBuilder {
+func (b StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) StateChangeBuilder {
 	b.base.SignerAccountID = utils.NullAddressBytea(signer)
 	if oldWeight != nil {
 		b.base.SignerWeightOld = sql.NullInt16{Int16: *oldWeight, Valid: true}
@@ -105,56 +104,56 @@ func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int
 
 // WithCreator sets the creator account ID: the account that funded a classic
 // account creation, or the address that deployed a contract.
-func (b *StateChangeBuilder) WithCreator(creator string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithCreator(creator string) StateChangeBuilder {
 	b.base.CreatorAccountID = utils.NullAddressBytea(creator)
 	return b
 }
 
 // WithDestination sets the destination account ID, the account a merged account was merged into.
-func (b *StateChangeBuilder) WithDestination(destination string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithDestination(destination string) StateChangeBuilder {
 	b.base.DestinationAccountID = utils.NullAddressBytea(destination)
 	return b
 }
 
 // WithSpender sets the spender account ID, the account granted an allowance to spend on the owner's behalf.
-func (b *StateChangeBuilder) WithSpender(spender string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithSpender(spender string) StateChangeBuilder {
 	b.base.SpenderAccountID = utils.NullAddressBytea(spender)
 	return b
 }
 
 // WithKeyValue sets the key value JSONB field for truly variable data (data entries, home domain)
-func (b *StateChangeBuilder) WithKeyValue(valueMap map[string]any) *StateChangeBuilder {
+func (b StateChangeBuilder) WithKeyValue(valueMap map[string]any) StateChangeBuilder {
 	b.base.KeyValue = types.NullableJSONB(valueMap)
 	return b
 }
 
 // WithAmount sets the amount
-func (b *StateChangeBuilder) WithAmount(amount string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithAmount(amount string) StateChangeBuilder {
 	b.base.Amount = utils.SQLNullString(amount)
 	return b
 }
 
 // WithToMuxedID sets the CAP-67 destination memo (u64) on the state change.
 // Stored as a decimal string so values above 2^63-1 round-trip without overflow.
-func (b *StateChangeBuilder) WithToMuxedID(muxedID uint64) *StateChangeBuilder {
+func (b StateChangeBuilder) WithToMuxedID(muxedID uint64) StateChangeBuilder {
 	b.base.ToMuxedID = sql.NullString{String: strconv.FormatUint(muxedID, 10), Valid: true}
 	return b
 }
 
 // WithToken sets the token ID using the contract address
-func (b *StateChangeBuilder) WithToken(contractAddress string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithToken(contractAddress string) StateChangeBuilder {
 	b.base.TokenID = utils.NullAddressBytea(contractAddress)
 	return b
 }
 
 // WithOperationID sets the operation ID
-func (b *StateChangeBuilder) WithOperationID(operationID int64) *StateChangeBuilder {
+func (b StateChangeBuilder) WithOperationID(operationID int64) StateChangeBuilder {
 	b.base.OperationID = operationID
 	return b
 }
 
 // WithLiquidityPoolID sets the liquidity pool ID for trustline state changes
-func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuilder {
+func (b StateChangeBuilder) WithLiquidityPoolID(poolID string) StateChangeBuilder {
 	b.base.LiquidityPoolID = utils.SQLNullString(poolID)
 	return b
 }
@@ -163,14 +162,6 @@ func (b *StateChangeBuilder) WithLiquidityPoolID(poolID string) *StateChangeBuil
 // Note: StateChangeID is left zero here — the emitter assigns it afterward via
 // types.AssignStateChangeOrdinals, numbering each transaction's or window's
 // state changes in deterministic emission order before persisting.
-func (b *StateChangeBuilder) Build() types.StateChange {
+func (b StateChangeBuilder) Build() types.StateChange {
 	return b.base
-}
-
-// Clone returns a shallow copy of the builder, sharing the same metrics service.
-func (b *StateChangeBuilder) Clone() *StateChangeBuilder {
-	return &StateChangeBuilder{
-		base:           b.base,
-		metricsService: b.metricsService,
-	}
 }
