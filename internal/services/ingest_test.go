@@ -1532,12 +1532,16 @@ func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
 	require.NoError(t, err)
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-	mockTokenIngestionService.On("ProcessTokenChanges",
+	mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 		mock.Anything, // ctx
 		mock.Anything, // dbTx
 		mock.Anything, // trustlineChangesByTrustlineKey
-		mock.Anything, // accountChangesByAccountID
 		mock.Anything, // sacBalanceChangesByKey
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // accountChangesByAccountID
 		mock.Anything, // lpShareChangesByKey
 		mock.Anything, // lpChangesByPoolID
 	).Return(nil).Maybe()
@@ -1627,12 +1631,16 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil)
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
 		).Return(nil)
@@ -1705,15 +1713,19 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to return error (simulating DB failure)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(fmt.Errorf("db connection failed"))
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
-		).Return(fmt.Errorf("db connection failed"))
+		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
@@ -1783,24 +1795,25 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to fail once then succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
-			mock.Anything, // lpShareChangesByKey
-			mock.Anything, // lpChangesByPoolID
 		).Return(fmt.Errorf("transient error")).Once()
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil).Once()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
-		).Return(nil).Once()
+		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
@@ -1989,12 +2002,16 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
 		).Return(nil).Maybe()
@@ -2718,9 +2735,11 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 		require.NoError(t, err)
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -2888,12 +2907,16 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	require.NoError(t, err)
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-	mockTokenIngestionService.On("ProcessTokenChanges",
+	mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
 		mock.Anything, // ctx
 		mock.Anything, // dbTx
 		mock.Anything, // trustlineChangesByTrustlineKey
-		mock.Anything, // accountChangesByAccountID
 		mock.Anything, // sacBalanceChangesByKey
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // accountChangesByAccountID
 		mock.Anything, // lpShareChangesByKey
 		mock.Anything, // lpChangesByPoolID
 	).Return(nil).Maybe()
@@ -3023,8 +3046,11 @@ func Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline(t *testing.T) 
 	require.NoError(t, err)
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-	mockTokenIngestionService.On("ProcessTokenChanges",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil).Maybe()
 
 	cursorReached := func(target uint32) bool {
@@ -3098,8 +3124,11 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		require.NoError(t, err)
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
@@ -3242,8 +3271,11 @@ func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 	require.NoError(t, err)
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-	mockTokenIngestionService.On("ProcessTokenChanges",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	mockTokenIngestionService.On("ProcessTrustlineAndSACChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil).Maybe()
 
 	svc, err := NewIngestService(IngestServiceConfig{
