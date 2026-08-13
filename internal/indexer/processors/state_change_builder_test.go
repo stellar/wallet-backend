@@ -3,40 +3,63 @@ package processors
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
-	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 func int16Ptr(v int16) *int16 { return &v }
 
 func TestStateChangeBuilder_FluentAPI(t *testing.T) {
-	ingestionMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion
+	t.Run("branching copies the builder", func(t *testing.T) {
+		base := NewStateChangeBuilder(1, 1000, 42).WithCategory(types.StateChangeCategoryBalance)
+
+		// Processors branch one operation-level builder into many state changes by
+		// plain assignment, so a With* call must leave the builder it was called on
+		// untouched and the branches independent of each other.
+		credit := base.WithReason(types.StateChangeReasonCredit).WithAccount("GCREDIT")
+		debit := base.WithReason(types.StateChangeReasonDebit).WithAccount("GDEBIT")
+
+		assert.Equal(t, types.StateChangeReasonCredit, credit.Build().StateChangeReason)
+		assert.Equal(t, types.AddressBytea("GCREDIT"), credit.Build().AccountID)
+		assert.Equal(t, types.StateChangeReasonDebit, debit.Build().StateChangeReason)
+		assert.Equal(t, types.AddressBytea("GDEBIT"), debit.Build().AccountID)
+
+		assert.Empty(t, base.Build().StateChangeReason)
+		assert.Empty(t, base.Build().AccountID)
+		assert.Equal(t, types.StateChangeCategoryBalance, base.Build().StateChangeCategory)
+	})
 
 	t.Run("chainable", func(t *testing.T) {
-		b := NewStateChangeBuilder(1, 1000, 42, ingestionMetrics)
+		sc := NewStateChangeBuilder(1, 1000, 42).
+			WithCategory(types.StateChangeCategoryBalance).
+			WithReason(types.StateChangeReasonCredit).
+			WithAccount("GABC").
+			WithOperationID(1).
+			WithToken("CTOKEN").
+			WithAmount("100").
+			WithSigner("GSIGNER", int16Ptr(1), int16Ptr(2)).
+			WithThreshold(int16Ptr(10), int16Ptr(20)).
+			WithTrustlineLimit(strPtr("500"), strPtr("1000")).
+			WithFlags([]string{"auth_required"}).
+			WithKeyValue(map[string]any{"k": "v"}).
+			WithCreator("GCREATOR").
+			WithLiquidityPoolID("lp").
+			Build()
 
-		// Each With* method should return the same builder pointer.
-		require.Same(t, b, b.WithCategory(types.StateChangeCategoryBalance))
-		require.Same(t, b, b.WithReason(types.StateChangeReasonCredit))
-		require.Same(t, b, b.WithAccount("GABC"))
-		require.Same(t, b, b.WithOperationID(1))
-		require.Same(t, b, b.WithToken("CTOKEN"))
-		require.Same(t, b, b.WithAmount("100"))
-		require.Same(t, b, b.WithSigner("GSIGNER", int16Ptr(1), int16Ptr(2)))
-		require.Same(t, b, b.WithThreshold(int16Ptr(10), int16Ptr(20)))
-		require.Same(t, b, b.WithTrustlineLimit(strPtr("500"), strPtr("1000")))
-		require.Same(t, b, b.WithFlags([]string{"auth_required"}))
-		require.Same(t, b, b.WithKeyValue(map[string]any{"k": "v"}))
-		require.Same(t, b, b.WithCreator("GCREATOR"))
-		require.Same(t, b, b.WithLiquidityPoolID("lp"))
+		assert.Equal(t, types.AddressBytea("GSIGNER"), sc.SignerAccountID.AddressBytea)
+		assert.Equal(t, int16(1), sc.SignerWeightOld.Int16)
+		assert.Equal(t, int16(2), sc.SignerWeightNew.Int16)
+		assert.Equal(t, int16(10), sc.ThresholdOld.Int16)
+		assert.Equal(t, int16(20), sc.ThresholdNew.Int16)
+		assert.Equal(t, "500", sc.TrustlineLimitOld.String)
+		assert.Equal(t, "1000", sc.TrustlineLimitNew.String)
+		assert.Equal(t, types.EncodeFlagsToBitmask([]string{"auth_required"}), sc.Flags.Int16)
+		assert.Equal(t, types.NullableJSONB{"k": "v"}, sc.KeyValue)
 	})
 
 	t.Run("field values", func(t *testing.T) {
-		sc := NewStateChangeBuilder(5, 2000, 77, ingestionMetrics).
+		sc := NewStateChangeBuilder(5, 2000, 77).
 			WithCategory(types.StateChangeCategorySigner).
 			WithReason(types.StateChangeReasonAdd).
 			WithAccount("GACC").

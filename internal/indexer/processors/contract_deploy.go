@@ -49,7 +49,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
 
 	opID := op.ID()
-	builder := NewStateChangeBuilder(op.Transaction.Ledger.LedgerSequence(), op.LedgerClosed.Unix(), op.TransactionID(), p.metricsService).
+	builder := NewStateChangeBuilder(op.Transaction.Ledger.LedgerSequence(), op.LedgerClosed.Unix(), op.TransactionID()).
 		WithOperationID(opID).
 		WithCategory(types.StateChangeCategoryAccount).
 		WithReason(types.StateChangeReasonCreate)
@@ -76,7 +76,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 			seen = make(map[string]struct{})
 		}
 		seen[contractID] = struct{}{}
-		stateChanges = append(stateChanges, builder.Clone().WithAccount(contractID).WithCreator(deployerAddr).Build())
+		stateChanges = append(stateChanges, builder.WithAccount(contractID).WithCreator(deployerAddr).Build())
 		return nil
 	}
 

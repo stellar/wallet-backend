@@ -37,8 +37,8 @@ func newTestProcessorWithStateChanges(sc data.StateChangeWriter) *processor {
 	}
 }
 
-func newTestOpBuilder() *processors.StateChangeBuilder {
-	return processors.NewStateChangeBuilder(42, 0, 1, nil).WithOperationID(100)
+func newTestOpBuilder() processors.StateChangeBuilder {
+	return processors.NewStateChangeBuilder(42, 0, 1).WithOperationID(100)
 }
 
 func TestProcessor_NeedsResetGuard(t *testing.T) {
