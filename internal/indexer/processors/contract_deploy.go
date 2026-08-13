@@ -34,6 +34,10 @@ func (p *ContractDeployProcessor) StateChangeSubBase() int64 {
 
 // ProcessOperation emits a state change for each contract deployment (including subinvocations).
 func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *TransactionOperationWrapper) ([]types.StateChange, error) {
+	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
+		return nil, ErrInvalidOpType
+	}
+
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -42,9 +46,6 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		}
 	}()
 
-	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return nil, ErrInvalidOpType
-	}
 	// A failed transaction deploys nothing, whatever its host function declares.
 	if !op.Transaction.Successful() {
 		return nil, nil
@@ -58,7 +59,9 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		WithReason(types.StateChangeReasonCreate)
 
 	var stateChanges []types.StateChange
-	seen := map[string]struct{}{}
+	// seen dedupes contract IDs across the host function and its subinvocations;
+	// most InvokeHostFunction operations deploy nothing and never populate it.
+	var seen map[string]struct{}
 
 	emitCreate := func(contractID string, fromAddr xdr.ContractIdPreimageFromAddress) error {
 		// The host rejects a deployer address it can't convert to a host object, so a deploy
@@ -72,6 +75,9 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 		}
 		if _, ok := seen[contractID]; ok {
 			return nil
+		}
+		if seen == nil {
+			seen = make(map[string]struct{})
 		}
 		seen[contractID] = struct{}{}
 		stateChanges = append(stateChanges, builder.Clone().WithAccount(contractID).WithCreator(deployerAddr).Build())

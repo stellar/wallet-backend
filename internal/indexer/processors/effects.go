@@ -110,19 +110,22 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
 	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
-	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 
 	// Extract effects from the operation using Stellar SDK
 	effectOutputs, err := Effects(opWrapper)
 	if err != nil {
-		return nil, fmt.Errorf("getting effects for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
+		return nil, fmt.Errorf("getting effects for tx: %s, opID: %d, err: %w", opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 	}
 
 	// Get operation changes to access old values when needed
 	changes, err := opWrapper.Changes()
 	if err != nil {
-		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", txHash, opWrapper.ID(), err)
+		return nil, fmt.Errorf("getting operation changes for tx: %s, opID: %d, err: %w", opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
+	}
+
+	if len(effectOutputs) == 0 {
+		return nil, nil
 	}
 
 	var stateChanges []types.StateChange
@@ -142,7 +145,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 				WithReason(signerEffectToReasonMap[effect.Type])
 			signerChanges, err := p.parseSigners(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				log.Warnf("processor: %s: failed to parse signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to parse signer effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, signerChanges...)
@@ -152,7 +155,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategorySignatureThreshold)
 			thresholdChanges, err := p.parseThresholds(changeBuilder, &effect, changes)
 			if err != nil {
-				log.Warnf("processor: %s: failed to parse threshold effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to parse threshold effects: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, thresholdChanges...)
@@ -166,7 +169,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 		case EffectAccountHomeDomainUpdated:
 			oldDomain, newDomain, err := p.parseHomeDomain(&effect, changes)
 			if err != nil {
-				log.Warnf("processor: %s: failed to parse home domain effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to parse home domain effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			reason, keyValueMap, changed := homeDomainChange(oldDomain, newDomain)
@@ -192,7 +195,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			// Build the asset contract ID from the trustline effect
 			_, _, assetContractID, err := p.buildAssetContractIDFromTrustlineEffect(&effect)
 			if err != nil {
-				log.Warnf("processor: %s: failed to build asset contract ID from trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to build asset contract ID from trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			changeBuilder = changeBuilder.WithToken(assetContractID)
@@ -203,7 +206,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			changeBuilder = changeBuilder.WithCategory(types.StateChangeCategoryTrustline)
 			trustlineChange, err := p.parseTrustline(changeBuilder, &effect, effectType, changes)
 			if err != nil {
-				log.Warnf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to parse trustline effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, trustlineChange)
@@ -213,7 +216,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 			if effectType == EffectTrustlineCreated {
 				authChanges, err := p.generateBalanceAuthorizationForNewTrustline(changeBuilder, &effect, changes)
 				if err != nil {
-					log.Warnf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+					log.Warnf("processor: %s: failed to generate balance authorization for new trustline: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 					continue
 				}
 				stateChanges = append(stateChanges, authChanges)
@@ -223,7 +226,7 @@ func (p *EffectsProcessor) ProcessOperation(_ context.Context, opWrapper *Transa
 		case EffectDataCreated, EffectDataRemoved, EffectDataUpdated:
 			keyValueMap, err := p.parseDataEntryValues(&effect, effectType, changes)
 			if err != nil {
-				log.Warnf("processor: %s: failed to parse data entry effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, txHash, opWrapper.ID(), err)
+				log.Warnf("processor: %s: failed to parse data entry effect: effectType: %s, address: %s, txHash: %s, opID: %d, err: %v", p.Name(), effect.TypeString, effect.Address, opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), err)
 				continue
 			}
 			stateChanges = append(stateChanges, changeBuilder.
