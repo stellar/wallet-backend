@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"time"
 
-	"github.com/guregu/null"
 	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -21,16 +19,11 @@ import (
 
 // EffectOutput is a representation of an operation that aligns with the BigQuery table history_effects
 type EffectOutput struct {
-	Address        string                 `json:"address"`
-	AddressMuxed   null.String            `json:"address_muxed,omitempty"`
-	OperationID    int64                  `json:"operation_id"`
-	Details        map[string]interface{} `json:"details"`
-	Type           int32                  `json:"type"`
-	TypeString     string                 `json:"type_string"`
-	LedgerClosed   time.Time              `json:"closed_at"`
-	LedgerSequence uint32                 `json:"ledger_sequence"`
-	EffectIndex    uint32                 `json:"index"`
-	EffectID       string                 `json:"id"`
+	Address     string                 `json:"address"`
+	OperationID int64                  `json:"operation_id"`
+	Details     map[string]interface{} `json:"details"`
+	Type        int32                  `json:"type"`
+	TypeString  string                 `json:"type_string"`
 }
 
 // EffectType is the numeric type for an effect
@@ -151,13 +144,6 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 		wrapper.addSignerSponsorshipEffects(change)
 	}
 
-	for i := range wrapper.effects {
-		wrapper.effects[i].LedgerClosed = operation.LedgerClosed
-		wrapper.effects[i].LedgerSequence = operation.LedgerSequence
-		wrapper.effects[i].EffectIndex = uint32(i)
-		wrapper.effects[i].EffectID = fmt.Sprintf("%d-%d", wrapper.effects[i].OperationID, wrapper.effects[i].EffectIndex)
-	}
-
 	return wrapper.effects, nil
 }
 
@@ -166,28 +152,23 @@ type effectsWrapper struct {
 	operation *TransactionOperationWrapper
 }
 
-func (e *effectsWrapper) add(address string, addressMuxed null.String, effectType EffectType, details map[string]interface{}) {
+func (e *effectsWrapper) add(address string, effectType EffectType, details map[string]interface{}) {
 	e.effects = append(e.effects, EffectOutput{
-		Address:      address,
-		AddressMuxed: addressMuxed,
-		OperationID:  e.operation.ID(),
-		TypeString:   EffectTypeNames[effectType],
-		Type:         int32(effectType),
-		Details:      details,
+		Address:     address,
+		OperationID: e.operation.ID(),
+		TypeString:  EffectTypeNames[effectType],
+		Type:        int32(effectType),
+		Details:     details,
 	})
 }
 
 func (e *effectsWrapper) addUnmuxed(address *xdr.AccountId, effectType EffectType, details map[string]interface{}) {
-	e.add(address.Address(), null.String{}, effectType, details)
+	e.add(address.Address(), effectType, details)
 }
 
 func (e *effectsWrapper) addMuxed(address *xdr.MuxedAccount, effectType EffectType, details map[string]interface{}) {
-	var addressMuxed null.String
-	if address.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		addressMuxed = null.StringFrom(address.Address())
-	}
 	accID := address.ToAccountId()
-	e.add(accID.Address(), addressMuxed, effectType, details)
+	e.add(accID.Address(), effectType, details)
 }
 
 var sponsoringEffectsTable = map[xdr.LedgerEntryType]struct {
@@ -218,8 +199,32 @@ var sponsoringEffectsTable = map[xdr.LedgerEntryType]struct {
 	// entries because we don't generate creation effects for them.
 }
 
+// accountHasSponsoredSigner reports whether any of the entry's signers carries a
+// sponsor. It reads the sponsoring IDs in place, where AccountEntry.SponsorPerSigner
+// builds a map, so an account with no sponsored signers costs nothing.
+func accountHasSponsoredSigner(entry *xdr.LedgerEntry) bool {
+	if entry == nil {
+		return false
+	}
+	account := entry.Data.Account
+	if account == nil || account.Ext.V1 == nil || account.Ext.V1.Ext.V2 == nil {
+		return false
+	}
+	for _, sponsoringID := range account.Ext.V1.Ext.V2.SignerSponsoringIDs {
+		if sponsoringID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *effectsWrapper) addSignerSponsorshipEffects(change ingest.Change) {
 	if change.Type != xdr.LedgerEntryTypeAccount {
+		return
+	}
+
+	// Neither side sponsors a signer, so no transition can exist.
+	if !accountHasSponsoredSigner(change.Pre) && !accountHasSponsoredSigner(change.Post) {
 		return
 	}
 
@@ -249,21 +254,22 @@ func (e *effectsWrapper) addSignerSponsorshipEffects(change ingest.Change) {
 	for _, signer := range all {
 		pre, foundPre := preSigners[signer]
 		post, foundPost := postSigners[signer]
-		details := map[string]interface{}{}
 
 		switch {
 		case !foundPre && !foundPost:
 			continue
 		case !foundPre && foundPost:
-			details["sponsor"] = post.Address()
-			details["signer"] = signer
 			srcAccount := change.Post.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipCreated, details)
+			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipCreated, map[string]interface{}{
+				"sponsor": post.Address(),
+				"signer":  signer,
+			})
 		case !foundPost && foundPre:
-			details["former_sponsor"] = pre.Address()
-			details["signer"] = signer
 			srcAccount := change.Pre.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipRemoved, details)
+			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipRemoved, map[string]interface{}{
+				"former_sponsor": pre.Address(),
+				"signer":         signer,
+			})
 		case foundPre && foundPost:
 			formerSponsor := pre.Address()
 			newSponsor := post.Address()
@@ -271,11 +277,12 @@ func (e *effectsWrapper) addSignerSponsorshipEffects(change ingest.Change) {
 				continue
 			}
 
-			details["former_sponsor"] = formerSponsor
-			details["new_sponsor"] = newSponsor
-			details["signer"] = signer
 			srcAccount := change.Post.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipUpdated, details)
+			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipUpdated, map[string]interface{}{
+				"former_sponsor": formerSponsor,
+				"new_sponsor":    newSponsor,
+				"signer":         signer,
+			})
 		}
 	}
 }
@@ -286,18 +293,24 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 		return nil
 	}
 
-	details := map[string]interface{}{}
-	var effectType EffectType
+	var (
+		effectType EffectType
+		details    map[string]interface{}
+	)
 
 	switch {
 	case (change.Pre == nil || change.Pre.SponsoringID() == nil) &&
 		(change.Post != nil && change.Post.SponsoringID() != nil):
 		effectType = effectsForEntryType.created
-		details["sponsor"] = (*change.Post.SponsoringID()).Address()
+		details = map[string]interface{}{
+			"sponsor": (*change.Post.SponsoringID()).Address(),
+		}
 	case (change.Pre != nil && change.Pre.SponsoringID() != nil) &&
 		(change.Post == nil || change.Post.SponsoringID() == nil):
 		effectType = effectsForEntryType.removed
-		details["former_sponsor"] = (*change.Pre.SponsoringID()).Address()
+		details = map[string]interface{}{
+			"former_sponsor": (*change.Pre.SponsoringID()).Address(),
+		}
 	case (change.Pre != nil && change.Pre.SponsoringID() != nil) &&
 		(change.Post != nil && change.Post.SponsoringID() != nil):
 		preSponsor := (*change.Pre.SponsoringID()).Address()
@@ -306,8 +319,10 @@ func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) 
 			return nil
 		}
 		effectType = effectsForEntryType.updated
-		details["new_sponsor"] = postSponsor
-		details["former_sponsor"] = preSponsor
+		details = map[string]interface{}{
+			"new_sponsor":    postSponsor,
+			"former_sponsor": preSponsor,
+		}
 	default:
 		return nil
 	}

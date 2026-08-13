@@ -55,6 +55,10 @@ func (p *SACEventsProcessor) StateChangeSubBase() int64 {
 
 // ProcessOperation processes contract events and converts them into state changes.
 func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {
+	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
+		return nil, processors.ErrInvalidOpType
+	}
+
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -63,13 +67,8 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 		}
 	}()
 
-	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return nil, processors.ErrInvalidOpType
-	}
-
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
 	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
-	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 
 	tx := opWrapper.Transaction
@@ -115,26 +114,26 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 			asset, err := p.extractAsset(topics, tx.UnsafeMeta.V)
 			if err != nil {
 				log.Debugf("processor: %s: extracting asset from tx meta: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 
 			isSAC, err := p.isSACContract(asset, contractID)
 			if err != nil {
 				log.Debugf("processor: %s: validating SAC contract: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 			if !isSAC {
 				log.Debugf("processor: %s: skipping event due to non-SAC contract: txHash=%s opID=%d contractId=%s",
-					p.Name(), txHash, opWrapper.ID(), contractID)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID)
 				continue
 			}
 
 			accountToAuthorize, err := p.extractAccount(topics, tx.UnsafeMeta.V)
 			if err != nil {
 				log.Debugf("processor: %s: extracting account from tx meta: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 
@@ -142,7 +141,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 			isAuthorized, ok := value.GetB()
 			if !ok {
 				log.Debugf("processor: %s: extracting authorization value from event data: txHash=%s opID=%d contractId=%s",
-					p.Name(), txHash, opWrapper.ID(), contractID)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID)
 				continue
 			}
 
@@ -171,7 +170,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 					// We dont want to log errors for no contract data change found. We can simply skip processing.
 					if !errors.Is(err, errNoContractDataChangeFound) {
 						log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
-							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+							p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, accountToAuthorize, err)
 					}
 					continue
 				}
@@ -182,7 +181,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 					// We dont want to log errors for no trustline change found. We can simply skip processing.
 					if !errors.Is(err, errNoTrustlineChangeFound) {
 						log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
-							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+							p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, accountToAuthorize, err)
 					}
 					continue
 				}
