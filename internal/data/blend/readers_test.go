@@ -1,5 +1,5 @@
 // Unit tests for the Blend v2 read-side accessors (GetByAccount/GetByPools/
-// GetByIDs/GetAll) used by the GraphQL resolvers.
+// GetByIDs/GetAll/GetPage) used by the GraphQL resolvers.
 // These tests exercise real SQL and require a PostgreSQL test database.
 // Uses an external test package to avoid an import cycle with internal/data.
 package blend_test
@@ -7,6 +7,7 @@ package blend_test
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -207,6 +208,76 @@ func TestPoolModel_GetAll(t *testing.T) {
 			assert.True(t, p.InRewardZone)
 		}
 	}
+}
+
+func TestPoolModel_GetPage(t *testing.T) {
+	ctx, pool, m, cleanup := newPoolsFixture(t)
+	defer cleanup()
+
+	addrs := []string{
+		keypair.MustRandom().Address(),
+		keypair.MustRandom().Address(),
+		keypair.MustRandom().Address(),
+	}
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
+			{PoolContractID: types.AddressBytea(addrs[0]), Name: strPtr("A"), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(addrs[1]), Name: strPtr("B"), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(addrs[2]), Name: strPtr("C"), LastModifiedLedger: 1},
+		}))
+	})
+
+	// Pages are keyed on the raw BYTEA column, so expectations are derived by
+	// sorting the seeded addresses the way Postgres orders them.
+	byBytes := append([]string(nil), addrs...)
+	slices.SortFunc(byBytes, func(a, b string) int {
+		return bytes.Compare(addrBytes(t, types.AddressBytea(a)), addrBytes(t, types.AddressBytea(b)))
+	})
+	low, mid, high := byBytes[0], byBytes[1], byBytes[2]
+
+	gotIDs := func(pools []blend.Pool) []types.AddressBytea {
+		ids := make([]types.AddressBytea, len(pools))
+		for i, p := range pools {
+			ids[i] = p.PoolContractID
+		}
+		return ids
+	}
+
+	t.Run("first page ASC", func(t *testing.T) {
+		got, err := m.GetPage(ctx, 2, nil, blend.SortASC)
+		require.NoError(t, err)
+		assert.Equal(t, []types.AddressBytea{types.AddressBytea(low), types.AddressBytea(mid)}, gotIDs(got))
+	})
+
+	t.Run("cursor page ASC", func(t *testing.T) {
+		got, err := m.GetPage(ctx, 2, &mid, blend.SortASC)
+		require.NoError(t, err)
+		assert.Equal(t, []types.AddressBytea{types.AddressBytea(high)}, gotIDs(got),
+			"cursor is an exclusive bound, so the cursor row itself is not repeated")
+	})
+
+	t.Run("DESC with cursor returns ASC rows", func(t *testing.T) {
+		got, err := m.GetPage(ctx, 2, nil, blend.SortDESC)
+		require.NoError(t, err)
+		assert.Equal(t, []types.AddressBytea{types.AddressBytea(mid), types.AddressBytea(high)}, gotIDs(got),
+			"DESC selects the two highest pools but hands them back in ascending order")
+
+		got, err = m.GetPage(ctx, 2, &mid, blend.SortDESC)
+		require.NoError(t, err)
+		assert.Equal(t, []types.AddressBytea{types.AddressBytea(low)}, gotIDs(got),
+			"DESC pages backwards from the cursor")
+	})
+
+	t.Run("limit zero errors", func(t *testing.T) {
+		_, err := m.GetPage(ctx, 0, nil, blend.SortASC)
+		require.ErrorContains(t, err, "limit must be positive")
+	})
+
+	t.Run("malformed cursor errors", func(t *testing.T) {
+		bad := "not-an-address"
+		_, err := m.GetPage(ctx, 2, &bad, blend.SortASC)
+		require.Error(t, err)
+	})
 }
 
 func TestReserveModel_GetByPools(t *testing.T) {

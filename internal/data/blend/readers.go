@@ -17,6 +17,16 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+// SortOrder is the local alias of the repo-wide data.SortOrder so this package
+// does not have to import its parent (which would create a cycle). Values are the
+// same string literals ("ASC"/"DESC").
+type SortOrder string
+
+const (
+	SortASC  SortOrder = "ASC"
+	SortDESC SortOrder = "DESC"
+)
+
 // addressesToBytes converts a slice of strkey addresses to their BYTEA
 // representations, preserving order. Used by list-scoped readers that filter
 // with `= ANY($1::bytea[])`.
@@ -216,7 +226,7 @@ func (m *BackstopPositionModel) GetByAccount(ctx context.Context, account string
 }
 
 // scanPools scans every row of rows into a Pool slice, matching blend_pools'
-// column order. Shared by GetByIDs and GetAll.
+// column order. Shared by GetByIDs, GetAll and GetPage.
 func scanPools(rows pgx.Rows) ([]Pool, error) {
 	pools := []Pool{}
 	for rows.Next() {
@@ -298,6 +308,74 @@ func (m *PoolModel) GetAll(ctx context.Context) ([]Pool, error) {
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetAll", poolsTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetAll", poolsTable).Inc()
+	return result, nil
+}
+
+// GetPage returns one keyset page of blend_pools rows, paginated by
+// pool_contract_id. cursorAddress is a C... strkey naming the last pool seen on
+// the previous page and is an exclusive bound: rows after it for SortASC, rows
+// before it for SortDESC. Pass nil for the first page.
+//
+// Rows are always returned in ascending pool_contract_id order regardless of
+// sortOrder — the DESC query is wrapped to re-sort ascending, the same
+// convention TransactionModel.BatchGetByAccountAddress uses — so the Relay
+// connection helper's sentinel trimming works for both directions.
+func (m *PoolModel) GetPage(ctx context.Context, limit int32, cursorAddress *string, sortOrder SortOrder) ([]Pool, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("limit must be positive, got %d", limit)
+	}
+
+	// Built as a string rather than a const: the cursor predicate is conditional.
+	query := `
+		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
+			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
+		FROM blend_pools`
+	args := []interface{}{}
+	argIndex := 1
+
+	if cursorAddress != nil {
+		cursorBytes, err := addressToBytes(*cursorAddress)
+		if err != nil {
+			return nil, fmt.Errorf("converting cursor address for pool page lookup: %w", err)
+		}
+		op := ">"
+		if sortOrder == SortDESC {
+			op = "<"
+		}
+		query += fmt.Sprintf(" WHERE pool_contract_id %s $%d", op, argIndex)
+		args = append(args, cursorBytes)
+		argIndex++
+	}
+
+	if sortOrder == SortDESC {
+		query += " ORDER BY pool_contract_id DESC"
+	} else {
+		query += " ORDER BY pool_contract_id ASC"
+	}
+	query += fmt.Sprintf(" LIMIT $%d", argIndex)
+	args = append(args, limit)
+
+	if sortOrder == SortDESC {
+		query = fmt.Sprintf(`SELECT * FROM (%s) p ORDER BY p.pool_contract_id ASC`, query)
+	}
+
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, query, args...)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetPage", poolsTable, utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying blend pools page: %w", err)
+	}
+	defer rows.Close()
+
+	result, err := scanPools(rows)
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetPage", poolsTable, utils.GetDBErrorType(err)).Inc()
+		return nil, err
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetPage", poolsTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetPage", poolsTable).Inc()
 	return result, nil
 }
 
