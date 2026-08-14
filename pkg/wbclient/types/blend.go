@@ -1,5 +1,10 @@
 package types
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // BlendPoolStatus is a pool's operational status. The on-chain integer status
 // (0-6) is surfaced by the GraphQL API as one of these enum names; see the
 // BlendPoolStatus enum in the schema for the numeric encoding.
@@ -77,6 +82,89 @@ type BlendReserve struct {
 	CFactor            *int32   `json:"cFactor,omitempty"`
 	LFactor            *int32   `json:"lFactor,omitempty"`
 	PriceUsd           *float64 `json:"priceUsd,omitempty"`
+}
+
+// BlendPoolEdge represents an edge in the Blend pool connection.
+type BlendPoolEdge struct {
+	Node   *BlendPool `json:"node,omitempty"`
+	Cursor string     `json:"cursor"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for BlendPoolEdge.
+// The GraphQL schema declares the edge as `node: BlendPool!` (non-null),
+// so a null or missing node is a malformed server response and is rejected
+// rather than left as e.Node == nil.
+func (e *BlendPoolEdge) UnmarshalJSON(data []byte) error {
+	type tempEdge struct {
+		Node   json.RawMessage `json:"node"`
+		Cursor string          `json:"cursor"`
+	}
+
+	var temp tempEdge
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return fmt.Errorf("unmarshaling blend pool edge: %w", err)
+	}
+
+	e.Cursor = temp.Cursor
+
+	if len(temp.Node) == 0 || string(temp.Node) == "null" {
+		return fmt.Errorf("blend pool edge missing required node (cursor=%q): the GraphQL schema declares BlendPool as non-null", temp.Cursor)
+	}
+
+	var node BlendPool
+	if err := json.Unmarshal(temp.Node, &node); err != nil {
+		return fmt.Errorf("decoding blend pool edge node: %w", err)
+	}
+	e.Node = &node
+	return nil
+}
+
+// BlendPoolConnection represents a paginated page of the Blend v2 pool catalog.
+type BlendPoolConnection struct {
+	Edges    []*BlendPoolEdge `json:"edges,omitempty"`
+	PageInfo *PageInfo        `json:"pageInfo"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for BlendPoolConnection
+// and enforces the schema's non-null guarantees. The GraphQL schema declares
+// edges as [BlendPoolEdge!]! and pageInfo as PageInfo!, so each of the
+// following is a server bug and is rejected here:
+//   - a missing or null edges field on the connection
+//   - a null entry within the edges array
+//   - a missing or null pageInfo field on the connection
+//
+// Null nodes inside an edge object are caught separately by
+// BlendPoolEdge.UnmarshalJSON.
+func (c *BlendPoolConnection) UnmarshalJSON(data []byte) error {
+	edges, pageInfo, err := unmarshalConnection[BlendPoolEdge](data, "blend pool connection", "BlendPoolEdge")
+	if err != nil {
+		return err
+	}
+	c.Edges = edges
+	c.PageInfo = pageInfo
+	return nil
+}
+
+// Pools returns the connection's pool nodes as a flat slice. Returns nil if the
+// receiver is nil or has no edges. Combined with the strict UnmarshalJSON on
+// BlendPoolEdge and BlendPoolConnection, callers using this helper can trust
+// that every returned BlendPool is non-nil.
+//
+// The defensive nil-edge skip protects against connections constructed directly
+// in Go code (not via JSON decode); JSON-derived connections never reach this
+// branch because UnmarshalJSON rejects null edges.
+func (c *BlendPoolConnection) Pools() []BlendPool {
+	if c == nil || len(c.Edges) == 0 {
+		return nil
+	}
+	pools := make([]BlendPool, 0, len(c.Edges))
+	for _, edge := range c.Edges {
+		if edge == nil || edge.Node == nil {
+			continue
+		}
+		pools = append(pools, *edge.Node)
+	}
+	return pools
 }
 
 // BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has

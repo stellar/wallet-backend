@@ -20,11 +20,31 @@ import (
 // lands: a change that pushes a shipped query past the deployment default fails this test
 // instead of failing a client at runtime.
 
-// maxRequestedPageSize is the largest page the resolvers accept on any connection
+// maxRequestedPageSize is the largest page the account- and transaction-scoped resolvers accept
 // (maxAccountPageLimit and maxBalancePageLimit in internal/serve/graphql/resolvers, both 100).
 // Every paginated query the SDK builds takes its page size as a $first variable, so binding it
 // here prices each query at the worst case a client can ask for.
 const maxRequestedPageSize = 100
+
+// maxRequestedBlendPoolPageSize is the largest blendPools page the resolver accepts
+// (maxBlendPoolPageLimit in internal/serve/graphql/resolvers). It is half maxRequestedPageSize
+// because every pool node fans out ×30 reserves, so pricing blendPools at 100 would budget for a
+// page the resolver rejects outright.
+const maxRequestedBlendPoolPageSize = 50
+
+// requestedPageSizes maps each SDK query to the page size it is priced at: the largest page its
+// own resolver will serve. Queries absent from the map are priced at maxRequestedPageSize.
+var requestedPageSizes = map[string]int{
+	"BlendPools": maxRequestedBlendPoolPageSize,
+}
+
+// requestedPageSize reports the page size queryName is priced at.
+func requestedPageSize(queryName string) int {
+	if size, ok := requestedPageSizes[queryName]; ok {
+		return size
+	}
+	return maxRequestedPageSize
+}
 
 // substantialQueryFloors pins a lower bound on the query shapes the complexity limit is sized
 // around. Without a floor the upper-bound assertion would also pass on a near-zero measurement,
@@ -65,23 +85,25 @@ func defaultComplexityLimit(t *testing.T) int {
 // servable by a wallet-backend running the built-in GRAPHQL_COMPLEXITY_LIMIT, at the largest page
 // a resolver will accept.
 //
-// Measured complexities at first:100 for the queries that dominate the budget (gqlgen sums
-// mutually exclusive inline fragments, so the exhaustive state-change and balance selections
-// over-count relative to what any one row resolves): BlendPools=26,150,
-// AccountTransactionsWithOpsAndStateChanges=10,101, Account/Transaction/OperationStateChanges=8,401,
-// AccountBlendPositions=7,595, AccountBalances=3,901.
+// Measured complexities for the queries that dominate the budget (gqlgen sums mutually exclusive
+// inline fragments, so the exhaustive state-change and balance selections over-count relative to
+// what any one row resolves): BlendPools=26,550 at first:50 — 50 pages of a 531-cost connection
+// selection, itself the 523-cost pool node plus its cursor, the edges wrapper, and the 5-cost
+// pageInfo block. At first:100: AccountTransactionsWithOpsAndStateChanges=10,101,
+// Account/Transaction/OperationStateChanges=8,401, AccountBlendPositions=7,595,
+// AccountBalances=3,901.
 func TestSDKQueriesFitDefaultComplexityLimit(t *testing.T) {
 	es := newComplexityCalculationSchema(t)
 	limit := defaultComplexityLimit(t)
-	vars := map[string]any{"first": maxRequestedPageSize}
 
 	for name, query := range wbclient.Queries() {
 		t.Run(name, func(t *testing.T) {
 			doc, gerr := gqlparser.LoadQueryWithRules(es.Schema(), query, nil)
 			require.Empty(t, gerr)
 
-			c := complexity.Calculate(context.Background(), es, doc.Operations[0], vars)
-			t.Logf("%s: computed complexity at first:%d = %d", name, maxRequestedPageSize, c)
+			pageSize := requestedPageSize(name)
+			c := complexity.Calculate(context.Background(), es, doc.Operations[0], map[string]any{"first": pageSize})
+			t.Logf("%s: computed complexity at first:%d = %d", name, pageSize, c)
 
 			require.Positive(t, c, "a zero complexity means LoadQueryWithRules silently dropped the selection set")
 			if floor, ok := substantialQueryFloors[name]; ok {

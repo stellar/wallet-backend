@@ -15,9 +15,9 @@ func TestGetBlendPools(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("decodes pools with nested reserves", func(t *testing.T) {
-		body := `{"blendPools":[{"address":"CPOOL1","name":"Pool One","status":"ACTIVE","reserves":[
+		body := `{"blendPools":{"edges":[{"node":{"address":"CPOOL1","name":"Pool One","status":"ACTIVE","reserves":[
 			{"assetContractId":"CASSET1","tokenSymbol":"USDC","enabled":true,"suppliedTokens":"100","borrowedTokens":"10"}
-		]}]}`
+		]},"cursor":"c1"}],"pageInfo":{"startCursor":"c1","endCursor":"c1","hasNextPage":false,"hasPreviousPage":false}}}`
 		srv := graphqlServer(t, body)
 		defer srv.Close()
 
@@ -32,14 +32,15 @@ func TestGetBlendPools(t *testing.T) {
 
 	t.Run("sends well-formed request", func(t *testing.T) {
 		type gqlReq struct {
-			Query string `json:"query"`
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
 		}
 		var received gqlReq
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			err := json.NewDecoder(r.Body).Decode(&received)
 			require.NoError(t, err)
 			w.Header().Set("Content-Type", "application/json")
-			_, err = w.Write([]byte(`{"data":{"blendPools":[]}}`))
+			_, err = w.Write([]byte(`{"data":{"blendPools":{"edges":[],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`))
 			require.NoError(t, err)
 		}))
 		defer srv.Close()
@@ -48,7 +49,62 @@ func TestGetBlendPools(t *testing.T) {
 		pools, err := c.GetBlendPools(ctx)
 		require.NoError(t, err)
 		assert.Empty(t, pools)
-		assert.Contains(t, received.Query, "blendPools")
+		assert.Contains(t, received.Query, "blendPools(first: $first, after: $after)")
+		assert.InDelta(t, float64(blendPoolPageSize), received.Variables["first"], 0)
+		assert.NotContains(t, received.Variables, "after")
+	})
+
+	t.Run("walks every page and forwards the end cursor", func(t *testing.T) {
+		type gqlReq struct {
+			Variables map[string]any `json:"variables"`
+		}
+		var afters []any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var received gqlReq
+			err := json.NewDecoder(r.Body).Decode(&received)
+			require.NoError(t, err)
+			afters = append(afters, received.Variables["after"])
+
+			body := `{"data":{"blendPools":{"edges":[{"node":{"address":"CPOOL2","reserves":[]},"cursor":"c2"}],` +
+				`"pageInfo":{"endCursor":"c2","hasNextPage":false,"hasPreviousPage":true}}}}`
+			if received.Variables["after"] == nil {
+				body = `{"data":{"blendPools":{"edges":[{"node":{"address":"CPOOL1","reserves":[]},"cursor":"c1"}],` +
+					`"pageInfo":{"endCursor":"c1","hasNextPage":true,"hasPreviousPage":false}}}}`
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write([]byte(body))
+			require.NoError(t, err)
+		}))
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		pools, err := c.GetBlendPools(ctx)
+		require.NoError(t, err)
+		require.Len(t, pools, 2)
+		assert.Equal(t, "CPOOL1", pools[0].Address)
+		assert.Equal(t, "CPOOL2", pools[1].Address)
+		assert.Equal(t, []any{nil, "c1"}, afters)
+	})
+
+	t.Run("rejects HasNextPage with no end cursor", func(t *testing.T) {
+		srv := graphqlServer(t, `{"blendPools":{"edges":[],"pageInfo":{"hasNextPage":true,"hasPreviousPage":false}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		pools, err := c.GetBlendPools(ctx)
+		assert.Nil(t, pools)
+		require.ErrorContains(t, err, "did not return an EndCursor")
+	})
+
+	t.Run("rejects a stalled cursor rather than looping forever", func(t *testing.T) {
+		srv := graphqlServer(t, `{"blendPools":{"edges":[{"node":{"address":"CPOOL1","reserves":[]},"cursor":"c1"}],`+
+			`"pageInfo":{"endCursor":"c1","hasNextPage":true,"hasPreviousPage":false}}}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		pools, err := c.GetBlendPools(ctx)
+		assert.Nil(t, pools)
+		require.ErrorContains(t, err, "pagination is not advancing")
 	})
 }
 

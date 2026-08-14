@@ -18,6 +18,11 @@ import (
 	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
+// blendPoolPageSize is the page size GetBlendPools requests. It matches the
+// largest page the blendPools resolver accepts (maxBlendPoolPageLimit), so the
+// catalog is walked in as few round trips as the server allows.
+const blendPoolPageSize = 50
+
 // ErrAccountNotFound is returned by account-scoped queries when the
 // GraphQL server reports the account does not exist (accountByAddress
 // returned null). Distinct from schema/pagination failures so callers
@@ -153,8 +158,9 @@ type AccountTransactionsWithOpsAndStateChangesData struct {
 	} `json:"accountByAddress"`
 }
 
+// BlendPoolsData is the result shape of the blendPools query.
 type BlendPoolsData struct {
-	BlendPools []types.BlendPool `json:"blendPools"`
+	BlendPools *types.BlendPoolConnection `json:"blendPools"`
 }
 
 type BlendPoolData struct {
@@ -644,14 +650,56 @@ func (c *Client) GetAllAccountBalances(ctx context.Context, address string) ([]t
 	return balances, nil
 }
 
-// GetBlendPools returns the pool-wide catalog view of every Blend v2 pool.
+// GetBlendPools returns the pool-wide catalog view of every Blend v2 pool, walking
+// the cursor sequence in pages of blendPoolPageSize so callers get a flat list
+// without managing pagination. Returns a non-nil empty slice when the server knows
+// no pools.
+//
+// Returns an error if the server's pagination response is internally inconsistent —
+// HasNextPage=true with a missing EndCursor, or the same EndCursor returned on two
+// consecutive pages (which would otherwise loop forever). Both indicate a
+// server-side pagination bug.
 func (c *Client) GetBlendPools(ctx context.Context) ([]types.BlendPool, error) {
-	data, err := executeGraphQL[BlendPoolsData](c, ctx, buildBlendPoolsQuery(), nil)
-	if err != nil {
-		return nil, err
+	first := int32(blendPoolPageSize)
+
+	var after *string
+	pools := make([]types.BlendPool, 0)
+
+	for {
+		variables := map[string]any{"first": first}
+		if after != nil {
+			variables["after"] = *after
+		}
+
+		data, err := executeGraphQL[BlendPoolsData](c, ctx, buildBlendPoolsQuery(), variables)
+		if err != nil {
+			return nil, fmt.Errorf("getting blend pools page: %w", err)
+		}
+		if data.BlendPools == nil {
+			return nil, fmt.Errorf("getting blend pools page: missing required blendPools connection")
+		}
+		if data.BlendPools.PageInfo == nil {
+			return nil, fmt.Errorf("getting blend pools page: missing required pageInfo")
+		}
+
+		pools = append(pools, data.BlendPools.Pools()...)
+
+		if !data.BlendPools.PageInfo.HasNextPage {
+			break
+		}
+
+		if data.BlendPools.PageInfo.EndCursor == nil {
+			return nil, fmt.Errorf("paginating blend pools: server reported HasNextPage=true but did not return an EndCursor")
+		}
+
+		if after != nil && *after == *data.BlendPools.PageInfo.EndCursor {
+			return nil, fmt.Errorf("paginating blend pools: server returned the same EndCursor (%q) on two consecutive pages; pagination is not advancing", *data.BlendPools.PageInfo.EndCursor)
+		}
+
+		after = data.BlendPools.PageInfo.EndCursor
 	}
 
-	return data.BlendPools, nil
+	return pools, nil
 }
 
 // GetBlendPool returns one Blend v2 pool's catalog view, or nil if the pool is unknown to the server.

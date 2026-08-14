@@ -194,7 +194,7 @@ func BlendBackstopLPContractIDOption(configKey *string) *config.ConfigOption {
 func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-complexity-limit",
-		Usage:       "The maximum complexity limit for GraphQL queries, computed from the selected fields and the pagination arguments. The default admits the heaviest queries pkg/wbclient ships: the full-detail account-history query costs ~10,100 at first:100 (gqlgen sums mutually exclusive inline fragments, so every BaseStateChange implementer is charged), and the blendPools catalog query ~26,150. This limit is the primary guard against resource exhaustion via expensive queries, so a deployment that does not serve Blend should lower it.",
+		Usage:       "The maximum complexity limit for GraphQL queries, computed from the selected fields and the pagination arguments. The default admits the heaviest queries pkg/wbclient ships: the full-detail account-history query costs ~10,100 at first:100 (gqlgen sums mutually exclusive inline fragments, so every BaseStateChange implementer is charged), and the blendPools catalog query ~26,550 at its own first:50 page cap. This limit is the primary guard against resource exhaustion via expensive queries, so a deployment that does not serve Blend should lower it.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 30_000,

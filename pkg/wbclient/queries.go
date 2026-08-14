@@ -570,12 +570,23 @@ func buildAccountBalancesQuery() string {
 	`, balanceFragments)
 }
 
-// buildBlendPoolsQuery builds the GraphQL query for fetching every Blend v2 pool's catalog view.
+// buildBlendPoolsQuery builds the GraphQL query for fetching a page of the Blend v2 pool catalog.
 func buildBlendPoolsQuery() string {
 	return fmt.Sprintf(`
-		query BlendPools {
-			blendPools {
-				%s
+		query BlendPools($first: Int, $after: String) {
+			blendPools(first: $first, after: $after) {
+				edges {
+					node {
+						%s
+					}
+					cursor
+				}
+				pageInfo {
+					startCursor
+					endCursor
+					hasNextPage
+					hasPreviousPage
+				}
 			}
 		}
 	`, blendPoolFields)
