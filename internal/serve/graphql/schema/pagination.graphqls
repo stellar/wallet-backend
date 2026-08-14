@@ -54,6 +54,18 @@ type PageInfo {
     hasPreviousPage: Boolean!
 }
 
+"""Relay-style page of the Blend v2 pool catalog."""
+type BlendPoolConnection {
+    edges: [BlendPoolEdge!]!
+    pageInfo: PageInfo!
+}
+
+"""One Blend v2 pool in a page, with its pagination cursor."""
+type BlendPoolEdge {
+    node: BlendPool!
+    cursor: String!
+}
+
 """Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
   edges:    [AccountTransactionEdge!]!

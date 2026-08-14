@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"bytes"
+	"encoding/base64"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,7 +15,28 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
+
+// poolNodes unwraps a blendPools connection into its nodes, so the catalog
+// assertions below read against a plain slice regardless of the Relay
+// envelope the resolver returns.
+func poolNodes(conn *graphql1.BlendPoolConnection) []*graphql1.BlendPool {
+	nodes := make([]*graphql1.BlendPool, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		nodes[i] = edge.Node
+	}
+	return nodes
+}
+
+// mustDecodeCursor base64-decodes an opaque blendPools cursor back into the
+// pool contract address it wraps.
+func mustDecodeCursor(t *testing.T, cursor string) string {
+	t.Helper()
+	decoded, err := base64.StdEncoding.DecodeString(cursor)
+	require.NoError(t, err)
+	return string(decoded)
+}
 
 // TestQueryResolver_BlendPools is a hand-computed vector exercising the
 // full Query.blendPools/blendPool assembly across two independent pools:
@@ -86,7 +108,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 	cometAddr := randomContractAddress(t)
 	blndAddr := randomContractAddress(t)
 
-	// blendPools' deterministic order follows Pools.GetAll's ORDER BY
+	// blendPools' deterministic order follows Pools.GetPage's ORDER BY
 	// pool_contract_id (bytea order), not string/address order — compute
 	// which of poolA/poolB sorts first so the ordering assertions below
 	// don't depend on the random addresses' incidental string order.
@@ -186,13 +208,105 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2, $3)`, assetA1, assetA2, assetB1)
 	})
 
-	got, err := resolver.BlendPools(testCtx)
+	conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 	require.NoError(t, err)
+	got := poolNodes(conn)
 	require.Len(t, got, 2)
 
 	t.Run("deterministic pool ordering", func(t *testing.T) {
 		assert.Equal(t, first, got[0].Address)
 		assert.Equal(t, second, got[1].Address)
+	})
+
+	t.Run("first:1 returns the first pool with hasNextPage", func(t *testing.T) {
+		page, err := resolver.BlendPools(testCtx, utils.PointOf(int32(1)), nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, page.Edges, 1)
+		assert.Equal(t, first, page.Edges[0].Node.Address)
+		assert.True(t, page.PageInfo.HasNextPage)
+		assert.False(t, page.PageInfo.HasPreviousPage)
+		require.NotNil(t, page.PageInfo.EndCursor)
+		assert.Equal(t, first, mustDecodeCursor(t, *page.PageInfo.EndCursor))
+	})
+
+	t.Run("first:1 after endCursor returns the second pool", func(t *testing.T) {
+		page1, err := resolver.BlendPools(testCtx, utils.PointOf(int32(1)), nil, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, page1.PageInfo.EndCursor)
+
+		page2, err := resolver.BlendPools(testCtx, utils.PointOf(int32(1)), page1.PageInfo.EndCursor, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, page2.Edges, 1)
+		assert.Equal(t, second, page2.Edges[0].Node.Address)
+		assert.False(t, page2.PageInfo.HasNextPage)
+		assert.True(t, page2.PageInfo.HasPreviousPage)
+	})
+
+	t.Run("last:1 returns the last pool", func(t *testing.T) {
+		page, err := resolver.BlendPools(testCtx, nil, nil, utils.PointOf(int32(1)), nil)
+		require.NoError(t, err)
+		require.Len(t, page.Edges, 1)
+		assert.Equal(t, second, page.Edges[0].Node.Address)
+		assert.True(t, page.PageInfo.HasPreviousPage)
+		assert.False(t, page.PageInfo.HasNextPage)
+	})
+
+	t.Run("last:1 before startCursor returns the first pool", func(t *testing.T) {
+		lastPage, err := resolver.BlendPools(testCtx, nil, nil, utils.PointOf(int32(1)), nil)
+		require.NoError(t, err)
+		require.NotNil(t, lastPage.PageInfo.StartCursor)
+
+		// Backward pages come back ascending too, so walking backwards from
+		// the last pool must land on `first`, not re-emit `second`.
+		page, err := resolver.BlendPools(testCtx, nil, nil, utils.PointOf(int32(1)), lastPage.PageInfo.StartCursor)
+		require.NoError(t, err)
+		require.Len(t, page.Edges, 1)
+		assert.Equal(t, first, page.Edges[0].Node.Address)
+	})
+
+	t.Run("first over the cap is rejected", func(t *testing.T) {
+		page, err := resolver.BlendPools(testCtx, utils.PointOf(maxBlendPoolPageLimit+1), nil, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, page)
+		assert.Contains(t, err.Error(), "less than or equal to 50")
+
+		var gqlErr *gqlerror.Error
+		require.ErrorAs(t, err, &gqlErr)
+		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
+	})
+
+	// The shared parser only reads `after` alongside a `first` (and `before`
+	// alongside a `last`), so both cursor-rejection cases pass a page size to
+	// reach cursor validation at all.
+	t.Run("malformed base64 cursor is rejected", func(t *testing.T) {
+		page, err := resolver.BlendPools(testCtx, utils.PointOf(int32(1)), utils.PointOf("!!!not-base64"), nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, page)
+
+		var gqlErr *gqlerror.Error
+		require.ErrorAs(t, err, &gqlErr)
+		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
+	})
+
+	t.Run("well-formed base64 of a non-address is rejected", func(t *testing.T) {
+		cursor := base64.StdEncoding.EncodeToString([]byte("not-an-address"))
+		page, err := resolver.BlendPools(testCtx, utils.PointOf(int32(1)), &cursor, nil, nil)
+		require.Error(t, err)
+		assert.Nil(t, page)
+		assert.Contains(t, err.Error(), ErrMsgInvalidPoolCursor)
+
+		var gqlErr *gqlerror.Error
+		require.ErrorAs(t, err, &gqlErr)
+		assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
+	})
+
+	t.Run("edge cursor round-trips to the node address", func(t *testing.T) {
+		page, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, page.Edges, 2)
+		for _, edge := range page.Edges {
+			assert.Equal(t, edge.Node.Address, mustDecodeCursor(t, edge.Cursor))
+		}
 	})
 
 	poolByAddr := map[string]*graphql1.BlendPool{}
@@ -357,8 +471,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 				types.AddressBytea(oracleA), types.AddressBytea(assetA2))
 		})
 
-		got, err := resolver.BlendPools(testCtx)
+		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 
 		var alphaAfter, betaAfter *graphql1.BlendPool
@@ -410,8 +525,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 				types.AddressBytea(poolA))
 		})
 
-		got, err := resolver.BlendPools(testCtx)
+		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 
 		var alphaAfter, betaAfter *graphql1.BlendPool
@@ -458,8 +574,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 				types.AddressBytea(oracleA), types.AddressBytea(assetA2))
 		})
 
-		got, err := resolver.BlendPools(testCtx)
+		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 
 		var alphaAfter *graphql1.BlendPool
@@ -505,8 +622,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 				VALUES ($1, '10000000', '50000000', '0', 100)`, types.AddressBytea(poolA))
 		})
 
-		got, err := resolver.BlendPools(testCtx)
+		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 		byAddr := map[string]*graphql1.BlendPool{}
 		for _, p := range got {
@@ -525,8 +643,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 				WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))
 		})
 
-		got, err := resolver.BlendPools(testCtx)
+		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 		for _, p := range got {
 			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil once the LP price is stale", p.Address)
@@ -539,8 +658,9 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		// pool's backstopUsd is null — even though the Comet rows are present
 		// and fresh. This exercises the cmd→resolver plumbing end-to-end.
 		unpinned := &queryResolver{&Resolver{models: models}}
-		got, err := unpinned.BlendPools(testCtx)
+		conn, err := unpinned.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
+		got := poolNodes(conn)
 		require.Len(t, got, 2)
 		for _, p := range got {
 			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil when the backstop LP pin is unset", p.Address)
@@ -590,7 +710,13 @@ func TestQueryResolver_BlendPools_Empty(t *testing.T) {
 	}
 	resolver := &queryResolver{&Resolver{models: models}}
 
-	got, err := resolver.BlendPools(testCtx)
+	conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 	require.NoError(t, err)
-	assert.NotNil(t, got)
+	require.NotNil(t, conn)
+	assert.NotNil(t, poolNodes(conn))
+	require.NotNil(t, conn.PageInfo)
+	assert.False(t, conn.PageInfo.HasNextPage)
+	assert.False(t, conn.PageInfo.HasPreviousPage)
+	assert.Nil(t, conn.PageInfo.StartCursor)
+	assert.Nil(t, conn.PageInfo.EndCursor)
 }

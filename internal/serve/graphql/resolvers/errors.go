@@ -14,4 +14,7 @@ const (
 
 	// Blend pool address errors
 	ErrMsgInvalidPoolAddress = "invalid address format: must be a valid Stellar contract (C...) address"
+
+	// Blend pool pagination errors
+	ErrMsgInvalidPoolCursor = "invalid cursor: must be a cursor previously returned by blendPools"
 )

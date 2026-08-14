@@ -281,7 +281,7 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 // buildBlendPoolCatalog batch-fetches every reserve/reserve-emission/
 // backstop-pool/oracle-price/token-metadata row the given pools touch and
 // assembles each into a graphql1.BlendPool, preserving pools' input order
-// (both Pools.GetAll and Pools.GetByIDs already return a deterministic
+// (both Pools.GetPage and Pools.GetByIDs already return a deterministic
 // order — see their godoc).
 func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.Pool) ([]*graphql1.BlendPool, error) {
 	poolIDs := make([]string, 0, len(pools))
@@ -406,15 +406,68 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 	return out, nil
 }
 
-// getBlendPools is the main implementation for Query.blendPools: the
-// pool-wide catalog view across every Blend v2 pool the indexer has ever
-// seen.
-func (r *Resolver) getBlendPools(ctx context.Context) ([]*graphql1.BlendPool, error) {
-	pools, err := r.models.Blend.Pools.GetAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting blend pools: %w", err)
+// maxBlendPoolPageLimit caps a single blendPools page. It deliberately equals
+// graphqlutils.DefaultPageLimit, so the omitted-args page IS the maximum page:
+// every BlendPool node fans out ×30 reserves, making a 50-pool full selection
+// the heaviest query the API prices (see addComplexityCalculation), and a
+// larger cap would force another deployment-side complexity-limit raise.
+const maxBlendPoolPageLimit int32 = 50
+
+// parseBlendPoolPaginationParams layers the blendPools page cap and cursor
+// validation on top of the shared Relay parser. The cursor payload is a bare
+// pool contract address (the sort key): a strkey C... address is
+// self-validating, so unlike the composite allowance cursor it needs no
+// version prefix — any payload that is not a contract address fails closed
+// here with BAD_USER_INPUT.
+func parseBlendPoolPaginationParams(first *int32, after *string, last *int32, before *string) (PaginationParams, error) {
+	if err := capPaginationLimit(first, last, maxBlendPoolPageLimit); err != nil {
+		return PaginationParams{}, err
 	}
-	return r.buildBlendPoolCatalog(ctx, pools)
+	params, err := parsePaginationParams(first, after, last, before, CursorTypeString)
+	if err != nil {
+		return PaginationParams{}, err
+	}
+	if params.StringCursor != nil && !utils.IsContractAddress(*params.StringCursor) {
+		return PaginationParams{}, badUserInputError(ErrMsgInvalidPoolCursor)
+	}
+	return params, nil
+}
+
+// getBlendPools is the main implementation for Query.blendPools: one
+// keyset-paginated page of the pool-wide catalog view, cursored by pool
+// contract address.
+func (r *Resolver) getBlendPools(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.BlendPoolConnection, error) {
+	params, err := parseBlendPoolPaginationParams(first, after, last, before)
+	if err != nil {
+		return nil, err
+	}
+	sortOrder := blenddata.SortASC
+	if params.SortOrder == data.DESC {
+		sortOrder = blenddata.SortDESC
+	}
+
+	// Fetch one row past the page; the connection helper trims it into
+	// hasNextPage/hasPreviousPage. The sentinel rides through the catalog
+	// build (one extra pool inside already-batched queries), and GetPage
+	// returns ASC rows for both directions, so the sentinel sits exactly
+	// where the helper trims — end for forward pages, front for backward —
+	// and edges are always ascending.
+	queryLimit := *params.Limit + 1
+	pools, err := r.models.Blend.Pools.GetPage(ctx, queryLimit, params.StringCursor, sortOrder)
+	if err != nil {
+		return nil, fmt.Errorf("getting blend pools page: %w", err)
+	}
+	catalog, err := r.buildBlendPoolCatalog(ctx, pools)
+	if err != nil {
+		return nil, err
+	}
+
+	conn := NewConnectionWithRelayPagination(catalog, params, func(p *graphql1.BlendPool) string { return p.Address })
+	edges := make([]*graphql1.BlendPoolEdge, len(conn.Edges))
+	for i, edge := range conn.Edges {
+		edges[i] = &graphql1.BlendPoolEdge{Node: edge.Node, Cursor: edge.Cursor}
+	}
+	return &graphql1.BlendPoolConnection{Edges: edges, PageInfo: conn.PageInfo}, nil
 }
 
 // getBlendPool is the main implementation for Query.blendPool: the pool-wide

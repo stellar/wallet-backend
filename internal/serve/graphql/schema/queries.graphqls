@@ -9,8 +9,13 @@ type Query {
     """Look up an operation by its ID (TOID)."""
     operationById(id: Int64!): Operation
 
-    """Blend v2 pool-wide catalog: every tracked pool, independent of any account."""
-    blendPools: [BlendPool!]!
+    """
+    Blend v2 pool-wide catalog, independent of any account, keyset-paginated by
+    pool contract address. Pool deployment is permissionless, so the catalog is
+    unbounded; pages are capped at 50 pools (also the default when first/last
+    is omitted).
+    """
+    blendPools(first: Int, after: String, last: Int, before: String): BlendPoolConnection!
 
     """Look up one Blend v2 pool by its contract address (C...)."""
     blendPool(address: String!): BlendPool

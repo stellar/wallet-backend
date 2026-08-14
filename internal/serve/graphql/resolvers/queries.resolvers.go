@@ -54,8 +54,8 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 }
 
 // BlendPools is the resolver for the blendPools field.
-func (r *queryResolver) BlendPools(ctx context.Context) ([]*graphql1.BlendPool, error) {
-	return r.getBlendPools(ctx)
+func (r *queryResolver) BlendPools(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.BlendPoolConnection, error) {
+	return r.getBlendPools(ctx, first, after, last, before)
 }
 
 // BlendPool is the resolver for the blendPool field.

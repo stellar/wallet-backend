@@ -1,7 +1,9 @@
 # Blend v2 lending protocol GraphQL surface.
 #
-# The Query.blendPools/blendPool entry points (a pool-wide catalog view,
-# independent of any account) live on the base type Query in queries.graphqls,
+# The Query.blendPools/blendPool entry points (a keyset-paginated pool-wide
+# catalog view, independent of any account) live on the base type Query in
+# queries.graphqls (the BlendPoolConnection/BlendPoolEdge page types live in
+# pagination.graphqls),
 # and Account.blendPositions (an account's lending, collateral, and backstop
 # positions across every Blend v2 pool it touches, plus any active Dutch
 # auctions where the account is the auction owner —

@@ -226,7 +226,7 @@ func (m *BackstopPositionModel) GetByAccount(ctx context.Context, account string
 }
 
 // scanPools scans every row of rows into a Pool slice, matching blend_pools'
-// column order. Shared by GetByIDs, GetAll and GetPage.
+// column order. Shared by GetByIDs and GetPage.
 func scanPools(rows pgx.Rows) ([]Pool, error) {
 	pools := []Pool{}
 	for rows.Next() {
@@ -281,33 +281,6 @@ func (m *PoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]Pool, err
 	m.Metrics.QueryDuration.WithLabelValues("GetByIDs", poolsTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByIDs", poolsTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("GetByIDs", poolsTable).Observe(float64(len(poolIDs)))
-	return result, nil
-}
-
-// GetAll returns every blend_pools row, ordered by pool_contract_id.
-func (m *PoolModel) GetAll(ctx context.Context) ([]Pool, error) {
-	start := time.Now()
-	const query = `
-		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
-		FROM blend_pools
-		ORDER BY pool_contract_id`
-	rows, err := m.DB.Query(ctx, query)
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", poolsTable, utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("querying all blend pools: %w", err)
-	}
-	defer rows.Close()
-
-	result, err := scanPools(rows)
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetAll", poolsTable, utils.GetDBErrorType(err)).Inc()
-		return nil, err
-	}
-
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetAll", poolsTable).Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetAll", poolsTable).Inc()
 	return result, nil
 }
 

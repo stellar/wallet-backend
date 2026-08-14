@@ -325,6 +325,16 @@ type ComplexityRoot struct {
 		SuppliedUsd      func(childComplexity int) int
 	}
 
+	BlendPoolConnection struct {
+		Edges    func(childComplexity int) int
+		PageInfo func(childComplexity int) int
+	}
+
+	BlendPoolEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
 	BlendPoolPosition struct {
 		BorrowedUsd func(childComplexity int) int
 		ClaimedBlnd func(childComplexity int) int
@@ -533,7 +543,7 @@ type ComplexityRoot struct {
 	Query struct {
 		AccountByAddress  func(childComplexity int, address string) int
 		BlendPool         func(childComplexity int, address string) int
-		BlendPools        func(childComplexity int) int
+		BlendPools        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		OperationByID     func(childComplexity int, id int64) int
 		TransactionByHash func(childComplexity int, hash string) int
 	}
@@ -944,7 +954,7 @@ type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
-	BlendPools(ctx context.Context) ([]*BlendPool, error)
+	BlendPools(ctx context.Context, first *int32, after *string, last *int32, before *string) (*BlendPoolConnection, error)
 	BlendPool(ctx context.Context, address string) (*BlendPool, error)
 }
 type SignerAddedChangeResolver interface {
@@ -2220,6 +2230,32 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.BlendPool.SuppliedUsd(childComplexity), true
 
+	case "BlendPoolConnection.edges":
+		if e.ComplexityRoot.BlendPoolConnection.Edges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolConnection.Edges(childComplexity), true
+	case "BlendPoolConnection.pageInfo":
+		if e.ComplexityRoot.BlendPoolConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolConnection.PageInfo(childComplexity), true
+
+	case "BlendPoolEdge.cursor":
+		if e.ComplexityRoot.BlendPoolEdge.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolEdge.Cursor(childComplexity), true
+	case "BlendPoolEdge.node":
+		if e.ComplexityRoot.BlendPoolEdge.Node == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolEdge.Node(childComplexity), true
+
 	case "BlendPoolPosition.borrowedUsd":
 		if e.ComplexityRoot.BlendPoolPosition.BorrowedUsd == nil {
 			break
@@ -3176,7 +3212,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			break
 		}
 
-		return e.ComplexityRoot.Query.BlendPools(childComplexity), true
+		args, err := ec.field_Query_blendPools_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.BlendPools(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Query.operationById":
 		if e.ComplexityRoot.Query.OperationByID == nil {
@@ -4237,8 +4278,10 @@ type SEP41Allowance {
 `, BuiltIn: false},
 	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
 #
-# The Query.blendPools/blendPool entry points (a pool-wide catalog view,
-# independent of any account) live on the base type Query in queries.graphqls,
+# The Query.blendPools/blendPool entry points (a keyset-paginated pool-wide
+# catalog view, independent of any account) live on the base type Query in
+# queries.graphqls (the BlendPoolConnection/BlendPoolEdge page types live in
+# pagination.graphqls),
 # and Account.blendPositions (an account's lending, collateral, and backstop
 # positions across every Blend v2 pool it touches, plus any active Dutch
 # auctions where the account is the auction owner —
@@ -4827,6 +4870,18 @@ type PageInfo {
     hasPreviousPage: Boolean!
 }
 
+"""Relay-style page of the Blend v2 pool catalog."""
+type BlendPoolConnection {
+    edges: [BlendPoolEdge!]!
+    pageInfo: PageInfo!
+}
+
+"""One Blend v2 pool in a page, with its pagination cursor."""
+type BlendPoolEdge {
+    node: BlendPool!
+    cursor: String!
+}
+
 """Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
   edges:    [AccountTransactionEdge!]!
@@ -4855,8 +4910,13 @@ type Query {
     """Look up an operation by its ID (TOID)."""
     operationById(id: Int64!): Operation
 
-    """Blend v2 pool-wide catalog: every tracked pool, independent of any account."""
-    blendPools: [BlendPool!]!
+    """
+    Blend v2 pool-wide catalog, independent of any account, keyset-paginated by
+    pool contract address. Pool deployment is permissionless, so the catalog is
+    unbounded; pages are capped at 50 pools (also the default when first/last
+    is omitted).
+    """
+    blendPools(first: Int, after: String, last: Int, before: String): BlendPoolConnection!
 
     """Look up one Blend v2 pool by its contract address (C...)."""
     blendPool(address: String!): BlendPool
@@ -5775,6 +5835,32 @@ func (ec *executionContext) field_Query_blendPool_args(ctx context.Context, rawA
 		return nil, err
 	}
 	args["address"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_blendPools_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
 	return args, nil
 }
 
@@ -12464,6 +12550,168 @@ func (ec *executionContext) fieldContext_BlendPool_inRewardZone(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendPoolConnection_edges(ctx context.Context, field graphql.CollectedField, obj *BlendPoolConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolConnection_edges,
+		func(ctx context.Context) (any, error) {
+			return obj.Edges, nil
+		},
+		nil,
+		ec.marshalNBlendPoolEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdgeᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "node":
+				return ec.fieldContext_BlendPoolEdge_node(ctx, field)
+			case "cursor":
+				return ec.fieldContext_BlendPoolEdge_cursor(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolEdge", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *BlendPoolConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolConnection_pageInfo,
+		func(ctx context.Context) (any, error) {
+			return obj.PageInfo, nil
+		},
+		nil,
+		ec.marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPageInfo,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "startCursor":
+				return ec.fieldContext_PageInfo_startCursor(ctx, field)
+			case "endCursor":
+				return ec.fieldContext_PageInfo_endCursor(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+			case "hasPreviousPage":
+				return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PageInfo", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolEdge_node(ctx context.Context, field graphql.CollectedField, obj *BlendPoolEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolEdge_node,
+		func(ctx context.Context) (any, error) {
+			return obj.Node, nil
+		},
+		nil,
+		ec.marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_BlendPool_address(ctx, field)
+			case "name":
+				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "status":
+				return ec.fieldContext_BlendPool_status(ctx, field)
+			case "oracleContractId":
+				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
+			case "backstopRate":
+				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
+			case "maxPositions":
+				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
+			case "backstopUsd":
+				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
+			case "interestApy":
+				return ec.fieldContext_BlendPool_interestApy(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPool_netApy(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			case "admin":
+				return ec.fieldContext_BlendPool_admin(ctx, field)
+			case "inRewardZone":
+				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *BlendPoolEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolEdge_cursor,
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendPoolPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -17609,16 +17857,17 @@ func (ec *executionContext) _Query_blendPools(ctx context.Context, field graphql
 		field,
 		ec.fieldContext_Query_blendPools,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().BlendPools(ctx)
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().BlendPools(ctx, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
-		ec.marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolᚄ,
+		ec.marshalNBlendPoolConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_Query_blendPools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_blendPools(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
@@ -17626,37 +17875,24 @@ func (ec *executionContext) fieldContext_Query_blendPools(_ context.Context, fie
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "address":
-				return ec.fieldContext_BlendPool_address(ctx, field)
-			case "name":
-				return ec.fieldContext_BlendPool_name(ctx, field)
-			case "status":
-				return ec.fieldContext_BlendPool_status(ctx, field)
-			case "oracleContractId":
-				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
-			case "backstopRate":
-				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
-			case "maxPositions":
-				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
-			case "suppliedUsd":
-				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
-			case "borrowedUsd":
-				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
-			case "backstopUsd":
-				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
-			case "interestApy":
-				return ec.fieldContext_BlendPool_interestApy(ctx, field)
-			case "netApy":
-				return ec.fieldContext_BlendPool_netApy(ctx, field)
-			case "reserves":
-				return ec.fieldContext_BlendPool_reserves(ctx, field)
-			case "admin":
-				return ec.fieldContext_BlendPool_admin(ctx, field)
-			case "inRewardZone":
-				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
+			case "edges":
+				return ec.fieldContext_BlendPoolConnection_edges(ctx, field)
+			case "pageInfo":
+				return ec.fieldContext_BlendPoolConnection_pageInfo(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolConnection", field.Name)
 		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_blendPools_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -28754,6 +28990,94 @@ func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var blendPoolConnectionImplementors = []string{"BlendPoolConnection"}
+
+func (ec *executionContext) _BlendPoolConnection(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolConnection")
+		case "edges":
+			out.Values[i] = ec._BlendPoolConnection_edges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pageInfo":
+			out.Values[i] = ec._BlendPoolConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolEdgeImplementors = []string{"BlendPoolEdge"}
+
+func (ec *executionContext) _BlendPoolEdge(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolEdge")
+		case "node":
+			out.Values[i] = ec._BlendPoolEdge_node(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cursor":
+			out.Values[i] = ec._BlendPoolEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var blendPoolPositionImplementors = []string{"BlendPoolPosition"}
 
 func (ec *executionContext) _BlendPoolPosition(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolPosition) graphql.Marshaler {
@@ -35402,11 +35726,35 @@ func (ec *executionContext) marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstel
 	return ec._BlendBackstopPosition(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPool) graphql.Marshaler {
+func (ec *executionContext) marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPool(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolConnection2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection(ctx context.Context, sel ast.SelectionSet, v BlendPoolConnection) graphql.Marshaler {
+	return ec._BlendPoolConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNBlendPoolConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection(ctx context.Context, sel ast.SelectionSet, v *BlendPoolConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPoolConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPoolEdge) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx, sel, v[i])
+		return ec.marshalNBlendPoolEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdge(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -35418,14 +35766,14 @@ func (ec *executionContext) marshalNBlendPool2ᚕᚖgithubᚗcomᚋstellarᚋwal
 	return ret
 }
 
-func (ec *executionContext) marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+func (ec *executionContext) marshalNBlendPoolEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdge(ctx context.Context, sel ast.SelectionSet, v *BlendPoolEdge) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
-	return ec._BlendPool(ctx, sel, v)
+	return ec._BlendPoolEdge(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNBlendPoolPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPoolPosition) graphql.Marshaler {

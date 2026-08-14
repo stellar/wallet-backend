@@ -187,6 +187,18 @@ type BlendPool struct {
 	InRewardZone bool `json:"inRewardZone"`
 }
 
+// Relay-style page of the Blend v2 pool catalog.
+type BlendPoolConnection struct {
+	Edges    []*BlendPoolEdge `json:"edges"`
+	PageInfo *PageInfo        `json:"pageInfo"`
+}
+
+// One Blend v2 pool in a page, with its pagination cursor.
+type BlendPoolEdge struct {
+	Node   *BlendPool `json:"node"`
+	Cursor string     `json:"cursor"`
+}
+
 // BlendPoolPosition rolls up an account's reserve positions within one pool.
 type BlendPoolPosition struct {
 	PoolAddress string   `json:"poolAddress"`

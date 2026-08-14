@@ -176,7 +176,7 @@ func TestPoolModel_GetByIDs(t *testing.T) {
 	})
 }
 
-func TestPoolModel_GetAll(t *testing.T) {
+func TestPoolModel_SetRewardZoneReadBack(t *testing.T) {
 	ctx, pool, m, cleanup := newPoolsFixture(t)
 	defer cleanup()
 
@@ -193,7 +193,7 @@ func TestPoolModel_GetAll(t *testing.T) {
 		require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{types.AddressBytea(poolB)}, 5))
 	})
 
-	got, err := m.GetAll(ctx)
+	got, err := m.GetPage(ctx, 10, nil, blend.SortASC)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assertOrderedByAddr(t, got, func(p blend.Pool) types.AddressBytea { return p.PoolContractID })

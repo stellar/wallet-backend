@@ -300,15 +300,16 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 
 // TestGraphQLComplexityAccountingForBlendFields locks in the multipliers added for the Blend
 // v2 fields in addComplexityCalculation: every Blend list level carries its own cardinality
-// (catalog ×50, per-account lists ×10, reserves/bid/lot ×30, q4w ×20), so nested lists are
-// priced as the product of the levels, not folded into a single outer multiplier. On top of
-// that, blendPositions and blendPool carry a flat additive cost equal to the DB queries one
-// resolution issues (13 and 7), so a selection of a single scalar is never priced as if it
-// were cheap. Each case selects a minimal field set so the expected complexity is easy to
-// verify by hand and stays stable across unrelated schema edits.
+// (catalog: the client-declared first/last page size, default 50; per-account lists ×10;
+// reserves/bid/lot ×30; q4w ×20), so nested lists are priced as the product of the levels,
+// not folded into a single outer multiplier. On top of that, blendPositions and blendPool
+// carry a flat additive cost equal to the DB queries one resolution issues (13 and 7), so a
+// selection of a single scalar is never priced as if it were cheap. Each case selects a
+// minimal field set so the expected complexity is easy to verify by hand and stays stable
+// across unrelated schema edits.
 //
 // Worst case (every field selected, derived in the comment above the multipliers in
-// addComplexityCalculation): blendPools = 26,150 and blendPositions = 7,584 — both above a
+// addComplexityCalculation): blendPools = 26,550 and blendPositions = 7,584 — both above a
 // 6,000 complexity limit by design; admitting the full selections requires a deployment-side
 // limit raise. This does not touch AccountTransactionEdge.operations/stateChanges or any other
 // existing complexity entry, so the freighter full-detail account-history query budget is
@@ -321,29 +322,43 @@ func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
 		expectedMessage string
 	}{
 		{
-			name:  "blendPools carries the accounts-list page-size multiplier",
-			limit: 49,
+			name:  "blendPools defaults to the DefaultPageLimit multiplier when first/last is omitted",
+			limit: 149,
 			query: `query {
 				blendPools {
-					address
+					edges { node { address } }
 				}
 			}`,
-			// address=1 => childComplexity 1 => 1*50 = 50.
-			expectedMessage: "operation has complexity 50, which exceeds the limit of 49",
+			// edges(1)+node(1)+address(1) => childComplexity 3 => 3*50 = 150.
+			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
 		},
 		{
-			name:  "blendPools reserves multiply by MAX_RESERVES inside the catalog multiplier",
-			limit: 1549,
+			name:  "blendPools prices by the client-declared first",
+			limit: 5,
 			query: `query {
-				blendPools {
-					address
-					reserves {
-						assetContractId
-					}
+				blendPools(first: 2) {
+					edges { node { address } }
 				}
 			}`,
-			// reserves{assetContractId}: 30*1=30. address(1)+reserves(30)=31 => 31*50=1550.
-			expectedMessage: "operation has complexity 1550, which exceeds the limit of 1549",
+			// edges(1)+node(1)+address(1) => childComplexity 3 => 3*2 = 6.
+			expectedMessage: "operation has complexity 6, which exceeds the limit of 5",
+		},
+		{
+			name:  "blendPools reserves multiply by MAX_RESERVES inside the page multiplier",
+			limit: 65,
+			query: `query {
+				blendPools(first: 2) {
+					edges { node {
+						address
+						reserves {
+							assetContractId
+						}
+					} }
+				}
+			}`,
+			// reserves{assetContractId}: 30*1=30. node children: address(1)+reserves(30)=31;
+			// edges(1)+node(1)+31 = 33 => 33*2 = 66.
+			expectedMessage: "operation has complexity 66, which exceeds the limit of 65",
 		},
 		{
 			name:  "blendPool (single) carries its flat per-resolution query cost",

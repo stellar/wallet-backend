@@ -419,16 +419,16 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc
 
-	// Blend lists are unpaginated but bounded, so each list level carries its own
-	// cardinality multiplier — nested lists are NOT free-riding under a single outer
-	// multiplier; a full blendPools selection is priced as pools × reserves-per-pool.
-	// Bounds are on-chain constants where the contract has one (blend-contracts-v2 @
-	// ba22b487: pool MAX_RESERVES=30, backstop MAX_Q4W_SIZE=20; an auction's bid/lot
-	// asset maps are keyed by the pool's reserve tokens, so ≤ 30ish entries) and
-	// documented assumptions where it doesn't (catalog ≈ dozens of pools → 50, matching
-	// the accounts fan-out above; pools/backstop-deposits/open-auctions per ACCOUNT have
-	// no on-chain cap → priced at 10, a deliberate pricing assumption, not a runtime
-	// truncation — the resolver always returns every row).
+	// Nested Blend lists are unpaginated but bounded, so each list level carries its
+	// own cardinality multiplier — nested lists are NOT free-riding under a single
+	// outer multiplier; a full blendPools selection is priced as pools ×
+	// reserves-per-pool. Bounds are on-chain constants where the contract has one
+	// (blend-contracts-v2 @ ba22b487: pool MAX_RESERVES=30, backstop MAX_Q4W_SIZE=20;
+	// an auction's bid/lot asset maps are keyed by the pool's reserve tokens, so
+	// ≤ 30ish entries) and documented assumptions where it doesn't
+	// (pools/backstop-deposits/open-auctions per ACCOUNT have no on-chain cap →
+	// priced at 10, a deliberate pricing assumption, not a runtime truncation — the
+	// resolver always returns every row).
 	blendReservesBound := func(childComplexity int) int { return childComplexity * 30 }
 	config.Complexity.BlendPool.Reserves = blendReservesBound
 	config.Complexity.BlendPoolPosition.Reserves = blendReservesBound
@@ -439,7 +439,11 @@ func addComplexityCalculation(config *generated.Config) {
 	config.Complexity.BlendAccountPositions.Pools = blendPerAccountBound
 	config.Complexity.BlendAccountPositions.Backstop = blendPerAccountBound
 	config.Complexity.BlendAccountPositions.ActiveAuctions = blendPerAccountBound
-	config.Complexity.Query.BlendPools = accountsListComplexityFunc
+	// blendPools is Relay-paginated: pool deployment is permissionless, so the outer
+	// row count is client-declared (first/last, resolver-capped at
+	// maxBlendPoolPageLimit == DefaultPageLimit) rather than assumed — the priced
+	// maximum and the executable maximum coincide.
+	config.Complexity.Query.BlendPools = paginatedQueryComplexityFunc
 	// Query.blendPool (single pool by address) and Account.blendPositions (one object)
 	// each resolve in a single resolver call that issues a fixed number of DB queries no
 	// matter how few fields are selected — there is no dataloader behind either, by
@@ -458,8 +462,9 @@ func addComplexityCalculation(config *generated.Config) {
 	// Worst case with every field selected (complexity_test.go locks the multipliers;
 	// counts follow the schema: BlendReserve 17 scalars, BlendPool 13 scalars,
 	// BlendReservePosition 18, BlendPoolPosition 7, BlendBackstopPosition 7, BlendQ4W 4,
-	// BlendAuction 3 + bid/lot(2 each)):
-	//   blendPools:     50 × (13 + 30×17) = 50 × 523 = 26,150
+	// BlendAuction 3 + bid/lot(2 each); the connection wrapper adds edges + node +
+	// cursor + pageInfo + 4 PageInfo scalars = 8 around each BlendPool node):
+	//   blendPools:     50 × (1 + 1 + 1 + (13 + 30×17) + 1 + 4) = 50 × 531 = 26,550
 	//   blendPositions: 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1 + 13
 	//                   = 5,470 + 870 + 1,230 + 1 + 13 = 7,584
 	// Both exceed a 6,000 complexity limit for the FULL selection — deliberate: the
