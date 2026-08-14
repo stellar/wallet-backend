@@ -31,6 +31,12 @@ const progressLogInterval uint32 = 1000
 // and the chain tip advances ~1 ledger every few seconds.
 const tipRefreshInterval = 15 * time.Second
 
+// frontierPollInterval is how often gateOnLiveFrontier re-reads live ingestion's cursor while
+// the fold loop waits at the classification frontier. Live commits roughly one ledger every
+// few seconds at the tip, so a 1s poll adds at most one idle round trip per ledger there and
+// none at all during the bulk backfill (the gate is a cached comparison below the frontier).
+const frontierPollInterval = time.Second
+
 // protocolTracker holds per-protocol state for the ledger-first migration loop.
 type protocolTracker struct {
 	protocolID  string
@@ -223,23 +229,26 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 // cumulative share — stable line-to-line and fairly amortizing costs (like flush) that occur far
 // less often than the progress-log interval.
 type stageTimers struct {
+	gate    time.Duration // gateOnLiveFrontier (flush + wait for live ingestion's cursor); ≈0 while live is ahead
 	fetch   time.Duration // GetLedger wait (consumer stall, not download time); ≈0 while the datastore prefetch keeps up, rises only when it can't
 	extract time.Duration // ExtractContractEventsForLedger + ExtractContractDataChangesForLedger
 	process time.Duration // ProcessLedger across all trackers
-	flush   time.Duration // flushWindow (CAS + Persist), including tip flushes
+	flush   time.Duration // flushWindow (CAS + Persist) from the fold loop's window-size trigger
 }
 
-func (t stageTimers) total() time.Duration { return t.fetch + t.extract + t.process + t.flush }
+func (t stageTimers) total() time.Duration {
+	return t.gate + t.fetch + t.extract + t.process + t.flush
+}
 
 // breakdown renders each stage's share of the cumulative staged total as a percentage.
 func (t stageTimers) breakdown() string {
 	total := t.total()
 	if total == 0 {
-		return "fetch-wait=0% extract=0% process=0% flush=0%"
+		return "gate-wait=0% fetch-wait=0% extract=0% process=0% flush=0%"
 	}
 	pct := func(d time.Duration) float64 { return 100 * float64(d) / float64(total) }
-	return fmt.Sprintf("fetch-wait=%.0f%% extract=%.0f%% process=%.0f%% flush=%.0f%%",
-		pct(t.fetch), pct(t.extract), pct(t.process), pct(t.flush))
+	return fmt.Sprintf("gate-wait=%.0f%% fetch-wait=%.0f%% extract=%.0f%% process=%.0f%% flush=%.0f%%",
+		pct(t.gate), pct(t.fetch), pct(t.extract), pct(t.process), pct(t.flush))
 }
 
 // processAllProtocols runs migration for all protocols using ledger-first iteration.
@@ -331,10 +340,10 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 	}
 
 	var (
-		cachedTip       uint32
-		timers          stageTimers
-		intervalStart   = time.Now()
-		intervalLedgers uint32
+		cachedLiveCursor uint32
+		timers           stageTimers
+		intervalStart    = time.Now()
+		intervalLedgers  uint32
 	)
 	for seq := startLedger; ; seq++ {
 		if err := ctx.Err(); err != nil {
@@ -344,14 +353,19 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 			return handedOffProtocolIDs(trackers), nil
 		}
 
-		// Before fetching seq, flush any open windows once we reach the live tip so the
-		// next (blocking) GetLedger never strands the cursor behind the frontier.
-		var flushErr error
-		tipFlushStart := time.Now()
-		cachedTip, flushErr = s.flushWindowsAtTip(ctx, trackers, seq, cachedTip)
-		timers.flush += time.Since(tipFlushStart)
-		if flushErr != nil {
-			return handedOffProtocolIDs(trackers), flushErr
+		// Fold seq only after live ingestion has committed it: live's cursor advances in
+		// the same transaction as the ledger's protocol_contracts classifications, so
+		// cursor >= seq is atomic proof that every classification discoverable at seq is
+		// committed and visible to the membership refresh below. The gate also flushes
+		// open windows before it waits, so the next (blocking) fetch never strands a
+		// cursor behind the frontier. A flush can hand off the last active tracker, so
+		// re-check after.
+		var gateErr error
+		gateStart := time.Now()
+		cachedLiveCursor, gateErr = s.gateOnLiveFrontier(ctx, trackers, seq, cachedLiveCursor)
+		timers.gate += time.Since(gateStart)
+		if gateErr != nil {
+			return handedOffProtocolIDs(trackers), gateErr
 		}
 		if allHandedOff(trackers) {
 			return handedOffProtocolIDs(trackers), nil
@@ -381,13 +395,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 
 		// Refresh each tracker's classified-contract membership at window start —
 		// after the window's first ledger has been FETCHED, not after the previous
-		// window's commit. GetLedger blocks until seq has closed, so this read runs
-		// after any concurrent live-ingestion transaction for seq-1 — including the
-		// classification it commits — has finished; a post-commit refresh instead
-		// races that transaction and can fold seq with a membership missing a
-		// contract classified at seq-1, silently skipping its events and entries
-		// for this window (additive fold columns never heal from a missed ledger).
-		// Same cadence either way: once per window per requiring tracker.
+		// window's commit. The frontier gate above guarantees live has committed
+		// this ledger (and, via the flush-before-wait, every ledger this window
+		// will ever contain) before this read runs, so the membership here
+		// includes every classification the window can encounter; a post-commit
+		// refresh instead races live's transaction and can fold seq with a
+		// membership missing a contract classified at seq-1, silently skipping
+		// its events and entries for this window (additive fold columns never
+		// heal from a missed ledger). Same cadence either way: once per window
+		// per requiring tracker.
 		for _, t := range trackers {
 			if t.handedOff || t.cursorValue+t.pending >= seq || t.pending != 0 {
 				continue
@@ -499,41 +515,75 @@ func (s *protocolMigrateEngine) refreshTargetTip(ctx context.Context) {
 	}
 }
 
-// flushWindowsAtTip flushes every tracker's open window once seq reaches the live tip,
-// so a coalescing window never straddles the migration<->live frontier.
+// gateOnLiveFrontier blocks until live ingestion's committed cursor reaches seq, flushing
+// every tracker's open window first so no coalescing window ever extends past the live
+// classification frontier.
 //
-// Below the tip it is a no-op: GetLedger(seq) returns immediately and an open window is
-// harmless, so the bulk backfill keeps committing windowSize ledgers per transaction. At
-// the tip, GetLedger(seq) blocks until the ledger closes — and a window held open across
-// that block pins the cursor behind the frontier, so live ingestion's CAS(tip-1 -> tip)
-// can never match and the handoff (hence migration termination) can never happen. Flushing
-// first advances each cursor to the last closed ledger, arming the handoff and shrinking
-// the window to 1 at the tip.
+// Live's cursor advances in the same transaction that commits a ledger's
+// protocol_contracts classifications, so cursor >= seq is atomic proof that every
+// classification discoverable at seq is committed. That gives the fold loop two
+// guarantees:
 //
-// Termination depends on live ingestion running concurrently: migration hands off only by
-// losing a CAS at the tip, so if it always wins (e.g. live ingestion is down) it keeps
-// producing rather than handing off — the correct degraded-mode behavior, not a hang.
+//   - Complete membership: a window's start-of-window membership refresh runs after this
+//     gate admitted the window's first ledger, and the flush-before-wait means no window
+//     outlives the cursor value that admitted it — so every folded ledger's membership
+//     includes all classifications up to and including that ledger. Folding past the
+//     frontier is how a contract deployed in live's lag window went missing for the rest
+//     of that window (#680).
+//   - Handoff arming: the flush commits each cursor to the last folded ledger before the
+//     wait, so live's CAS(cursor -> cursor+1) matches as soon as it reaches the frontier
+//     and takes over cleanly instead of contesting a window held open across the wait.
 //
-// The tip is cached and only re-read once seq catches up to it, sparing the bulk a
-// GetLatestLedgerSequence call per ledger; the tip is monotonic, so a stale value at worst
-// costs one extra refresh. The updated cachedTip is returned for the next iteration. A
-// flush can hand off the last active tracker, so callers must re-check allHandedOff after.
-func (s *protocolMigrateEngine) flushWindowsAtTip(ctx context.Context, trackers []*protocolTracker, seq, cachedTip uint32) (uint32, error) {
-	if seq <= cachedTip {
-		return cachedTip, nil
+// Below the frontier the gate is one cached comparison: the cursor is re-read only when
+// seq catches up to the cached value, sparing the bulk backfill a read per ledger. The
+// cursor is monotonic, so a stale cache at worst costs one early flush. Termination still
+// depends on live ingestion running concurrently: migration hands off only by losing a
+// CAS at the frontier, and with live down the engine idles here (logged) rather than
+// folding ledgers whose classifications are not yet committed. A flush can hand off the
+// last active tracker, so this returns early — and callers must re-check allHandedOff.
+func (s *protocolMigrateEngine) gateOnLiveFrontier(ctx context.Context, trackers []*protocolTracker, seq, cachedLiveCursor uint32) (uint32, error) {
+	if seq <= cachedLiveCursor {
+		return cachedLiveCursor, nil
 	}
-	if tip, tipErr := s.ledgerBackend.GetLatestLedgerSequence(ctx); tipErr == nil {
-		cachedTip = tip
+	liveCursor, err := s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+	if err != nil {
+		return cachedLiveCursor, fmt.Errorf("reading live ingestion cursor before folding ledger %d: %w", seq, err)
 	}
-	if seq <= cachedTip {
-		return cachedTip, nil
+	if seq <= liveCursor {
+		return liveCursor, nil
 	}
+
 	for _, t := range trackers {
-		if err := s.flushWindow(ctx, t); err != nil {
-			return cachedTip, err
+		if flushErr := s.flushWindow(ctx, t); flushErr != nil {
+			return liveCursor, flushErr
 		}
 	}
-	return cachedTip, nil
+	if allHandedOff(trackers) {
+		return liveCursor, nil
+	}
+
+	log.Ctx(ctx).Infof("migration gated on live ingestion's classification frontier: ledger %d not yet committed by live (cursor at %d); waiting", seq, liveCursor)
+	waitStart := time.Now()
+	ticker := time.NewTicker(frontierPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return liveCursor, fmt.Errorf("context cancelled while gated on live ingestion's frontier at ledger %d: %w", seq, ctx.Err())
+		case <-ticker.C:
+		}
+		liveCursor, err = s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+		if err != nil {
+			return liveCursor, fmt.Errorf("reading live ingestion cursor while gated at ledger %d: %w", seq, err)
+		}
+		if seq <= liveCursor {
+			waited := time.Since(waitStart)
+			s.metrics.PhaseDuration.WithLabelValues("frontier_gate").Observe(waited.Seconds())
+			log.Ctx(ctx).Infof("live ingestion frontier reached ledger %d; migration resuming at ledger %d after %s gated",
+				liveCursor, seq, waited.Round(time.Millisecond))
+			return liveCursor, nil
+		}
+	}
 }
 
 // refreshTrackerContracts re-reads a tracker's classified-contract membership

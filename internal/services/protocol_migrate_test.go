@@ -110,22 +110,6 @@ func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) 
 	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
 
-// tipUnavailableBackend wraps multiLedgerBackend and fails GetLatestLedgerSequence a
-// configurable number of times (set latestLedgerFailsLeft to a large value to always fail).
-// With the tip read failing, flushWindowsAtTip leaves cachedTip stale (0), so it flushes on
-// every iteration — exercising the degradation to per-ledger commits (effective window 1).
-type tipUnavailableBackend struct {
-	multiLedgerBackend
-	latestLedgerFailsLeft atomic.Int32
-}
-
-func (b *tipUnavailableBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
-	if b.latestLedgerFailsLeft.Add(-1) >= 0 {
-		return 0, fmt.Errorf("transient RPC error: latest ledger unavailable")
-	}
-	return b.multiLedgerBackend.GetLatestLedgerSequence(ctx)
-}
-
 func dummyLedgerMeta(seq uint32) xdr.LedgerCloseMeta {
 	return xdr.LedgerCloseMeta{
 		V: 0,
@@ -1632,13 +1616,14 @@ func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
 	})
 }
 
-func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
-	t.Run("GetLatestLedgerSequence error degrades to per-ledger commits (K=1)", func(t *testing.T) {
+func TestProtocolMigrateEngine_FrontierGate(t *testing.T) {
+	t.Run("gate flushes the open window, waits, and resumes when live's cursor advances", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
 		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
-		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+		// Live has committed through 101: the engine may fold 100-101 but must gate at 102.
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
 
 		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
 		require.NoError(t, err)
@@ -1652,20 +1637,18 @@ func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
-		// Hand off at 102 so the loop terminates; WindowSize=10 would coalesce all three
-		// ledgers if the tip were readable.
+		// Hand off at 103 (the fold hook bumps the cursor to 203, simulating live
+		// winning that ledger) so the run terminates after the gate releases.
 		processor := &testCursorAdvancingProcessor{
 			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
 			dbPool:                 dbPool,
-			advanceAtSeq:           102,
+			advanceAtSeq:           103,
 			cursorNameFunc:         utils.ProtocolHistoryCursorName,
 		}
 
-		// Tip read always fails -> cachedTip stays 0 -> flushWindowsAtTip flushes every iteration.
-		backend := &tipUnavailableBackend{multiLedgerBackend: multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
-			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
-		}}}
-		backend.latestLedgerFailsLeft.Store(1 << 30)
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102), 103: dummyLedgerMeta(103),
+		}}
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
@@ -1674,19 +1657,92 @@ func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
 			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
 		})
 		require.NoError(t, err)
-		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
 
-		// Despite WindowSize=10, each ledger commits individually because the unreadable tip
-		// forces a flush every iteration. Per-ledger sentinels at 100 AND 101 prove K=1
-		// (with a working tip they would coalesce into one window and neither would exist).
-		for _, seq := range []uint32{100, 101} {
-			val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
-			require.True(t, ok, "per-ledger sentinel for %d should exist (K=1 degradation)", seq)
-			assert.Equal(t, seq, val)
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx, []string{"testproto"}) }()
+
+		// The engine coalesces 100-101 into one open window (WindowSize 10), then gates
+		// at 102. The gate must flush that window before waiting: the sentinel for the
+		// window end (101) appearing while live's cursor still sits at 101 proves the
+		// flush-before-wait ordering.
+		require.Eventually(t, func() bool {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 101)
+			return ok
+		}, 10*time.Second, 50*time.Millisecond, "gate should flush the open window before waiting")
+		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 100)
+		assert.False(t, ok, "100 should have no per-ledger sentinel: it coalesced into the window flushed at 101")
+		assert.Equal(t, uint32(101), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"),
+			"the gate's flush should commit the cursor to the window end before waiting")
+
+		// Live advances past 103; the gate must release and the engine resume folding.
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 103)
+
+		select {
+		case runErr := <-done:
+			require.NoError(t, runErr)
+		case <-time.After(30 * time.Second):
+			t.Fatal("engine did not resume after live's cursor advanced past the gate")
 		}
-		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+
+		// After resuming it folded 102-103; the fold hook at 103 moved the cursor to 203,
+		// so the [102,103] window's CAS failed -> handoff, window discarded.
+		_, ok = getHistorySentinel(t, ctx, dbPool, "testproto", 102)
 		assert.False(t, ok, "sentinel for 102 should NOT exist (CAS failed -> handoff)")
-		assert.Equal(t, []uint32{100, 101}, processor.persistedHistorySeqs)
-		assert.Equal(t, uint32(202), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+		assert.Equal(t, []uint32{101}, processor.persistedHistorySeqs)
+		assert.Equal(t, uint32(203), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+	})
+
+	t.Run("context cancellation while gated returns cleanly", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(runCtx, []string{"testproto"}) }()
+
+		// Wait until the engine is gated at 102 (its window flush at the gate is the signal),
+		// then cancel and require a prompt, descriptive error.
+		require.Eventually(t, func() bool {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 101)
+			return ok
+		}, 10*time.Second, 50*time.Millisecond, "engine should reach the gate and flush before waiting")
+		cancel()
+
+		select {
+		case runErr := <-done:
+			require.Error(t, runErr)
+			assert.ErrorContains(t, runErr, "gated on live ingestion's frontier at ledger 102")
+		case <-time.After(30 * time.Second):
+			t.Fatal("engine did not return after cancellation while gated")
+		}
 	})
 }

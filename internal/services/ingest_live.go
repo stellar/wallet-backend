@@ -212,7 +212,12 @@ func (m *ingestService) persistLedgerData(
 				if !historySwapped && !currentStateSwapped {
 					// Behind tip (value mismatch), not yet set up (both cursors known
 					// missing), or the value mismatch a live CAS returns when another
-					// process already owns this ledger: nothing to stage.
+					// process already owns this ledger: nothing to stage. Skipping is
+					// lossless: the migrate engine folds a ledger only after this
+					// cursor's transaction commits (its frontier gate), so a ledger
+					// lost here is folded later by a winner that sees every
+					// classification this transaction commits — including contracts
+					// classified this very ledger.
 					continue
 				}
 
