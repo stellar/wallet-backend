@@ -80,6 +80,14 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 		{"TrustlineUpdatedChange", types.TrustlineUpdatedChange{}},
 		{"TrustlineRemovedChange", types.TrustlineRemovedChange{}},
 		{"BalanceAuthorizationChange", types.BalanceAuthorizationChange{}},
+		{"BlendSupplyChange", types.BlendSupplyChange{}},
+		{"BlendCollateralChange", types.BlendCollateralChange{}},
+		{"BlendDebtChange", types.BlendDebtChange{}},
+		{"BlendAuctionChange", types.BlendAuctionChange{}},
+		{"BlendEmissionsClaimChange", types.BlendEmissionsClaimChange{}},
+		{"BlendBackstopEmissionsClaimChange", types.BlendBackstopEmissionsClaimChange{}},
+		{"BlendBackstopChange", types.BlendBackstopChange{}},
+		{"BlendBackstopQueueChange", types.BlendBackstopQueueChange{}},
 	}
 
 	for _, v := range variants {
@@ -97,6 +105,46 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 			assert.Contains(t, block, name,
 				"stateChangeFragments '... on %s' must request %q, else the SDK never fetches it", v.typeName, name)
 		}
+	}
+}
+
+// TestBlendQueryFieldsRequestAllStructFields guards against the recurring bug where a field is
+// added to a Blend response struct (and the GraphQL schema + resolver) but not to the query
+// field list: the SDK then never requests it and it silently unmarshals to its zero value.
+func TestBlendQueryFieldsRequestAllStructFields(t *testing.T) {
+	nested := map[string]bool{
+		"reserves": true, "pools": true, "backstop": true, "q4w": true,
+		"activeAuctions": true, "bid": true, "lot": true,
+	}
+
+	testCases := []struct {
+		name       string
+		fieldBlock string
+		sample     any
+	}{
+		{"blendPoolFields/BlendPool", blendPoolFields, types.BlendPool{}},
+		{"blendReserveFields/BlendReserve", blendReserveFields, types.BlendReserve{}},
+		{"blendAccountPositionsFields/BlendAccountPositions", blendAccountPositionsFields, types.BlendAccountPositions{}},
+		{"blendAccountPositionsFields/BlendPoolPosition", blendAccountPositionsFields, types.BlendPoolPosition{}},
+		{"blendAccountPositionsFields/BlendBackstopPosition", blendAccountPositionsFields, types.BlendBackstopPosition{}},
+		{"blendAccountPositionsFields/BlendQ4W", blendAccountPositionsFields, types.BlendQ4W{}},
+		{"blendAccountPositionsFields/BlendAuction", blendAccountPositionsFields, types.BlendAuction{}},
+		{"blendAccountPositionsFields/BlendAuctionAmount", blendAccountPositionsFields, types.BlendAuctionAmount{}},
+		{"blendReservePositionFields/BlendReservePosition", blendReservePositionFields, types.BlendReservePosition{}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := reflect.TypeOf(tc.sample)
+			for i := 0; i < rt.NumField(); i++ {
+				name := strings.Split(rt.Field(i).Tag.Get("json"), ",")[0]
+				if name == "" || name == "-" || nested[name] {
+					continue
+				}
+				assert.Contains(t, tc.fieldBlock, name,
+					"%s must request %q, else the SDK never fetches it", tc.name, name)
+			}
+		})
 	}
 }
 

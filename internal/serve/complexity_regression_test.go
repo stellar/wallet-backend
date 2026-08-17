@@ -9,195 +9,54 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2"
 
+	"github.com/stellar/wallet-backend/cmd/utils"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	resolvers "github.com/stellar/wallet-backend/internal/serve/graphql/resolvers"
+	"github.com/stellar/wallet-backend/pkg/wbclient"
 )
 
-// The queries below mirror the shapes pkg/wbclient/queries.go builds for freighter's
-// account-detail views (buildAccountBalancesQuery / buildAccountTransactionsWithOpsAndStateChangesQuery):
-// max page size (first: 100, the resolver-enforced cap, see graphqlutils.DefaultPageLimit and the
-// resolvers' page-size clamping) with every field of every concrete implementer selected. A single
-// query combining both at first:100 is not representative: freighter issues them as separate
-// requests, and combined they total ~11400, over budget on their own. Each is tested independently
-// as its own worst case.
+// The queries priced below are the documents pkg/wbclient itself builds (wbclient.Queries()),
+// not copies of them, so any fragment or field added to the SDK is priced here the moment it
+// lands: a change that pushes a shipped query past the deployment default fails this test
+// instead of failing a client at runtime.
 
-const freighterAccountBalancesQuery = `
-	query {
-		accountByAddress(address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF") {
-			balances(first: 100) {
-				edges {
-					node {
-						balance
-						tokenId
-						tokenType
-						... on NativeBalance {
-							minimumBalance
-							buyingLiabilities
-							sellingLiabilities
-							numSubentries
-							lastModifiedLedger
-						}
-						... on TrustlineBalance {
-							code
-							issuer
-							assetType
-							limit
-							buyingLiabilities
-							sellingLiabilities
-							lastModifiedLedger
-							isAuthorized
-							isAuthorizedToMaintainLiabilities
-						}
-						... on SACBalance {
-							code
-							issuer
-							decimals
-							isAuthorized
-							isClawbackEnabled
-						}
-						... on SEP41Balance {
-							name
-							symbol
-							decimals
-							lastModifiedLedger
-						}
-						... on LiquidityPoolBalance {
-							reserves { asset amount }
-							lastModifiedLedger
-						}
-					}
-					cursor
-				}
-				pageInfo { startCursor endCursor hasNextPage hasPreviousPage }
-			}
-		}
-	}
-`
+// maxRequestedPageSize is the largest page the account- and transaction-scoped resolvers accept
+// (maxAccountPageLimit and maxBalancePageLimit in internal/serve/graphql/resolvers, both 100).
+// Every paginated query the SDK builds takes its page size as a $first variable, so binding it
+// here prices each query at the worst case a client can ask for.
+const maxRequestedPageSize = 100
 
-// freighterAccountTransactionsQuery is the "full-detail account-history query" referenced in the
-// comments above addComplexityCalculation in serve.go: it selects a full set of Transaction scalar
-// fields, plus the AccountTransactionEdge-only operations/stateChanges fields (plain lists, no
-// first/last args) with a broad field selection across every BaseStateChange implementer. This is
-// the query the AccountTransactionEdge no-multiplier design in addComplexityCalculation exists to protect.
-const freighterAccountTransactionsQuery = `
-	query {
-		accountByAddress(address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF") {
-			transactions(first: 100) {
-				edges {
-					node {
-						hash
-						feeCharged
-						resultCode
-						ledgerNumber
-						ledgerCreatedAt
-						isFeeBump
-						ingestedAt
-					}
-					cursor
-					operations {
-						id
-						type
-						operationXdr
-						resultCode
-						successful
-						ledgerNumber
-						ledgerCreatedAt
-						ingestedAt
-					}
-					stateChanges {
-						category
-						reason
-						ingestedAt
-						ledgerCreatedAt
-						ledgerNumber
-						... on BalanceChange {
-							balanceTokenId: tokenId
-							balanceAmount: amount
-							toMuxedId
-						}
-						... on AccountCreatedChange {
-							creatorAddress
-						}
-						... on AccountMergedChange {
-							destinationAddress
-						}
-						... on SignerAddedChange {
-							signerAddedAddress: signerAddress
-							signerAddedNewWeight: newWeight
-						}
-						... on SignerUpdatedChange {
-							signerUpdatedAddress: signerAddress
-							signerUpdatedOldWeight: oldWeight
-							signerUpdatedNewWeight: newWeight
-						}
-						... on SignerRemovedChange {
-							signerRemovedAddress: signerAddress
-							signerRemovedOldWeight: oldWeight
-						}
-						... on ThresholdChange {
-							threshold
-							oldThreshold
-							newThreshold
-						}
-						... on AccountFlagsChange {
-							accountFlags: flags
-						}
-						... on HomeDomainSetChange {
-							homeDomainSetValue: homeDomain
-						}
-						... on HomeDomainUpdatedChange {
-							homeDomainUpdatedOld: oldHomeDomain
-							homeDomainUpdatedNew: newHomeDomain
-						}
-						... on HomeDomainClearedChange {
-							homeDomainClearedOld: oldHomeDomain
-						}
-						... on DataEntryAddedChange {
-							dataEntryAddedName: name
-							dataEntryAddedValue: value
-						}
-						... on DataEntryUpdatedChange {
-							dataEntryUpdatedName: name
-							dataEntryUpdatedOldValue: oldValue
-							dataEntryUpdatedNewValue: newValue
-						}
-						... on DataEntryRemovedChange {
-							dataEntryRemovedName: name
-							dataEntryRemovedOldValue: oldValue
-						}
-						... on AllowanceChange {
-							allowanceTokenId: tokenId
-							spender
-							allowanceAmount: amount
-							expirationLedger
-						}
-						... on TrustlineAddedChange {
-							trustlineAddedTokenId: tokenId
-							trustlineAddedLiquidityPoolId: liquidityPoolId
-							trustlineAddedLimit: limit
-						}
-						... on TrustlineUpdatedChange {
-							trustlineUpdatedTokenId: tokenId
-							trustlineUpdatedLiquidityPoolId: liquidityPoolId
-							oldLimit
-							newLimit
-						}
-						... on TrustlineRemovedChange {
-							trustlineRemovedTokenId: tokenId
-							trustlineRemovedLiquidityPoolId: liquidityPoolId
-						}
-						... on BalanceAuthorizationChange {
-							balanceAuthTokenId: tokenId
-							balanceAuthLiquidityPoolId: liquidityPoolId
-							trustlineFlags: flags
-						}
-					}
-				}
-				pageInfo { startCursor endCursor hasNextPage hasPreviousPage }
-			}
-		}
+// maxRequestedBlendPoolPageSize is the largest blendPools page the resolver accepts
+// (maxBlendPoolPageLimit in internal/serve/graphql/resolvers). It is half maxRequestedPageSize
+// because every pool node fans out ×30 reserves, so pricing blendPools at 100 would budget for a
+// page the resolver rejects outright.
+const maxRequestedBlendPoolPageSize = 50
+
+// requestedPageSizes maps each SDK query to the page size it is priced at: the largest page its
+// own resolver will serve. Queries absent from the map are priced at maxRequestedPageSize.
+var requestedPageSizes = map[string]int{
+	"BlendPools": maxRequestedBlendPoolPageSize,
+}
+
+// requestedPageSize reports the page size queryName is priced at.
+func requestedPageSize(queryName string) int {
+	if size, ok := requestedPageSizes[queryName]; ok {
+		return size
 	}
-`
+	return maxRequestedPageSize
+}
+
+// substantialQueryFloors pins a lower bound on the query shapes the complexity limit is sized
+// around. Without a floor the upper-bound assertion would also pass on a near-zero measurement,
+// which is what a silently dropped selection set looks like. Queries not listed here only have
+// to be non-zero.
+var substantialQueryFloors = map[string]int{
+	"AccountBalances":                           1000,
+	"AccountStateChanges":                       1000,
+	"AccountTransactionsWithOpsAndStateChanges": 1000,
+	"BlendPools":                                1000,
+	"AccountBlendPositions":                     1000,
+}
 
 // newComplexityCalculationSchema builds an ExecutableSchema wired with the production complexity
 // config, with no DB or server behind it: complexity.Calculate only walks the query AST against the
@@ -210,37 +69,47 @@ func newComplexityCalculationSchema(t *testing.T) graphql.ExecutableSchema {
 	return generated.NewExecutableSchema(cfg)
 }
 
-// TestFreighterFullDetailQueriesStayUnderComplexityLimit locks in that freighter's two heaviest
-// account-detail queries stay under the default GRAPHQL_COMPLEXITY_LIMIT=10000. This only holds because
-// AccountTransactionEdge.operations/stateChanges have no complexity multiplier registered (see
-// TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultiplier below); if that ever
-// changes, this test starts failing too.
-func TestFreighterFullDetailQueriesStayUnderComplexityLimit(t *testing.T) {
+// defaultComplexityLimit reports the GRAPHQL_COMPLEXITY_LIMIT a deployment runs with when it does
+// not override the flag, read from the option itself so the budget below tracks the shipped
+// default rather than a second copy of the number.
+func defaultComplexityLimit(t *testing.T) int {
+	t.Helper()
+
+	var sink int
+	limit, ok := utils.GraphQLComplexityLimitOption(&sink).FlagDefault.(int)
+	require.True(t, ok, "graphql-complexity-limit FlagDefault should be an int")
+	return limit
+}
+
+// TestSDKQueriesFitDefaultComplexityLimit locks in that every query pkg/wbclient sends is
+// servable by a wallet-backend running the built-in GRAPHQL_COMPLEXITY_LIMIT, at the largest page
+// a resolver will accept.
+//
+// Measured complexities for the queries that dominate the budget (gqlgen sums mutually exclusive
+// inline fragments, so the exhaustive state-change and balance selections over-count relative to
+// what any one row resolves): BlendPools=26,550 at first:50 — 50 pages of a 531-cost connection
+// selection, itself the 523-cost pool node plus its cursor, the edges wrapper, and the 5-cost
+// pageInfo block. At first:100: AccountTransactionsWithOpsAndStateChanges=10,101,
+// Account/Transaction/OperationStateChanges=8,401, AccountBlendPositions=7,595,
+// AccountBalances=3,901.
+func TestSDKQueriesFitDefaultComplexityLimit(t *testing.T) {
 	es := newComplexityCalculationSchema(t)
+	limit := defaultComplexityLimit(t)
 
-	testCases := []struct {
-		name  string
-		query string
-		// computed complexity on record at time of writing, for both cases under the
-		// GRAPHQL_COMPLEXITY_LIMIT=10000 default limit: balances=3801, transactions=7301.
-		// gqlgen sums mutually exclusive inline fragments, so the exhaustive 19-fragment
-		// state-change selection over-counts relative to what any one row resolves.
-		floor int
-	}{
-		{name: "account balances, first:100, every Balance implementer field", query: freighterAccountBalancesQuery, floor: 1000},
-		{name: "account transactions, first:100, embedded operations+stateChanges per edge", query: freighterAccountTransactionsQuery, floor: 1000},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			doc, gerr := gqlparser.LoadQueryWithRules(es.Schema(), tc.query, nil)
+	for name, query := range wbclient.Queries() {
+		t.Run(name, func(t *testing.T) {
+			doc, gerr := gqlparser.LoadQueryWithRules(es.Schema(), query, nil)
 			require.Empty(t, gerr)
 
-			c := complexity.Calculate(context.Background(), es, doc.Operations[0], nil)
-			t.Logf("%s: computed complexity = %d", tc.name, c)
+			pageSize := requestedPageSize(name)
+			c := complexity.Calculate(context.Background(), es, doc.Operations[0], map[string]any{"first": pageSize})
+			t.Logf("%s: computed complexity at first:%d = %d", name, pageSize, c)
 
-			require.Greater(t, c, tc.floor, "query should be substantial enough to be a meaningful worst case; a near-zero value likely means LoadQuery silently dropped selections")
-			require.Less(t, c, 10_000, "freighter's full-detail query must stay under the default complexity limit (GRAPHQL_COMPLEXITY_LIMIT=10000)")
+			require.Positive(t, c, "a zero complexity means LoadQueryWithRules silently dropped the selection set")
+			if floor, ok := substantialQueryFloors[name]; ok {
+				require.Greater(t, c, floor, "query should be substantial enough to be a meaningful worst case")
+			}
+			require.LessOrEqual(t, c, limit, "every query the SDK ships must be servable under the default complexity limit (%d)", limit)
 		})
 	}
 }
@@ -266,7 +135,7 @@ func TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultipli
 	// Break-detection: prove the assertions above actually discriminate. Register the naive x50
 	// multiplier a well-meaning future edit might add (matching the pattern every other paginated
 	// field in addComplexityCalculation uses) and confirm `ok` flips to true, and that the resulting
-	// schema pushes freighter's transactions query over the prod limit.
+	// schema pushes the SDK's full-detail account-history query over the default limit.
 	regressedCfg := generated.Config{Resolvers: &resolvers.Resolver{}}
 	addComplexityCalculation(&regressedCfg)
 	regressedCfg.Complexity.AccountTransactionEdge.Operations = func(childComplexity int) int { return childComplexity * 50 }
@@ -276,9 +145,11 @@ func TestAccountTransactionEdgeOperationsAndStateChangesHaveNoComplexityMultipli
 	_, ok = regressedES.Complexity(ctx, "AccountTransactionEdge", "operations", 100, map[string]any{})
 	require.True(t, ok, "sanity check on the break-detection config: the multiplier should be registered")
 
-	doc, gerr := gqlparser.LoadQueryWithRules(regressedES.Schema(), freighterAccountTransactionsQuery, nil)
+	fullDetailQuery := wbclient.Queries()["AccountTransactionsWithOpsAndStateChanges"]
+	require.NotEmpty(t, fullDetailQuery)
+	doc, gerr := gqlparser.LoadQueryWithRules(regressedES.Schema(), fullDetailQuery, nil)
 	require.Empty(t, gerr)
-	regressed := complexity.Calculate(ctx, regressedES, doc.Operations[0], nil)
-	t.Logf("freighter transactions query complexity with a hypothetical AccountTransactionEdge multiplier = %d", regressed)
-	require.Greater(t, regressed, 10_000, "this confirms the guard above is load-bearing: without it, the freighter transactions query blows the complexity limit")
+	regressed := complexity.Calculate(ctx, regressedES, doc.Operations[0], map[string]any{"first": maxRequestedPageSize})
+	t.Logf("full-detail account-history query complexity with a hypothetical AccountTransactionEdge multiplier = %d", regressed)
+	require.Greater(t, regressed, defaultComplexityLimit(t), "this confirms the guard above is load-bearing: without it, the full-detail account-history query blows the complexity limit")
 }
