@@ -76,7 +76,7 @@ func TestCurrentStateStrategySpecifics(t *testing.T) {
 	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 	// After context cancellation the engine marks the protocol as failed
 	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
-	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 	backend := &multiLedgerBackend{
 		ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -170,7 +170,7 @@ func TestCurrentStateRecordsMetrics(t *testing.T) {
 	}, nil)
 	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 	protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
-	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 	backend := &multiLedgerBackend{
 		ledgers: map[uint32]xdr.LedgerCloseMeta{100: dummyLedgerMeta(100)},
