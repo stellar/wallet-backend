@@ -77,6 +77,16 @@ type IngestionMetrics struct {
 	// Any non-zero value means that gap is real and resolution needs building.
 	// PromQL: increase(wallet_ingestion_external_ref_contracts_total[1h]) > 0
 	ExternalRefContractsTotal prometheus.Counter
+	// ProtocolDecodeFailuresTotal counts protocol events and ledger entries that
+	// carry a recognized key/topic symbol but fail to decode. A recognized symbol
+	// with an unexpected payload shape means the on-chain contract no longer
+	// matches what the decoder models — probable contract drift (an upgrade of a
+	// tracked contract), not routine noise. The dropped event or entry is skipped
+	// entirely, so a nonzero rate means silent data loss for that protocol until
+	// the decoder is updated. The protocol_id label is the owning protocol (e.g.
+	// "BLEND"); kind is "event" or "entry".
+	// PromQL: rate(wallet_ingestion_protocol_decode_failures_total[5m]) > 0
+	ProtocolDecodeFailuresTotal *prometheus.CounterVec
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -169,6 +179,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_external_ref_contracts_total",
 			Help: "Contract instances skipped because their executable is a CAP-0085 external reference, which carries no WASM hash. These contracts are left unclassified.",
 		}),
+		ProtocolDecodeFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_ingestion_protocol_decode_failures_total",
+			Help: "Contract events and ledger entries with a recognized key/topic symbol that failed to decode, by protocol_id and kind (\"event\" or \"entry\"). A recognized symbol with an unexpected payload signals probable contract drift; the affected event or entry is dropped.",
+		}, []string{"protocol_id", "kind"}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -190,6 +204,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.ProtocolStateProcessingDuration,
 		m.WasmClassificationFailuresTotal,
 		m.ExternalRefContractsTotal,
+		m.ProtocolDecodeFailuresTotal,
 	)
 	return m
 }

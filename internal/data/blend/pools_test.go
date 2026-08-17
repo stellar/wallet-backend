@@ -138,7 +138,24 @@ func TestPoolModel_BatchUpsert(t *testing.T) {
 		assert.Equal(t, int32(3), *row.Status, "status must be updated")
 		require.NotNil(t, row.Admin, "admin must be preserved when the update carries empty")
 		assert.Equal(t, adminAddr, *row.Admin)
-		assert.Equal(t, int32(11), row.LastModifiedLedger, "last_modified_ledger is always taken")
+		assert.Equal(t, int32(11), row.LastModifiedLedger, "last_modified_ledger advances")
+	})
+
+	t.Run("re-upsert with a lower ledger never regresses last_modified_ledger", func(t *testing.T) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			// Validator enrichment carries no ledger context and writes 0.
+			require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{{
+				PoolContractID:     types.AddressBytea(poolAddr),
+				Status:             i32Ptr(4),
+				LastModifiedLedger: 0,
+			}}))
+		})
+
+		row, ok := getPool(t, ctx, pool, poolAddr)
+		require.True(t, ok)
+		require.NotNil(t, row.Status)
+		assert.Equal(t, int32(4), *row.Status, "config values still update")
+		assert.Equal(t, int32(11), row.LastModifiedLedger, "ledger keeps the higher value (GREATEST)")
 	})
 
 	t.Run("empty OracleContractID is stored as SQL NULL", func(t *testing.T) {

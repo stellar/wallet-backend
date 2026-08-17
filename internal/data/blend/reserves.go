@@ -62,6 +62,29 @@ type ReserveDataUpdate struct {
 	LedgerNumber   uint32
 }
 
+// ReserveConfigUpdate carries only the ResConfig columns (admin-set risk
+// parameters), keyed by (Pool, Asset). It is the config-side mirror of
+// ReserveDataUpdate: applying one never touches the live ResData columns, so
+// a window that decoded a reserve's config without its data degrades to a
+// stale data half instead of overwriting it. Identity columns (reserve_index)
+// are not modified.
+type ReserveConfigUpdate struct {
+	Pool, Asset  string
+	Decimals     int32
+	CFactor      int32
+	LFactor      int32
+	Util         int32
+	MaxUtil      int32
+	RBase        int32
+	ROne         int32
+	RTwo         int32
+	RThree       int32
+	Reactivity   int32
+	SupplyCap    string
+	Enabled      bool
+	LedgerNumber uint32
+}
+
 // poolAssetKey identifies a single reserve by its (pool, asset) address pair.
 type poolAssetKey struct {
 	Pool, Asset string
@@ -78,6 +101,10 @@ type ReserveModelInterface interface {
 	// asset) are silently skipped (0 rows affected, no error). Each (pool, asset)
 	// key must be unique within a batch; duplicates are rejected with an error.
 	BatchUpdateData(ctx context.Context, dbTx pgx.Tx, rows []ReserveDataUpdate) error
+	// BatchUpdateConfig updates only the ResConfig columns of existing rows,
+	// keyed by (pool_contract_id, asset_contract_id) — the config-side mirror
+	// of BatchUpdateData with the same skip-on-missing and unique-key rules.
+	BatchUpdateConfig(ctx context.Context, dbTx pgx.Tx, rows []ReserveConfigUpdate) error
 }
 
 // ReserveModel implements ReserveModelInterface against blend_reserves.
@@ -109,7 +136,7 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 	decimals := make([]int32, len(rows))
 	cFactors := make([]int32, len(rows))
 	lFactors := make([]int32, len(rows))
-	targetUtils := make([]int32, len(rows))
+	utils_ := make([]int32, len(rows))
 	maxUtils := make([]int32, len(rows))
 	rBases := make([]int32, len(rows))
 	rOnes := make([]int32, len(rows))
@@ -141,7 +168,7 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 		decimals[i] = r.Decimals
 		cFactors[i] = r.CFactor
 		lFactors[i] = r.LFactor
-		targetUtils[i] = r.Util
+		utils_[i] = r.Util
 		maxUtils[i] = r.MaxUtil
 		rBases[i] = r.RBase
 		rOnes[i] = r.ROne
@@ -193,7 +220,7 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 	if _, err := dbTx.Exec(ctx, upsertQuery,
 		pools, indexes, assets,
 		bRates, dRates, bSupplies, dSupplies, irMods, backstopCredits, lastTimes,
-		decimals, cFactors, lFactors, targetUtils, maxUtils,
+		decimals, cFactors, lFactors, utils_, maxUtils,
 		rBases, rOnes, rTwos, rThrees, reactivities, supplyCaps, enableds,
 		ledgers,
 	); err != nil {
@@ -288,5 +315,101 @@ func (m *ReserveModel) BatchUpdateData(ctx context.Context, dbTx pgx.Tx, rows []
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateData", reservesTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateData", reservesTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchUpdateData", reservesTable).Observe(float64(len(rows)))
+	return nil
+}
+
+// BatchUpdateConfig updates only the ResConfig columns of existing
+// blend_reserves rows, keyed by (pool_contract_id, asset_contract_id). See
+// ReserveModelInterface. It shares BatchUpdateData's UPDATE ... FROM shape,
+// so the same constraints apply: rows with no matching (pool, asset) are
+// silently skipped, and a duplicate key in one batch is rejected with an
+// error rather than letting Postgres pick an arbitrary source row.
+func (m *ReserveModel) BatchUpdateConfig(ctx context.Context, dbTx pgx.Tx, rows []ReserveConfigUpdate) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	pools := make([][]byte, len(rows))
+	assets := make([][]byte, len(rows))
+	decimals := make([]int32, len(rows))
+	cFactors := make([]int32, len(rows))
+	lFactors := make([]int32, len(rows))
+	utils_ := make([]int32, len(rows))
+	maxUtils := make([]int32, len(rows))
+	rBases := make([]int32, len(rows))
+	rOnes := make([]int32, len(rows))
+	rTwos := make([]int32, len(rows))
+	rThrees := make([]int32, len(rows))
+	reactivities := make([]int32, len(rows))
+	supplyCaps := make([]string, len(rows))
+	enableds := make([]bool, len(rows))
+	ledgers := make([]int32, len(rows))
+	seen := make(map[poolAssetKey]struct{}, len(rows))
+	for i, r := range rows {
+		poolBytes, err := addressToBytes(r.Pool)
+		if err != nil {
+			return fmt.Errorf("converting pool address for reserve config update: %w", err)
+		}
+		assetBytes, err := addressToBytes(r.Asset)
+		if err != nil {
+			return fmt.Errorf("converting asset address for reserve config update: %w", err)
+		}
+		key := poolAssetKey{Pool: r.Pool, Asset: r.Asset}
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("duplicate reserve config update for pool=%s asset=%s: rows must be pre-aggregated per key", r.Pool, r.Asset)
+		}
+		seen[key] = struct{}{}
+		pools[i] = poolBytes
+		assets[i] = assetBytes
+		decimals[i] = r.Decimals
+		cFactors[i] = r.CFactor
+		lFactors[i] = r.LFactor
+		utils_[i] = r.Util
+		maxUtils[i] = r.MaxUtil
+		rBases[i] = r.RBase
+		rOnes[i] = r.ROne
+		rTwos[i] = r.RTwo
+		rThrees[i] = r.RThree
+		reactivities[i] = r.Reactivity
+		supplyCaps[i] = r.SupplyCap
+		enableds[i] = r.Enabled
+		ledgers[i] = int32(r.LedgerNumber)
+	}
+
+	const updateQuery = `
+		UPDATE blend_reserves r SET
+			decimals             = u.decimals,
+			c_factor             = u.c_factor,
+			l_factor             = u.l_factor,
+			util                 = u.util,
+			max_util             = u.max_util,
+			r_base               = u.r_base,
+			r_one                = u.r_one,
+			r_two                = u.r_two,
+			r_three              = u.r_three,
+			reactivity           = u.reactivity,
+			supply_cap           = u.supply_cap,
+			enabled              = u.enabled,
+			last_modified_ledger = GREATEST(r.last_modified_ledger, u.ledger)
+		FROM UNNEST(
+			$1::bytea[], $2::bytea[], $3::integer[], $4::integer[], $5::integer[],
+			$6::integer[], $7::integer[], $8::integer[], $9::integer[], $10::integer[],
+			$11::integer[], $12::integer[], $13::text[], $14::boolean[], $15::integer[]
+		) AS u(pool, asset, decimals, c_factor, l_factor, util, max_util, r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled, ledger)
+		WHERE r.pool_contract_id = u.pool AND r.asset_contract_id = u.asset`
+	if _, err := dbTx.Exec(ctx, updateQuery,
+		pools, assets, decimals, cFactors, lFactors, utils_, maxUtils,
+		rBases, rOnes, rTwos, rThrees, reactivities, supplyCaps, enableds, ledgers,
+	); err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpdateConfig", reservesTable, utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("updating blend reserve config: %w", err)
+	}
+
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateConfig", reservesTable).Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateConfig", reservesTable).Inc()
+	m.Metrics.BatchSize.WithLabelValues("BatchUpdateConfig", reservesTable).Observe(float64(len(rows)))
 	return nil
 }
