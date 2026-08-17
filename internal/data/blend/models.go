@@ -19,7 +19,7 @@ type Models struct {
 	PoolClaimed       *PoolClaimedModel
 	BackstopClaimed   *BackstopClaimedModel
 	Auctions          *AuctionModel
-	// OraclePrices *OraclePriceModel is added in PR4 alongside oracle_prices.go.
+	OraclePrices      *OraclePriceModel
 }
 
 // NewModels constructs the Blend Models aggregate wired to the given pool/metrics.
@@ -35,5 +35,6 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) Models {
 		PoolClaimed:       &PoolClaimedModel{DB: pool, Metrics: dbMetrics},
 		BackstopClaimed:   &BackstopClaimedModel{DB: pool, Metrics: dbMetrics},
 		Auctions:          &AuctionModel{DB: pool, Metrics: dbMetrics},
+		OraclePrices:      &OraclePriceModel{DB: pool, Metrics: dbMetrics},
 	}
 }
