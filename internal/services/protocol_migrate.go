@@ -286,15 +286,13 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		})
 	}
 
-	// Load each tracker's classified-contract membership. For event-only
-	// processors this run-start snapshot is final — validate() requires
-	// ClassificationStatus == StatusSuccess, so everything classified before
-	// the run is already here. Processors that require ContractData get their
-	// membership refreshed after every committed window instead (see
-	// refreshTrackerContracts): live ingestion's validator classifies newly
-	// deployed contracts concurrently with this run, and those processors
-	// interpret events and entries by membership, so folding the rest of the
-	// run against a stale snapshot would silently drop that contract's state.
+	// Load each tracker's classified-contract membership. This is only the
+	// run-start snapshot — every tracker's membership is re-read at each
+	// window start (see refreshTrackerContracts): live ingestion's validator
+	// classifies newly deployed contracts concurrently with this run, and
+	// processors interpret events and entries by membership, so folding the
+	// rest of the run against a stale snapshot would silently drop such a
+	// contract's state.
 	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(trackers))
 	for _, t := range trackers {
 		contracts, loadErr := s.protocolContractsModel.GetByProtocolID(ctx, s.db, t.protocolID)
@@ -356,10 +354,11 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// Fold seq only after live ingestion has committed it: live's cursor advances in
 		// the same transaction as the ledger's protocol_contracts classifications, so
 		// cursor >= seq is atomic proof that every classification discoverable at seq is
-		// committed and visible to the membership refresh below. The gate also flushes
-		// open windows before it waits, so the next (blocking) fetch never strands a
-		// cursor behind the frontier. A flush can hand off the last active tracker, so
-		// re-check after.
+		// committed and visible to the membership refresh below. The gate flushes open
+		// windows whenever seq crosses its cached frontier value — before it even learns
+		// the new one — so no window outgrows the membership snapshot it opened with,
+		// and the next (blocking) fetch never strands a cursor behind the frontier. A
+		// flush can hand off the last active tracker, so re-check after.
 		var gateErr error
 		gateStart := time.Now()
 		cachedLiveCursor, gateErr = s.gateOnLiveFrontier(ctx, trackers, seq, cachedLiveCursor)
@@ -525,12 +524,12 @@ func (s *protocolMigrateEngine) refreshTargetTip(ctx context.Context) {
 // guarantees:
 //
 //   - Complete membership: a window's start-of-window membership refresh runs after this
-//     gate admitted the window's first ledger, and the flush-before-wait means no window
-//     outlives the cursor value that admitted it — so every folded ledger's membership
-//     includes all classifications up to and including that ledger. Folding past the
-//     frontier is how a contract deployed in live's lag window went missing for the rest
-//     of that window (#680).
-//   - Handoff arming: the flush commits each cursor to the last folded ledger before the
+//     gate admitted the window's first ledger, and the flush-at-crossing means no window
+//     ever contains a ledger past the cursor value that was current when it opened — so
+//     every folded ledger's membership includes all classifications up to and including
+//     that ledger. Folding past the frontier is how a contract deployed in live's lag
+//     window went missing for the rest of that window (#680).
+//   - Handoff arming: the flush commits each cursor to the last folded ledger before any
 //     wait, so live's CAS(cursor -> cursor+1) matches as soon as it reaches the frontier
 //     and takes over cleanly instead of contesting a window held open across the wait.
 //
@@ -545,20 +544,31 @@ func (s *protocolMigrateEngine) gateOnLiveFrontier(ctx context.Context, trackers
 	if seq <= cachedLiveCursor {
 		return cachedLiveCursor, nil
 	}
+
+	// seq is crossing the last known frontier: close every open window BEFORE
+	// learning the new frontier value. A window's start-of-window membership
+	// refresh covers classifications committed up to the cursor value current
+	// when the window opened, so a window that slid past that value would fold
+	// a contract classified mid-window without it — the #680 loss shape inside
+	// a window. Flushing at the crossing (rather than only before a wait) is
+	// what pins every window at or below the cursor value that opened it.
+	// flushWindow no-ops when nothing is pending, so a bulk-backfill crossing
+	// (rare: once per cache refill) costs one committed window, and frontier
+	// crossings (every ledger) are exactly the intended shrink-to-one cadence.
+	for _, t := range trackers {
+		if flushErr := s.flushWindow(ctx, t); flushErr != nil {
+			return cachedLiveCursor, flushErr
+		}
+	}
+	if allHandedOff(trackers) {
+		return cachedLiveCursor, nil
+	}
+
 	liveCursor, err := s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
 	if err != nil {
 		return cachedLiveCursor, fmt.Errorf("reading live ingestion cursor before folding ledger %d: %w", seq, err)
 	}
 	if seq <= liveCursor {
-		return liveCursor, nil
-	}
-
-	for _, t := range trackers {
-		if flushErr := s.flushWindow(ctx, t); flushErr != nil {
-			return liveCursor, flushErr
-		}
-	}
-	if allHandedOff(trackers) {
 		return liveCursor, nil
 	}
 
@@ -589,14 +599,15 @@ func (s *protocolMigrateEngine) gateOnLiveFrontier(ctx context.Context, trackers
 // refreshTrackerContracts re-reads a tracker's classified-contract membership
 // at the start of each window — after the window's first ledger has been
 // fetched (see the call site in processAllProtocols for why that ordering is
-// load-bearing at the frontier) — but only for processors that require
-// ContractData: they interpret events and entries by classified-set
-// membership, so a contract classified mid-run (live ingestion's validator
-// runs concurrently) must reach them on the next window rather than never.
-// Event-only processors keep the cheaper run-start snapshot. Handed-off
-// trackers fold no further ledgers, so their membership no longer matters.
+// load-bearing at the frontier). Every tracker refreshes, event-only ones
+// included: processors interpret events (and, where required, entries) by
+// classified-set membership, so a contract classified mid-run (live
+// ingestion's validator runs concurrently) must reach them on the next window
+// rather than never — a run-start-only snapshot would silently drop such a
+// contract's events for the rest of the run. Handed-off trackers fold no
+// further ledgers, so their membership no longer matters.
 func (s *protocolMigrateEngine) refreshTrackerContracts(ctx context.Context, t *protocolTracker, contractsByProtocol map[string][]data.ProtocolContracts) error {
-	if t.handedOff || !t.processor.RequiresContractData() {
+	if t.handedOff {
 		return nil
 	}
 	contracts, err := s.protocolContractsModel.GetByProtocolID(ctx, s.db, t.protocolID)

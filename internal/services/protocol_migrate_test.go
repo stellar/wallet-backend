@@ -217,6 +217,39 @@ func (p *testCursorAdvancingProcessor) ProcessLedger(ctx context.Context, input 
 	return p.testRecordingProcessor.ProcessLedger(ctx, input)
 }
 
+// testMidWindowClassificationProcessor embeds testRecordingProcessor and
+// simulates live ingestion running concurrently with the engine's window: at
+// advanceLiveAtSeq it commits live's cursor to liveCursorTarget (standing in
+// for live's transaction that classifies a new contract and advances
+// latest_ingest_ledger together), and at handoffAtSeq it moves the protocol
+// cursor so the engine's next window CAS fails and the run terminates.
+type testMidWindowClassificationProcessor struct {
+	testRecordingProcessor
+	dbPool           *pgxpool.Pool
+	advanceLiveAtSeq uint32
+	liveCursorTarget uint32
+	handoffAtSeq     uint32
+}
+
+func (p *testMidWindowClassificationProcessor) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
+	switch input.LedgerSequence {
+	case p.advanceLiveAtSeq:
+		if _, err := p.dbPool.Exec(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = 'latest_ingest_ledger'`,
+			strconv.FormatUint(uint64(p.liveCursorTarget), 10)); err != nil {
+			return fmt.Errorf("advancing live cursor for test: %w", err)
+		}
+	case p.handoffAtSeq:
+		if _, err := p.dbPool.Exec(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
+			strconv.FormatUint(uint64(p.handoffAtSeq), 10),
+			utils.ProtocolHistoryCursorName(p.id)); err != nil {
+			return fmt.Errorf("advancing protocol cursor for test: %w", err)
+		}
+	}
+	return p.testRecordingProcessor.ProcessLedger(ctx, input)
+}
+
 // testErrorAtSeqProcessor embeds testRecordingProcessor and returns an error
 // when ProcessLedger is called for a specific ledger sequence.
 type testErrorAtSeqProcessor struct {
@@ -1226,16 +1259,18 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// hex-decodes tracked contract IDs and fails the run on malformed ones.
 		contractA := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("aa", 32))}
 		contractB := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("bb", 32))}
-		// The requiring tracker's membership is re-read at the start of every
-		// window, after the window's first ledger has been fetched (WindowSize
-		// defaults to 1, so before every ledger's fold): the run-start snapshot
-		// returns only A, every window-start refresh returns A+B — simulating
-		// live ingestion classifying B between the snapshot and the first
-		// window. The event-only tracker keeps the run-start snapshot: exactly
-		// one load.
+		// Every tracker's membership is re-read at the start of every window,
+		// after the window's first ledger has been fetched (WindowSize defaults
+		// to 1, so before every ledger's fold): the run-start snapshot returns
+		// only A, every window-start refresh returns A+B — simulating live
+		// ingestion classifying B between the snapshot and the first window.
+		// The event-only tracker refreshes on the same cadence: its processor
+		// filters events by membership, so a run-start-only snapshot would
+		// silently drop B's events for the rest of the run.
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1268,11 +1303,11 @@ func TestProtocolMigrateEngine(t *testing.T) {
 			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: window-start membership must include the newly classified contract", input.LedgerSequence)
 		}
 
-		// Event-only processor: the run-start snapshot is never refreshed (its
-		// single .Once() mock expectation also fails the test on extra calls).
+		// Event-only processor: same window-start refresh cadence — every fold
+		// sees the newly classified contract too.
 		require.Len(t, noProc.processedInputs, 3)
 		for _, input := range noProc.processedInputs {
-			assert.Len(t, input.ProtocolContracts, 1, "ledger %d: event-only membership stays the snapshot", input.LedgerSequence)
+			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: event-only membership must include the newly classified contract", input.LedgerSequence)
 		}
 	})
 
@@ -1744,5 +1779,93 @@ func TestProtocolMigrateEngine_FrontierGate(t *testing.T) {
 		case <-time.After(30 * time.Second):
 			t.Fatal("engine did not return after cancellation while gated")
 		}
+	})
+
+	t.Run("a window never outlives the frontier value that opened it", func(t *testing.T) {
+		// Live commits a ledger that classifies a new contract while the engine is
+		// mid-window. The crossing at that ledger must close the open window and
+		// re-read membership, so the engine folds the new frontier ledgers WITH the
+		// new contract — not off the stale window-start snapshot. Uses an event-only
+		// processor, so this also pins that membership refresh is not limited to
+		// ContractData-requiring trackers.
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		// Live has committed through 102 when the run starts.
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		// Membership: empty at the run-start load and at the first window's refresh;
+		// contract X exists from the refresh after the crossing onward (live's
+		// transaction for ledger 104 classified it).
+		contractX := data.ProtocolContracts{ContractID: "78787878"}
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Twice()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{contractX}, nil)
+
+		// During the fold of 102, "live" commits ledger 104 (classification of X +
+		// cursor together); during the fold of 104, live takes the protocol cursor
+		// so the run terminates via handoff at the next crossing.
+		processor := &testMidWindowClassificationProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceLiveAtSeq:       102,
+			liveCursorTarget:       104,
+			handoffAtSeq:           104,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
+			103: dummyLedgerMeta(103), 104: dummyLedgerMeta(104),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
+
+		// The crossing at 103 must have flushed [100,102] as its own window: the
+		// engine's committed cursor reached 102 there, and the window's persist ran
+		// (sentinel at the window end). Without the flush-at-crossing, 100-104 would
+		// have folded as one window whose CAS fails at the handoff — no sentinel at
+		// all — and 103-104 would have used the stale membership below.
+		val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+		require.True(t, ok, "the crossing at 103 should have flushed the open window [100,102]")
+		assert.Equal(t, uint32(102), val)
+		assert.Equal(t, []uint32{102}, processor.persistedHistorySeqs)
+
+		// Ledgers up to the crossing folded without X; the new window's refresh must
+		// deliver X to every ledger after it — the engine saw the classification that
+		// committed mid-window.
+		membershipByLedger := map[uint32][]data.ProtocolContracts{}
+		for _, in := range processor.processedInputs {
+			membershipByLedger[in.LedgerSequence] = in.ProtocolContracts
+		}
+		for _, seq := range []uint32{100, 101, 102} {
+			assert.Empty(t, membershipByLedger[seq], "ledger %d folded before X was classified", seq)
+		}
+		for _, seq := range []uint32{103, 104} {
+			require.Len(t, membershipByLedger[seq], 1, "ledger %d must fold with the refreshed membership", seq)
+			assert.Equal(t, contractX.ContractID, membershipByLedger[seq][0].ContractID)
+		}
+
+		// Handoff: live took 104's cursor mid-fold, so the [103,104] window's CAS
+		// failed and its persist was discarded.
+		_, ok = getHistorySentinel(t, ctx, dbPool, "testproto", 104)
+		assert.False(t, ok, "the handed-off window must not persist")
+		assert.Equal(t, uint32(104), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
 	})
 }
