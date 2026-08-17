@@ -239,6 +239,30 @@ models:
   ThresholdLevel:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.ThresholdLevel
+  BlendSupplyChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendSupplyChangeModel
+  BlendCollateralChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendCollateralChangeModel
+  BlendDebtChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendDebtChangeModel
+  BlendAuctionChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendAuctionChangeModel
+  BlendEmissionsClaimChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendEmissionsClaimChangeModel
+  BlendBackstopEmissionsClaimChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendBackstopEmissionsClaimChangeModel
+  BlendBackstopChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendBackstopChangeModel
+  BlendBackstopQueueChange:
+    model:
+      - github.com/stellar/wallet-backend/internal/indexer/types.BlendBackstopQueueChangeModel
   OperationType:
     model:
       - github.com/stellar/wallet-backend/internal/indexer/types.OperationType

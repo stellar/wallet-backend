@@ -208,7 +208,55 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 			return &types.BalanceAuthorizationChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
 		}
-	default: // category with no GraphQL representation yet (BLEND_*); falls through to the error below
+	case types.StateChangeCategoryBlendSupply:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonCredit, types.StateChangeReasonDebit:
+			return &types.BlendSupplyChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_SUPPLY; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendCollateral:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonCredit, types.StateChangeReasonDebit:
+			return &types.BlendCollateralChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_COLLATERAL; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendDebt:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonBorrow, types.StateChangeReasonRepay, types.StateChangeReasonFlashLoan,
+			types.StateChangeReasonBadDebt, types.StateChangeReasonBurn:
+			return &types.BlendDebtChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_DEBT; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendAuction:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonFill:
+			return &types.BlendAuctionChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_AUCTION; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendEmissions:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonClaim:
+			return &types.BlendEmissionsClaimChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_EMISSIONS; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendBackstopEmissions:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonClaim:
+			return &types.BlendBackstopEmissionsClaimChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_BACKSTOP_EMISSIONS; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendBackstop:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonCredit, types.StateChangeReasonDebit:
+			return &types.BlendBackstopChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_BACKSTOP; falls through to the error below
+		}
+	case types.StateChangeCategoryBlendBackstopQueue:
+		switch stateChange.StateChangeReason {
+		case types.StateChangeReasonAdd, types.StateChangeReasonRemove:
+			return &types.BlendBackstopQueueChangeModel{StateChange: stateChange}, nil
+		default: // invalid reason for BLEND_BACKSTOP_QUEUE; falls through to the error below
+		}
 	}
 	return nil, fmt.Errorf("state change (toID=%d, opID=%d, stateChangeID=%d) has no GraphQL type for (category=%s, reason=%s)",
 		stateChange.ToID, stateChange.OperationID, stateChange.StateChangeID, stateChange.StateChangeCategory, stateChange.StateChangeReason)
@@ -301,6 +349,10 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 			fieldName = "destinationAccountId"
 		case "spender":
 			fieldName = "spenderAccountId"
+		case "poolId", "auctionType", "fillPercent", "counterparty", "lot", "bid":
+			// Blend state-change fields derived from the key_value JSONB map, not
+			// dedicated columns (see internal/services/blend/processor.go:stageHistoryRow).
+			fieldName = "keyValue"
 		case "oldWeight":
 			dbColumns = append(dbColumns, "signer_weight_old")
 			continue

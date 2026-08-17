@@ -30,6 +30,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.ServerBaseURLOption(&cfg.ServerBaseURL),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.GraphQLIntrospectionEnabledOption(&cfg.GraphQLIntrospectionEnabled),
+		utils.BlendBackstopLPContractIDOption(&cfg.BlendBackstopLPContractID),
 		utils.AdminPortOption(&cfg.AdminPort),
 		{
 			Name:        "port",

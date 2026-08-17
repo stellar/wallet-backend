@@ -58,6 +58,22 @@ enum StateChangeCategory {
   TRUSTLINE
   """Asset authorization for a holder: BalanceAuthorizationChange."""
   BALANCE_AUTHORIZATION
+  """Blend v2 uncollateralized supply positions: BlendSupplyChange."""
+  BLEND_SUPPLY
+  """Blend v2 collateralized supply positions: BlendCollateralChange."""
+  BLEND_COLLATERAL
+  """Blend v2 debt positions: BlendDebtChange."""
+  BLEND_DEBT
+  """Blend v2 Dutch-auction fills: BlendAuctionChange."""
+  BLEND_AUCTION
+  """Blend v2 pool reserve emissions: BlendEmissionsClaimChange."""
+  BLEND_EMISSIONS
+  """Blend v2 backstop emissions: BlendBackstopEmissionsClaimChange."""
+  BLEND_BACKSTOP_EMISSIONS
+  """Blend v2 backstop deposits: BlendBackstopChange."""
+  BLEND_BACKSTOP
+  """Blend v2 backstop withdrawal queue entries: BlendBackstopQueueChange."""
+  BLEND_BACKSTOP_QUEUE
 }
 
 """
@@ -69,17 +85,17 @@ enum StateChangeReason {
   CREATE
   """ACCOUNT: account merged into another account."""
   MERGE
-  """BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation)."""
+  """BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position decreased."""
   DEBIT
-  """BALANCE: value entered the account (payment received)."""
+  """BALANCE: value entered the account (payment received); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position increased."""
   CREDIT
   """BALANCE: tokens minted to the account."""
   MINT
-  """BALANCE: tokens burned from the account (including clawbacks)."""
+  """BALANCE: tokens burned from the account (including clawbacks); BLEND_DEBT: defaulted debt written off (dTokens burnt)."""
   BURN
-  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry added."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry added; BLEND_BACKSTOP_QUEUE: withdrawal queued."""
   ADD
-  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed; BLEND_BACKSTOP_QUEUE: queued withdrawal cancelled."""
   REMOVE
   """SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
@@ -87,6 +103,18 @@ enum StateChangeReason {
   SET
   """FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed."""
   CLEAR
+  """BLEND_DEBT: underlying borrowed from the pool."""
+  BORROW
+  """BLEND_DEBT: underlying repaid to the pool."""
+  REPAY
+  """BLEND_DEBT: borrow repaid within the same transaction (fee retained by the pool)."""
+  FLASH_LOAN
+  """BLEND_DEBT: debt socialized to the backstop (dTokens transferred)."""
+  BAD_DEBT
+  """BLEND_AUCTION: a Dutch auction was (partially) filled."""
+  FILL
+  """BLEND_EMISSIONS or BLEND_BACKSTOP_EMISSIONS: accrued emissions claimed."""
+  CLAIM
 }
 
 """Which of an account's three signature thresholds a ThresholdChange refers to."""
@@ -141,4 +169,14 @@ enum AssetType {
   CREDIT_ALPHANUM4
   """Asset code of 5-12 characters."""
   CREDIT_ALPHANUM12
+}
+
+"""Which object a Blend v2 Dutch auction sells off."""
+enum BlendAuctionType {
+  """A user's collateral, sold to cover their debt."""
+  USER_LIQUIDATION
+  """Backstop LP tokens, sold to cover debt socialized to the backstop."""
+  BAD_DEBT
+  """Accrued pool interest, sold for backstop LP tokens."""
+  INTEREST
 }

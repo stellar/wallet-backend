@@ -33,7 +33,11 @@ type Pool struct {
 	MaxPositions     *int32
 	MinCollateral    *string
 	// Admin is stored as SQL NULL when empty, identically to OracleContractID.
-	Admin              types.AddressBytea
+	Admin types.AddressBytea
+	// InRewardZone mirrors blend_pools.in_reward_zone: membership in the
+	// backstop's reward zone (BLND emissions eligibility), maintained by
+	// SetRewardZone rather than BatchUpsert.
+	InRewardZone       bool
 	LastModifiedLedger uint32
 }
 
