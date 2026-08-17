@@ -98,6 +98,10 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // StateChangeOrdinalBase returns the SEP-41 state_change_id namespace base.
 func (p *processor) StateChangeOrdinalBase() int64 { return types.StateChangeOrdinalBaseSEP41 }
 
+// RequiresContractData reports false: SEP-41 folds contract events only and
+// never reads ProtocolProcessorInput.ContractDataChanges.
+func (p *processor) RequiresContractData() bool { return false }
+
 // ProcessLedger consumes contract events that the indexer (or
 // ExtractContractEventsForLedger in the migration path) has already
 // extracted into the buffer. The processor never touches LedgerCloseMeta —
