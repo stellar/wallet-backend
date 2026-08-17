@@ -11,6 +11,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -32,6 +33,44 @@ const (
 	advisoryUnlockTimeout = 10 * time.Second
 )
 
+// contractDataMemo lazily extracts ContractData changes from a ledger's
+// already-materialized transactions (from the processLedger staging pass) and
+// memoizes the result. Extraction is pure over (transactions, ledgerSeq), so
+// one memo shared across ingestProcessedDataWithRetry's attempts means the
+// extraction walk runs at most once per ledger — never inside a retried
+// attempt's open transaction — and only when a CAS-winning processor
+// requires it, so a protocol still backfilling costs nothing extra.
+type contractDataMemo struct {
+	transactions []ingest.LedgerTransaction
+	ledgerSeq    uint32
+	changes      map[string][]ingest.Change
+	extracted    bool
+}
+
+func newContractDataMemo(transactions []ingest.LedgerTransaction, ledgerSeq uint32) *contractDataMemo {
+	return &contractDataMemo{transactions: transactions, ledgerSeq: ledgerSeq}
+}
+
+// get returns the memoized extraction, running it on first use. A nil
+// receiver yields an empty result — callers with no materialized
+// transactions pass a nil memo, and a RequiresContractData processor must
+// still receive a non-nil (empty) ContractDataChanges map, same as an
+// extraction over zero transactions produces.
+func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
+	if c == nil {
+		return map[string][]ingest.Change{}, nil
+	}
+	if !c.extracted {
+		changes, err := indexer.ExtractContractDataChangesFromTransactions(c.transactions, c.ledgerSeq)
+		if err != nil {
+			return nil, fmt.Errorf("extracting contract data changes for ledger %d: %w", c.ledgerSeq, err)
+		}
+		c.changes = changes
+		c.extracted = true
+	}
+	return c.changes, nil
+}
+
 // persistLedgerData persists processed ledger data to the database in a single
 // atomic transaction. It handles: trustline assets, contract tokens, filtered
 // data insertion, token changes, and cursor update. plan is this ledger's
@@ -39,11 +78,15 @@ const (
 // transaction opens (RPC calls already resolved); pass the same plan across
 // ingestProcessedDataWithRetry's retry attempts so a retry never re-issues
 // RPC calls. plan may be nil when there was nothing to classify this ledger.
+// contractData carries the ledger's ContractData extraction memo; like plan,
+// the same memo is shared across retry attempts so a retry never re-runs the
+// extraction walk. It is nil exactly when ledgerMeta is.
 func (m *ingestService) persistLedgerData(
 	ctx context.Context,
 	ledgerSeq uint32,
 	ledgerMeta *xdr.LedgerCloseMeta,
 	plan *ClassificationPlan,
+	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
 	cursorName string,
 ) (int, int, error) {
@@ -75,9 +118,11 @@ func (m *ingestService) persistLedgerData(
 		// so any RPC calls (e.g. SEP-41 metadata) already happened;
 		// ApplyClassificationPlan only performs each validator's DB writes
 		// here, atomically with the classification verdict and wasm/contract
-		// rows below. Live protocol processors then stage ledger state from
-		// the classification result before the generic protocol_wasms /
-		// protocol_contracts rows are persisted below.
+		// rows below. Wasm rows are persisted next, then live protocol
+		// processors stage ledger state from the classification result, and
+		// the generic protocol_contracts rows are persisted after them so a
+		// processor's name-enriched row lands first (the generic insert's
+		// COALESCE preserves it).
 		bufferedWasms := buffer.GetProtocolWasms()
 		bufferedContracts := buffer.GetProtocolContracts()
 
@@ -92,6 +137,25 @@ func (m *ingestService) persistLedgerData(
 		}
 		if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
 			return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
+		}
+
+		// Persist this ledger's wasm rows BEFORE processors run: a processor
+		// enriching protocol_contracts (e.g. contract names decoded from
+		// instance storage) inserts rows that are FK-filtered against
+		// protocol_wasms, so a contract deployed in the same ledger as its
+		// wasm upload would otherwise be silently dropped.
+		if len(bufferedWasms) > 0 {
+			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
+			for hash, wasm := range bufferedWasms {
+				if pid, ok := classification[types.HashBytea(hash)]; ok {
+					stamped := pid
+					wasm.ProtocolID = &stamped
+				}
+				wasmSlice = append(wasmSlice, wasm)
+			}
+			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
+			}
 		}
 
 		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
@@ -117,6 +181,8 @@ func (m *ingestService) persistLedgerData(
 					return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
 				}
 			}
+
+			var contractDataChanges map[string][]ingest.Change
 
 			for protocolID, processor := range m.protocolProcessors {
 				// Only attempt the CAS for a cursor m.protocolCursors believes exists (see
@@ -146,17 +212,44 @@ func (m *ingestService) persistLedgerData(
 				if !historySwapped && !currentStateSwapped {
 					// Behind tip (value mismatch), not yet set up (both cursors known
 					// missing), or the value mismatch a live CAS returns when another
-					// process already owns this ledger: nothing to stage.
+					// process already owns this ledger: nothing to stage. Skipping is
+					// lossless: the migrate engine folds a ledger only after this
+					// cursor's transaction commits (its frontier gate), so a ledger
+					// lost here is folded later by a winner that sees every
+					// classification this transaction commits — including contracts
+					// classified this very ledger.
 					continue
 				}
 
-				contracts := getEffectiveProtocolContracts(protocolID, committedByProtocol[protocolID], bufferedContracts, classification)
+				committed := committedByProtocol[protocolID]
+				if processor.RequiresContractData() {
+					var cdErr error
+					contractDataChanges, cdErr = contractData.get()
+					if cdErr != nil {
+						return cdErr
+					}
+
+					// ContractData-driven processors need the protocol's FULL committed
+					// membership, not just this ledger's event emitters: entries can
+					// change on a contract that emitted no event this ledger, and event
+					// decoding may disambiguate against tracked contracts that appear
+					// only in another contract's topics. Protocols requiring contract
+					// data have bounded membership, so the per-ledger query stays cheap.
+					var fullErr error
+					committed, fullErr = m.models.ProtocolContracts.GetByProtocolID(ctx, dbTx, protocolID)
+					if fullErr != nil {
+						return fmt.Errorf("resolving full protocol contracts for ledger %d protocol %s: %w", ledgerSeq, protocolID, fullErr)
+					}
+				}
+
+				contracts := getEffectiveProtocolContracts(protocolID, committed, bufferedContracts, classification)
 				input := ProtocolProcessorInput{
-					LedgerSequence:    ledgerSeq,
-					LedgerCloseTime:   ledgerCloseTime,
-					ContractEvents:    contractEvents,
-					ProtocolContracts: contracts,
-					StagingMode:       StagingModeBoth,
+					LedgerSequence:      ledgerSeq,
+					LedgerCloseTime:     ledgerCloseTime,
+					ContractEvents:      contractEvents,
+					ProtocolContracts:   contracts,
+					StagingMode:         StagingModeBoth,
+					ContractDataChanges: contractDataChanges,
 				}
 				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
 				// re-stages cleanly; the processor is long-lived and accumulates across
@@ -188,19 +281,6 @@ func (m *ingestService) persistLedgerData(
 			}
 		}
 
-		if len(bufferedWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
-			for hash, wasm := range bufferedWasms {
-				if pid, ok := classification[types.HashBytea(hash)]; ok {
-					stamped := pid
-					wasm.ProtocolID = &stamped
-				}
-				wasmSlice = append(wasmSlice, wasm)
-			}
-			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
 		if len(contractSlice) > 0 {
 			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
 				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
@@ -446,7 +526,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		// Clearing here rather than after the persist keeps the reset unconditional: processLedger
 		// always starts from an empty buffer regardless of how the previous iteration ended.
 		buffer.Clear()
-		err := m.processLedger(ctx, ledgerMeta, buffer)
+		transactions, err := m.processLedger(ctx, ledgerMeta, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -467,7 +547,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, buffer)
+		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer)
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
@@ -664,14 +744,18 @@ func getEffectiveProtocolContracts(
 // ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
 // plan was computed once by the caller before this loop started and is reused
 // verbatim across every attempt, so a retried attempt never re-issues the
-// classification RPC calls plan already resolved.
+// classification RPC calls plan already resolved. The ContractData extraction
+// memo is likewise shared across attempts, so a retry never re-runs the
+// extraction walk over the ledger's transactions.
 func (m *ingestService) ingestProcessedDataWithRetry(
 	ctx context.Context,
 	currentLedger uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
 	plan *ClassificationPlan,
+	transactions []ingest.LedgerTransaction,
 	buffer *indexer.IndexerBuffer,
 ) (int, int, error) {
+	contractData := newContractDataMemo(transactions, currentLedger)
 	var lastErr error
 	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
 		select {
@@ -680,7 +764,7 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 		default:
 		}
 
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, buffer, data.LatestLedgerCursorName)
+		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, contractData, buffer, data.LatestLedgerCursorName)
 		if err == nil {
 			return numTxs, numOps, nil
 		}

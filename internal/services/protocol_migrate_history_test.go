@@ -66,7 +66,7 @@ func TestHistoryStrategySpecifics(t *testing.T) {
 	// Verify it calls UpdateHistoryMigrationStatus (not current state)
 	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 	backend := &multiLedgerBackend{
 		ledgers: map[uint32]xdr.LedgerCloseMeta{
