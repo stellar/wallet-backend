@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,22 +110,6 @@ func (b *transientErrorBackend) GetLedger(ctx context.Context, sequence uint32) 
 	return b.multiLedgerBackend.GetLedger(ctx, sequence)
 }
 
-// tipUnavailableBackend wraps multiLedgerBackend and fails GetLatestLedgerSequence a
-// configurable number of times (set latestLedgerFailsLeft to a large value to always fail).
-// With the tip read failing, flushWindowsAtTip leaves cachedTip stale (0), so it flushes on
-// every iteration — exercising the degradation to per-ledger commits (effective window 1).
-type tipUnavailableBackend struct {
-	multiLedgerBackend
-	latestLedgerFailsLeft atomic.Int32
-}
-
-func (b *tipUnavailableBackend) GetLatestLedgerSequence(ctx context.Context) (uint32, error) {
-	if b.latestLedgerFailsLeft.Add(-1) >= 0 {
-		return 0, fmt.Errorf("transient RPC error: latest ledger unavailable")
-	}
-	return b.multiLedgerBackend.GetLatestLedgerSequence(ctx)
-}
-
 func dummyLedgerMeta(seq uint32) xdr.LedgerCloseMeta {
 	return xdr.LedgerCloseMeta{
 		V: 0,
@@ -181,6 +166,7 @@ type testRecordingProcessor struct {
 	persistedCurrentStateSeqs []uint32
 	lastProcessed             uint32
 	resetCount                int
+	requiresContractData      bool
 }
 
 func (p *testRecordingProcessor) ProtocolID() string { return p.id }
@@ -188,6 +174,8 @@ func (p *testRecordingProcessor) ProtocolID() string { return p.id }
 func (p *testRecordingProcessor) StateChangeOrdinalBase() int64 {
 	return types.StateChangeOrdinalBaseSEP41
 }
+
+func (p *testRecordingProcessor) RequiresContractData() bool { return p.requiresContractData }
 
 func (p *testRecordingProcessor) Reset() { p.resetCount++ }
 
@@ -224,6 +212,39 @@ func (p *testCursorAdvancingProcessor) ProcessLedger(ctx context.Context, input 
 			strconv.FormatUint(uint64(p.advanceAtSeq+100), 10),
 			p.cursorNameFunc(p.id)); err != nil {
 			return fmt.Errorf("advancing cursor for test: %w", err)
+		}
+	}
+	return p.testRecordingProcessor.ProcessLedger(ctx, input)
+}
+
+// testMidWindowClassificationProcessor embeds testRecordingProcessor and
+// simulates live ingestion running concurrently with the engine's window: at
+// advanceLiveAtSeq it commits live's cursor to liveCursorTarget (standing in
+// for live's transaction that classifies a new contract and advances
+// latest_ingest_ledger together), and at handoffAtSeq it moves the protocol
+// cursor so the engine's next window CAS fails and the run terminates.
+type testMidWindowClassificationProcessor struct {
+	testRecordingProcessor
+	dbPool           *pgxpool.Pool
+	advanceLiveAtSeq uint32
+	liveCursorTarget uint32
+	handoffAtSeq     uint32
+}
+
+func (p *testMidWindowClassificationProcessor) ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error {
+	switch input.LedgerSequence {
+	case p.advanceLiveAtSeq:
+		if _, err := p.dbPool.Exec(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = 'latest_ingest_ledger'`,
+			strconv.FormatUint(uint64(p.liveCursorTarget), 10)); err != nil {
+			return fmt.Errorf("advancing live cursor for test: %w", err)
+		}
+	case p.handoffAtSeq:
+		if _, err := p.dbPool.Exec(ctx,
+			`UPDATE ingest_store SET value = $1 WHERE key = $2`,
+			strconv.FormatUint(uint64(p.handoffAtSeq), 10),
+			utils.ProtocolHistoryCursorName(p.id)); err != nil {
+			return fmt.Errorf("advancing protocol cursor for test: %w", err)
 		}
 	}
 	return p.testRecordingProcessor.ProcessLedger(ctx, input)
@@ -302,7 +323,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
 		backend := &multiLedgerBackend{
@@ -375,7 +396,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Maybe()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Maybe()
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -500,7 +521,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
 		backend := &multiLedgerBackend{
@@ -562,7 +583,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -621,9 +642,10 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
+		processorMock.On("RequiresContractData").Return(false)
 		processorMock.On("ProcessLedger", mock.Anything, mock.Anything).Return(fmt.Errorf("simulated ProcessLedger error"))
 
 		backend := &multiLedgerBackend{
@@ -665,9 +687,10 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processorMock.On("ProtocolID").Return("testproto")
+		processorMock.On("RequiresContractData").Return(false)
 		processorMock.On("ProcessLedger", mock.Anything, mock.Anything).Return(nil)
 		processorMock.On("PersistHistory", mock.Anything, mock.Anything).Return(fmt.Errorf("simulated PersistHistory error"))
 
@@ -717,7 +740,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// causes the run to fail, so the engine marks it as failed.
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{}}
 
@@ -778,8 +801,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -855,8 +878,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -935,8 +958,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1016,8 +1039,8 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		// proto2 should be marked failed (ProcessLedger error)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto2"}, data.StatusFailed).Return(nil)
 
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &multiLedgerBackend{
 			ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -1095,7 +1118,7 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		backend := &transientErrorBackend{
 			multiLedgerBackend: multiLedgerBackend{
@@ -1126,6 +1149,220 @@ func TestProtocolMigrateEngine(t *testing.T) {
 		assert.Equal(t, uint32(201), cursorVal)
 		assert.Equal(t, []uint32{100}, processor.persistedHistorySeqs)
 	})
+
+	t.Run("ContractDataChanges populated when a selected processor requires it", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('cdproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		// cdProc requires ContractData; noProc does not. Both use testCursorAdvancingProcessor
+		// to trigger CAS handoff on the last ledger, allowing the unbounded loop to terminate.
+		cdProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "cdproto", ingestStore: ingestStore, requiresContractData: true},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"cdproto", "noproto"}).Return([]data.Protocols{
+			{ID: "cdproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "noproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
+
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{cdProc, noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"cdproto", "noproto"})
+		require.NoError(t, err)
+
+		// The requiring processor sees a non-nil (extraction ran) map on every ledger it folded.
+		require.Len(t, cdProc.processedInputs, 2)
+		for _, input := range cdProc.processedInputs {
+			assert.NotNil(t, input.ContractDataChanges, "ledger %d: requiring processor must see non-nil ContractDataChanges", input.LedgerSequence)
+		}
+
+		// The map is computed once per ledger and shared across trackers, so the
+		// non-requiring processor also receives it (and is expected to ignore it).
+		require.Len(t, noProc.processedInputs, 2)
+		for _, input := range noProc.processedInputs {
+			assert.NotNil(t, input.ContractDataChanges, "ledger %d: shared map must also reach the non-requiring processor", input.LedgerSequence)
+		}
+	})
+
+	t.Run("ProtocolContracts membership refreshed at window start for requiring processors", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('cdproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+		_, err = dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		cdProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "cdproto", ingestStore: ingestStore, requiresContractData: true},
+			dbPool:                 dbPool,
+			advanceAtSeq:           102,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           102,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"cdproto", "noproto"}).Return([]data.Protocols{
+			{ID: "cdproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+			{ID: "noproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"cdproto", "noproto"}, data.StatusSuccess).Return(nil)
+
+		// Realistic 32-byte hex IDs (the BYTEA scan form): the footprint gate
+		// hex-decodes tracked contract IDs and fails the run on malformed ones.
+		contractA := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("aa", 32))}
+		contractB := data.ProtocolContracts{ContractID: types.HashBytea(strings.Repeat("bb", 32))}
+		// Every tracker's membership is re-read at the start of every window,
+		// after the window's first ledger has been fetched (WindowSize defaults
+		// to 1, so before every ledger's fold): the run-start snapshot returns
+		// only A, every window-start refresh returns A+B — simulating live
+		// ingestion classifying B between the snapshot and the first window.
+		// The event-only tracker refreshes on the same cadence: its processor
+		// filters events by membership, so a run-start-only snapshot would
+		// silently drop B's events for the rest of the run.
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "cdproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA}, nil).Once()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto").Return([]data.ProtocolContracts{contractA, contractB}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+				102: dummyLedgerMeta(102),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{cdProc, noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"cdproto", "noproto"})
+		require.NoError(t, err)
+
+		// Requiring processor: every ledger — including the first — folds with
+		// the refreshed membership, because the refresh runs at window start,
+		// BEFORE the window's first fold, not after the previous window's
+		// commit. A post-commit refresh would fold ledger 100 with the stale
+		// run-start snapshot (one contract), so these assertions pin the
+		// ordering that closes the frontier race with live's classification
+		// commit.
+		require.Len(t, cdProc.processedInputs, 3)
+		for _, input := range cdProc.processedInputs {
+			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: window-start membership must include the newly classified contract", input.LedgerSequence)
+		}
+
+		// Event-only processor: same window-start refresh cadence — every fold
+		// sees the newly classified contract too.
+		require.Len(t, noProc.processedInputs, 3)
+		for _, input := range noProc.processedInputs {
+			assert.Len(t, input.ProtocolContracts, 2, "ledger %d: event-only membership must include the newly classified contract", input.LedgerSequence)
+		}
+	})
+
+	t.Run("ContractDataChanges left nil when no selected processor requires it", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('noproto2', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		noProc := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "noproto2", ingestStore: ingestStore, requiresContractData: false},
+			dbPool:                 dbPool,
+			advanceAtSeq:           101,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"noproto2"}).Return([]data.Protocols{
+			{ID: "noproto2", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"noproto2"}, data.StatusSuccess).Return(nil)
+
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "noproto2").Return([]data.ProtocolContracts{}, nil)
+
+		backend := &multiLedgerBackend{
+			ledgers: map[uint32]xdr.LedgerCloseMeta{
+				100: dummyLedgerMeta(100),
+				101: dummyLedgerMeta(101),
+			},
+		}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{noProc},
+		})
+		require.NoError(t, err)
+
+		err = svc.Run(ctx, []string{"noproto2"})
+		require.NoError(t, err)
+
+		// No selected processor requires ContractData, so extraction never ran — the
+		// field must stay nil for every recorded input.
+		require.Len(t, noProc.processedInputs, 2)
+		for _, input := range noProc.processedInputs {
+			assert.Nil(t, input.ContractDataChanges, "ledger %d: extraction must be skipped", input.LedgerSequence)
+		}
+	})
 }
 
 func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
@@ -1146,7 +1383,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Advancing the cursor at 105 makes the second window's CAS fail -> handoff -> loop ends.
 		processor := &testCursorAdvancingProcessor{
@@ -1205,7 +1442,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		processor := &testCursorAdvancingProcessor{
 			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
@@ -1250,7 +1487,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		// GetLedger(102) blocks (102 never closes) -> ctx timeout -> run fails. No handoff
 		// happened (the partial window's CAS succeeded), so the active protocol is marked failed.
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Plain recording processor (no cursor advance): the partial window's CAS succeeds,
 		// so we observe a committed partial flush rather than a handoff.
@@ -1303,7 +1540,7 @@ func TestProtocolMigrateEngine_WindowedCoalescing(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 		// Hands off only on the 4th window (at 111); the first three windows commit cleanly.
 		processor := &testCursorAdvancingProcessor{
@@ -1370,8 +1607,8 @@ func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"proto1", "proto2"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto1").Return([]data.ProtocolContracts{}, nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "proto2").Return([]data.ProtocolContracts{}, nil)
 
 		// Both processors advance at 104 (last available ledger) so both hand off,
 		// terminating the loop via tip-shrink+handoff (WindowSize=10 never fills).
@@ -1414,12 +1651,148 @@ func TestProtocolMigrateEngine_HeterogeneousCursorResume(t *testing.T) {
 	})
 }
 
-func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
-	t.Run("GetLatestLedgerSequence error degrades to per-ledger commits (K=1)", func(t *testing.T) {
+func TestProtocolMigrateEngine_FrontierGate(t *testing.T) {
+	t.Run("gate flushes the open window, waits, and resumes when live's cursor advances", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
 
 		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		// Live has committed through 101: the engine may fold 100-101 but must gate at 102.
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		// Hand off at 103 (the fold hook bumps the cursor to 203, simulating live
+		// winning that ledger) so the run terminates after the gate releases.
+		processor := &testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           103,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		}
+
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102), 103: dummyLedgerMeta(103),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(ctx, []string{"testproto"}) }()
+
+		// The engine coalesces 100-101 into one open window (WindowSize 10), then gates
+		// at 102. The gate must flush that window before waiting: the sentinel for the
+		// window end (101) appearing while live's cursor still sits at 101 proves the
+		// flush-before-wait ordering.
+		require.Eventually(t, func() bool {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 101)
+			return ok
+		}, 10*time.Second, 50*time.Millisecond, "gate should flush the open window before waiting")
+		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 100)
+		assert.False(t, ok, "100 should have no per-ledger sentinel: it coalesced into the window flushed at 101")
+		assert.Equal(t, uint32(101), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"),
+			"the gate's flush should commit the cursor to the window end before waiting")
+
+		// Live advances past 103; the gate must release and the engine resume folding.
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 103)
+
+		select {
+		case runErr := <-done:
+			require.NoError(t, runErr)
+		case <-time.After(30 * time.Second):
+			t.Fatal("engine did not resume after live's cursor advanced past the gate")
+		}
+
+		// After resuming it folded 102-103; the fold hook at 103 moved the cursor to 203,
+		// so the [102,103] window's CAS failed -> handoff, window discarded.
+		_, ok = getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+		assert.False(t, ok, "sentinel for 102 should NOT exist (CAS failed -> handoff)")
+		assert.Equal(t, []uint32{101}, processor.persistedHistorySeqs)
+		assert.Equal(t, uint32(203), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+	})
+
+	t.Run("context cancellation while gated returns cleanly", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 101)
+
+		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
+		require.NoError(t, err)
+
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolContractsModel := data.NewProtocolContractsModelMock(t)
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
+		}, nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusFailed).Return(nil)
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+
+		processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101),
+		}}
+
+		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+			DB: dbPool, LedgerBackend: backend,
+			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors: []ProtocolProcessor{processor}, WindowSize: 10,
+		})
+		require.NoError(t, err)
+
+		runCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- svc.Run(runCtx, []string{"testproto"}) }()
+
+		// Wait until the engine is gated at 102 (its window flush at the gate is the signal),
+		// then cancel and require a prompt, descriptive error.
+		require.Eventually(t, func() bool {
+			_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 101)
+			return ok
+		}, 10*time.Second, 50*time.Millisecond, "engine should reach the gate and flush before waiting")
+		cancel()
+
+		select {
+		case runErr := <-done:
+			require.Error(t, runErr)
+			assert.ErrorContains(t, runErr, "gated on live ingestion's frontier at ledger 102")
+		case <-time.After(30 * time.Second):
+			t.Fatal("engine did not return after cancellation while gated")
+		}
+	})
+
+	t.Run("a window never outlives the frontier value that opened it", func(t *testing.T) {
+		// Live commits a ledger that classifies a new contract while the engine is
+		// mid-window. The crossing at that ledger must close the open window and
+		// re-read membership, so the engine folds the new frontier ledgers WITH the
+		// new contract — not off the stale window-start snapshot. Uses an event-only
+		// processor, so this also pins that membership refresh is not limited to
+		// ContractData-requiring trackers.
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, "oldest_ingest_ledger", 100)
+		// Live has committed through 102 when the run starts.
 		setIngestStoreValue(t, ctx, dbPool, "latest_ingest_ledger", 102)
 
 		_, err := dbPool.Exec(ctx, `INSERT INTO protocols (id, classification_status) VALUES ('testproto', 'success') ON CONFLICT (id) DO UPDATE SET classification_status = 'success'`)
@@ -1432,22 +1805,28 @@ func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
 		}, nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-		protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+		// Membership: empty at the run-start load and at the first window's refresh;
+		// contract X exists from the refresh after the crossing onward (live's
+		// transaction for ledger 104 classified it).
+		contractX := data.ProtocolContracts{ContractID: "78787878"}
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil).Twice()
+		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{contractX}, nil)
 
-		// Hand off at 102 so the loop terminates; WindowSize=10 would coalesce all three
-		// ledgers if the tip were readable.
-		processor := &testCursorAdvancingProcessor{
+		// During the fold of 102, "live" commits ledger 104 (classification of X +
+		// cursor together); during the fold of 104, live takes the protocol cursor
+		// so the run terminates via handoff at the next crossing.
+		processor := &testMidWindowClassificationProcessor{
 			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
 			dbPool:                 dbPool,
-			advanceAtSeq:           102,
-			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+			advanceLiveAtSeq:       102,
+			liveCursorTarget:       104,
+			handoffAtSeq:           104,
 		}
 
-		// Tip read always fails -> cachedTip stays 0 -> flushWindowsAtTip flushes every iteration.
-		backend := &tipUnavailableBackend{multiLedgerBackend: multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
+		backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
 			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
-		}}}
-		backend.latestLedgerFailsLeft.Store(1 << 30)
+			103: dummyLedgerMeta(103), 104: dummyLedgerMeta(104),
+		}}
 
 		svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
 			DB: dbPool, LedgerBackend: backend,
@@ -1458,17 +1837,35 @@ func TestProtocolMigrateEngine_TipUnavailable(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, svc.Run(ctx, []string{"testproto"}))
 
-		// Despite WindowSize=10, each ledger commits individually because the unreadable tip
-		// forces a flush every iteration. Per-ledger sentinels at 100 AND 101 prove K=1
-		// (with a working tip they would coalesce into one window and neither would exist).
-		for _, seq := range []uint32{100, 101} {
-			val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", seq)
-			require.True(t, ok, "per-ledger sentinel for %d should exist (K=1 degradation)", seq)
-			assert.Equal(t, seq, val)
+		// The crossing at 103 must have flushed [100,102] as its own window: the
+		// engine's committed cursor reached 102 there, and the window's persist ran
+		// (sentinel at the window end). Without the flush-at-crossing, 100-104 would
+		// have folded as one window whose CAS fails at the handoff — no sentinel at
+		// all — and 103-104 would have used the stale membership below.
+		val, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
+		require.True(t, ok, "the crossing at 103 should have flushed the open window [100,102]")
+		assert.Equal(t, uint32(102), val)
+		assert.Equal(t, []uint32{102}, processor.persistedHistorySeqs)
+
+		// Ledgers up to the crossing folded without X; the new window's refresh must
+		// deliver X to every ledger after it — the engine saw the classification that
+		// committed mid-window.
+		membershipByLedger := map[uint32][]data.ProtocolContracts{}
+		for _, in := range processor.processedInputs {
+			membershipByLedger[in.LedgerSequence] = in.ProtocolContracts
 		}
-		_, ok := getHistorySentinel(t, ctx, dbPool, "testproto", 102)
-		assert.False(t, ok, "sentinel for 102 should NOT exist (CAS failed -> handoff)")
-		assert.Equal(t, []uint32{100, 101}, processor.persistedHistorySeqs)
-		assert.Equal(t, uint32(202), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
+		for _, seq := range []uint32{100, 101, 102} {
+			assert.Empty(t, membershipByLedger[seq], "ledger %d folded before X was classified", seq)
+		}
+		for _, seq := range []uint32{103, 104} {
+			require.Len(t, membershipByLedger[seq], 1, "ledger %d must fold with the refreshed membership", seq)
+			assert.Equal(t, contractX.ContractID, membershipByLedger[seq][0].ContractID)
+		}
+
+		// Handoff: live took 104's cursor mid-fold, so the [103,104] window's CAS
+		// failed and its persist was discarded.
+		_, ok = getHistorySentinel(t, ctx, dbPool, "testproto", 104)
+		assert.False(t, ok, "the handed-off window must not persist")
+		assert.Equal(t, uint32(104), getIngestStoreValue(t, ctx, dbPool, "protocol_testproto_history_cursor"))
 	})
 }

@@ -26,7 +26,7 @@ type ProtocolContracts struct {
 // ProtocolContractsModelInterface defines the interface for protocol_contracts operations.
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
-	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
+	GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error)
 	BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
 	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
@@ -90,7 +90,9 @@ func (m *ProtocolContractsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, c
 }
 
 // GetByProtocolID returns all contracts associated with a protocol via protocol_wasms.
-func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+// The read runs on the given querier, so callers inside a transaction see their own
+// uncommitted writes instead of a separate pool connection's snapshot.
+func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error) {
 	const query = `
 		SELECT pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
 		FROM protocol_contracts pc
@@ -99,7 +101,7 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 	`
 
 	start := time.Now()
-	contracts, err := db.QueryMany[ProtocolContracts](ctx, m.DB, query, protocolID)
+	contracts, err := db.QueryMany[ProtocolContracts](ctx, q, query, protocolID)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByProtocolID", "protocol_contracts").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByProtocolID", "protocol_contracts").Inc()
