@@ -208,6 +208,7 @@ func convertStateChangeTypes(stateChange types.StateChange) (generated.BaseState
 			return &types.BalanceAuthorizationChangeModel{StateChange: stateChange}, nil
 		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
 		}
+	default: // category with no GraphQL representation yet (BLEND_*); falls through to the error below
 	}
 	return nil, fmt.Errorf("state change (toID=%d, opID=%d, stateChangeID=%d) has no GraphQL type for (category=%s, reason=%s)",
 		stateChange.ToID, stateChange.OperationID, stateChange.StateChangeID, stateChange.StateChangeCategory, stateChange.StateChangeReason)
