@@ -45,11 +45,6 @@ func (m *BalanceModelMock) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal B
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *BalanceModelMock) DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pairs []Balance, throughLedger uint32) (int64, error) {
-	args := m.Called(ctx, dbTx, pairs, throughLedger)
-	return args.Get(0).(int64), args.Error(1)
-}
-
 func (m *BalanceModelMock) ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error) {
 	args := m.Called(ctx, filterContract, filterAccount, after, limit)
 	if args.Get(0) == nil {

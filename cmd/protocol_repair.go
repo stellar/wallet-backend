@@ -174,7 +174,7 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 		return fmt.Errorf("building current-state repairers: %w", err)
 	}
 
-	service := services.NewProtocolCurrentStateRepairService(dbPool, models.IngestStore, models.Protocols, repairers, opts.concurrency)
+	service := services.NewProtocolCurrentStateRepairService(dbPool, models.Protocols, repairers, opts.concurrency)
 	scope := services.RepairScope{
 		ContractAddress: opts.contractAddress,
 		AccountAddress:  opts.accountAddress,

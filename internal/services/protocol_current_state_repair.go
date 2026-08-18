@@ -23,12 +23,6 @@ const (
 	// retry needs a fresh simulation; a unit hot enough to lose every attempt is
 	// logged and skipped rather than chased.
 	maxRepairAttempts = 5
-	// finalizeCursorPollInterval / finalizeCursorWait bound the wait for live
-	// ingestion's cursor to pass the run's highest truth ledger before Finalize
-	// removes zero barrier rows. With live down the wait times out and barriers are
-	// left in place (a later run's Finalize removes them).
-	finalizeCursorPollInterval = 2 * time.Second
-	finalizeCursorWait         = 5 * time.Minute
 )
 
 // RepairScope filters which units a repair run covers. Zero-valued fields are
@@ -52,8 +46,7 @@ type (
 // ProtocolCurrentStateRepair is the per-protocol seam the repair engine drives,
 // mirroring how the migration engine drives ProtocolProcessor. Implementations
 // own what a unit is, how its on-chain truth is read, and how that truth lands
-// in their tables; the engine owns iteration, concurrency, retries, and the
-// finalize barrier-cleanup ordering.
+// in their tables; the engine owns iteration, concurrency, and retries.
 type ProtocolCurrentStateRepair interface {
 	// ListUnits pages repair units in scope from the protocol's own tables.
 	// cursor is "" for the first page; a returned "" cursor ends iteration.
@@ -69,19 +62,13 @@ type ProtocolCurrentStateRepair interface {
 	// applied=false when the row has moved past ledger — the engine then
 	// refetches truth and retries.
 	Apply(ctx context.Context, dbTx pgx.Tx, unit RepairUnit, truth Truth, ledger uint32) (bool, error)
-	// Finalize runs once after all units, with live ingestion's cursor at or
-	// beyond every ledger this run wrote (so no stale fold delta remains in
-	// flight below it). SEP-41 uses it to delete the zero barrier rows the run
-	// left behind.
-	Finalize(ctx context.Context, dbTx pgx.Tx, liveCursor uint32) error
 }
 
 // currentStateRepairRegistry holds repairer factories keyed by protocol ID,
 // following the validator/processor registries: writes happen only from
 // per-protocol package init() functions, reads only after main() starts, so no
 // synchronization is needed (see validator_registry.go). Factories are invoked
-// per run — a repairer may carry per-run state (SEP-41 accumulates the zero
-// barrier rows it wrote for Finalize).
+// per run.
 var currentStateRepairRegistry = map[string]func(ProtocolDeps) ProtocolCurrentStateRepair{}
 
 // RegisterCurrentStateRepairer registers a repairer factory for a protocol ID.
@@ -111,12 +98,11 @@ func BuildCurrentStateRepairers(deps ProtocolDeps, protocolIDs []string) (map[st
 // repairStats accumulates a run's outcome counts. Mutex-guarded: units within a
 // page are repaired concurrently.
 type repairStats struct {
-	mu       sync.Mutex
-	checked  int
-	applied  int
-	skipped  int // FetchTruth failed (e.g. archived contract)
-	gaveUp   int // lost every apply attempt to concurrent fold writes
-	maxTruth uint32
+	mu      sync.Mutex
+	checked int
+	applied int
+	skipped int // FetchTruth failed (e.g. archived contract)
+	gaveUp  int // lost every apply attempt to concurrent fold writes
 }
 
 func (s *repairStats) record(fn func(*repairStats)) {
@@ -133,23 +119,17 @@ func (s *repairStats) record(fn func(*repairStats)) {
 // balances model for the guard).
 type protocolCurrentStateRepairService struct {
 	db             *pgxpool.Pool
-	ingestStore    *data.IngestStoreModel
 	protocolsModel data.ProtocolsModelInterface
 	repairers      map[string]ProtocolCurrentStateRepair
 	// concurrency bounds simultaneous FetchTruth/Apply pipelines within a page —
 	// effectively the RPC simulation parallelism.
 	concurrency int
-	// finalizeWait / finalizePoll bound the wait for live ingestion's cursor before
-	// Finalize. Defaulted in the constructor; overridable in tests.
-	finalizeWait time.Duration
-	finalizePoll time.Duration
 }
 
 // NewProtocolCurrentStateRepairService creates the repair engine. repairers maps
 // protocol ID to its ProtocolCurrentStateRepair implementation.
 func NewProtocolCurrentStateRepairService(
 	dbPool *pgxpool.Pool,
-	ingestStore *data.IngestStoreModel,
 	protocolsModel data.ProtocolsModelInterface,
 	repairers map[string]ProtocolCurrentStateRepair,
 	concurrency int,
@@ -159,12 +139,9 @@ func NewProtocolCurrentStateRepairService(
 	}
 	return &protocolCurrentStateRepairService{
 		db:             dbPool,
-		ingestStore:    ingestStore,
 		protocolsModel: protocolsModel,
 		repairers:      repairers,
 		concurrency:    concurrency,
-		finalizeWait:   finalizeCursorWait,
-		finalizePoll:   finalizeCursorPollInterval,
 	}
 }
 
@@ -208,10 +185,6 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 			break
 		}
 		cursor = nextCursor
-	}
-
-	if finalizeErr := s.finalize(ctx, repairer, stats); finalizeErr != nil {
-		return finalizeErr
 	}
 
 	log.Ctx(ctx).Infof(
@@ -277,12 +250,6 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 			stats.record(func(st *repairStats) { st.skipped++ })
 			return nil
 		}
-		stats.record(func(st *repairStats) {
-			if ledger > st.maxTruth {
-				st.maxTruth = ledger
-			}
-		})
-
 		var applied bool
 		// Single-row transaction: live ingestion upserts multi-row batches, and two
 		// multi-row writers with different key orders can deadlock.
@@ -305,49 +272,5 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 
 	log.Ctx(ctx).Warnf("giving up on repair unit %v after %d attempts: row kept moving past the truth ledger", unit, maxRepairAttempts)
 	stats.record(func(st *repairStats) { st.gaveUp++ })
-	return nil
-}
-
-// finalize waits for live ingestion's cursor to reach the run's highest truth
-// ledger — past it no fold delta at or below any repair write remains in flight —
-// then lets the repairer clean up (SEP-41: delete zero barrier rows). If the
-// cursor doesn't get there in time (live ingestion down or far behind), barriers
-// are left in place: they are correct rows, just not yet removable, and a later
-// run's Finalize sweeps them.
-func (s *protocolCurrentStateRepairService) finalize(ctx context.Context, repairer ProtocolCurrentStateRepair, stats *repairStats) error {
-	if stats.maxTruth == 0 {
-		return nil
-	}
-
-	deadline := time.Now().Add(s.finalizeWait)
-	var liveCursor uint32
-	for {
-		var err error
-		liveCursor, err = s.ingestStore.Get(ctx, data.LatestLedgerCursorName)
-		if err != nil {
-			return fmt.Errorf("reading live ingestion cursor before finalize: %w", err)
-		}
-		if liveCursor >= stats.maxTruth {
-			break
-		}
-		if time.Now().After(deadline) {
-			log.Ctx(ctx).Warnf(
-				"skipping repair finalize: live cursor %d has not reached the run's highest truth ledger %d after %s; zero barrier rows left for a later run",
-				liveCursor, stats.maxTruth, s.finalizeWait,
-			)
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context cancelled while waiting to finalize repair: %w", ctx.Err())
-		case <-time.After(s.finalizePoll):
-		}
-	}
-
-	if err := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		return repairer.Finalize(ctx, dbTx, liveCursor)
-	}); err != nil {
-		return fmt.Errorf("finalizing repair run: %w", err)
-	}
 	return nil
 }

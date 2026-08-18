@@ -1,7 +1,7 @@
 package integrationtests
 
-// SEP-41 current-state repair coverage. The repair engine's iteration,
-// retry and finalize-ordering mechanics are covered by unit tests
+// SEP-41 current-state repair coverage. The repair engine's iteration and
+// retry mechanics are covered by unit tests
 // (services.TestProtocolCurrentStateRepair*); this suite's unique value is
 // running the real engine against real corruption in a real database while
 // live ingestion keeps producing, so the two writers' guards
@@ -45,6 +45,7 @@ import (
 	// beyond that: the package's init() is what registers the SEP-41 repairer that
 	// services.BuildCurrentStateRepairers looks up below. Dropping the last direct
 	// reference would drop the import and turn that into a runtime failure.
+	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	sep41svc "github.com/stellar/wallet-backend/internal/services/sep41"
 )
 
@@ -179,7 +180,7 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	repairers, err := services.BuildCurrentStateRepairers(deps, []string{sep41ProtocolID})
 	s.Require().NoError(err)
 
-	repairService := services.NewProtocolCurrentStateRepairService(pool, models.IngestStore, models.Protocols, repairers, 4)
+	repairService := services.NewProtocolCurrentStateRepairService(pool, models.Protocols, repairers, 4)
 	s.Require().NoError(repairService.Run(ctx, sep41ProtocolID, services.RepairScope{ContractAddress: token}),
 		"repair run should succeed")
 
@@ -194,17 +195,18 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 		s.Assert().Equal(truth, repaired, "repaired row should equal the simulated balance()")
 	})
 
-	s.Run("phantom row is removed once the live cursor passes the repair ledger", func() {
-		// Repair wrote a zero barrier for the phantom pair, which Finalize deletes only
-		// after live ingestion's cursor reaches the run's highest truth ledger. That wait
-		// is bounded: on timeout finalize logs a warning and returns nil, leaving barriers
-		// for a later run — so a successful Run() does not by itself prove the sweep
-		// happened. The surviving balance disambiguates: "0" means finalize was skipped
-		// while waiting for the cursor, anything else means repair never corrected the row.
+	s.Run("phantom row becomes a permanent zero row hidden from readers", func() {
+		// Repair rewrites the fabricated row to the contract's answer (0) and keeps it:
+		// the row's ledger stamp is what the fold's strict-monotone guard checks stale
+		// deltas against, so zero rows are never deleted. Readers never see it —
+		// GetByAccount filters balance <> 0.
 		balance, ok := s.mustReadBalance(ctx, pool, phantomHolder, tokenUUID)
-		s.Assert().Falsef(ok,
-			"the fabricated row should be gone after repair finalized; found balance %q (0 = finalize skipped waiting on the live cursor, non-zero = repair did not correct it)",
-			balance)
+		s.Require().True(ok, "the zero row must persist as a stale-delta barrier")
+		s.Assert().Equal("0", balance, "the fabricated balance should have been rewritten to 0")
+
+		apiBalances, err := models.SEP41.Balances.GetByAccount(ctx, phantomHolder, nil, nil, sep41data.SortASC)
+		s.Require().NoError(err)
+		s.Assert().Empty(apiBalances, "readers must not see the zero row")
 	})
 
 	s.Run("correct rows are left alone", func() {

@@ -19,13 +19,12 @@ import (
 // Behavior is injected per test via function fields; call counts are recorded
 // under a mutex because the engine repairs units concurrently.
 type stubRepairer struct {
-	mu             sync.Mutex
-	pages          [][]RepairUnit
-	fetchTruth     func(unit RepairUnit, attempt int) (Truth, uint32, error)
-	apply          func(unit RepairUnit, attempt int) (bool, error)
-	fetchCalls     map[RepairUnit]int
-	applyCalls     map[RepairUnit]int
-	finalizeCursor *uint32
+	mu         sync.Mutex
+	pages      [][]RepairUnit
+	fetchTruth func(unit RepairUnit, attempt int) (Truth, uint32, error)
+	apply      func(unit RepairUnit, attempt int) (bool, error)
+	fetchCalls map[RepairUnit]int
+	applyCalls map[RepairUnit]int
 }
 
 func newStubRepairer(pages [][]RepairUnit) *stubRepairer {
@@ -69,27 +68,18 @@ func (r *stubRepairer) Apply(_ context.Context, _ pgx.Tx, unit RepairUnit, _ Tru
 	return r.apply(unit, attempt)
 }
 
-func (r *stubRepairer) Finalize(_ context.Context, _ pgx.Tx, liveCursor uint32) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.finalizeCursor = &liveCursor
-	return nil
-}
-
 func newRepairFixture(t *testing.T, repairer ProtocolCurrentStateRepair, protocol data.Protocols) (context.Context, *protocolCurrentStateRepairService) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	t.Cleanup(cancel)
-	dbPool, ingestStore := setupTestDB(t)
+	dbPool, _ := setupTestDB(t)
 
 	protocolsModel := data.NewProtocolsModelMock(t)
 	if protocol.ID != "" {
 		protocolsModel.On("GetByIDs", ctx, []string{protocol.ID}).Return([]data.Protocols{protocol}, nil)
 	}
 
-	svc := NewProtocolCurrentStateRepairService(dbPool, ingestStore, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, 4)
-	svc.finalizeWait = 200 * time.Millisecond
-	svc.finalizePoll = 20 * time.Millisecond
+	svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, 4)
 	return ctx, svc
 }
 
@@ -114,18 +104,15 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		assert.Empty(t, repairer.fetchCalls)
 	})
 
-	t.Run("repairs all units across pages and finalizes at the live cursor", func(t *testing.T) {
+	t.Run("repairs all units across pages", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"u1", "u2"}, {"u3"}})
 		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
 		repairer.apply = func(RepairUnit, int) (bool, error) { return true, nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
-		setIngestStoreValue(t, ctx, svc.db, data.LatestLedgerCursorName, 60)
 
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
 		assert.Len(t, repairer.applyCalls, 3)
-		require.NotNil(t, repairer.finalizeCursor, "finalize must run once the cursor passed the max truth ledger")
-		assert.Equal(t, uint32(60), *repairer.finalizeCursor)
 	})
 
 	t.Run("retries with fresh truth when apply loses the race", func(t *testing.T) {
@@ -134,8 +121,6 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		repairer.apply = func(_ RepairUnit, attempt int) (bool, error) { return attempt >= 3, nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
-		setIngestStoreValue(t, ctx, svc.db, data.LatestLedgerCursorName, 100)
-
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
 		assert.Equal(t, 3, repairer.fetchCalls["u1"], "each retry must refetch truth")
 		assert.Equal(t, 3, repairer.applyCalls["u1"])
@@ -147,8 +132,6 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		repairer.apply = func(unit RepairUnit, _ int) (bool, error) { return unit == RepairUnit("ok"), nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
-		setIngestStoreValue(t, ctx, svc.db, data.LatestLedgerCursorName, 100)
-
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
 		assert.Equal(t, maxRepairAttempts, repairer.applyCalls["hot"])
 		assert.Equal(t, 1, repairer.applyCalls["ok"])
@@ -165,8 +148,6 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		repairer.apply = func(RepairUnit, int) (bool, error) { return true, nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
-		setIngestStoreValue(t, ctx, svc.db, data.LatestLedgerCursorName, 100)
-
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
 		assert.Zero(t, repairer.applyCalls["archived"])
 		assert.Equal(t, 1, repairer.applyCalls["ok"])
@@ -181,17 +162,5 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		err := svc.Run(ctx, "testproto", RepairScope{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "db exploded")
-	})
-
-	t.Run("leaves barriers in place when the live cursor never reaches the truth ledger", func(t *testing.T) {
-		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
-		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "0", 500, nil }
-		repairer.apply = func(RepairUnit, int) (bool, error) { return true, nil }
-
-		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
-		setIngestStoreValue(t, ctx, svc.db, data.LatestLedgerCursorName, 100) // stays below 500
-
-		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
-		assert.Nil(t, repairer.finalizeCursor, "finalize must be skipped when the cursor wait times out")
 	})
 }

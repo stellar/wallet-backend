@@ -9,11 +9,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
@@ -33,15 +31,10 @@ func (u repairUnit) String() string {
 	return fmt.Sprintf("%s balance of %s", u.tokenAddress, u.holder)
 }
 
-// repairer implements services.ProtocolCurrentStateRepair for SEP-41. It is
-// per-run stateful: Apply accumulates the zero barrier rows it wrote so
-// Finalize can delete them once live ingestion has passed their ledgers.
+// repairer implements services.ProtocolCurrentStateRepair for SEP-41.
 type repairer struct {
 	reader   *BalanceReader
 	balances sep41data.BalanceModelInterface
-
-	mu        sync.Mutex
-	zeroPairs []sep41data.Balance
 }
 
 var _ services.ProtocolCurrentStateRepair = (*repairer)(nil)
@@ -98,8 +91,9 @@ func (r *repairer) FetchTruth(ctx context.Context, unit services.RepairUnit) (se
 	return value, ledger, nil
 }
 
-// Apply conditionally writes the simulated balance. Zero values land as barrier
-// rows and are remembered for Finalize.
+// Apply conditionally writes the simulated balance. Zero values are stored as
+// permanent zero rows — their ledger stamp keeps guarding against stale fold
+// deltas, and GetByAccount hides them from readers.
 func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairUnit, truth services.Truth, ledger uint32) (bool, error) {
 	u, ok := unit.(repairUnit)
 	if !ok {
@@ -120,30 +114,7 @@ func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairU
 	if err != nil {
 		return false, fmt.Errorf("writing repaired balance for %s: %w", u, err)
 	}
-	if applied && value == "0" {
-		r.mu.Lock()
-		r.zeroPairs = append(r.zeroPairs, bal)
-		r.mu.Unlock()
-	}
 	return applied, nil
-}
-
-// Finalize deletes the zero barrier rows this run wrote. The engine calls it
-// only once live ingestion's cursor is at or beyond every ledger the run wrote,
-// so no stale fold delta can resurrect a deleted pair.
-func (r *repairer) Finalize(ctx context.Context, dbTx pgx.Tx, liveCursor uint32) error {
-	r.mu.Lock()
-	pairs := r.zeroPairs
-	r.mu.Unlock()
-	if len(pairs) == 0 {
-		return nil
-	}
-	deleted, err := r.balances.DeleteZeroRows(ctx, dbTx, pairs, liveCursor)
-	if err != nil {
-		return fmt.Errorf("deleting SEP-41 zero barrier rows: %w", err)
-	}
-	log.Ctx(ctx).Infof("SEP-41 repair finalize: deleted %d zero-balance rows (of %d written)", deleted, len(pairs))
-	return nil
 }
 
 // encodePairCursor / decodePairCursor round-trip the keyset position through the

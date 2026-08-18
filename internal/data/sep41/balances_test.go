@@ -251,11 +251,9 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 			}}))
 		})
 
-		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
-		require.NoError(t, err)
-		require.Len(t, balances, 1, "zero barrier row must survive stale deltas")
-		assert.Equal(t, "0", balances[0].Balance)
-		assert.Equal(t, uint32(200), balances[0].LedgerNumber)
+		barrierBalance, barrierLedger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "0", barrierBalance, "zero barrier row must survive stale deltas")
+		assert.Equal(t, uint32(200), barrierLedger)
 
 		// A newer delta folds on the barrier and moves the stamp.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
@@ -263,7 +261,7 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "70", LedgerNumber: 201,
 			}}))
 		})
-		balances, err = m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
 		require.Len(t, balances, 1)
 		assert.Equal(t, "70", balances[0].Balance)
@@ -353,7 +351,7 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 		assert.Equal(t, uint32(600), balances[0].LedgerNumber)
 	})
 
-	t.Run("stores zero as a barrier row instead of deleting", func(t *testing.T) {
+	t.Run("stores zero as a permanent row hidden from readers", func(t *testing.T) {
 		acct := keypair.MustRandom().Address()
 		cid := insertContractToken(t, ctx, pool, contract)
 
@@ -371,12 +369,29 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 			assert.True(t, applied)
 		})
 
+		rawBalance, rawLedger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "0", rawBalance, "the zero row must persist as a stale-delta barrier")
+		assert.Equal(t, uint32(750), rawLedger)
+
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
-		require.Len(t, balances, 1, "zero must remain as a barrier row until DeleteZeroRows")
-		assert.Equal(t, "0", balances[0].Balance)
-		assert.Equal(t, uint32(750), balances[0].LedgerNumber)
+		assert.Empty(t, balances, "GetByAccount must hide zero rows from readers")
 	})
+}
+
+// readRawBalance reads a row straight from the table, bypassing GetByAccount's
+// zero-row filter, and fails the test if the row does not exist.
+func readRawBalance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, acct string, cid uuid.UUID) (string, uint32) {
+	t.Helper()
+	raw, err := types.AddressBytea(acct).Value()
+	require.NoError(t, err)
+	var balance string
+	var ledger uint32
+	err = pool.QueryRow(ctx,
+		`SELECT balance::text, last_modified_ledger FROM sep41_balances WHERE account_id = $1 AND contract_id = $2`,
+		raw, cid).Scan(&balance, &ledger)
+	require.NoError(t, err)
+	return balance, ledger
 }
 
 func TestBalanceModel_ListPairs(t *testing.T) {
@@ -428,57 +443,5 @@ func TestBalanceModel_ListPairs(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, byAccount, 1)
 		assert.Equal(t, contract1, byAccount[0].TokenID)
-	})
-}
-
-func TestBalanceModel_DeleteZeroRows(t *testing.T) {
-	ctx, pool, m, cleanup := newBalancesFixture(t)
-	defer cleanup()
-
-	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
-	cid := insertContractToken(t, ctx, pool, contract)
-
-	acctSwept := keypair.MustRandom().Address()
-	acctAhead := keypair.MustRandom().Address()
-	acctNonZero := keypair.MustRandom().Address()
-
-	seed := func(acct, balance string, ledger uint32) {
-		runInTx(t, ctx, pool, func(tx pgx.Tx) {
-			applied, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
-				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: balance, LedgerNumber: ledger,
-			})
-			require.NoError(t, err)
-			require.True(t, applied)
-		})
-	}
-	seed(acctSwept, "0", 100)   // barrier at/below the cursor: swept
-	seed(acctAhead, "0", 300)   // barrier above the cursor: kept
-	seed(acctNonZero, "7", 100) // non-zero: kept
-
-	pairs := []sep41.Balance{
-		{AccountID: types.AddressBytea(acctSwept), ContractID: cid},
-		{AccountID: types.AddressBytea(acctAhead), ContractID: cid},
-		{AccountID: types.AddressBytea(acctNonZero), ContractID: cid},
-	}
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		deleted, err := m.DeleteZeroRows(ctx, tx, pairs, 200)
-		require.NoError(t, err)
-		assert.Equal(t, int64(1), deleted)
-	})
-
-	swept, err := m.GetByAccount(ctx, acctSwept, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	assert.Empty(t, swept)
-	ahead, err := m.GetByAccount(ctx, acctAhead, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	assert.Len(t, ahead, 1)
-	nonZero, err := m.GetByAccount(ctx, acctNonZero, nil, nil, sep41.SortASC)
-	require.NoError(t, err)
-	assert.Len(t, nonZero, 1)
-
-	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		deleted, err := m.DeleteZeroRows(ctx, tx, nil, 200)
-		require.NoError(t, err)
-		assert.Zero(t, deleted)
 	})
 }

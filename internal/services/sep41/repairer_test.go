@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -68,12 +67,12 @@ func TestRepairerListUnits(t *testing.T) {
 	})
 }
 
-func TestRepairerApplyAndFinalize(t *testing.T) {
+func TestRepairerApply(t *testing.T) {
 	ctx := context.Background()
 	cid := data.DeterministicContractID(testContractA)
 	unit := repairUnit{holder: testAccountA, tokenAddress: testContractA, tokenUUID: cid}
 
-	t.Run("applies truth and remembers only applied zero rows for finalize", func(t *testing.T) {
+	t.Run("applies truth, including zero values, via the conditional write", func(t *testing.T) {
 		balances := sep41data.NewBalanceModelMock(t)
 		r := &repairer{balances: balances}
 
@@ -83,28 +82,19 @@ func TestRepairerApplyAndFinalize(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, applied)
 
+		// Zero is written like any other value — the row persists as a stale-delta
+		// barrier and GetByAccount hides it from readers.
 		zero := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "0", LedgerNumber: 101}
 		balances.On("ApplyAbsolute", ctx, nil, zero).Return(true, nil).Once()
 		applied, err = r.Apply(ctx, nil, unit, "0", 101)
 		require.NoError(t, err)
 		assert.True(t, applied)
 
-		// A zero that loses the conditional write must NOT be remembered.
-		lostZero := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "0", LedgerNumber: 99}
-		balances.On("ApplyAbsolute", ctx, nil, lostZero).Return(false, nil).Once()
+		lost := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "0", LedgerNumber: 99}
+		balances.On("ApplyAbsolute", ctx, nil, lost).Return(false, nil).Once()
 		applied, err = r.Apply(ctx, nil, unit, "0", 99)
 		require.NoError(t, err)
-		assert.False(t, applied)
-
-		balances.On("DeleteZeroRows", ctx, nil, []sep41data.Balance{zero}, uint32(200)).Return(int64(1), nil).Once()
-		require.NoError(t, r.Finalize(ctx, nil, 200))
-	})
-
-	t.Run("finalize without zero rows makes no delete call", func(t *testing.T) {
-		balances := sep41data.NewBalanceModelMock(t)
-		r := &repairer{balances: balances}
-		require.NoError(t, r.Finalize(ctx, nil, 200))
-		balances.AssertNotCalled(t, "DeleteZeroRows", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		assert.False(t, applied, "a lost conditional write must be reported for retry")
 	})
 
 	t.Run("rejects foreign unit and truth types", func(t *testing.T) {
