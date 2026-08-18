@@ -279,7 +279,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 	log.Ctx(ctx).Infof("✅ Deployed holder contract at: %s", s.holderContractAddress)
 
 	// Create SEP-41 Balance for G-Address
-	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.balanceTestAccount1KeyPair.Address(), TestSEP41MintStroops)
+	s.MintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.balanceTestAccount1KeyPair.Address(), TestSEP41MintStroops)
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to %s", s.balanceTestAccount1KeyPair.Address())
 
 	// Create SAC Balance for C-Address
@@ -287,7 +287,7 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", s.holderContractAddress)
 
 	// Create SEP-41 Balance for C-Address
-	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.holderContractAddress, TestSEP41MintStroops)
+	s.MintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.holderContractAddress, TestSEP41MintStroops)
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", s.holderContractAddress)
 
 	// Wait for the contracts to be present in latest checkpoint

@@ -90,6 +90,19 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("AccountBalancesAfterLiveIngestionTestSuite failed, skipping remaining tests")
 	}
 
+	// Current-state repair — runs after the balance suites above have asserted the
+	// migrated SEP-41 fixture balances, because it corrupts, repairs and then
+	// deliberately moves them.
+	t.Run("CurrentStateRepairTestSuite", func(t *testing.T) {
+		suite.Run(t, &CurrentStateRepairTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
+	if t.Failed() {
+		t.Fatal("CurrentStateRepairTestSuite failed, skipping remaining tests")
+	}
+
 	// Phase 4: Blend v2 — deploy the protocol stack and run phase-1 ops under live
 	// ingestion, migrate (current-state + history) via the datastore, then run
 	// phase-2 ops under live ingestion and assert over GraphQL.

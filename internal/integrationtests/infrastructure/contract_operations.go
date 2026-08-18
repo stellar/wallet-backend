@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mintSEP41Tokens invokes the mint function on a SEP-41 token contract to create new tokens.
+// MintSEP41Tokens invokes the mint function on a SEP-41 token contract to create new tokens.
 // This is typically called by the contract admin to issue tokens to an address.
 //
 // The mint function signature: mint(to: Address, amount: i128)
@@ -28,7 +28,7 @@ import (
 //   - tokenContractAddress: The contract address of the SEP-41 token (C...)
 //   - toAddress: Recipient address (can be G... for accounts or C... for contracts)
 //   - amount: Amount to mint in stroops/base units (e.g., 5000000000 = 500 tokens with 7 decimals)
-func (s *SharedContainers) mintSEP41Tokens(ctx context.Context, t *testing.T, tokenContractAddress, toAddress string, amount int64) {
+func (s *SharedContainers) MintSEP41Tokens(ctx context.Context, t *testing.T, tokenContractAddress, toAddress string, amount int64) {
 	// Decode token contract address to get contract ID
 	tokenContractID, err := strkey.Decode(strkey.VersionByteContract, tokenContractAddress)
 	require.NoError(t, err, "failed to decode token contract address")
