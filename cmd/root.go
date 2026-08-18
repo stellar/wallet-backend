@@ -51,4 +51,5 @@ func SetupCLI(cfg RootConfig) {
 	rootCmd.AddCommand((&migrateCmd{}).Command())
 	rootCmd.AddCommand((&protocolSetupCmd{}).Command())
 	rootCmd.AddCommand((&protocolMigrateCmd{}).Command())
+	rootCmd.AddCommand((&reconcileCmd{}).Command())
 }
