@@ -281,7 +281,7 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 		assert.Len(t, buffer.GetLiquidityPoolChanges(), 1)
 	})
 
-	t.Run("🟢 LP ADD→REMOVE across folded results nets to nothing (tombstone)", func(t *testing.T) {
+	t.Run("🟢 LP ADD→REMOVE across folded results keeps the REMOVE", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 
@@ -299,16 +299,23 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 		buffer.IngestTransactionResult(add)
 		buffer.IngestTransactionResult(remove)
 
-		assert.Len(t, buffer.GetLiquidityPoolShareChanges(), 0)
-		assert.Len(t, buffer.GetLiquidityPoolChanges(), 0)
+		// The trailing REMOVE (highest OperationID) survives as a delete rather than netting to
+		// nothing, so a pool-share/pool row persisted by an earlier ledger is cleaned up.
+		shareChanges := buffer.GetLiquidityPoolShareChanges()
+		require.Len(t, shareChanges, 1)
+		assert.Equal(t, types.LiquidityPoolShareOpRemove, shareChanges[LiquidityPoolShareChangeKey{AccountID: "alice", PoolID: "pool1"}].Operation)
+		poolChanges := buffer.GetLiquidityPoolChanges()
+		require.Len(t, poolChanges, 1)
+		assert.Equal(t, types.LiquidityPoolOpRemove, poolChanges["pool1"].Operation)
 	})
 
-	t.Run("🟢 dedups across multiple folded results (CREATE→REMOVE tombstone)", func(t *testing.T) {
+	t.Run("🟢 dedups across multiple folded results (CREATE→REMOVE keeps the REMOVE)", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
 
 		// One result creates the account, a later result removes it within the same ledger. Folded
-		// through the same buffer, the CREATE→REMOVE nets to nothing (see pushWithTombstone).
+		// through the same buffer, the highest-order change (the REMOVE) wins and persists as a
+		// delete (see pushHighestOrder).
 		create := &TransactionResult{
 			Transaction:    &tx,
 			AccountChanges: []types.AccountChange{{AccountID: "GACCT", SortKey: 1, Operation: types.AccountOpCreate, Balance: 100}},
@@ -321,7 +328,9 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 		buffer.IngestTransactionResult(create)
 		buffer.IngestTransactionResult(remove)
 
-		assert.Len(t, buffer.GetAccountChanges(), 0)
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.AccountOpRemove, changes["GACCT"].Operation)
 	})
 }
 
@@ -386,7 +395,7 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		assert.Equal(t, int64(200), changes[key].OperationID)
 	})
 
-	t.Run("🟢 handles ADD→REMOVE no-op case", func(t *testing.T) {
+	t.Run("🟢 ADD→REMOVE keeps the REMOVE", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 
 		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
@@ -410,9 +419,11 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		buffer.PushSACBalanceChange(addChange)
 		buffer.PushSACBalanceChange(removeChange)
 
-		// ADD→REMOVE in same batch is a no-op - entry should be removed
+		// ADD→REMOVE in the same batch keeps the trailing REMOVE as a delete, so a row persisted by
+		// an earlier ledger is cleaned up rather than left stale.
 		changes := buffer.GetSACBalanceChanges()
-		assert.Len(t, changes, 0)
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.SACBalanceOpRemove, changes[SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}].Operation)
 	})
 
 	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
@@ -478,25 +489,27 @@ func TestIndexerBuffer_PushSACBalanceChange(t *testing.T) {
 		assert.Equal(t, "300", result[key3].Balance)
 	})
 
-	t.Run("🟢 tombstone blocks lower-key resurrection after ADD→REMOVE", func(t *testing.T) {
+	t.Run("🟢 ADD→REMOVE keeps the REMOVE and a lower-key change cannot resurrect it", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: 100})
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "0", Operation: types.SACBalanceOpRemove, OperationID: 200})
-		// A lower-OperationID change afterward must NOT re-insert the removed balance.
+		// A lower-OperationID change afterward must NOT displace the REMOVE.
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "50", Operation: types.SACBalanceOpUpdate, OperationID: 50})
 
-		assert.Len(t, buffer.GetSACBalanceChanges(), 0)
+		changes := buffer.GetSACBalanceChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.SACBalanceOpRemove, changes[SACBalanceChangeKey{AccountID: accountID, ContractID: contractID}].Operation)
 	})
 
-	t.Run("🟢 higher-key change re-adds a tombstoned SAC balance", func(t *testing.T) {
+	t.Run("🟢 higher-key change re-adds a removed SAC balance", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		accountID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 		contractID := "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP"
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "100", Operation: types.SACBalanceOpAdd, OperationID: 100})
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "0", Operation: types.SACBalanceOpRemove, OperationID: 200})
-		// A genuine later re-add (higher OperationID) lifts the tombstone and wins.
+		// A genuine later re-add (higher OperationID) wins over the REMOVE.
 		buffer.PushSACBalanceChange(types.SACBalanceChange{AccountID: accountID, ContractID: contractID, Balance: "700", Operation: types.SACBalanceOpAdd, OperationID: 300})
 
 		changes := buffer.GetSACBalanceChanges()
@@ -619,12 +632,15 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, int64(200), changes[accountChangeAddr].Balance)
 	})
 
-	t.Run("🟢 handles CREATE→REMOVE no-op case", func(t *testing.T) {
+	t.Run("🟢 CREATE→REMOVE keeps the REMOVE", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
 
-		assert.Len(t, buffer.GetAccountChanges(), 0)
+		// The trailing REMOVE (highest key) survives as a delete rather than netting to nothing.
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.AccountOpRemove, changes[accountChangeAddr].Operation)
 	})
 
 	t.Run("🟢 UPDATE→REMOVE is NOT a no-op", func(t *testing.T) {
@@ -723,22 +739,24 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, int64(300), changes[accountChangeAddr].Balance)
 	})
 
-	t.Run("🟢 tombstone blocks lower-key resurrection after CREATE→REMOVE", func(t *testing.T) {
+	t.Run("🟢 CREATE→REMOVE keeps the REMOVE and a lower-key change cannot resurrect it", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		// Account created then merged within the ledger's operations → nets to nothing.
+		// Account created then merged within the ledger's operations → the REMOVE (highest key) wins.
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
-		// A lower-key change arriving afterward must NOT re-insert the removed account.
+		// A lower-key change arriving afterward must NOT displace the REMOVE.
 		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
 
-		assert.Len(t, buffer.GetAccountChanges(), 0)
+		changes := buffer.GetAccountChanges()
+		require.Len(t, changes, 1)
+		assert.Equal(t, types.AccountOpRemove, changes[accountChangeAddr].Operation)
 	})
 
-	t.Run("🟢 higher-key change re-creates a tombstoned account", func(t *testing.T) {
+	t.Run("🟢 higher-key change re-creates a removed account", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
-		// A genuine later re-creation (higher key) lifts the tombstone and wins.
+		// A genuine later re-creation (higher key) wins over the REMOVE.
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 5, 1), 700, types.AccountOpCreate))
 
 		changes := buffer.GetAccountChanges()
@@ -747,19 +765,19 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 		assert.Equal(t, types.AccountOpCreate, changes[accountChangeAddr].Operation)
 	})
 
-	t.Run("🟢 Clear drops tombstones so the next ledger's lower-key change is not suppressed", func(t *testing.T) {
+	t.Run("🟢 Clear resets change maps so the next ledger's lower-key change is not suppressed", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
-		// Ledger N: created then merged within the ledger's operations → nets to nothing, leaving a
-		// tombstone at the remove's key.
+		// Ledger N: created then merged within the ledger's operations → the REMOVE (highest key) wins
+		// and is retained as a delete.
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 1), 100, types.AccountOpCreate))
 		buffer.PushAccountChange(accountChange(accountRank(rankOp, 1, 2), 0, types.AccountOpRemove))
-		require.Empty(t, buffer.GetAccountChanges())
+		require.Len(t, buffer.GetAccountChanges(), 1)
 
 		buffer.Clear()
 
 		// Ledger N+1 through the same reused buffer (both ingestion paths do this — see Clear). Sort
 		// keys carry no ledger term, so this fee change ranks BELOW the previous ledger's remove; it
-		// must still land. A tombstone surviving Clear would silently drop a real balance.
+		// must still land. A change-map entry surviving Clear would silently drop a real balance.
 		buffer.PushAccountChange(accountChange(accountRank(rankFee, 1, 0), 999, types.AccountOpUpdate))
 
 		changes := buffer.GetAccountChanges()
@@ -768,7 +786,7 @@ func TestIndexerBuffer_PushAccountChange(t *testing.T) {
 	})
 }
 
-func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
+func TestIndexerBuffer_TrustlineHighestOrderWins(t *testing.T) {
 	const asset = "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	trustline := func(opID, balance int64, op types.TrustlineOpType) types.TrustlineChange {
 		return types.TrustlineChange{
@@ -780,21 +798,42 @@ func TestIndexerBuffer_TrustlineTombstone(t *testing.T) {
 		}
 	}
 
-	t.Run("🟢 tombstone blocks lower-key resurrection after ADD→REMOVE", func(t *testing.T) {
+	t.Run("🟢 ADD→REMOVE keeps the REMOVE and a lower-key change cannot resurrect it", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		buffer.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
 		buffer.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
-		// A lower-OperationID change afterward must NOT re-insert the removed trustline.
+		// A lower-OperationID change afterward must NOT displace the REMOVE.
 		buffer.PushTrustlineChange(trustline(50, 500, types.TrustlineOpUpdate))
 
-		assert.Len(t, buffer.GetTrustlineChanges(), 0)
+		changes := buffer.GetTrustlineChanges()
+		require.Len(t, changes, 1)
+		for _, c := range changes {
+			assert.Equal(t, types.TrustlineOpRemove, c.Operation)
+		}
 	})
 
-	t.Run("🟢 higher-key change re-adds a tombstoned trustline", func(t *testing.T) {
+	// Regression for the same-ledger REMOVE→ADD→REMOVE lost-delete bug: a trustline that existed
+	// before this ledger is removed, re-created, and removed again. The final REMOVE (highest
+	// OperationID) must survive so the pre-existing row is deleted rather than left stale.
+	t.Run("🟢 REMOVE→ADD→REMOVE keeps the final REMOVE", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		buffer.PushTrustlineChange(trustline(100, 0, types.TrustlineOpRemove))
+		buffer.PushTrustlineChange(trustline(200, 0, types.TrustlineOpAdd))
+		buffer.PushTrustlineChange(trustline(300, 0, types.TrustlineOpRemove))
+
+		changes := buffer.GetTrustlineChanges()
+		require.Len(t, changes, 1)
+		for _, c := range changes {
+			assert.Equal(t, types.TrustlineOpRemove, c.Operation)
+			assert.Equal(t, int64(300), c.OperationID)
+		}
+	})
+
+	t.Run("🟢 higher-key change re-adds a removed trustline", func(t *testing.T) {
 		buffer := NewIndexerBuffer()
 		buffer.PushTrustlineChange(trustline(100, 1000, types.TrustlineOpAdd))
 		buffer.PushTrustlineChange(trustline(200, 0, types.TrustlineOpRemove))
-		// A genuine later re-add (higher OperationID) lifts the tombstone and wins.
+		// A genuine later re-add (higher OperationID) wins over the REMOVE.
 		buffer.PushTrustlineChange(trustline(300, 700, types.TrustlineOpAdd))
 
 		changes := buffer.GetTrustlineChanges()

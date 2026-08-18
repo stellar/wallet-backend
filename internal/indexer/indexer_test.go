@@ -1512,10 +1512,11 @@ func TestIndexer_ProcessLedgerTransactions_RealLedgerParallel(t *testing.T) {
 }
 
 // TestIndexer_ProcessTransaction_EmitsChangesInOpOrder is the regression test for issue #653:
-// pushWithTombstone's create+remove netting requires each change family to reach the fold in
-// ascending order-value per key (CREATE before REMOVE), so processTransaction must walk
-// operations in ascending opID order. Under map-order iteration this test fails with
-// overwhelming probability (12 ops → 1/12! chance of accidentally sorted output).
+// processTransaction must walk operations in ascending opID order so each change family reaches the
+// fold in deterministic chronological order. Under map-order iteration this test fails with
+// overwhelming probability (12 ops → 1/12! chance of accidentally sorted output). The fold itself
+// (pushHighestOrder) no longer depends on arrival order for correctness — it keeps the highest-order
+// change per key regardless — but the emitted slice ordering is still asserted here.
 func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 	const numOps = 12
 	const asset = "USDC:GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"
@@ -1605,12 +1606,18 @@ func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 			"trustline changes must be emitted in ascending opID order")
 	}
 
-	// ...so the fold nets the same-tx ADD→REMOVE to nothing instead of keeping a spurious REMOVE.
+	// ...so the fold keeps the highest-order change per key: the shared-key ADD→REMOVE resolves to
+	// the trailing REMOVE (a delete), while the other keys keep their single UPDATE.
 	buffer := NewIndexerBuffer()
 	buffer.IngestTransactionResult(result)
 	trustlines := buffer.GetTrustlineChanges()
-	assert.Len(t, trustlines, numOps-2, "shared-key ADD→REMOVE should net to nothing")
+	assert.Len(t, trustlines, numOps-1, "shared-key ADD→REMOVE should resolve to a single REMOVE")
+	var sharedRemoveSeen bool
 	for _, change := range trustlines {
-		assert.NotEqual(t, "shared", change.AccountID, "spurious REMOVE for the netted key must not persist")
+		if change.AccountID == "shared" {
+			sharedRemoveSeen = true
+			assert.Equal(t, types.TrustlineOpRemove, change.Operation, "shared-key change must persist as a REMOVE")
+		}
 	}
+	assert.True(t, sharedRemoveSeen, "shared-key REMOVE must persist as a delete")
 }
