@@ -379,6 +379,58 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 	})
 }
 
+func TestBalanceModel_ListPairs(t *testing.T) {
+	ctx, pool, m, cleanup := newBalancesFixture(t)
+	defer cleanup()
+
+	contract1 := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	contract2 := "CBN5OPS5WUNUCBI4GO7AZG5KV4JUKIX5RXZ2HKFLPDOLC5W3L3HKL34Z"
+	cid1 := insertContractToken(t, ctx, pool, contract1)
+	cid2 := insertContractToken(t, ctx, pool, contract2)
+
+	acctA := keypair.MustRandom().Address()
+	acctB := keypair.MustRandom().Address()
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+			{AccountID: types.AddressBytea(acctA), ContractID: cid1, Balance: "1", LedgerNumber: 10},
+			{AccountID: types.AddressBytea(acctA), ContractID: cid2, Balance: "2", LedgerNumber: 10},
+			{AccountID: types.AddressBytea(acctB), ContractID: cid1, Balance: "3", LedgerNumber: 10},
+		}))
+	})
+
+	t.Run("pages the full table in keyset order with the token address joined", func(t *testing.T) {
+		var all []sep41.Balance
+		var after *sep41.Balance
+		for {
+			page, err := m.ListPairs(ctx, nil, "", after, 2)
+			require.NoError(t, err)
+			if len(page) == 0 {
+				break
+			}
+			all = append(all, page...)
+			after = &page[len(page)-1]
+		}
+		require.Len(t, all, 3)
+		for _, p := range all {
+			assert.NotEmpty(t, p.TokenID)
+			assert.Contains(t, []uuid.UUID{cid1, cid2}, p.ContractID)
+		}
+	})
+
+	t.Run("filters by contract and by account", func(t *testing.T) {
+		byContract, err := m.ListPairs(ctx, &cid2, "", nil, 10)
+		require.NoError(t, err)
+		require.Len(t, byContract, 1)
+		assert.Equal(t, contract2, byContract[0].TokenID)
+		assert.Equal(t, acctA, string(byContract[0].AccountID))
+
+		byAccount, err := m.ListPairs(ctx, nil, acctB, nil, 10)
+		require.NoError(t, err)
+		require.Len(t, byAccount, 1)
+		assert.Equal(t, contract1, byAccount[0].TokenID)
+	})
+}
+
 func TestBalanceModel_DeleteZeroRows(t *testing.T) {
 	ctx, pool, m, cleanup := newBalancesFixture(t)
 	defer cleanup()

@@ -66,6 +66,11 @@ type BalanceModelInterface interface {
 	// cursor has reached throughLedger: no fold delta at or below it remains in
 	// flight, so removing a barrier cannot enable a stale INSERT.
 	DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pairs []Balance, throughLedger uint32) (int64, error)
+	// ListPairs pages (holder, token) pairs in (account_id, contract_id) keyset
+	// order, each with the token's C-address in TokenID. filterContract and
+	// filterAccount narrow the set (empty string = no filter); after is the last
+	// pair of the previous page (nil = first page).
+	ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error)
 }
 
 type BalanceModel struct {
@@ -267,6 +272,65 @@ func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balan
 		return false, fmt.Errorf("applying absolute SEP-41 balance: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// ListPairs pages (holder, token) pairs from sep41_balances with the token's C-address
+// joined in, for callers that need to iterate the table as a work list (the repair
+// engine). Keyset pagination on the primary-key order keeps pages stable while rows
+// are concurrently inserted or deleted by the fold.
+func (m *BalanceModel) ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error) {
+	query := `
+		SELECT b.account_id, b.contract_id, ct.contract_id AS token_id
+		FROM sep41_balances b
+		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
+		WHERE 1=1`
+	var args []any
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	if filterContract != nil {
+		query += " AND b.contract_id = " + arg(*filterContract)
+	}
+	if filterAccount != "" {
+		raw, err := types.AddressBytea(filterAccount).Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting filter account to bytes: %w", err)
+		}
+		query += " AND b.account_id = " + arg(raw)
+	}
+	if after != nil {
+		raw, err := after.AccountID.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting cursor account to bytes: %w", err)
+		}
+		query += fmt.Sprintf(" AND (b.account_id, b.contract_id) > (%s, %s)", arg(raw), arg(after.ContractID))
+	}
+	query += " ORDER BY b.account_id, b.contract_id LIMIT " + arg(limit)
+
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, query, args...)
+	m.Metrics.QueryDuration.WithLabelValues("ListPairs", "sep41_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("ListPairs", "sep41_balances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("ListPairs", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("listing SEP-41 balance pairs: %w", err)
+	}
+	defer rows.Close()
+
+	var pairs []Balance
+	for rows.Next() {
+		var p Balance
+		if err := rows.Scan(&p.AccountID, &p.ContractID, &p.TokenID); err != nil {
+			return nil, fmt.Errorf("scanning SEP-41 balance pair: %w", err)
+		}
+		pairs = append(pairs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating SEP-41 balance pairs: %w", err)
+	}
+	return pairs, nil
 }
 
 // DeleteZeroRows removes zero-balance rows for the given pairs stamped at or below

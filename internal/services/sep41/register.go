@@ -20,4 +20,7 @@ func init() {
 	services.RegisterProcessor(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolProcessor {
 		return newProcessor(deps)
 	})
+	services.RegisterCurrentStateRepairer(ProtocolID, func(deps services.ProtocolDeps) services.ProtocolCurrentStateRepair {
+		return newRepairer(deps)
+	})
 }

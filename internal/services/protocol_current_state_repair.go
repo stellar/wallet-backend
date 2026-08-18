@@ -76,6 +76,38 @@ type ProtocolCurrentStateRepair interface {
 	Finalize(ctx context.Context, dbTx pgx.Tx, liveCursor uint32) error
 }
 
+// currentStateRepairRegistry holds repairer factories keyed by protocol ID,
+// following the validator/processor registries: writes happen only from
+// per-protocol package init() functions, reads only after main() starts, so no
+// synchronization is needed (see validator_registry.go). Factories are invoked
+// per run — a repairer may carry per-run state (SEP-41 accumulates the zero
+// barrier rows it wrote for Finalize).
+var currentStateRepairRegistry = map[string]func(ProtocolDeps) ProtocolCurrentStateRepair{}
+
+// RegisterCurrentStateRepairer registers a repairer factory for a protocol ID.
+// Called from per-protocol package init() functions.
+func RegisterCurrentStateRepairer(protocolID string, factory func(ProtocolDeps) ProtocolCurrentStateRepair) {
+	currentStateRepairRegistry[protocolID] = factory
+}
+
+// BuildCurrentStateRepairers materializes repairers for the given protocol IDs
+// from the registry, erroring on IDs with no registered factory.
+func BuildCurrentStateRepairers(deps ProtocolDeps, protocolIDs []string) (map[string]ProtocolCurrentStateRepair, error) {
+	out := make(map[string]ProtocolCurrentStateRepair, len(protocolIDs))
+	for _, pid := range protocolIDs {
+		factory, ok := currentStateRepairRegistry[pid]
+		if !ok {
+			return nil, fmt.Errorf("no current-state repairer registered for protocol %q", pid)
+		}
+		r := factory(deps)
+		if r == nil {
+			return nil, fmt.Errorf("current-state repairer factory for protocol %q returned nil", pid)
+		}
+		out[pid] = r
+	}
+	return out, nil
+}
+
 // repairStats accumulates a run's outcome counts. Mutex-guarded: units within a
 // page are repaired concurrently.
 type repairStats struct {

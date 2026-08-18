@@ -50,6 +50,14 @@ func (m *BalanceModelMock) DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pair
 	return args.Get(0).(int64), args.Error(1)
 }
 
+func (m *BalanceModelMock) ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error) {
+	args := m.Called(ctx, filterContract, filterAccount, after, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]Balance), args.Error(1)
+}
+
 // AllowanceModelMock mocks AllowanceModelInterface.
 type AllowanceModelMock struct {
 	mock.Mock
