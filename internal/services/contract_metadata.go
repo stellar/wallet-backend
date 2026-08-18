@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +94,9 @@ type ContractMetadataService interface {
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
 	// The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 	FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error)
+	// FetchSingleFieldWithLedger is FetchSingleField plus the ledger the simulation ran
+	// against, for callers that need to record which ledger the value is true at.
+	FetchSingleFieldWithLedger(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, uint32, error)
 }
 
 var _ ContractMetadataService = (*contractMetadataService)(nil)
@@ -228,14 +232,21 @@ func (s *contractMetadataService) fetchSACMetadataForContract(ctx context.Contex
 // FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc.) via RPC simulation.
 // The args parameter allows passing arguments to the contract function (e.g., address for balance(id) function).
 func (s *contractMetadataService) FetchSingleField(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, error) {
+	val, _, err := s.FetchSingleFieldWithLedger(ctx, contractAddress, functionName, args...)
+	return val, err
+}
+
+// FetchSingleFieldWithLedger fetches a single contract method via RPC simulation and also
+// reports the RPC's latest ledger, which is the ledger the returned value is true at.
+func (s *contractMetadataService) FetchSingleFieldWithLedger(ctx context.Context, contractAddress, functionName string, args ...xdr.ScVal) (xdr.ScVal, uint32, error) {
 	if err := ctx.Err(); err != nil {
-		return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
+		return xdr.ScVal{}, 0, fmt.Errorf("context error: %w", err)
 	}
 
 	// Decode contract ID from string
 	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
 	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("decoding contract address: %w", err)
+		return xdr.ScVal{}, 0, fmt.Errorf("decoding contract address: %w", err)
 	}
 	contractID := xdr.ContractId(contractIDBytes)
 
@@ -263,13 +274,13 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 		IncrementSequenceNum: true,
 	})
 	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("building transaction: %w", err)
+		return xdr.ScVal{}, 0, fmt.Errorf("building transaction: %w", err)
 	}
 
 	// Encode transaction to XDR
 	txXDR, err := tx.Base64()
 	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("encoding transaction: %w", err)
+		return xdr.ScVal{}, 0, fmt.Errorf("encoding transaction: %w", err)
 	}
 
 	// Simulate the transaction with bounded retries on transient RPC errors
@@ -280,37 +291,39 @@ func (s *contractMetadataService) FetchSingleField(ctx context.Context, contract
 	var lastErr error
 	for attempt := 1; attempt <= simulateMaxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return xdr.ScVal{}, fmt.Errorf("context error: %w", err)
+			return xdr.ScVal{}, 0, fmt.Errorf("context error: %w", err)
 		}
 
 		result, err := s.rpcService.SimulateTransaction(txXDR, entities.RPCResourceConfig{})
 		if err != nil {
 			if !isTransientSimulateErr(err) {
-				return xdr.ScVal{}, fmt.Errorf("simulating transaction: %w", err)
+				return xdr.ScVal{}, 0, fmt.Errorf("simulating transaction: %w", err)
 			}
 			lastErr = fmt.Errorf("simulating transaction: %w", err)
 		} else if result.Error != "" {
 			simErr := fmt.Errorf("simulation failed: %s", result.Error)
 			if !isTransientSimulateErr(simErr) {
-				return xdr.ScVal{}, simErr
+				return xdr.ScVal{}, 0, simErr
 			}
 			lastErr = simErr
 		} else if len(result.Results) == 0 {
 			// Empty results aren't classified as transient — surface immediately.
-			return xdr.ScVal{}, fmt.Errorf("no simulation results returned")
+			return xdr.ScVal{}, 0, fmt.Errorf("no simulation results returned")
+		} else if result.LatestLedger < 0 || result.LatestLedger > math.MaxUint32 {
+			return xdr.ScVal{}, 0, fmt.Errorf("simulation returned latestLedger %d outside the uint32 ledger range", result.LatestLedger)
 		} else {
-			return result.Results[0].XDR, nil
+			return result.Results[0].XDR, uint32(result.LatestLedger), nil
 		}
 
 		if attempt < simulateMaxAttempts {
 			log.Ctx(ctx).Debugf("simulate %s.%s transient err (attempt %d/%d): %v", contractAddress, functionName, attempt, simulateMaxAttempts, lastErr)
 			select {
 			case <-ctx.Done():
-				return xdr.ScVal{}, fmt.Errorf("context error: %w", ctx.Err())
+				return xdr.ScVal{}, 0, fmt.Errorf("context error: %w", ctx.Err())
 			case <-time.After(backoff):
 			}
 			backoff *= 2
 		}
 	}
-	return xdr.ScVal{}, fmt.Errorf("simulate %s.%s after %d attempts: %w", contractAddress, functionName, simulateMaxAttempts, lastErr)
+	return xdr.ScVal{}, 0, fmt.Errorf("simulate %s.%s after %d attempts: %w", contractAddress, functionName, simulateMaxAttempts, lastErr)
 }

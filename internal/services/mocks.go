@@ -392,6 +392,11 @@ func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, cont
 	return args.Get(0).(xdr.ScVal), args.Error(1)
 }
 
+func (c *ContractMetadataServiceMock) FetchSingleFieldWithLedger(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, uint32, error) {
+	args := c.Called(ctx, contractAddress, functionName, funcArgs)
+	return args.Get(0).(xdr.ScVal), args.Get(1).(uint32), args.Error(2)
+}
+
 // NewContractMetadataServiceMock creates a new instance of ContractMetadataServiceMock.
 func NewContractMetadataServiceMock(t interface {
 	mock.TestingT
