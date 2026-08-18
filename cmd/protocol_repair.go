@@ -24,13 +24,13 @@ import (
 	internalutils "github.com/stellar/wallet-backend/internal/utils"
 )
 
-type reconcileCmd struct{}
+type protocolRepairCmd struct{}
 
-func (c *reconcileCmd) Command() *cobra.Command {
+func (c *protocolRepairCmd) Command() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "reconcile",
-		Short: "Reconcile indexed state against network truth",
-		Long:  "Parent command for reconciliation tasks. Use subcommands to run specific tasks.",
+		Use:   "protocol-repair",
+		Short: "Repair a protocol's indexed state from network truth",
+		Long:  "Parent command for protocol state repair. Use subcommands to select which state to repair.",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := cmd.Help(); err != nil {
 				log.Fatalf("Error calling help command: %s", err.Error())
@@ -38,12 +38,12 @@ func (c *reconcileCmd) Command() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(c.repairCommand())
+	cmd.AddCommand(c.currentStateCommand())
 
 	return cmd
 }
 
-// repairOpts captures the flags for `reconcile repair`.
+// repairOpts captures the flags for `protocol-repair current-state`.
 type repairOpts struct {
 	databaseURL       string
 	rpcURL            string
@@ -56,7 +56,7 @@ type repairOpts struct {
 	concurrency       int
 }
 
-func (c *reconcileCmd) repairCommand() *cobra.Command {
+func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 	var opts repairOpts
 
 	cfgOpts := config.ConfigOptions{
@@ -68,7 +68,7 @@ func (c *reconcileCmd) repairCommand() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "repair",
+		Use:   "current-state",
 		Short: "Repair a protocol's current state from network truth",
 		Long:  "Re-reads current state from the network via RPC simulation and conditionally rewrites rows that drifted, running concurrently with live ingestion.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -102,7 +102,7 @@ func (c *reconcileCmd) repairCommand() *cobra.Command {
 }
 
 // validateRepairOpts rejects invocations with no scope: --all is the explicit
-// opt-in to a full sweep, so a bare `reconcile repair` cannot mass-repair by
+// opt-in to a full sweep, so a bare `protocol-repair current-state` cannot mass-repair by
 // accident.
 func validateRepairOpts(opts *repairOpts) error {
 	if opts.protocolID == "" {
@@ -128,7 +128,7 @@ func validateRepairOpts(opts *repairOpts) error {
 	return nil
 }
 
-func (c *reconcileCmd) runRepair(opts *repairOpts) error {
+func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
