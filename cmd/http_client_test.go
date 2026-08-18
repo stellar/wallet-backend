@@ -10,7 +10,7 @@ import (
 )
 
 func TestKeepAlivesDisabledHTTPClient(t *testing.T) {
-	client := keepAlivesDisabledHTTPClient(30 * time.Second)
+	client := keepAlivesDisabledHTTPClient()
 
 	require.NotNil(t, client)
 	assert.Equal(t, 30*time.Second, client.Timeout)

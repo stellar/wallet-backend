@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/alitto/pond/v2"
 	_ "github.com/lib/pq"
@@ -148,7 +147,7 @@ func (c *reconcileCmd) runRepair(opts *repairOpts) error {
 	}
 
 	// Create RPC service with keep-alives disabled (see keepAlivesDisabledHTTPClient).
-	httpClient := keepAlivesDisabledHTTPClient(30 * time.Second)
+	httpClient := keepAlivesDisabledHTTPClient()
 	rpcService, err := services.NewRPCService(opts.rpcURL, opts.networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)

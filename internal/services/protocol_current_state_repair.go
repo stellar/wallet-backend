@@ -258,7 +258,10 @@ func (s *protocolCurrentStateRepairService) repairPage(ctx context.Context, repa
 	if firstErr != nil {
 		return firstErr
 	}
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled while repairing page: %w", err)
+	}
+	return nil
 }
 
 // repairUnit runs the fetch-truth/apply loop for one unit. Every attempt uses a
@@ -286,7 +289,10 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 		txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 			var applyErr error
 			applied, applyErr = repairer.Apply(ctx, dbTx, unit, truth, ledger)
-			return applyErr
+			if applyErr != nil {
+				return fmt.Errorf("applying truth at ledger %d: %w", ledger, applyErr)
+			}
+			return nil
 		})
 		if txErr != nil {
 			return fmt.Errorf("applying repair for unit %v: %w", unit, txErr)

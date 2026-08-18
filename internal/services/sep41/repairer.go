@@ -118,7 +118,7 @@ func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairU
 	}
 	applied, err := r.balances.ApplyAbsolute(ctx, dbTx, bal)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("writing repaired balance for %s: %w", u, err)
 	}
 	if applied && value == "0" {
 		r.mu.Lock()
