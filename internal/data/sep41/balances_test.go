@@ -184,6 +184,92 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 		assert.Empty(t, balances, "zero-balance row should be swept")
 	})
 
+	t.Run("skips deltas at or below the row's last_modified_ledger", func(t *testing.T) {
+		// The strict-monotone guard: a delta whose ledger is <= the row's stamp is
+		// already included in the row's value (repair writes stamp the ledger their
+		// simulated value is true at) and must not be re-applied.
+		acct := keypair.MustRandom().Address()
+		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		cid := insertContractToken(t, ctx, pool, contract)
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1000", LedgerNumber: 100,
+			}}))
+		})
+
+		// Same ledger (replay) and older ledger: both skipped.
+		for _, stale := range []uint32{100, 99} {
+			runInTx(t, ctx, pool, func(tx pgx.Tx) {
+				require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+					AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-400", LedgerNumber: stale,
+				}}))
+			})
+		}
+
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balances, 1)
+		assert.Equal(t, "1000", balances[0].Balance)
+		assert.Equal(t, uint32(100), balances[0].LedgerNumber)
+
+		// A genuinely newer delta still applies on top.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-400", LedgerNumber: 101,
+			}}))
+		})
+		balances, err = m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balances, 1)
+		assert.Equal(t, "600", balances[0].Balance)
+		assert.Equal(t, uint32(101), balances[0].LedgerNumber)
+	})
+
+	t.Run("does not sweep a zero row whose stamp is newer than the skipped delta", func(t *testing.T) {
+		// A zero row at a newer ledger is a repair barrier: its value ("holds zero as
+		// of ledger R") must survive stale deltas, or a later stale delta would INSERT
+		// a wrong row after the sweep removed it. Only the repair engine deletes such
+		// rows, once live ingestion has passed R.
+		acct := keypair.MustRandom().Address()
+		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+		cid := insertContractToken(t, ctx, pool, contract)
+
+		rawAcct, err := types.AddressBytea(acct).Value()
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `
+			INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
+			VALUES ($1, $2, 0, 200)
+		`, rawAcct, cid)
+		require.NoError(t, err)
+
+		// Stale delta at ledger 150: guard skips it, and the sweep must not delete
+		// the untouched zero row (its stamp 200 differs from the batch's ledger 150).
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-400", LedgerNumber: 150,
+			}}))
+		})
+
+		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balances, 1, "zero barrier row must survive stale deltas")
+		assert.Equal(t, "0", balances[0].Balance)
+		assert.Equal(t, uint32(200), balances[0].LedgerNumber)
+
+		// A newer delta folds on the barrier and moves the stamp.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "70", LedgerNumber: 201,
+			}}))
+		})
+		balances, err = m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+		require.NoError(t, err)
+		require.Len(t, balances, 1)
+		assert.Equal(t, "70", balances[0].Balance)
+		assert.Equal(t, uint32(201), balances[0].LedgerNumber)
+	})
+
 	t.Run("is a no-op when no deltas are staged", func(t *testing.T) {
 		// Must not fail when no deltas are staged.
 		require.NoError(t, m.BatchApplyDeltas(ctx, nil, nil))

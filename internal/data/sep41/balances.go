@@ -174,26 +174,45 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	// Sum in SQL: existing + delta. balance is stored as NUMERIC so this is native
 	// arithmetic; the delta arrives as text (i128 decimal string) and is cast once at
 	// the boundary, since Postgres has no implicit text->numeric cast.
+	//
+	// The CASE guard applies a delta only when its ledger is strictly newer than the
+	// row's last_modified_ledger. Writers are ordered per pair (per-protocol cursor,
+	// per-ledger commits, deltas pre-summed per pair per ledger), so the guard never
+	// skips a legitimate fold delta. It exists for the repair path: a repair stamps a
+	// row with the RPC ledger R its simulated value is true at, and any fold delta for
+	// a ledger <= R is already included in that value — applying it would double-count.
+	// The guard must live in SQL, referencing the row's own column: under lock-wait
+	// recheck it re-evaluates against the committed row a concurrent repair just wrote.
+	// It also makes replaying an already-applied ledger's deltas a no-op.
 	const upsertQuery = `
 		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
 		SELECT u.account_id, u.contract_id, u.balance::numeric, u.last_modified_ledger
 		FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::integer[])
 			AS u(account_id, contract_id, balance, last_modified_ledger)
 		ON CONFLICT (account_id, contract_id) DO UPDATE SET
-			balance              = sep41_balances.balance + EXCLUDED.balance,
-			last_modified_ledger = EXCLUDED.last_modified_ledger`
+			balance = CASE
+				WHEN EXCLUDED.last_modified_ledger > sep41_balances.last_modified_ledger
+					THEN sep41_balances.balance + EXCLUDED.balance
+				ELSE sep41_balances.balance
+			END,
+			last_modified_ledger = GREATEST(sep41_balances.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 	}
 
+	// The ledger in the tuple scopes the sweep to rows whose delta above actually
+	// landed (last_modified_ledger moved to this batch's ledger). A zero row whose
+	// delta the guard skipped is a repair barrier at a newer ledger — deleting it
+	// would let a later stale delta INSERT a wrong row; the repair engine removes
+	// such rows itself once live ingestion has passed their ledger.
 	const deleteZeroesQuery = `
 		DELETE FROM sep41_balances
 		WHERE balance = 0
-		  AND (account_id, contract_id) IN (
-		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
+		  AND (account_id, contract_id, last_modified_ledger) IN (
+		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::integer[])
 		  )`
-	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountIDs, contractIDs); err != nil {
+	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountIDs, contractIDs, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("sweeping zero SEP-41 balances: %w", err)
 	}
