@@ -182,7 +182,7 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]map[string]struc
 // A trailing remove therefore survives as a delete instead of being netted away against an earlier
 // same-ledger add. That netting was unsafe: the buffer cannot see whether a row for this key was
 // written by an earlier ledger, so cancelling an add+remove to "no write" strands any such row
-// (see the create-then-remove-then-recreate case). Persisting the delete is always safe — it is a
+// (see the remove-then-recreate-then-remove case). Persisting the delete is always safe — it is a
 // harmless no-op when no row exists and the correct cleanup when one does.
 //
 // Because the highest order always wins, a lower-order change can never displace or resurrect a
