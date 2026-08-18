@@ -54,6 +54,18 @@ type BalanceModelInterface interface {
 	// the absolute new balance. This avoids needing to preload state from DB
 	// into memory at the cost of per-ledger SQL arithmetic on TEXT→numeric.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
+	// ApplyAbsolute writes an authoritative balance observed at bal.LedgerNumber,
+	// replacing whatever the fold accumulated, unless the row has moved past that
+	// ledger (returns applied=false; the caller refetches truth and retries). A
+	// zero value is written as a zero row — a barrier the fold's guard checks
+	// stale deltas against — never deleted here; DeleteZeroRows removes barriers
+	// once live ingestion has passed their ledger.
+	ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error)
+	// DeleteZeroRows removes zero-balance rows for the given (account, contract)
+	// pairs stamped at or below throughLedger. Only safe once live ingestion's
+	// cursor has reached throughLedger: no fold delta at or below it remains in
+	// flight, so removing a barrier cannot enable a stale INSERT.
+	DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pairs []Balance, throughLedger uint32) (int64, error)
 }
 
 type BalanceModel struct {
@@ -222,4 +234,82 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	m.Metrics.QueriesTotal.WithLabelValues("BatchApplyDeltas", "sep41_balances").Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchApplyDeltas", "sep41_balances").Observe(float64(len(deltas)))
 	return nil
+}
+
+// ApplyAbsolute writes an authoritative balance value — the repair-side counterpart of
+// BatchApplyDeltas' fold deltas. The WHERE clause is the repair's optimistic-concurrency
+// guard: if the fold has written the row at a ledger newer than bal.LedgerNumber, the
+// simulated value is already stale and the write no-ops (applied=false). Equal ledgers
+// pass so re-running a repair at the same ledger stays idempotent. Zero values are
+// stored, not deleted: the row's stamp is what the fold's guard checks stale deltas
+// against, and dropping it while such deltas may still be in flight would let one
+// INSERT a wrong row.
+func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error) {
+	rawAcct, err := bal.AccountID.Value()
+	if err != nil {
+		return false, fmt.Errorf("converting account id to bytes for absolute upsert: %w", err)
+	}
+
+	const query = `
+		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
+		VALUES ($1, $2, $3::numeric, $4)
+		ON CONFLICT (account_id, contract_id) DO UPDATE SET
+			balance              = EXCLUDED.balance,
+			last_modified_ledger = EXCLUDED.last_modified_ledger
+		WHERE sep41_balances.last_modified_ledger <= EXCLUDED.last_modified_ledger`
+
+	start := time.Now()
+	tag, err := dbTx.Exec(ctx, query, rawAcct, bal.ContractID, bal.Balance, int32(bal.LedgerNumber))
+	m.Metrics.QueryDuration.WithLabelValues("ApplyAbsolute", "sep41_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("ApplyAbsolute", "sep41_balances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("ApplyAbsolute", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+		return false, fmt.Errorf("applying absolute SEP-41 balance: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// DeleteZeroRows removes zero-balance rows for the given pairs stamped at or below
+// throughLedger. Callers pass live ingestion's committed cursor as throughLedger once
+// it has reached the highest repair ledger of the run: below the cursor no fold delta
+// remains in flight, so a barrier row can be dropped without re-enabling stale INSERTs.
+// Rows the fold touched after their repair are left alone (stamp above throughLedger,
+// or balance no longer zero).
+func (m *BalanceModel) DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pairs []Balance, throughLedger uint32) (int64, error) {
+	if len(pairs) == 0 {
+		return 0, nil
+	}
+
+	accountIDs := make([][]byte, len(pairs))
+	contractIDs := make([]uuid.UUID, len(pairs))
+	for i, p := range pairs {
+		raw, err := p.AccountID.Value()
+		if err != nil {
+			return 0, fmt.Errorf("converting account id to bytes for zero-row delete: %w", err)
+		}
+		rawBytes, ok := raw.([]byte)
+		if !ok {
+			return 0, fmt.Errorf("converting account id to bytes for zero-row delete: expected []byte, got %T", raw)
+		}
+		accountIDs[i] = rawBytes
+		contractIDs[i] = p.ContractID
+	}
+
+	const query = `
+		DELETE FROM sep41_balances
+		WHERE balance = 0
+		  AND last_modified_ledger <= $3
+		  AND (account_id, contract_id) IN (
+		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[])
+		  )`
+
+	start := time.Now()
+	tag, err := dbTx.Exec(ctx, query, accountIDs, contractIDs, int32(throughLedger))
+	m.Metrics.QueryDuration.WithLabelValues("DeleteZeroRows", "sep41_balances").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("DeleteZeroRows", "sep41_balances").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("DeleteZeroRows", "sep41_balances", utils.GetDBErrorType(err)).Inc()
+		return 0, fmt.Errorf("deleting zero SEP-41 balance rows: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

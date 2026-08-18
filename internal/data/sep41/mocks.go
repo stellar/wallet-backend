@@ -40,6 +40,16 @@ func (m *BalanceModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, de
 	return args.Error(0)
 }
 
+func (m *BalanceModelMock) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error) {
+	args := m.Called(ctx, dbTx, bal)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *BalanceModelMock) DeleteZeroRows(ctx context.Context, dbTx pgx.Tx, pairs []Balance, throughLedger uint32) (int64, error) {
+	args := m.Called(ctx, dbTx, pairs, throughLedger)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // AllowanceModelMock mocks AllowanceModelInterface.
 type AllowanceModelMock struct {
 	mock.Mock
