@@ -71,7 +71,9 @@ func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "current-state",
 		Short: "Repair a protocol's current state from network truth",
-		Long:  "Re-reads current state from the network via RPC simulation and conditionally rewrites rows that drifted, running concurrently with live ingestion.",
+		Long: "Re-reads current state from the network via RPC simulation and conditionally rewrites rows that drifted, running concurrently with live ingestion. " +
+			"Takes the protocol's current-state advisory lock, so it cannot run while a current-state migration is in flight. " +
+			"After repairing a protocol, a failed current-state migration for it must be restarted from scratch, not resumed — a resumed window straddling the repair's ledger stamp re-applies deltas the repaired value already contains.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := cfgOpts.RequireE(); err != nil {
 				return fmt.Errorf("requiring values of config options: %w", err)

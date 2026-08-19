@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 )
 
 // stubRepairer is a configurable ProtocolCurrentStateRepair for engine tests.
@@ -221,6 +222,36 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		err := svc.Run(ctx, "testproto", RepairScope{})
 		require.Error(t, err)
 		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("refuses while another current-state writer holds the lock", func(t *testing.T) {
+		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
+		ctx, svc := newRepairFixture(t, repairer, data.Protocols{})
+
+		// Hold the lock on a raw connection, as a concurrent migration would.
+		conn, err := svc.db.Acquire(ctx)
+		require.NoError(t, err)
+		defer conn.Release()
+		lockID := currentStateAdvisoryLockID("testproto")
+		acquired, err := db.AcquireAdvisoryLock(ctx, conn, lockID)
+		require.NoError(t, err)
+		require.True(t, acquired)
+		defer func() {
+			require.NoError(t, db.ReleaseAdvisoryLock(context.Background(), conn, lockID))
+		}()
+
+		err = svc.Run(ctx, "testproto", RepairScope{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is held")
+		assert.Empty(t, repairer.fetchCalls)
+	})
+
+	t.Run("releases the lock for the next run", func(t *testing.T) {
+		repairer := newStubRepairer(nil)
+		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
+
+		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
+		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}), "the first run must release the lock")
 	})
 
 	t.Run("aborts on a hard apply error", func(t *testing.T) {

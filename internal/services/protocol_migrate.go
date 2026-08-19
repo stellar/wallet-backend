@@ -72,6 +72,12 @@ type migrationStrategy struct {
 
 	// ResolveStartLedger returns the first ledger sequence to consider for migration.
 	ResolveStartLedger func(ctx context.Context) (uint32, error)
+
+	// AcquiresCurrentStateLock: current-state migration takes the per-protocol
+	// current-state advisory lock so it cannot run concurrently with a repair
+	// (or a second migration). History migration writes append-only history
+	// tables and does not contend with repair.
+	AcquiresCurrentStateLock bool
 }
 
 // protocolMigrateEngine is the shared migration engine parameterized by a strategy.
@@ -105,6 +111,14 @@ func (s *protocolMigrateEngine) Run(ctx context.Context, protocolIDs []string) e
 	if len(activeProtocolIDs) == 0 {
 		log.Ctx(ctx).Infof("All protocols already completed %s migration, nothing to do", s.strategy.Label)
 		return nil
+	}
+
+	if s.strategy.AcquiresCurrentStateLock {
+		release, lockErr := acquireCurrentStateLocks(ctx, s.db, activeProtocolIDs)
+		if lockErr != nil {
+			return fmt.Errorf("locking current state for %s migration: %w", s.strategy.Label, lockErr)
+		}
+		defer release()
 	}
 
 	if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {

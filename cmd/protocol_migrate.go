@@ -321,7 +321,9 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 	return buildMigrationCommand(
 		"current-state",
 		"Build protocol current state from a start ledger forward",
-		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors.",
+		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors. "+
+			"Takes the protocol's current-state advisory lock, so it cannot run while a protocol-repair is in flight. "+
+			"If a run fails and a protocol-repair has run since, do not resume it: restart the migration from scratch — a resumed window straddling a repair's ledger stamp re-applies deltas the repaired value already contains.",
 		func(cmd *cobra.Command, opts *migrationCommandOpts) {
 			cmd.Flags().Uint32Var(&startLedger, "start-ledger", 0, "Ledger sequence to begin current-state migration from (required)")
 		},

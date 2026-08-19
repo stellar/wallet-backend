@@ -163,9 +163,20 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 		return fmt.Errorf("no current-state repairer registered for protocol %q", protocolID)
 	}
 
-	// Refuse to run during a current-state migration: its multi-ledger window
-	// sums can straddle a repair's ledger, which the per-row guard cannot split.
-	// Live ingestion commits per ledger, where the guard is exact.
+	// Exclude the current-state migration for the whole run: its multi-ledger
+	// window sums can straddle a repair's ledger, which the per-row guard cannot
+	// split. Live ingestion commits per ledger, where the guard is exact, so it
+	// is deliberately not a party to this lock.
+	release, err := acquireCurrentStateLocks(ctx, s.db, []string{protocolID})
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// The advisory lock is the live exclusion; this status check covers dead-run
+	// residue — a migration that died without clearing StatusInProgress holds no
+	// session lock, but its partial window writes still make repair unsafe until
+	// an operator resolves it.
 	protocols, err := s.protocolsModel.GetByIDs(ctx, []string{protocolID})
 	if err != nil {
 		return fmt.Errorf("querying protocol %q: %w", protocolID, err)
