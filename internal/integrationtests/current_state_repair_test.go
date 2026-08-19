@@ -4,10 +4,16 @@ package integrationtests
 // retry mechanics are covered by unit tests
 // (services.TestProtocolCurrentStateRepair*); this suite's unique value is
 // running the real protocol-repair CLI container against real corruption in a
-// real database while live ingestion keeps producing, so the two writers' guards
-// (ApplyAbsolute's optimistic-concurrency WHERE and BatchApplyDeltas'
-// strict-monotone CASE) are exercised against each other on a live row
-// rather than a fixture.
+// real database while live ingestion keeps producing, so the two writers'
+// guards (ApplyAbsolute's optimistic-concurrency WHERE and BatchApplyDeltas'
+// strict-monotone CASE) are exercised against each other on a live row rather
+// than a fixture.
+//
+// Nothing wallet-backend runs in-process here: the repair is the CLI
+// container, API assertions go through wbclient against the serving
+// container, and expected values are fixture arithmetic (the constants that
+// defined what was submitted on-chain). Raw SQL is used only to inspect and
+// corrupt table state.
 //
 // It reuses the custom SEP-41 token deployed in setup and classified by
 // DataMigrationTestSuite's protocol-setup run, so it must run after that
@@ -26,11 +32,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/suite"
 
@@ -38,11 +42,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/integrationtests/infrastructure"
-	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/services"
-
-	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
-	sep41svc "github.com/stellar/wallet-backend/internal/services/sep41"
+	wbtypes "github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 const (
@@ -91,10 +91,6 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	pool, cleanup := s.setupDB()
 	defer cleanup()
 
-	m := metrics.NewMetrics(prometheus.NewRegistry())
-	models, err := data.NewModels(pool, m.DB)
-	s.Require().NoError(err)
-
 	token := s.testEnv.SEP41ContractAddress
 	tokenUUID := data.DeterministicContractID(token)
 
@@ -103,21 +99,9 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	corruptedHolder := s.testEnv.BalanceTestAccount1KP.Address()
 	fixtureRemainder := strconv.Itoa(infrastructure.TestSEP41MintStroops - infrastructure.TestSEP41TransferStroops)
 
-	// A fresh keypair no fixture ever touches, so balance() simulates to 0 for it:
-	// the row inserted below exists only in the database.
+	// A fresh keypair no fixture ever touches, so the token contract reports 0
+	// for it: the row inserted below exists only in the database.
 	phantomHolder := keypair.MustRandom().Address()
-
-	// The metadata service supplies the simulation primitive for the assertion
-	// oracle below; the repair itself runs as the real CLI container.
-	metadataPool := pond.NewPool(0)
-	defer metadataPool.StopAndWait()
-	metadataService, err := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
-	s.Require().NoError(err)
-
-	// An independent reader over the same primitive, used to assert what the rows
-	// should have converged to. Its values are cross-checked against the fixture
-	// amounts below, so an agreeing pair of wrong readings cannot pass.
-	truthReader := sep41svc.NewBalanceReader(metadataService)
 
 	// ------------------------------------------------------------------
 	// Preconditions: live ingestion is caught up and the migrated rows are
@@ -175,29 +159,29 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	s.Require().Zerof(exitCode,
 		"protocol-repair should exit 0 (see `docker logs wallet-backend-protocol-repair`); logs:\n%s", repairLogs)
 
-	s.Run("corrupted row converges to the simulated balance", func() {
-		truth, _, truthErr := truthReader.ReadBalance(ctx, token, corruptedHolder)
-		s.Require().NoError(truthErr)
-		s.Require().Equal(fixtureRemainder, truth,
-			"on-chain balance() should still be the fixture remainder — the test only corrupted the database")
-
+	s.Run("corrupted row converges to the on-chain balance", func() {
+		// The fixture constants define what happened on-chain (mint − transfer),
+		// so the remainder is the independent expectation the repaired row — and
+		// the API — must converge to.
 		repaired, ok := s.mustReadBalance(ctx, pool, corruptedHolder, tokenUUID)
 		s.Require().True(ok, "repair must not have removed a holder with a non-zero on-chain balance")
-		s.Assert().Equal(truth, repaired, "repaired row should equal the simulated balance()")
+		s.Assert().Equal(fixtureRemainder, repaired, "repaired row should equal the on-chain balance")
+
+		apiBalance := s.findAPISEP41Balance(ctx, corruptedHolder, token)
+		s.Require().NotNil(apiBalance, "the API should serve account1's SEP-41 balance")
+		s.Assert().Equal(fixtureRemainder, apiBalance.GetBalance(), "the API should serve the repaired balance")
 	})
 
-	s.Run("phantom row becomes a permanent zero row hidden from readers", func() {
+	s.Run("phantom row becomes a permanent zero row hidden from the API", func() {
 		// Repair rewrites the fabricated row to the contract's answer (0) and keeps it:
 		// the row's ledger stamp is what the fold's strict-monotone guard checks stale
-		// deltas against, so zero rows are never deleted. Readers never see it —
-		// GetByAccount filters balance <> 0.
+		// deltas against, so zero rows are never deleted. The API hides zero rows, so
+		// clients still see "holds nothing".
 		balance, ok := s.mustReadBalance(ctx, pool, phantomHolder, tokenUUID)
 		s.Require().True(ok, "the zero row must persist as a stale-delta barrier")
 		s.Assert().Equal("0", balance, "the fabricated balance should have been rewritten to 0")
 
-		apiBalances, err := models.SEP41.Balances.GetByAccount(ctx, phantomHolder, nil, nil, sep41data.SortASC)
-		s.Require().NoError(err)
-		s.Assert().Empty(apiBalances, "readers must not see the zero row")
+		s.Assert().Nil(s.findAPISEP41Balance(ctx, phantomHolder, token), "the API must not serve the zero row")
 	})
 
 	s.Run("correct rows are left alone", func() {
@@ -209,7 +193,7 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	})
 
 	s.Run("live fold applies on top of the repaired row", func() {
-		// The repaired row carries the simulation's ledger R. A mint lands at some
+		// The repaired row carries the repair's ledger R. A mint lands at some
 		// ledger > R, so BatchApplyDeltas' strict-monotone guard admits its delta —
 		// the case that distinguishes a repair stamp from a wedged row.
 		s.testEnv.Containers.MintSEP41Tokens(ctx, s.T(), token, corruptedHolder, sep41RepairMintStroops)
@@ -230,10 +214,25 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 		s.Require().True(ok, "account1's row should still exist after the post-repair mint")
 		s.Assert().Equal(expected, folded, "the post-repair mint should have folded onto the repaired row")
 
-		truth, _, truthErr := truthReader.ReadBalance(ctx, token, corruptedHolder)
-		s.Require().NoError(truthErr)
-		s.Assert().Equal(expected, truth, "the folded balance should match on-chain balance() again")
+		apiBalance := s.findAPISEP41Balance(ctx, corruptedHolder, token)
+		s.Require().NotNil(apiBalance, "the API should serve account1's SEP-41 balance after the mint")
+		s.Assert().Equal(expected, apiBalance.GetBalance(), "the API should serve the folded balance")
 	})
+}
+
+// findAPISEP41Balance fetches the holder's balances through the serving API
+// (wbclient, like the balance suites) and returns its SEP-41 entry for the
+// token, or nil when the API serves none. The API returns the raw i128 amount
+// (unscaled by decimals), directly comparable to the fixture stroop constants.
+func (s *CurrentStateRepairTestSuite) findAPISEP41Balance(ctx context.Context, holder, token string) *wbtypes.SEP41Balance {
+	balances, err := s.testEnv.WBClient.GetAllAccountBalances(ctx, holder)
+	s.Require().NoError(err)
+	for _, b := range balances {
+		if sep41Balance, ok := b.(*wbtypes.SEP41Balance); ok && sep41Balance.GetTokenID() == token {
+			return sep41Balance
+		}
+	}
+	return nil
 }
 
 // readBalance returns the holder's balance for the token as a decimal string,
