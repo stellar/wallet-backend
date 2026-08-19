@@ -42,10 +42,32 @@ type (
 	Truth      any
 )
 
+// RepairOutcome is Apply's per-unit result.
+type RepairOutcome int
+
+const (
+	// RepairApplied: the truth was written over the row.
+	RepairApplied RepairOutcome = iota
+	// RepairUnchanged: the row already equals the truth; verified, nothing written.
+	RepairUnchanged
+	// RepairStale: the row moved past the truth ledger; the engine refetches
+	// truth and retries.
+	RepairStale
+)
+
 // ProtocolCurrentStateRepair is the per-protocol seam the repair engine drives,
 // mirroring how the migration engine drives ProtocolProcessor. The protocol owns
 // what a unit is, how its truth is read, and how truth lands in its tables; the
 // engine owns iteration, concurrency, and retries.
+//
+// Convergence contract: a protocol may register a repairer only if its live
+// fold guards every delta in SQL against the row's own ledger stamp with a
+// strictly-greater comparison (see sep41's BatchApplyDeltas CASE guard).
+// Repair owns ledgers <= R — simulated truth at R already includes ledger R's
+// events — and the fold owns > R; a fold that applies a delta at <= R onto a
+// repaired row double-counts it. blend's claimed fold
+// (internal/data/blend/claimed.go) lacks this guard and must not register a
+// repairer until it gains one.
 type ProtocolCurrentStateRepair interface {
 	// ListUnits pages repair units in scope from the protocol's own tables.
 	// cursor is "" for the first page; a returned "" cursor ends iteration.
@@ -55,9 +77,9 @@ type ProtocolCurrentStateRepair interface {
 	// ledger. An error means the unit can't be verified right now (e.g. archived
 	// contract) — the engine skips it and reports.
 	FetchTruth(ctx context.Context, unit RepairUnit) (Truth, uint32, error)
-	// Apply conditionally writes the truth inside dbTx. applied=false means the
-	// row moved past ledger — the engine refetches and retries.
-	Apply(ctx context.Context, dbTx pgx.Tx, unit RepairUnit, truth Truth, ledger uint32) (bool, error)
+	// Apply conditionally writes the truth inside dbTx and classifies the
+	// outcome; on RepairStale the engine refetches truth and retries.
+	Apply(ctx context.Context, dbTx pgx.Tx, unit RepairUnit, truth Truth, ledger uint32) (RepairOutcome, error)
 }
 
 // currentStateRepairRegistry holds repairer factories keyed by protocol ID,
@@ -94,11 +116,12 @@ func BuildCurrentStateRepairers(deps ProtocolDeps, protocolIDs []string) (map[st
 // repairStats accumulates a run's outcome counts. Mutex-guarded: units within a
 // page are repaired concurrently.
 type repairStats struct {
-	mu      sync.Mutex
-	checked int
-	applied int
-	skipped int // FetchTruth failed (e.g. archived contract)
-	gaveUp  int // lost every apply attempt to concurrent fold writes
+	mu        sync.Mutex
+	checked   int
+	applied   int
+	unchanged int // row already equaled the truth; verified without a write
+	skipped   int // FetchTruth failed (e.g. archived contract)
+	gaveUp    int // lost every apply attempt to concurrent fold writes
 }
 
 func (s *repairStats) record(fn func(*repairStats)) {
@@ -109,9 +132,11 @@ func (s *repairStats) record(fn func(*repairStats)) {
 
 // protocolCurrentStateRepairService repairs a protocol's current-state tables
 // from network truth, unit by unit, while live ingestion keeps writing. No
-// coordination is needed: Apply's conditional write and the fold's ledger guard
-// are both evaluated in SQL against the committed row, so either write order
-// converges (see the SEP-41 balances model).
+// coordination with the fold is needed, but that is a property each protocol's
+// data layer must supply, not something the engine provides: the fold's
+// strict-monotone SQL guard and Apply's conditional write (see the convergence
+// contract on ProtocolCurrentStateRepair) are what make either write order
+// converge — the engine merely trusts Apply's outcome.
 type protocolCurrentStateRepairService struct {
 	db             *pgxpool.Pool
 	protocolsModel data.ProtocolsModelInterface
@@ -182,9 +207,9 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 	}
 
 	log.Ctx(ctx).Infof(
-		"current-state repair for %s finished in %s: %d checked, %d applied, %d skipped (truth unavailable), %d gave up (hot rows)",
+		"current-state repair for %s finished in %s: %d checked, %d applied, %d unchanged, %d skipped (truth unavailable), %d gave up (hot rows)",
 		protocolID, time.Since(startTime).Round(time.Millisecond),
-		stats.checked, stats.applied, stats.skipped, stats.gaveUp,
+		stats.checked, stats.applied, stats.unchanged, stats.skipped, stats.gaveUp,
 	)
 	return nil
 }
@@ -244,12 +269,12 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 			stats.record(func(st *repairStats) { st.skipped++ })
 			return nil
 		}
-		var applied bool
+		var outcome RepairOutcome
 		// Single-row tx: live ingestion writes multi-row batches, and two
 		// multi-row writers with different key orders can deadlock.
 		txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 			var applyErr error
-			applied, applyErr = repairer.Apply(ctx, dbTx, unit, truth, ledger)
+			outcome, applyErr = repairer.Apply(ctx, dbTx, unit, truth, ledger)
 			if applyErr != nil {
 				return fmt.Errorf("applying truth at ledger %d: %w", ledger, applyErr)
 			}
@@ -258,9 +283,15 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 		if txErr != nil {
 			return fmt.Errorf("applying repair for unit %v: %w", unit, txErr)
 		}
-		if applied {
+		switch outcome {
+		case RepairApplied:
 			stats.record(func(st *repairStats) { st.applied++ })
 			return nil
+		case RepairUnchanged:
+			stats.record(func(st *repairStats) { st.unchanged++ })
+			return nil
+		case RepairStale:
+			// Loop: the next attempt fetches fresh truth.
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
@@ -89,17 +90,17 @@ func (r *repairer) FetchTruth(ctx context.Context, unit services.RepairUnit) (se
 	return value, ledger, nil
 }
 
-// Apply conditionally writes the simulated balance. Zeros become permanent
-// rows (the stamp keeps shielding against stale deltas); GetByAccount hides
-// them from readers.
-func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairUnit, truth services.Truth, ledger uint32) (bool, error) {
+// Apply conditionally writes the simulated balance and classifies the outcome.
+// Zeros become permanent rows (the stamp keeps shielding against stale deltas);
+// GetByAccount hides them from readers.
+func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairUnit, truth services.Truth, ledger uint32) (services.RepairOutcome, error) {
 	u, ok := unit.(repairUnit)
 	if !ok {
-		return false, fmt.Errorf("unexpected repair unit type %T", unit)
+		return 0, fmt.Errorf("unexpected repair unit type %T", unit)
 	}
 	value, ok := truth.(string)
 	if !ok {
-		return false, fmt.Errorf("unexpected truth type %T for %s", truth, u)
+		return 0, fmt.Errorf("unexpected truth type %T for %s", truth, u)
 	}
 
 	bal := sep41data.Balance{
@@ -108,11 +109,26 @@ func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairU
 		Balance:      value,
 		LedgerNumber: ledger,
 	}
-	applied, err := r.balances.ApplyAbsolute(ctx, dbTx, bal)
+	res, err := r.balances.ApplyAbsolute(ctx, dbTx, bal)
 	if err != nil {
-		return false, fmt.Errorf("writing repaired balance for %s: %w", u, err)
+		return 0, fmt.Errorf("writing repaired balance for %s: %w", u, err)
 	}
-	return applied, nil
+	switch res {
+	case sep41data.AbsoluteApplied:
+		return services.RepairApplied, nil
+	case sep41data.AbsoluteUnchanged:
+		return services.RepairUnchanged, nil
+	case sep41data.AbsoluteStale:
+		return services.RepairStale, nil
+	case sep41data.AbsoluteRowMissing:
+		// Listed pairs always have rows (zeros are permanent); a vanished row
+		// means an out-of-band delete raced this run. Retry as stale; persistent
+		// absence lands in gaveUp.
+		log.Ctx(ctx).Warnf("repair row for %s vanished mid-run; retrying", u)
+		return services.RepairStale, nil
+	default:
+		return 0, fmt.Errorf("unexpected apply result %d for %s", res, u)
+	}
 }
 
 // encodePairCursor / decodePairCursor round-trip the keyset position through the

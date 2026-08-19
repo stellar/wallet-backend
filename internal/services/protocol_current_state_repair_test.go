@@ -22,7 +22,7 @@ type stubRepairer struct {
 	mu         sync.Mutex
 	pages      [][]RepairUnit
 	fetchTruth func(unit RepairUnit, attempt int) (Truth, uint32, error)
-	apply      func(unit RepairUnit, attempt int) (bool, error)
+	apply      func(unit RepairUnit, attempt int) (RepairOutcome, error)
 	fetchCalls map[RepairUnit]int
 	applyCalls map[RepairUnit]int
 }
@@ -60,7 +60,7 @@ func (r *stubRepairer) FetchTruth(_ context.Context, unit RepairUnit) (Truth, ui
 	return r.fetchTruth(unit, attempt)
 }
 
-func (r *stubRepairer) Apply(_ context.Context, _ pgx.Tx, unit RepairUnit, _ Truth, _ uint32) (bool, error) {
+func (r *stubRepairer) Apply(_ context.Context, _ pgx.Tx, unit RepairUnit, _ Truth, _ uint32) (RepairOutcome, error) {
 	r.mu.Lock()
 	r.applyCalls[unit]++
 	attempt := r.applyCalls[unit]
@@ -107,7 +107,7 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 	t.Run("repairs all units across pages", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"u1", "u2"}, {"u3"}})
 		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
-		repairer.apply = func(RepairUnit, int) (bool, error) { return true, nil }
+		repairer.apply = func(RepairUnit, int) (RepairOutcome, error) { return RepairApplied, nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
 
@@ -115,10 +115,26 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		assert.Len(t, repairer.applyCalls, 3)
 	})
 
+	t.Run("an unchanged unit verifies in a single attempt", func(t *testing.T) {
+		repairer := newStubRepairer([][]RepairUnit{{"insync"}})
+		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
+		repairer.apply = func(RepairUnit, int) (RepairOutcome, error) { return RepairUnchanged, nil }
+
+		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
+		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
+		assert.Equal(t, 1, repairer.applyCalls["insync"], "verified-in-sync must not retry")
+		assert.Equal(t, 1, repairer.fetchCalls["insync"])
+	})
+
 	t.Run("retries with fresh truth when apply loses the race", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
 		repairer.fetchTruth = func(_ RepairUnit, attempt int) (Truth, uint32, error) { return "100", uint32(50 + attempt), nil }
-		repairer.apply = func(_ RepairUnit, attempt int) (bool, error) { return attempt >= 3, nil }
+		repairer.apply = func(_ RepairUnit, attempt int) (RepairOutcome, error) {
+			if attempt >= 3 {
+				return RepairApplied, nil
+			}
+			return RepairStale, nil
+		}
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
@@ -129,7 +145,12 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 	t.Run("gives up on a unit that keeps losing and continues the run", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"hot", "ok"}})
 		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
-		repairer.apply = func(unit RepairUnit, _ int) (bool, error) { return unit == RepairUnit("ok"), nil }
+		repairer.apply = func(unit RepairUnit, _ int) (RepairOutcome, error) {
+			if unit == RepairUnit("ok") {
+				return RepairApplied, nil
+			}
+			return RepairStale, nil
+		}
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
@@ -145,7 +166,7 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 			}
 			return "100", 50, nil
 		}
-		repairer.apply = func(RepairUnit, int) (bool, error) { return true, nil }
+		repairer.apply = func(RepairUnit, int) (RepairOutcome, error) { return RepairApplied, nil }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
@@ -156,7 +177,7 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 	t.Run("aborts on a hard apply error", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
 		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
-		repairer.apply = func(RepairUnit, int) (bool, error) { return false, errors.New("db exploded") }
+		repairer.apply = func(RepairUnit, int) (RepairOutcome, error) { return 0, errors.New("db exploded") }
 
 		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
 		err := svc.Run(ctx, "testproto", RepairScope{})

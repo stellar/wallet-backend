@@ -284,26 +284,25 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 
 	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 
-	t.Run("inserts a fresh row and reports applied", func(t *testing.T) {
+	t.Run("reports a missing row instead of inserting", func(t *testing.T) {
 		acct := keypair.MustRandom().Address()
 		cid := insertContractToken(t, ctx, pool, contract)
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
-			applied, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "12345", LedgerNumber: 500,
 			})
 			require.NoError(t, err)
-			assert.True(t, applied)
+			assert.Equal(t, sep41.AbsoluteRowMissing, res)
 		})
 
-		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
-		require.NoError(t, err)
-		require.Len(t, balances, 1)
-		assert.Equal(t, "12345", balances[0].Balance)
-		assert.Equal(t, uint32(500), balances[0].LedgerNumber)
+		var count int
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM sep41_balances WHERE contract_id = $1`, cid).Scan(&count))
+		assert.Zero(t, count, "a missing row must not be created from possibly-stale truth")
 	})
 
-	t.Run("replaces a stale fold value and is idempotent at the same ledger", func(t *testing.T) {
+	t.Run("replaces a stale fold value, then reports unchanged on re-run", func(t *testing.T) {
 		acct := keypair.MustRandom().Address()
 		cid := insertContractToken(t, ctx, pool, contract)
 
@@ -313,15 +312,23 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 			}}))
 		})
 
-		for range 2 { // second run exercises the equal-ledger idempotent path
-			runInTx(t, ctx, pool, func(tx pgx.Tx) {
-				applied, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
-					AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1500", LedgerNumber: 450,
-				})
-				require.NoError(t, err)
-				assert.True(t, applied)
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1500", LedgerNumber: 450,
 			})
-		}
+			require.NoError(t, err)
+			assert.Equal(t, sep41.AbsoluteApplied, res)
+		})
+
+		// Re-running the same repair is idempotent: same value at the same
+		// ledger verifies without a write.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1500", LedgerNumber: 450,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, sep41.AbsoluteUnchanged, res)
+		})
 
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
@@ -330,7 +337,58 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 		assert.Equal(t, uint32(450), balances[0].LedgerNumber)
 	})
 
-	t.Run("no-ops when the row has moved past the observation ledger", func(t *testing.T) {
+	t.Run("corrects a drifted value at the row's own ledger", func(t *testing.T) {
+		// Repair owns equal ledgers: a row stamped R whose value missed an event
+		// at R is exactly the drift a truth simulated at R corrects.
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "999", LedgerNumber: 500,
+			}}))
+		})
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1250", LedgerNumber: 500,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, sep41.AbsoluteApplied, res)
+		})
+
+		rawBalance, rawLedger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "1250", rawBalance)
+		assert.Equal(t, uint32(500), rawLedger)
+	})
+
+	t.Run("does not restamp a row that already equals the truth", func(t *testing.T) {
+		// last_modified_ledger is served over GraphQL; verifying a correct row
+		// must not make it look modified — and the untouched stamp keeps fold
+		// deltas between the stamp and the truth ledger applicable.
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "888", LedgerNumber: 520,
+			}}))
+		})
+
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "888", LedgerNumber: 560,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, sep41.AbsoluteUnchanged, res)
+		})
+
+		rawBalance, rawLedger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "888", rawBalance)
+		assert.Equal(t, uint32(520), rawLedger, "an in-sync row must keep its stamp")
+	})
+
+	t.Run("reports stale when the row has moved past the observation ledger", func(t *testing.T) {
 		acct := keypair.MustRandom().Address()
 		cid := insertContractToken(t, ctx, pool, contract)
 
@@ -341,11 +399,21 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 		})
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
-			applied, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "1", LedgerNumber: 599,
 			})
 			require.NoError(t, err)
-			assert.False(t, applied, "row written at 600 must reject truth observed at 599")
+			assert.Equal(t, sep41.AbsoluteStale, res, "row written at 600 must reject truth observed at 599")
+		})
+
+		// Staleness wins over value equality: a matching value at an older
+		// ledger has not been verified at the row's own ledger.
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "999", LedgerNumber: 599,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, sep41.AbsoluteStale, res)
 		})
 
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
@@ -366,11 +434,11 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 		})
 
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
-			applied, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
+			res, err := m.ApplyAbsolute(ctx, tx, sep41.Balance{
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "0", LedgerNumber: 750,
 			})
 			require.NoError(t, err)
-			assert.True(t, applied)
+			assert.Equal(t, sep41.AbsoluteApplied, res)
 		})
 
 		rawBalance, rawLedger := readRawBalance(t, ctx, pool, acct, cid)
@@ -380,6 +448,108 @@ func TestBalanceModel_ApplyAbsolute(t *testing.T) {
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
 		assert.Empty(t, balances, "GetByAccount must hide zero rows from readers")
+	})
+}
+
+// TestSEP41RepairFoldConvergence pins the ledger-ownership boundary between the
+// repair's absolute write (owns ledgers <= R: truth simulated at R includes R's
+// events) and the fold's delta guard (owns ledgers > R), in both write orders.
+// This is the convergence contract ProtocolCurrentStateRepair requires of every
+// registered protocol.
+func TestSEP41RepairFoldConvergence(t *testing.T) {
+	ctx, pool, m, cleanup := newBalancesFixture(t)
+	defer cleanup()
+
+	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	// seed creates a fresh pair with the given balance and stamp via the fold.
+	seed := func(t *testing.T, acct string, cid uuid.UUID, balance string, ledger uint32) {
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: balance, LedgerNumber: ledger,
+			}}))
+		})
+	}
+	fold := seed // a delta onto an existing row goes through the same call
+	repair := func(t *testing.T, acct string, cid uuid.UUID, balance string, ledger uint32) sep41.AbsoluteApplyResult {
+		var res sep41.AbsoluteApplyResult
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			var err error
+			res, err = m.ApplyAbsolute(ctx, tx, sep41.Balance{
+				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: balance, LedgerNumber: ledger,
+			})
+			require.NoError(t, err)
+		})
+		return res
+	}
+
+	t.Run("repair then fold at L-1, L, and L+1", func(t *testing.T) {
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+		seed(t, acct, cid, "50", 90)
+
+		require.Equal(t, sep41.AbsoluteApplied, repair(t, acct, cid, "200", 100))
+
+		// Deltas at and below the repair ledger are already contained in the
+		// simulated value; only the strictly newer one folds on.
+		fold(t, acct, cid, "-10", 99)
+		balance, ledger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "200", balance, "delta below the repair ledger must be skipped")
+		assert.Equal(t, uint32(100), ledger)
+
+		fold(t, acct, cid, "-10", 100)
+		balance, ledger = readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "200", balance, "delta at exactly the repair ledger must be skipped")
+		assert.Equal(t, uint32(100), ledger)
+
+		fold(t, acct, cid, "-10", 101)
+		balance, ledger = readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "190", balance, "delta above the repair ledger must apply")
+		assert.Equal(t, uint32(101), ledger)
+	})
+
+	t.Run("fold past L first, then repair at L", func(t *testing.T) {
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+		seed(t, acct, cid, "50", 90)
+
+		fold(t, acct, cid, "25", 101)
+		require.Equal(t, sep41.AbsoluteStale, repair(t, acct, cid, "200", 100))
+
+		balance, ledger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "75", balance, "stale truth must not overwrite a newer fold write")
+		assert.Equal(t, uint32(101), ledger)
+	})
+
+	t.Run("unchanged keeps pending net-zero fold deltas applicable", func(t *testing.T) {
+		// The row is in sync at stamp S; truth verifies it at R > S. If the
+		// verification restamped to R, the not-yet-folded deltas at (S, R] —
+		// which net to zero — would be skipped and the balance corrupted once
+		// any of them arrived. The untouched stamp keeps them applicable.
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+		seed(t, acct, cid, "50", 100)
+
+		require.Equal(t, sep41.AbsoluteUnchanged, repair(t, acct, cid, "50", 110))
+
+		fold(t, acct, cid, "30", 105)
+		fold(t, acct, cid, "-30", 108)
+		balance, ledger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "50", balance)
+		assert.Equal(t, uint32(108), ledger)
+	})
+
+	t.Run("repaired zero row folds forward like any other", func(t *testing.T) {
+		acct := keypair.MustRandom().Address()
+		cid := insertContractToken(t, ctx, pool, contract)
+		seed(t, acct, cid, "424242", 90)
+
+		require.Equal(t, sep41.AbsoluteApplied, repair(t, acct, cid, "0", 100))
+
+		fold(t, acct, cid, "7", 101)
+		balance, ledger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "7", balance)
+		assert.Equal(t, uint32(101), ledger)
 	})
 }
 

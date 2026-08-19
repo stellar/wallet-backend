@@ -72,29 +72,43 @@ func TestRepairerApply(t *testing.T) {
 	cid := data.DeterministicContractID(testContractA)
 	unit := repairUnit{holder: testAccountA, tokenAddress: testContractA, tokenUUID: cid}
 
-	t.Run("applies truth, including zero values, via the conditional write", func(t *testing.T) {
+	t.Run("maps each apply result to its engine outcome", func(t *testing.T) {
 		balances := sep41data.NewBalanceModelMock(t)
 		r := &repairer{balances: balances}
 
 		nonZero := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "77", LedgerNumber: 100}
-		balances.On("ApplyAbsolute", ctx, nil, nonZero).Return(true, nil).Once()
-		applied, err := r.Apply(ctx, nil, unit, "77", 100)
+		balances.On("ApplyAbsolute", ctx, nil, nonZero).Return(sep41data.AbsoluteApplied, nil).Once()
+		outcome, err := r.Apply(ctx, nil, unit, "77", 100)
 		require.NoError(t, err)
-		assert.True(t, applied)
+		assert.Equal(t, services.RepairApplied, outcome)
 
 		// Zero is written like any other value — the row persists as a stale-delta
 		// barrier and GetByAccount hides it from readers.
 		zero := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "0", LedgerNumber: 101}
-		balances.On("ApplyAbsolute", ctx, nil, zero).Return(true, nil).Once()
-		applied, err = r.Apply(ctx, nil, unit, "0", 101)
+		balances.On("ApplyAbsolute", ctx, nil, zero).Return(sep41data.AbsoluteApplied, nil).Once()
+		outcome, err = r.Apply(ctx, nil, unit, "0", 101)
 		require.NoError(t, err)
-		assert.True(t, applied)
+		assert.Equal(t, services.RepairApplied, outcome)
+
+		inSync := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "77", LedgerNumber: 102}
+		balances.On("ApplyAbsolute", ctx, nil, inSync).Return(sep41data.AbsoluteUnchanged, nil).Once()
+		outcome, err = r.Apply(ctx, nil, unit, "77", 102)
+		require.NoError(t, err)
+		assert.Equal(t, services.RepairUnchanged, outcome)
 
 		lost := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "0", LedgerNumber: 99}
-		balances.On("ApplyAbsolute", ctx, nil, lost).Return(false, nil).Once()
-		applied, err = r.Apply(ctx, nil, unit, "0", 99)
+		balances.On("ApplyAbsolute", ctx, nil, lost).Return(sep41data.AbsoluteStale, nil).Once()
+		outcome, err = r.Apply(ctx, nil, unit, "0", 99)
 		require.NoError(t, err)
-		assert.False(t, applied, "a lost conditional write must be reported for retry")
+		assert.Equal(t, services.RepairStale, outcome, "a lost conditional write must be reported for retry")
+
+		// A vanished row (out-of-band delete) is retried as stale rather than
+		// surfaced as a distinct outcome the engine would have to interpret.
+		gone := sep41data.Balance{AccountID: types.AddressBytea(testAccountA), ContractID: cid, Balance: "5", LedgerNumber: 103}
+		balances.On("ApplyAbsolute", ctx, nil, gone).Return(sep41data.AbsoluteRowMissing, nil).Once()
+		outcome, err = r.Apply(ctx, nil, unit, "5", 103)
+		require.NoError(t, err)
+		assert.Equal(t, services.RepairStale, outcome)
 	})
 
 	t.Run("rejects foreign unit and truth types", func(t *testing.T) {

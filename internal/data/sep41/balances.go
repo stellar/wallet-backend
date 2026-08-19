@@ -5,6 +5,7 @@ package sep41
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -55,12 +56,12 @@ type BalanceModelInterface interface {
 	// arithmetic on TEXT→numeric. Balances that settle to zero keep their rows:
 	// the ledger stamp shields against stale deltas, and GetByAccount hides them.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
-	// ApplyAbsolute overwrites the row with an authoritative balance observed at
-	// bal.LedgerNumber. Returns applied=false when the row has moved past that
-	// ledger — the caller refetches truth and retries. Zeros are stored as
-	// permanent rows (never deleted; the stamp shields against stale deltas)
-	// and hidden by GetByAccount.
-	ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error)
+	// ApplyAbsolute conditionally overwrites the row with an authoritative
+	// balance observed at bal.LedgerNumber and classifies what happened: see
+	// AbsoluteApplyResult. It never inserts — every repairable pair has a row
+	// (zeros included), so a missing row means the truth in hand cannot be
+	// trusted against it.
+	ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (AbsoluteApplyResult, error)
 	// ListPairs pages (holder, token) pairs in (account_id, contract_id) keyset
 	// order, each with the token's C-address in TokenID. filterContract and
 	// filterAccount narrow the set (empty string = no filter); after is the last
@@ -222,36 +223,86 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	return nil
 }
 
-// ApplyAbsolute writes an authoritative balance — the repair-side counterpart of
-// BatchApplyDeltas' deltas. The WHERE clause is the optimistic-concurrency guard:
-// a row already written at a newer ledger rejects the (now stale) value with
-// applied=false. Equal ledgers pass, so re-running a repair stays idempotent.
-// Zeros are stored permanently: deleting the row would drop the stamp the fold's
-// guard checks stale deltas against, letting one INSERT a wrong row. GetByAccount
-// hides zero rows from readers.
-func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error) {
-	rawAcct, err := bal.AccountID.Value()
-	if err != nil {
-		return false, fmt.Errorf("converting account id to bytes for absolute upsert: %w", err)
-	}
+// AbsoluteApplyResult classifies ApplyAbsolute's outcome.
+type AbsoluteApplyResult int
 
+const (
+	// AbsoluteApplied: the row was rewritten to the truth value and stamped at
+	// the ledger it was observed at.
+	AbsoluteApplied AbsoluteApplyResult = iota
+	// AbsoluteUnchanged: the row already holds the truth value; nothing was
+	// written. In particular the stamp did not advance — last_modified_ledger
+	// is served over GraphQL, and an untouched stamp keeps every pending fold
+	// delta between the stamp and the truth ledger applicable.
+	AbsoluteUnchanged
+	// AbsoluteStale: the row's stamp is newer than the truth ledger; the caller
+	// must refetch truth and retry.
+	AbsoluteStale
+	// AbsoluteRowMissing: no row exists for the pair. Every repairable pair has
+	// a row (zeros are permanent), so this appears only if the row was deleted
+	// out-of-band.
+	AbsoluteRowMissing
+)
+
+// ApplyAbsolute writes an authoritative balance — the repair-side counterpart of
+// BatchApplyDeltas' deltas. It is UPDATE-only: inserting on a missing row would
+// have nothing to compare the truth's ledger against, so absence is reported as
+// AbsoluteRowMissing instead. The row lock (FOR UPDATE) waits out a concurrent
+// fold write and classifies against the row it committed.
+//
+// Ledger ownership: truth simulated at ledger R includes every event up to and
+// including R, so a row stamped at R or older accepts the truth (equal stamp
+// with a differing balance is exactly the drift repair corrects), while the
+// fold's CASE guard only admits deltas strictly newer than R. Staleness is
+// checked before value equality: a row stamped past R that happens to equal
+// truth-at-R has not been verified at its own ledger.
+func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (AbsoluteApplyResult, error) {
 	const query = `
-		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
-		VALUES ($1, $2, $3::numeric, $4)
-		ON CONFLICT (account_id, contract_id) DO UPDATE SET
-			balance              = EXCLUDED.balance,
-			last_modified_ledger = EXCLUDED.last_modified_ledger
-		WHERE sep41_balances.last_modified_ledger <= EXCLUDED.last_modified_ledger`
+		WITH current AS (
+			SELECT balance, last_modified_ledger
+			FROM sep41_balances
+			WHERE account_id = $1 AND contract_id = $2
+			FOR UPDATE
+		), updated AS (
+			UPDATE sep41_balances b SET
+				balance              = $3::numeric,
+				last_modified_ledger = $4
+			FROM current c
+			WHERE b.account_id = $1 AND b.contract_id = $2
+			  AND c.last_modified_ledger <= $4
+			  AND c.balance <> $3::numeric
+			RETURNING 1
+		)
+		SELECT c.balance = $3::numeric AS same_balance,
+		       c.last_modified_ledger,
+		       EXISTS (SELECT 1 FROM updated) AS updated
+		FROM current c`
 
 	start := time.Now()
-	tag, err := dbTx.Exec(ctx, query, rawAcct, bal.ContractID, bal.Balance, int32(bal.LedgerNumber))
+	var (
+		sameBalance, updated bool
+		rowLedger            int32
+	)
+	err := dbTx.QueryRow(ctx, query, bal.AccountID, bal.ContractID, bal.Balance, int32(bal.LedgerNumber)).
+		Scan(&sameBalance, &rowLedger, &updated)
 	m.Metrics.QueryDuration.WithLabelValues("ApplyAbsolute", "sep41_balances").Observe(time.Since(start).Seconds())
 	m.Metrics.QueriesTotal.WithLabelValues("ApplyAbsolute", "sep41_balances").Inc()
-	if err != nil {
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return AbsoluteRowMissing, nil
+	case err != nil:
 		m.Metrics.QueryErrors.WithLabelValues("ApplyAbsolute", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-		return false, fmt.Errorf("applying absolute SEP-41 balance: %w", err)
+		return 0, fmt.Errorf("applying absolute SEP-41 balance: %w", err)
+	case updated:
+		return AbsoluteApplied, nil
+	case rowLedger > int32(bal.LedgerNumber):
+		return AbsoluteStale, nil
+	case sameBalance:
+		return AbsoluteUnchanged, nil
+	default:
+		return 0, fmt.Errorf("classifying absolute SEP-41 balance write: not updated, row stamp %d <= %d, balance differs", rowLedger, bal.LedgerNumber)
 	}
-	return tag.RowsAffected() == 1, nil
 }
 
 // ListPairs pages (holder, token) pairs with the token's C-address joined in — the
@@ -264,29 +315,25 @@ func (m *BalanceModel) ListPairs(ctx context.Context, filterContract *uuid.UUID,
 		INNER JOIN contract_tokens ct ON ct.id = b.contract_id
 		WHERE 1=1`
 	var args []any
-	arg := func(v any) string {
-		args = append(args, v)
-		return fmt.Sprintf("$%d", len(args))
-	}
+	argIndex := 1
 
 	if filterContract != nil {
-		query += " AND b.contract_id = " + arg(*filterContract)
+		query += fmt.Sprintf(" AND b.contract_id = $%d", argIndex)
+		args = append(args, *filterContract)
+		argIndex++
 	}
 	if filterAccount != "" {
-		raw, err := types.AddressBytea(filterAccount).Value()
-		if err != nil {
-			return nil, fmt.Errorf("converting filter account to bytes: %w", err)
-		}
-		query += " AND b.account_id = " + arg(raw)
+		query += fmt.Sprintf(" AND b.account_id = $%d", argIndex)
+		args = append(args, types.AddressBytea(filterAccount))
+		argIndex++
 	}
 	if after != nil {
-		raw, err := after.AccountID.Value()
-		if err != nil {
-			return nil, fmt.Errorf("converting cursor account to bytes: %w", err)
-		}
-		query += fmt.Sprintf(" AND (b.account_id, b.contract_id) > (%s, %s)", arg(raw), arg(after.ContractID))
+		query += fmt.Sprintf(" AND (b.account_id, b.contract_id) > ($%d, $%d)", argIndex, argIndex+1)
+		args = append(args, after.AccountID, after.ContractID)
+		argIndex += 2
 	}
-	query += " ORDER BY b.account_id, b.contract_id LIMIT " + arg(limit)
+	query += fmt.Sprintf(" ORDER BY b.account_id, b.contract_id LIMIT $%d", argIndex)
+	args = append(args, limit)
 
 	start := time.Now()
 	rows, err := m.DB.Query(ctx, query, args...)

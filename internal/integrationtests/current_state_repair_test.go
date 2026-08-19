@@ -138,6 +138,15 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 		phantomAccount, tokenUUID, sep41PhantomBalance, int32(staleLedger))
 	s.Require().NoError(err)
 
+	// The holder contract's row is in scope but correct; capture its stamp so the
+	// no-restamp assertion below has the pre-repair value to compare against.
+	holderAccount, err := types.AddressBytea(s.testEnv.HolderContractAddress).Value()
+	s.Require().NoError(err)
+	var holderStampBefore uint32
+	s.Require().NoError(pool.QueryRow(ctx,
+		`SELECT last_modified_ledger FROM sep41_balances WHERE account_id = $1 AND contract_id = $2`,
+		holderAccount, tokenUUID).Scan(&holderStampBefore))
+
 	// ------------------------------------------------------------------
 	// Repair via the real CLI container (same pattern as protocol-setup and
 	// protocol-migrate in DataMigrationTestSuite), scoped to this token so the
@@ -182,6 +191,15 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 		balance, ok := s.mustReadBalance(ctx, pool, s.testEnv.HolderContractAddress, tokenUUID)
 		s.Require().True(ok, "the holder contract should still hold the custom SEP-41 token")
 		s.Assert().Equal(expected, balance, "repair should not have moved an already-correct row")
+
+		// Verifying a correct row must not advance its stamp: lastModifiedLedger
+		// is served over the API, and a restamp would make every in-sync balance
+		// look modified by the sweep.
+		var holderStampAfter uint32
+		s.Require().NoError(pool.QueryRow(ctx,
+			`SELECT last_modified_ledger FROM sep41_balances WHERE account_id = $1 AND contract_id = $2`,
+			holderAccount, tokenUUID).Scan(&holderStampAfter))
+		s.Assert().Equal(holderStampBefore, holderStampAfter, "an in-sync row must keep its stamp")
 	})
 
 	s.Run("live fold applies on top of the repaired row", func() {

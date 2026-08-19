@@ -40,9 +40,9 @@ func (m *BalanceModelMock) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, de
 	return args.Error(0)
 }
 
-func (m *BalanceModelMock) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error) {
+func (m *BalanceModelMock) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (AbsoluteApplyResult, error) {
 	args := m.Called(ctx, dbTx, bal)
-	return args.Bool(0), args.Error(1)
+	return args.Get(0).(AbsoluteApplyResult), args.Error(1)
 }
 
 func (m *BalanceModelMock) ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error) {
