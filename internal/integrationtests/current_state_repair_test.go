@@ -3,8 +3,8 @@ package integrationtests
 // SEP-41 current-state repair coverage. The repair engine's iteration and
 // retry mechanics are covered by unit tests
 // (services.TestProtocolCurrentStateRepair*); this suite's unique value is
-// running the real engine against real corruption in a real database while
-// live ingestion keeps producing, so the two writers' guards
+// running the real protocol-repair CLI container against real corruption in a
+// real database while live ingestion keeps producing, so the two writers' guards
 // (ApplyAbsolute's optimistic-concurrency WHERE and BatchApplyDeltas'
 // strict-monotone CASE) are exercised against each other on a live row
 // rather than a fixture.
@@ -41,10 +41,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/services"
 
-	// sep41svc is imported for NewBalanceReader, but the import is load-bearing
-	// beyond that: the package's init() is what registers the SEP-41 repairer that
-	// services.BuildCurrentStateRepairers looks up below. Dropping the last direct
-	// reference would drop the import and turn that into a runtime failure.
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	sep41svc "github.com/stellar/wallet-backend/internal/services/sep41"
 )
@@ -67,10 +63,10 @@ const (
 	sep41CorruptionFactor = 3
 )
 
-// CurrentStateRepairTestSuite drives the real repair engine over the custom
-// SEP-41 token: it corrupts current state directly in SQL, repairs it from
-// network truth, and then proves live ingestion still folds onto the repaired
-// rows.
+// CurrentStateRepairTestSuite drives the real protocol-repair CLI over the
+// custom SEP-41 token: it corrupts current state directly in SQL, repairs it
+// from network truth, and then proves live ingestion still folds onto the
+// repaired rows.
 type CurrentStateRepairTestSuite struct {
 	suite.Suite
 	testEnv *infrastructure.TestEnvironment
@@ -111,8 +107,8 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	// the row inserted below exists only in the database.
 	phantomHolder := keypair.MustRandom().Address()
 
-	// The metadata service supplies the generic simulation primitive the repairer
-	// reads truth through — wired exactly as cmd/protocol_migrate.go wires it.
+	// The metadata service supplies the simulation primitive for the assertion
+	// oracle below; the repair itself runs as the real CLI container.
 	metadataPool := pond.NewPool(0)
 	defer metadataPool.StopAndWait()
 	metadataService, err := services.NewContractMetadataService(s.testEnv.RPCService, models.Contract, metadataPool)
@@ -167,22 +163,17 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	s.Require().NoError(err)
 
 	// ------------------------------------------------------------------
-	// Repair, scoped to this token so the SAC and Blend rows sharing the
-	// table are untouched.
+	// Repair via the real CLI container (same pattern as protocol-setup and
+	// protocol-migrate in DataMigrationTestSuite), scoped to this token so the
+	// SAC and Blend rows sharing the table are untouched. The container persists
+	// as "wallet-backend-protocol-repair" for `docker logs`.
 	// ------------------------------------------------------------------
-	deps := services.ProtocolDeps{
-		NetworkPassphrase:       s.testEnv.NetworkPassphrase,
-		Models:                  models,
-		RPCService:              s.testEnv.RPCService,
-		ContractMetadataService: metadataService,
-		MetricsService:          m,
-	}
-	repairers, err := services.BuildCurrentStateRepairers(deps, []string{sep41ProtocolID})
+	exitCode, repairLogs, err := s.testEnv.Containers.RunWalletBackendCommand(ctx,
+		"wallet-backend-protocol-repair",
+		fmt.Sprintf("protocol-repair current-state --protocol %s --contract %s", sep41ProtocolID, token), nil)
 	s.Require().NoError(err)
-
-	repairService := services.NewProtocolCurrentStateRepairService(pool, models.Protocols, repairers, 4)
-	s.Require().NoError(repairService.Run(ctx, sep41ProtocolID, services.RepairScope{ContractAddress: token}),
-		"repair run should succeed")
+	s.Require().Zerof(exitCode,
+		"protocol-repair should exit 0 (see `docker logs wallet-backend-protocol-repair`); logs:\n%s", repairLogs)
 
 	s.Run("corrupted row converges to the simulated balance", func() {
 		truth, _, truthErr := truthReader.ReadBalance(ctx, token, corruptedHolder)
