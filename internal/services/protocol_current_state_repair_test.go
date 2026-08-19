@@ -174,6 +174,54 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		assert.Equal(t, 1, repairer.applyCalls["ok"])
 	})
 
+	t.Run("a run that verifies nothing returns an error", func(t *testing.T) {
+		repairer := newStubRepairer([][]RepairUnit{{"u1", "u2"}})
+		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) {
+			return nil, 0, errors.New("wrong network for this contract")
+		}
+
+		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
+		err := svc.Run(ctx, "testproto", RepairScope{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "verified nothing")
+	})
+
+	t.Run("a run where every unit gives up returns an error", func(t *testing.T) {
+		repairer := newStubRepairer([][]RepairUnit{{"hot"}})
+		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }
+		repairer.apply = func(RepairUnit, int) (RepairOutcome, error) { return RepairStale, nil }
+
+		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
+		err := svc.Run(ctx, "testproto", RepairScope{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "verified nothing")
+	})
+
+	t.Run("an empty scope is a successful no-op", func(t *testing.T) {
+		ctx, svc := newRepairFixture(t, newStubRepairer(nil), readyProtocol)
+		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
+	})
+
+	t.Run("cancellation surfaces as an error, not as skipped units", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+
+		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
+		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) {
+			cancel()
+			return nil, 0, context.Canceled
+		}
+
+		dbPool, _ := setupTestDB(t)
+		protocolsModel := data.NewProtocolsModelMock(t)
+		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{readyProtocol}, nil)
+		svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, 4)
+
+		err := svc.Run(ctx, "testproto", RepairScope{})
+		require.Error(t, err)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
 	t.Run("aborts on a hard apply error", func(t *testing.T) {
 		repairer := newStubRepairer([][]RepairUnit{{"u1"}})
 		repairer.fetchTruth = func(RepairUnit, int) (Truth, uint32, error) { return "100", 50, nil }

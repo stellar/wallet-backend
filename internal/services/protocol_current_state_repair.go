@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -113,21 +114,14 @@ func BuildCurrentStateRepairers(deps ProtocolDeps, protocolIDs []string) (map[st
 	return out, nil
 }
 
-// repairStats accumulates a run's outcome counts. Mutex-guarded: units within a
-// page are repaired concurrently.
+// repairStats accumulates a run's outcome counts. Atomic: units within a page
+// are repaired concurrently.
 type repairStats struct {
-	mu        sync.Mutex
-	checked   int
-	applied   int
-	unchanged int // row already equaled the truth; verified without a write
-	skipped   int // FetchTruth failed (e.g. archived contract)
-	gaveUp    int // lost every apply attempt to concurrent fold writes
-}
-
-func (s *repairStats) record(fn func(*repairStats)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	fn(s)
+	checked   atomic.Int64
+	applied   atomic.Int64
+	unchanged atomic.Int64 // row already equaled the truth; verified without a write
+	skipped   atomic.Int64 // FetchTruth failed (e.g. archived contract)
+	gaveUp    atomic.Int64 // lost every apply attempt to concurrent fold writes
 }
 
 // protocolCurrentStateRepairService repairs a protocol's current-state tables
@@ -206,11 +200,26 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 		cursor = nextCursor
 	}
 
+	checked := stats.checked.Load()
+	applied := stats.applied.Load()
+	unchanged := stats.unchanged.Load()
+	skipped := stats.skipped.Load()
+	gaveUp := stats.gaveUp.Load()
 	log.Ctx(ctx).Infof(
 		"current-state repair for %s finished in %s: %d checked, %d applied, %d unchanged, %d skipped (truth unavailable), %d gave up (hot rows)",
 		protocolID, time.Since(startTime).Round(time.Millisecond),
-		stats.checked, stats.applied, stats.unchanged, stats.skipped, stats.gaveUp,
+		checked, applied, unchanged, skipped, gaveUp,
 	)
+	// A run in which not a single unit could be verified is a failed run, not a
+	// clean sweep: a wrong --rpc-url or an RPC stuck behind the ingestion cursor
+	// produces exactly this shape, and an exit code of 0 would record a repair
+	// that repaired nothing.
+	if checked > 0 && applied+unchanged == 0 {
+		return fmt.Errorf(
+			"current-state repair for %s verified nothing: %d checked, %d skipped (truth unavailable), %d gave up (hot rows)",
+			protocolID, checked, skipped, gaveUp,
+		)
+	}
 	return nil
 }
 
@@ -260,13 +269,19 @@ func (s *protocolCurrentStateRepairService) repairPage(ctx context.Context, repa
 // an apply loses only when the fold wrote past the truth's ledger, which makes
 // the previous truth stale by definition.
 func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repairer ProtocolCurrentStateRepair, unit RepairUnit, stats *repairStats) error {
-	stats.record(func(st *repairStats) { st.checked++ })
+	stats.checked.Add(1)
 
 	for attempt := 1; attempt <= maxRepairAttempts; attempt++ {
 		truth, ledger, err := repairer.FetchTruth(ctx, unit)
 		if err != nil {
+			// A cancelled run is an aborted run, not a sweep of unverifiable
+			// units — surface it instead of tallying every in-flight unit as
+			// skipped.
+			if ctx.Err() != nil {
+				return fmt.Errorf("fetching truth for unit %v: %w", unit, err)
+			}
 			log.Ctx(ctx).Warnf("skipping repair unit %v: fetching truth: %v", unit, err)
-			stats.record(func(st *repairStats) { st.skipped++ })
+			stats.skipped.Add(1)
 			return nil
 		}
 		var outcome RepairOutcome
@@ -285,10 +300,10 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 		}
 		switch outcome {
 		case RepairApplied:
-			stats.record(func(st *repairStats) { st.applied++ })
+			stats.applied.Add(1)
 			return nil
 		case RepairUnchanged:
-			stats.record(func(st *repairStats) { st.unchanged++ })
+			stats.unchanged.Add(1)
 			return nil
 		case RepairStale:
 			// Loop: the next attempt fetches fresh truth.
@@ -296,6 +311,6 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 	}
 
 	log.Ctx(ctx).Warnf("giving up on repair unit %v after %d attempts: row kept moving past the truth ledger", unit, maxRepairAttempts)
-	stats.record(func(st *repairStats) { st.gaveUp++ })
+	stats.gaveUp.Add(1)
 	return nil
 }
