@@ -77,15 +77,7 @@ type IndexerBuffer struct {
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	lpShareChangesByKey            map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
 	lpChangesByPoolID              map[string]types.LiquidityPoolChange
-	// Tombstones record the order value at which a create/add was cancelled by a same-ledger
-	// remove. They keep the highest-order-wins invariant intact across the delete, so a later
-	// lower-order change cannot resurrect a removed key. See pushWithTombstone.
-	accountTombstones     map[string]int64
-	trustlineTombstones   map[TrustlineChangeKey]int64
-	sacTombstones         map[SACBalanceChangeKey]int64
-	lpShareTombstones     map[LiquidityPoolShareChangeKey]int64
-	lpTombstones          map[string]int64
-	uniqueTrustlineAssets map[uuid.UUID]data.TrustlineAsset
+	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	// parsedAssetsByString memoizes the parse + deterministic-ID derivation per unique asset
 	// string (nil value = string is known-invalid). It is content-derived — the same string always
 	// yields the same result — so it is never cleared in Clear(). Both ingestion paths reuse one
@@ -113,11 +105,6 @@ func NewIndexerBuffer() *IndexerBuffer {
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
 		lpShareChangesByKey:            make(map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange),
 		lpChangesByPoolID:              make(map[string]types.LiquidityPoolChange),
-		accountTombstones:              make(map[string]int64),
-		trustlineTombstones:            make(map[TrustlineChangeKey]int64),
-		sacTombstones:                  make(map[SACBalanceChangeKey]int64),
-		lpShareTombstones:              make(map[LiquidityPoolShareChangeKey]int64),
-		lpTombstones:                   make(map[string]int64),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		parsedAssetsByString:           make(map[string]*data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
@@ -185,73 +172,38 @@ func (b *IndexerBuffer) GetTransactionsParticipants() map[int64]map[string]struc
 	return b.participantsByToID
 }
 
-// pushWithTombstone deduplicates change into m, keeping the highest-ordered change per key.
+// pushHighestOrder stores change into m under key, keeping whichever change for that key has the
+// highest order value (operation ID, or SortKey for accounts). The highest-order change is the key's
+// final state within the ledger, so it is exactly what must be persisted:
 //
-// A create/add that is later removed within the same ledger nets to nothing: the key is deleted
-// and a tombstone is recorded at the remove's order value. The tombstone drops any subsequent
-// change whose order is <= it (a chronologically-earlier change can no longer resurrect the key),
-// while a strictly-higher order — a genuine later re-create/re-add of the same key — lifts the
-// tombstone and wins. This keeps the highest-order-wins invariant intact across the delete; a bare
-// delete would break it, since the key would look absent and a lower-order change would re-insert a
-// stale phantom.
-func pushWithTombstone[K comparable, V any](
-	m map[K]V,
-	tombstones map[K]int64,
-	key K,
-	change V,
-	order func(V) int64,
-	isNoopRemove func(existing, incoming V) bool,
-) {
-	if tomb, ok := tombstones[key]; ok {
-		if order(change) <= tomb {
-			return
-		}
-		delete(tombstones, key)
-	}
-
-	existing, exists := m[key]
-	if exists && order(existing) > order(change) {
+//   - ends on an add/update -> upsert the entry
+//   - ends on a remove      -> delete the entry
+//
+// A trailing remove therefore survives as a delete instead of being netted away against an earlier
+// same-ledger add. That netting was unsafe: the buffer cannot see whether a row for this key was
+// written by an earlier ledger, so cancelling an add+remove to "no write" strands any such row
+// (see the remove-then-recreate-then-remove case). Persisting the delete is always safe — it is a
+// harmless no-op when no row exists and the correct cleanup when one does.
+//
+// Because the highest order always wins, a lower-order change can never displace or resurrect a
+// higher-order one regardless of the order in which changes are pushed, so no tombstone bookkeeping
+// is needed to guard against out-of-order or replayed changes.
+func pushHighestOrder[K comparable, V any](m map[K]V, key K, change V, order func(V) int64) {
+	if existing, exists := m[key]; exists && order(existing) > order(change) {
 		return
 	}
-
-	if exists && isNoopRemove(existing, change) {
-		delete(m, key)
-		tombstones[key] = order(change)
-		return
-	}
-
 	m[key] = change
 }
 
 func accountOrder(c types.AccountChange) int64 { return c.SortKey }
 
-func accountIsNoopRemove(existing, incoming types.AccountChange) bool {
-	return existing.Operation == types.AccountOpCreate && incoming.Operation == types.AccountOpRemove
-}
-
 func trustlineOrder(c types.TrustlineChange) int64 { return c.OperationID }
-
-func trustlineIsNoopRemove(existing, incoming types.TrustlineChange) bool {
-	return existing.Operation == types.TrustlineOpAdd && incoming.Operation == types.TrustlineOpRemove
-}
 
 func sacBalanceOrder(c types.SACBalanceChange) int64 { return c.OperationID }
 
-func sacBalanceIsNoopRemove(existing, incoming types.SACBalanceChange) bool {
-	return existing.Operation == types.SACBalanceOpAdd && incoming.Operation == types.SACBalanceOpRemove
-}
-
 func lpShareOrder(c types.LiquidityPoolShareChange) int64 { return c.OperationID }
 
-func lpShareIsNoopRemove(existing, incoming types.LiquidityPoolShareChange) bool {
-	return existing.Operation == types.LiquidityPoolShareOpAdd && incoming.Operation == types.LiquidityPoolShareOpRemove
-}
-
 func lpOrder(c types.LiquidityPoolChange) int64 { return c.OperationID }
-
-func lpIsNoopRemove(existing, incoming types.LiquidityPoolChange) bool {
-	return existing.Operation == types.LiquidityPoolOpAdd && incoming.Operation == types.LiquidityPoolOpRemove
-}
 
 // PushTrustlineChange adds a trustline change to the buffer and tracks unique assets.
 // The parse + deterministic-ID derivation is memoized per asset string (see parsedAssetsByString),
@@ -284,7 +236,7 @@ func (b *IndexerBuffer) PushTrustlineChange(trustlineChange types.TrustlineChang
 		AccountID:   trustlineChange.AccountID,
 		TrustlineID: asset.ID,
 	}
-	pushWithTombstone(b.trustlineChangesByTrustlineKey, b.trustlineTombstones, changeKey, trustlineChange, trustlineOrder, trustlineIsNoopRemove)
+	pushHighestOrder(b.trustlineChangesByTrustlineKey, changeKey, trustlineChange, trustlineOrder)
 }
 
 // GetTrustlineChanges returns the buffer's internal map of trustline changes;
@@ -294,11 +246,10 @@ func (b *IndexerBuffer) GetTrustlineChanges() map[TrustlineChangeKey]types.Trust
 }
 
 // PushAccountChange adds an account change to the buffer with deduplication.
-// Keeps the change with highest SortKey per account. A CREATE→REMOVE within the same ledger nets
-// to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
-// pushWithTombstone).
+// Keeps the change with the highest SortKey per account: a trailing REMOVE persists as a delete
+// rather than being netted against an earlier same-ledger CREATE (see pushHighestOrder).
 func (b *IndexerBuffer) PushAccountChange(accountChange types.AccountChange) {
-	pushWithTombstone(b.accountChangesByAccountID, b.accountTombstones, accountChange.AccountID, accountChange, accountOrder, accountIsNoopRemove)
+	pushHighestOrder(b.accountChangesByAccountID, accountChange.AccountID, accountChange, accountOrder)
 }
 
 // GetAccountChanges returns the buffer's internal map of account changes;
@@ -308,15 +259,15 @@ func (b *IndexerBuffer) GetAccountChanges() map[string]types.AccountChange {
 }
 
 // PushSACBalanceChange adds a SAC balance change to the buffer with deduplication.
-// Keeps the change with highest OperationID per (AccountID, ContractID). An ADD→REMOVE within the
-// same ledger nets to nothing and is tombstoned so a later lower-key change cannot resurrect it
-// (see pushWithTombstone).
+// Keeps the change with the highest OperationID per (AccountID, ContractID): a trailing REMOVE
+// persists as a delete rather than being netted against an earlier same-ledger ADD (see
+// pushHighestOrder).
 func (b *IndexerBuffer) PushSACBalanceChange(sacBalanceChange types.SACBalanceChange) {
 	key := SACBalanceChangeKey{
 		AccountID:  sacBalanceChange.AccountID,
 		ContractID: sacBalanceChange.ContractID,
 	}
-	pushWithTombstone(b.sacBalanceChangesByKey, b.sacTombstones, key, sacBalanceChange, sacBalanceOrder, sacBalanceIsNoopRemove)
+	pushHighestOrder(b.sacBalanceChangesByKey, key, sacBalanceChange, sacBalanceOrder)
 }
 
 // GetSACBalanceChanges returns the buffer's internal map of SAC balance
@@ -326,15 +277,14 @@ func (b *IndexerBuffer) GetSACBalanceChanges() map[SACBalanceChangeKey]types.SAC
 }
 
 // PushLiquidityPoolShareChange adds a pool-share balance change to the buffer with deduplication.
-// Keeps the change with highest OperationID per (AccountID, PoolID). An ADD→REMOVE within the same
-// ledger nets to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
-// pushWithTombstone).
+// Keeps the change with the highest OperationID per (AccountID, PoolID): a trailing REMOVE persists
+// as a delete rather than being netted against an earlier same-ledger ADD (see pushHighestOrder).
 func (b *IndexerBuffer) PushLiquidityPoolShareChange(change types.LiquidityPoolShareChange) {
 	key := LiquidityPoolShareChangeKey{
 		AccountID: change.AccountID,
 		PoolID:    change.PoolID,
 	}
-	pushWithTombstone(b.lpShareChangesByKey, b.lpShareTombstones, key, change, lpShareOrder, lpShareIsNoopRemove)
+	pushHighestOrder(b.lpShareChangesByKey, key, change, lpShareOrder)
 }
 
 // GetLiquidityPoolShareChanges returns the buffer's internal map of
@@ -344,11 +294,10 @@ func (b *IndexerBuffer) GetLiquidityPoolShareChanges() map[LiquidityPoolShareCha
 }
 
 // PushLiquidityPoolChange adds a pool reserve change to the buffer with deduplication.
-// Keeps the change with highest OperationID per PoolID. An ADD→REMOVE within the same ledger nets
-// to nothing and is tombstoned so a later lower-key change cannot resurrect it (see
-// pushWithTombstone).
+// Keeps the change with the highest OperationID per PoolID: a trailing REMOVE persists as a delete
+// rather than being netted against an earlier same-ledger ADD (see pushHighestOrder).
 func (b *IndexerBuffer) PushLiquidityPoolChange(change types.LiquidityPoolChange) {
-	pushWithTombstone(b.lpChangesByPoolID, b.lpTombstones, change.PoolID, change, lpOrder, lpIsNoopRemove)
+	pushHighestOrder(b.lpChangesByPoolID, change.PoolID, change, lpOrder)
 }
 
 // GetLiquidityPoolChanges returns the buffer's internal map of pool reserve
@@ -423,15 +372,12 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 // StateChanges (state-change → operation association). StateChanges is already filtered by the
 // worker: entries with an empty AccountID or an OperationID with no matching operation are dropped.
 //
-// Netting at the fold (pushWithTombstone) requires only that a key's create/add precedes the remove
-// that cancels it — not that a change-family slice is globally sorted by order value.
-// processTransaction walks operations in ascending opID order, which gives that for every family
-// (TrustlineChanges, AccountChanges, SACBalanceChanges, LPShareChanges, LPChanges). AccountChanges is
-// the one slice that is not globally ascending: the fee-phase changes are appended after the operation
-// walk even though phaseFee sorts below every operation (see processors.accountSortKey). That is
-// harmless because a fee debit or Soroban refund always updates an account entry that already exists
-// — it never creates or removes one — so those changes pair with nothing to net, and the
-// highest-order-wins guard discards them whenever an operation already wrote a higher key.
+// The fold (pushHighestOrder) keeps the highest-order change per key, so it is independent of the
+// order in which changes reach it: a change-family slice need not be globally sorted by order value.
+// AccountChanges in particular is not globally ascending — the fee-phase changes are appended after
+// the operation walk even though phaseFee sorts below every operation (see processors.accountSortKey)
+// — and that is harmless, because the highest-order-wins guard discards a fee/refund update whenever
+// an operation already wrote a higher key for the same account.
 type TransactionResult struct {
 	Transaction           *types.Transaction
 	TxParticipants        []string
@@ -516,9 +462,9 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 // ingestion paths reuse a single buffer and clear it around each unit of work: live before every
 // ledger, backfill after every flushed batch.
 //
-// Clearing the balance-change maps and their tombstones is load-bearing for the live path, the only
-// one that persists native balances: processors.accountSortKey deliberately omits the ledger from its
-// key, so changes from two different ledgers must never coexist in those maps.
+// Clearing the balance-change maps is load-bearing for the live path, the only one that persists
+// native balances: processors.accountSortKey deliberately omits the ledger from its key, so changes
+// from two different ledgers must never coexist in those maps.
 func (b *IndexerBuffer) Clear() {
 	// Clear maps (keep allocated backing arrays)
 	clear(b.txByHash)
@@ -543,13 +489,6 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.sacBalanceChangesByKey)
 	clear(b.lpShareChangesByKey)
 	clear(b.lpChangesByPoolID)
-
-	// Clear tombstones
-	clear(b.accountTombstones)
-	clear(b.trustlineTombstones)
-	clear(b.sacTombstones)
-	clear(b.lpShareTombstones)
-	clear(b.lpTombstones)
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

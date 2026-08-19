@@ -280,10 +280,10 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 	}
 
 	// Process trustline, account, SAC balance, and liquidity-pool changes from ledger changes,
-	// walking operations in ascending opID (chronological) order. pushWithTombstone's
-	// create+remove netting at the fold requires each change family to arrive in ascending
-	// order value per key — CREATE before REMOVE — and ranging over the opsParticipants map
-	// would emit them in random order (#653).
+	// walking operations in ascending opID (chronological) order so each change family is emitted
+	// deterministically in chronological order. The fold (pushHighestOrder) keeps the highest-order
+	// change per key and no longer depends on arrival order for correctness, but ranging over the
+	// opsParticipants map directly would still produce nondeterministic slice ordering (#653).
 	sortedOpIDs := make([]int64, 0, len(opsParticipants))
 	for opID := range opsParticipants {
 		sortedOpIDs = append(sortedOpIDs, opID)
