@@ -115,6 +115,11 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 			}, nil
 		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
 		}
+	case types.StateChangeCategorySigner, types.StateChangeCategorySignatureThreshold,
+		types.StateChangeCategoryDataEntry, types.StateChangeCategoryHomeDomain,
+		types.StateChangeCategoryFlags, types.StateChangeCategoryTrustline:
+		// Classic-source variants: the simulated schema doesn't expose them yet.
+		// They land with the classic derivation source; falls through to the error below.
 	}
 	return nil, fmt.Errorf("state change has no simulated GraphQL type for (category=%s, reason=%s)",
 		sc.StateChangeCategory, sc.StateChangeReason)
