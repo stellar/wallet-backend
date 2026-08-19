@@ -26,7 +26,7 @@ func TestValidateRepairOpts(t *testing.T) {
 		{
 			name:        "🔴no scope",
 			opts:        repairOpts{protocolID: "SEP41", concurrency: 4},
-			expectedErr: "specify --contract and/or --account, or --all to repair the protocol's entire current state",
+			expectedErr: "specify --contract and/or --account, or --all to verify every indexed pair",
 		},
 		{
 			name:        "🔴all combined with contract",

@@ -74,6 +74,7 @@ func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 		Use:   "current-state",
 		Short: "Repair a protocol's current state from network truth",
 		Long: "Re-reads current state from the network via RPC simulation and conditionally rewrites rows that drifted, running concurrently with live ingestion. " +
+			"The work list is the protocol's own indexed state: rows the indexer has never written (or that were deleted out-of-band) are not discovered. " +
 			"Takes the protocol's current-state advisory lock, so it cannot run while a current-state migration is in flight. " +
 			"After repairing a protocol, a failed current-state migration for it must be restarted from scratch, not resumed — a resumed window straddling the repair's ledger stamp re-applies deltas the repaired value already contains.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -100,7 +101,7 @@ func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.protocolID, "protocol", "", "Protocol ID whose current state to repair, e.g. SEP41 (required)")
 	cmd.Flags().StringVar(&opts.contractAddress, "contract", "", "Limit the run to one contract (C... strkey)")
 	cmd.Flags().StringVar(&opts.accountAddress, "account", "", "Limit the run to one holder (G... or C... strkey)")
-	cmd.Flags().BoolVar(&opts.all, "all", false, "Repair the protocol's entire current state")
+	cmd.Flags().BoolVar(&opts.all, "all", false, "Verify and repair every (holder, token) pair already indexed for the protocol (does not discover missing holders)")
 	cmd.Flags().IntVar(&opts.concurrency, "concurrency", 4, "Repair units verified in parallel (the RPC simulation parallelism)")
 	cmd.Flags().BoolVar(&opts.disableHTTPKeepalive, "disable-http-keepalives", false, "Open a fresh RPC connection per request; needed when reaching the RPC through kubectl port-forward, at the cost of one TCP+TLS setup per simulation")
 	cmd.Flags().IntVar(&opts.metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
@@ -127,7 +128,7 @@ func validateRepairOpts(opts *repairOpts) error {
 		return fmt.Errorf("--all cannot be combined with --contract or --account")
 	}
 	if !opts.all && !scoped {
-		return fmt.Errorf("specify --contract and/or --account, or --all to repair the protocol's entire current state")
+		return fmt.Errorf("specify --contract and/or --account, or --all to verify every indexed pair")
 	}
 	if opts.concurrency < 1 {
 		return fmt.Errorf("--concurrency must be at least 1")
@@ -151,6 +152,19 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 	models, err := data.NewModels(dbPool, m.DB)
 	if err != nil {
 		return fmt.Errorf("creating models: %w", err)
+	}
+
+	// A syntactically valid but never-classified contract resolves to an ID that
+	// matches no rows, so the run would check zero units and exit 0. Reject it
+	// here rather than in validateRepairOpts, which has no DB.
+	if opts.contractAddress != "" {
+		known, err := models.Contract.GetTokenMetadataByContractIDs(ctx, []string{opts.contractAddress})
+		if err != nil {
+			return fmt.Errorf("checking --contract against known contracts: %w", err)
+		}
+		if len(known) == 0 {
+			return fmt.Errorf("--contract %s is not a known contract (no contract_tokens row); repair only verifies pairs the indexer has classified", opts.contractAddress)
+		}
 	}
 
 	if opts.metricsPort > 0 {
