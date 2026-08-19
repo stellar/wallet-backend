@@ -167,8 +167,8 @@ func (s *CurrentStateRepairTestSuite) TestSEP41CurrentStateRepair() {
 	s.Run("phantom row becomes a permanent zero row hidden from the API", func() {
 		// Repair rewrites the fabricated row to the contract's answer (0) and keeps it:
 		// the row's ledger stamp is what the fold's strict-monotone guard checks stale
-		// deltas against, so zero rows are never deleted. The API hides zero rows, so
-		// clients still see "holds nothing".
+		// deltas against, so zero rows persist no matter which writer produced them.
+		// The API hides zero rows, so clients still see "holds nothing".
 		balance, ok := s.mustReadBalance(ctx, pool, phantomHolder, tokenUUID)
 		s.Require().True(ok, "the zero row must persist as a stale-delta barrier")
 		s.Assert().Equal("0", balance, "the fabricated balance should have been rewritten to 0")
@@ -228,8 +228,8 @@ func (s *CurrentStateRepairTestSuite) findAPISEP41Balance(ctx context.Context, h
 }
 
 // readBalance returns the holder's balance for the token as a decimal string,
-// and whether the row exists at all — zero balances are represented by row
-// absence, so the two outcomes are distinct.
+// and whether the row exists at all. Zero balances are stored rows (hidden by
+// the API, kept for their ledger stamp), so presence and value are distinct.
 //
 // It reports errors rather than asserting because it is also called from an
 // Eventually condition, which testify runs on its own goroutine (see

@@ -49,10 +49,11 @@ type BalanceModelInterface interface {
 	// cursor is the last contract_id seen from the previous page).
 	GetByAccount(ctx context.Context, accountAddress string, limit *int32, cursor *uuid.UUID, sortOrder SortOrder) ([]Balance, error)
 	// BatchApplyDeltas applies signed balance deltas server-side
-	// (balance := existing + delta) and sweeps any rows that settle to zero.
-	// Each input Balance.Balance is interpreted as the delta to add, NOT as
-	// the absolute new balance. This avoids needing to preload state from DB
-	// into memory at the cost of per-ledger SQL arithmetic on TEXT→numeric.
+	// (balance := existing + delta). Each input Balance.Balance is interpreted
+	// as the delta to add, NOT as the absolute new balance. This avoids needing
+	// to preload state from DB into memory at the cost of per-ledger SQL
+	// arithmetic on TEXT→numeric. Balances that settle to zero keep their rows:
+	// the ledger stamp shields against stale deltas, and GetByAccount hides them.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
 	// ApplyAbsolute overwrites the row with an authoritative balance observed at
 	// bal.LedgerNumber. Returns applied=false when the row has moved past that
@@ -82,9 +83,9 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	// balance <> 0 hides repair-written zero rows. Repair keeps zeros as permanent
-	// rows (their ledger stamp shields against stale fold deltas), so readers must
-	// filter them to keep "holds nothing" meaning "no balance shown".
+	// balance <> 0 hides zero rows. Both writers — the fold and the repair — keep
+	// zeros as permanent rows (their ledger stamp shields against stale deltas),
+	// so readers must filter them to keep "holds nothing" meaning "no balance shown".
 	query := `
 		SELECT
 			b.contract_id, b.balance::text, b.last_modified_ledger,
@@ -146,8 +147,10 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 	return balances, nil
 }
 
-// BatchApplyDeltas accumulates signed balance deltas server-side (balance := existing + delta)
-// and removes rows that settle to zero. Each input Balance.Balance is a decimal string delta.
+// BatchApplyDeltas accumulates signed balance deltas server-side (balance := existing + delta).
+// Each input Balance.Balance is a decimal string delta. Rows that settle to zero are kept:
+// deleting one would destroy the ledger stamp the CASE guard and the repair's conditional
+// write both compare against, so zeros stay as stamped rows and GetByAccount hides them.
 //
 // Callers must supply key-disjoint deltas: each (account_id, contract_id) tuple may
 // appear at most once per call. Today this holds because the upstream SEP-41 processor
@@ -156,9 +159,8 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 // below relies on the precondition — a duplicate key would trip Postgres's "ON CONFLICT
 // DO UPDATE command cannot affect row a second time" guard.
 //
-// The upsert and zero-sweep run within the caller's transaction so retries re-apply the
-// same ledger's deltas exactly once (guarded by the CAS cursor). The DELETE is scoped to
-// the (account, contract) pairs we just touched.
+// The upsert runs within the caller's transaction so retries re-apply the same
+// ledger's deltas exactly once (guarded by the CAS cursor).
 func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error {
 	if len(deltas) == 0 {
 		return nil
@@ -211,20 +213,6 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
-	}
-
-	// The ledger in the tuple limits the sweep to rows this batch actually wrote.
-	// A zero row the guard skipped is a repair barrier at a newer ledger — deleting
-	// it would let a later stale delta INSERT a wrong row.
-	const deleteZeroesQuery = `
-		DELETE FROM sep41_balances
-		WHERE balance = 0
-		  AND (account_id, contract_id, last_modified_ledger) IN (
-		      SELECT * FROM UNNEST($1::bytea[], $2::uuid[], $3::integer[])
-		  )`
-	if _, err := dbTx.Exec(ctx, deleteZeroesQuery, accountIDs, contractIDs, ledgers); err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", "sep41_balances", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("sweeping zero SEP-41 balances: %w", err)
 	}
 
 	duration := time.Since(start).Seconds()

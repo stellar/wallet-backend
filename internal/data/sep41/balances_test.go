@@ -162,7 +162,7 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 		assert.Equal(t, uint32(50), balancesB[0].LedgerNumber)
 	})
 
-	t.Run("deletes the row when a delta settles the balance to zero", func(t *testing.T) {
+	t.Run("keeps a zero row with the batch stamp, hidden from readers", func(t *testing.T) {
 		acct := keypair.MustRandom().Address()
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		cid := insertContractToken(t, ctx, pool, contract)
@@ -172,16 +172,21 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "500", LedgerNumber: 10,
 			}}))
 		})
-		// Burn the entire balance.
+		// Burn the entire balance. The row must survive: its stamp is what the
+		// CASE guard checks stale deltas against.
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{{
 				AccountID: types.AddressBytea(acct), ContractID: cid, Balance: "-500", LedgerNumber: 11,
 			}}))
 		})
 
+		rawBalance, rawLedger := readRawBalance(t, ctx, pool, acct, cid)
+		assert.Equal(t, "0", rawBalance, "zero row must persist with its stamp")
+		assert.Equal(t, uint32(11), rawLedger)
+
 		balances, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
 		require.NoError(t, err)
-		assert.Empty(t, balances, "zero-balance row should be swept")
+		assert.Empty(t, balances, "GetByAccount must hide zero rows from readers")
 	})
 
 	t.Run("skips deltas at or below the row's last_modified_ledger", func(t *testing.T) {
@@ -226,11 +231,10 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 		assert.Equal(t, uint32(101), balances[0].LedgerNumber)
 	})
 
-	t.Run("does not sweep a zero row whose stamp is newer than the skipped delta", func(t *testing.T) {
+	t.Run("a stale delta does not disturb a newer zero row", func(t *testing.T) {
 		// A zero row at a newer ledger is a repair barrier: its value ("holds zero as
-		// of ledger R") must survive stale deltas, or a later stale delta would INSERT
-		// a wrong row after the sweep removed it. Only the repair engine deletes such
-		// rows, once live ingestion has passed R.
+		// of ledger R") must survive stale deltas — the guard skips them and the row
+		// keeps its balance and stamp untouched.
 		acct := keypair.MustRandom().Address()
 		contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
 		cid := insertContractToken(t, ctx, pool, contract)
