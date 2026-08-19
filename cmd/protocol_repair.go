@@ -45,15 +45,16 @@ func (c *protocolRepairCmd) Command() *cobra.Command {
 
 // repairOpts captures the flags for `protocol-repair current-state`.
 type repairOpts struct {
-	databaseURL       string
-	rpcURL            string
-	networkPassphrase string
-	logLevel          logrus.Level
-	protocolID        string
-	contractAddress   string
-	accountAddress    string
-	all               bool
-	concurrency       int
+	databaseURL          string
+	rpcURL               string
+	networkPassphrase    string
+	logLevel             logrus.Level
+	protocolID           string
+	contractAddress      string
+	accountAddress       string
+	all                  bool
+	concurrency          int
+	disableHTTPKeepalive bool
 }
 
 func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
@@ -97,6 +98,7 @@ func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.accountAddress, "account", "", "Limit the run to one holder (G... or C... strkey)")
 	cmd.Flags().BoolVar(&opts.all, "all", false, "Repair the protocol's entire current state")
 	cmd.Flags().IntVar(&opts.concurrency, "concurrency", 4, "Repair units verified in parallel (the RPC simulation parallelism)")
+	cmd.Flags().BoolVar(&opts.disableHTTPKeepalive, "disable-http-keepalives", false, "Open a fresh RPC connection per request; needed when reaching the RPC through kubectl port-forward, at the cost of one TCP+TLS setup per simulation")
 
 	return cmd
 }
@@ -146,8 +148,13 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 		return fmt.Errorf("creating models: %w", err)
 	}
 
-	// Create RPC service with keep-alives disabled (see keepAlivesDisabledHTTPClient).
-	httpClient := keepAlivesDisabledHTTPClient()
+	// Repair issues one simulation per unit, so connection reuse matters at scale:
+	// the keep-alive client keeps a warm connection per worker. Port-forward runs
+	// opt out via --disable-http-keepalives (see keepAlivesDisabledHTTPClient).
+	httpClient := keepAliveHTTPClient(opts.concurrency)
+	if opts.disableHTTPKeepalive {
+		httpClient = keepAlivesDisabledHTTPClient()
+	}
 	rpcService, err := services.NewRPCService(opts.rpcURL, opts.networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)
