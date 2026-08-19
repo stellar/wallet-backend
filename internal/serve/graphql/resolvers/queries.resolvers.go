@@ -7,6 +7,7 @@ package resolvers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -51,6 +52,11 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
+}
+
+// SimulateStateChanges is the resolver for the simulateStateChanges field.
+func (r *queryResolver) SimulateStateChanges(ctx context.Context, transactionXdr string) (*graphql1.SimulatedStateChanges, error) {
+	panic(fmt.Errorf("not implemented: SimulateStateChanges - simulateStateChanges"))
 }
 
 // Query returns graphql1.QueryResolver implementation.
