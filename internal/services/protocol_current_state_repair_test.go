@@ -10,11 +10,14 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // stubRepairer is a configurable ProtocolCurrentStateRepair for engine tests.
@@ -81,7 +84,7 @@ func newRepairFixture(t *testing.T, repairer ProtocolCurrentStateRepair, protoco
 		protocolsModel.On("GetByIDs", ctx, []string{protocol.ID}).Return([]data.Protocols{protocol}, nil)
 	}
 
-	svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4))
+	svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4), metrics.NewRepairMetrics(prometheus.NewRegistry()))
 	return ctx, svc
 }
 
@@ -217,7 +220,9 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		dbPool, _ := setupTestDB(t)
 		protocolsModel := data.NewProtocolsModelMock(t)
 		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{readyProtocol}, nil)
-		svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4))
+		// Omitted metrics => the constructor defaults to a fresh registry.
+		svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4), nil)
+		require.NotNil(t, svc.metrics)
 
 		err := svc.Run(ctx, "testproto", RepairScope{})
 		require.Error(t, err)
@@ -252,6 +257,35 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
 		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}), "the first run must release the lock")
+	})
+
+	t.Run("records one metric per unit outcome", func(t *testing.T) {
+		repairer := newStubRepairer([][]RepairUnit{{"drifted", "insync", "archived", "hot"}})
+		repairer.fetchTruth = func(unit RepairUnit, _ int) (Truth, uint32, error) {
+			if unit == RepairUnit("archived") {
+				return nil, 0, errors.New("simulation failed: contract archived")
+			}
+			return "100", 50, nil
+		}
+		repairer.apply = func(unit RepairUnit, _ int) (RepairOutcome, error) {
+			switch unit {
+			case RepairUnit("drifted"):
+				return RepairApplied, nil
+			case RepairUnit("insync"):
+				return RepairUnchanged, nil
+			default:
+				return RepairStale, nil
+			}
+		}
+
+		ctx, svc := newRepairFixture(t, repairer, readyProtocol)
+		require.NoError(t, svc.Run(ctx, "testproto", RepairScope{}))
+
+		assert.Equal(t, 4.0, testutil.ToFloat64(svc.metrics.UnitsChecked.WithLabelValues("testproto")))
+		assert.Equal(t, 1.0, testutil.ToFloat64(svc.metrics.Outcomes.WithLabelValues("testproto", metrics.RepairOutcomeApplied)))
+		assert.Equal(t, 1.0, testutil.ToFloat64(svc.metrics.Outcomes.WithLabelValues("testproto", metrics.RepairOutcomeUnchanged)))
+		assert.Equal(t, 1.0, testutil.ToFloat64(svc.metrics.Outcomes.WithLabelValues("testproto", metrics.RepairOutcomeSkipped)))
+		assert.Equal(t, 1.0, testutil.ToFloat64(svc.metrics.Outcomes.WithLabelValues("testproto", metrics.RepairOutcomeGaveUp)))
 	})
 
 	t.Run("aborts on a hard apply error", func(t *testing.T) {

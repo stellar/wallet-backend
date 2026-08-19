@@ -16,6 +16,7 @@ type Metrics struct {
 	GraphQL     *GraphQLMetrics
 	Auth        *AuthMetrics
 	Migration   *MigrationMetrics
+	Repair      *RepairMetrics
 	Dataloader  *DataloaderMetrics
 	BlendPrices *BlendPriceMetrics
 	registry    *prometheus.Registry
@@ -37,6 +38,7 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 		GraphQL:     NewGraphQLMetrics(reg),
 		Auth:        newAuthMetrics(reg),
 		Migration:   newMigrationMetrics(reg),
+		Repair:      NewRepairMetrics(reg),
 		Dataloader:  newDataloaderMetrics(reg),
 		BlendPrices: newBlendPriceMetrics(reg),
 		registry:    reg,

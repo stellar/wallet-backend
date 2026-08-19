@@ -9,10 +9,12 @@ import (
 	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 const (
@@ -114,14 +116,27 @@ func BuildCurrentStateRepairers(deps ProtocolDeps, protocolIDs []string) (map[st
 	return out, nil
 }
 
-// repairStats accumulates a run's outcome counts. Atomic: units within a page
-// are repaired concurrently.
+// repairStats accumulates a run's outcome counts, both for the end-of-run log
+// line and as Prometheus counters. Atomic: units within a page are repaired
+// concurrently.
 type repairStats struct {
 	checked   atomic.Int64
 	applied   atomic.Int64
 	unchanged atomic.Int64 // row already equaled the truth; verified without a write
 	skipped   atomic.Int64 // FetchTruth failed (e.g. archived contract)
 	gaveUp    atomic.Int64 // lost every apply attempt to concurrent fold writes
+	counters  repairCounters
+}
+
+// repairCounters holds a run's Prometheus counters with their label values
+// already bound, so the per-unit path only increments. Counters are safe for
+// concurrent increments.
+type repairCounters struct {
+	checked   prometheus.Counter
+	applied   prometheus.Counter
+	unchanged prometheus.Counter
+	skipped   prometheus.Counter
+	gaveUp    prometheus.Counter
 }
 
 // protocolCurrentStateRepairService repairs a protocol's current-state tables
@@ -138,6 +153,8 @@ type protocolCurrentStateRepairService struct {
 	// pool bounds simultaneous FetchTruth/Apply pipelines within a page —
 	// effectively the RPC simulation parallelism.
 	pool pond.Pool
+	// Always non-nil: the constructor defaults it to a fresh registry when unset.
+	metrics *metrics.RepairMetrics
 }
 
 // NewProtocolCurrentStateRepairService creates the repair engine. repairers maps
@@ -147,12 +164,29 @@ func NewProtocolCurrentStateRepairService(
 	protocolsModel data.ProtocolsModelInterface,
 	repairers map[string]ProtocolCurrentStateRepair,
 	pool pond.Pool,
+	repairMetrics *metrics.RepairMetrics,
 ) *protocolCurrentStateRepairService {
+	if repairMetrics == nil {
+		repairMetrics = metrics.NewRepairMetrics(prometheus.NewRegistry())
+	}
 	return &protocolCurrentStateRepairService{
 		db:             dbPool,
 		protocolsModel: protocolsModel,
 		repairers:      repairers,
 		pool:           pool,
+		metrics:        repairMetrics,
+	}
+}
+
+// newRepairCounters binds the run's counters to the protocol label once, so the
+// per-unit path does no label lookups.
+func (s *protocolCurrentStateRepairService) newRepairCounters(protocolID string) repairCounters {
+	return repairCounters{
+		checked:   s.metrics.UnitsChecked.WithLabelValues(protocolID),
+		applied:   s.metrics.Outcomes.WithLabelValues(protocolID, metrics.RepairOutcomeApplied),
+		unchanged: s.metrics.Outcomes.WithLabelValues(protocolID, metrics.RepairOutcomeUnchanged),
+		skipped:   s.metrics.Outcomes.WithLabelValues(protocolID, metrics.RepairOutcomeSkipped),
+		gaveUp:    s.metrics.Outcomes.WithLabelValues(protocolID, metrics.RepairOutcomeGaveUp),
 	}
 }
 
@@ -188,7 +222,7 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 		return fmt.Errorf("protocol %q current-state migration is in progress; repair would race its windowed commits", protocolID)
 	}
 
-	stats := &repairStats{}
+	stats := &repairStats{counters: s.newRepairCounters(protocolID)}
 	startTime := time.Now()
 
 	for cursor := ""; ; {
@@ -256,6 +290,7 @@ func (s *protocolCurrentStateRepairService) repairPage(ctx context.Context, repa
 // the previous truth stale by definition.
 func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repairer ProtocolCurrentStateRepair, unit RepairUnit, stats *repairStats) error {
 	stats.checked.Add(1)
+	stats.counters.checked.Inc()
 
 	for attempt := 1; attempt <= maxRepairAttempts; attempt++ {
 		truth, ledger, err := repairer.FetchTruth(ctx, unit)
@@ -268,6 +303,7 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 			}
 			log.Ctx(ctx).Warnf("skipping repair unit %v: fetching truth: %v", unit, err)
 			stats.skipped.Add(1)
+			stats.counters.skipped.Inc()
 			return nil
 		}
 		var outcome RepairOutcome
@@ -287,9 +323,11 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 		switch outcome {
 		case RepairApplied:
 			stats.applied.Add(1)
+			stats.counters.applied.Inc()
 			return nil
 		case RepairUnchanged:
 			stats.unchanged.Add(1)
+			stats.counters.unchanged.Inc()
 			return nil
 		case RepairStale:
 			// Loop: the next attempt fetches fresh truth.
@@ -298,5 +336,6 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 
 	log.Ctx(ctx).Warnf("giving up on repair unit %v after %d attempts: row kept moving past the truth ledger", unit, maxRepairAttempts)
 	stats.gaveUp.Add(1)
+	stats.counters.gaveUp.Inc()
 	return nil
 }

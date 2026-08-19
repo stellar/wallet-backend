@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/alitto/pond/v2"
 	_ "github.com/lib/pq"
@@ -55,6 +56,7 @@ type repairOpts struct {
 	all                  bool
 	concurrency          int
 	disableHTTPKeepalive bool
+	metricsPort          int
 }
 
 func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
@@ -101,6 +103,7 @@ func (c *protocolRepairCmd) currentStateCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.all, "all", false, "Repair the protocol's entire current state")
 	cmd.Flags().IntVar(&opts.concurrency, "concurrency", 4, "Repair units verified in parallel (the RPC simulation parallelism)")
 	cmd.Flags().BoolVar(&opts.disableHTTPKeepalive, "disable-http-keepalives", false, "Open a fresh RPC connection per request; needed when reaching the RPC through kubectl port-forward, at the cost of one TCP+TLS setup per simulation")
+	cmd.Flags().IntVar(&opts.metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
 
 	return cmd
 }
@@ -150,6 +153,17 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 		return fmt.Errorf("creating models: %w", err)
 	}
 
+	if opts.metricsPort > 0 {
+		metricsServer := startMetricsServer(opts.metricsPort, m.Registry())
+		defer func() {
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelShutdown()
+			if shErr := metricsServer.Shutdown(shutdownCtx); shErr != nil {
+				log.Ctx(ctx).Warnf("error shutting down metrics server: %v", shErr)
+			}
+		}()
+	}
+
 	// Repair issues one simulation per unit, so connection reuse matters at scale:
 	// the keep-alive client keeps a warm connection per worker. Port-forward runs
 	// opt out via --disable-http-keepalives (see keepAlivesDisabledHTTPClient).
@@ -187,7 +201,7 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 	defer repairPool.StopAndWait()
 	m.RegisterPoolMetrics("repair", repairPool)
 
-	service := services.NewProtocolCurrentStateRepairService(dbPool, models.Protocols, repairers, repairPool)
+	service := services.NewProtocolCurrentStateRepairService(dbPool, models.Protocols, repairers, repairPool, m.Repair)
 	scope := services.RepairScope{
 		ContractAddress: opts.contractAddress,
 		AccountAddress:  opts.accountAddress,

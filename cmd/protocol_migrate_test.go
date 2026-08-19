@@ -18,7 +18,7 @@ func TestMigrationMetricsHandler(t *testing.T) {
 	m := metrics.NewMetrics(reg)
 	m.Migration.LedgersProcessed.Inc()
 
-	srv := httptest.NewServer(migrationMetricsHandler(reg))
+	srv := httptest.NewServer(metricsHandler(reg))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/metrics")

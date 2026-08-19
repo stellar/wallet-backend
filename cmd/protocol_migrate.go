@@ -196,7 +196,7 @@ func runMigration(
 	}
 
 	if opts.metricsPort > 0 {
-		metricsServer := startMigrationMetricsServer(opts.metricsPort, m.Registry())
+		metricsServer := startMetricsServer(opts.metricsPort, m.Registry())
 		defer func() {
 			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancelShutdown()
@@ -360,24 +360,24 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 	)
 }
 
-// migrationMetricsHandler serves the Prometheus registry at /metrics.
-func migrationMetricsHandler(reg *prometheus.Registry) http.Handler {
+// metricsHandler serves the Prometheus registry at /metrics.
+func metricsHandler(reg *prometheus.Registry) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	return mux
 }
 
-// startMigrationMetricsServer starts a goroutine serving /metrics on the given
-// port for the life of the migration run. The returned server is shut down by
-// the caller when Run completes.
-func startMigrationMetricsServer(port int, reg *prometheus.Registry) *http.Server {
+// startMetricsServer starts a goroutine serving /metrics on the given port for
+// the life of a one-shot command's run. The returned server is shut down by the
+// caller when the run completes.
+func startMetricsServer(port int, reg *prometheus.Registry) *http.Server {
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           migrationMetricsHandler(reg),
+		Handler:           metricsHandler(reg),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.Infof("Starting protocol-migrate metrics server on port %d at /metrics", port)
+		log.Infof("Starting metrics server on port %d at /metrics", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("metrics server on %s stopped: %v", server.Addr, err)
 		}
