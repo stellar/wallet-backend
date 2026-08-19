@@ -351,13 +351,13 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
+	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
-	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 	r.metrics.ResponseSizeBytes.WithLabelValues(method).Observe(float64(len(body)))
 
 	if resp.StatusCode != http.StatusOK {
