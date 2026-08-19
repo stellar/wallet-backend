@@ -154,6 +154,34 @@ func TestFetchSingleField(t *testing.T) {
 		assert.Contains(t, err.Error(), "no simulation results returned")
 	})
 
+	t.Run("returns error when latestLedger is zero", func(t *testing.T) {
+		mockRPCService := NewRPCServiceMock(t)
+		mockContractModel := data.NewContractModelMock(t)
+		pool := pond.NewPool(2)
+		defer pool.Stop()
+
+		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+
+		// latestLedger is omitempty, so a response omitting it decodes to 0.
+		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
+			entities.RPCSimulateTransactionResult{
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TestToken")}}},
+				LatestLedger: 0,
+			},
+			nil,
+		)
+
+		service, err := NewContractMetadataService(mockRPCService, mockContractModel, pool)
+		require.NoError(t, err)
+
+		cms := service.(*contractMetadataService)
+		_, _, err = cms.FetchSingleFieldWithLedger(ctx, contractID, "name")
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "simulation returned latestLedger 0")
+		assert.Contains(t, err.Error(), "must be a positive ledger number that fits in uint32")
+	})
+
 	t.Run("returns correct value for successful simulation", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
 		mockContractModel := data.NewContractModelMock(t)
@@ -166,7 +194,8 @@ func TestFetchSingleField(t *testing.T) {
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: expectedScVal}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: expectedScVal}},
+				LatestLedger: 621041,
 			},
 			nil,
 		)
@@ -227,6 +256,7 @@ func TestFetchSingleField(t *testing.T) {
 				Results: []entities.RPCSimulateHostFunctionResult{
 					{XDR: xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("OK")}},
 				},
+				LatestLedger: 621041,
 			}, nil,
 		).Once()
 
@@ -301,7 +331,8 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				LatestLedger: 621041,
 			}, nil,
 		)
 
@@ -336,7 +367,8 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				LatestLedger: 621041,
 			}, nil,
 		)
 
@@ -371,7 +403,8 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal}},
+				LatestLedger: 621041,
 			}, nil,
 		)
 
@@ -427,12 +460,14 @@ func TestFetchSACMetadata(t *testing.T) {
 		// Return different values for the two calls
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+				LatestLedger: 621041,
 			}, nil,
 		).Once()
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal2}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal2}},
+				LatestLedger: 621041,
 			}, nil,
 		).Once()
 
@@ -459,7 +494,8 @@ func TestFetchSACMetadata(t *testing.T) {
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{
-				Results: []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+				Results:      []entities.RPCSimulateHostFunctionResult{{XDR: nameScVal1}},
+				LatestLedger: 621041,
 			}, nil,
 		).Once()
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(

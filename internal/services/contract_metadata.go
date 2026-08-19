@@ -309,8 +309,10 @@ func (s *contractMetadataService) FetchSingleFieldWithLedger(ctx context.Context
 		} else if len(result.Results) == 0 {
 			// Empty results aren't classified as transient — surface immediately.
 			return xdr.ScVal{}, 0, fmt.Errorf("no simulation results returned")
-		} else if result.LatestLedger < 0 || result.LatestLedger > math.MaxUint32 {
-			return xdr.ScVal{}, 0, fmt.Errorf("simulation returned latestLedger %d outside the uint32 ledger range", result.LatestLedger)
+		} else if result.LatestLedger <= 0 || result.LatestLedger > math.MaxUint32 {
+			// latestLedger is omitempty, so an absent field decodes to 0. Rejecting 0
+			// keeps callers from stamping a value at a ledger every delta folds over.
+			return xdr.ScVal{}, 0, fmt.Errorf("simulation returned latestLedger %d, which must be a positive ledger number that fits in uint32", result.LatestLedger)
 		} else {
 			return result.Results[0].XDR, uint32(result.LatestLedger), nil
 		}
