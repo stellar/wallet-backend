@@ -1,8 +1,6 @@
 // Package sep41 — repairer.go implements the current-state repair seam for
-// SEP-41 balances: the repair unit is a (holder, token) pair from
-// sep41_balances, truth is the contract's own balance(holder) read via RPC
-// simulation, and applying truth is a conditional absolute write guarded
-// against the concurrent event fold.
+// SEP-41: a unit is a (holder, token) pair from sep41_balances, truth is a
+// balance(holder) simulation, and Apply is the conditional absolute write.
 package sep41
 
 import (
@@ -46,8 +44,8 @@ func newRepairer(deps services.ProtocolDeps) *repairer {
 	}
 }
 
-// ListUnits pages (holder, token) pairs from sep41_balances — the table itself
-// is the work list; repair verifies known pairs, it does not discover holders.
+// ListUnits pages (holder, token) pairs from sep41_balances. The table is the
+// work list: repair verifies known pairs, it does not discover holders.
 func (r *repairer) ListUnits(ctx context.Context, scope services.RepairScope, cursor string, limit int) ([]services.RepairUnit, string, error) {
 	var filterContract *uuid.UUID
 	if scope.ContractAddress != "" {
@@ -91,9 +89,9 @@ func (r *repairer) FetchTruth(ctx context.Context, unit services.RepairUnit) (se
 	return value, ledger, nil
 }
 
-// Apply conditionally writes the simulated balance. Zero values are stored as
-// permanent zero rows — their ledger stamp keeps guarding against stale fold
-// deltas, and GetByAccount hides them from readers.
+// Apply conditionally writes the simulated balance. Zeros become permanent
+// rows (the stamp keeps shielding against stale deltas); GetByAccount hides
+// them from readers.
 func (r *repairer) Apply(ctx context.Context, dbTx pgx.Tx, unit services.RepairUnit, truth services.Truth, ledger uint32) (bool, error) {
 	u, ok := unit.(repairUnit)
 	if !ok {

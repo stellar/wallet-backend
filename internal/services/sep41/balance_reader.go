@@ -1,13 +1,9 @@
-// Package sep41 — balance_reader.go reads a token holder's authoritative
-// balance straight from the chain by simulating the contract's balance(id)
-// view function, rather than folding it from transfer events. It is the
-// reference value the repair path compares the event-derived current-state
-// rows against.
+// Package sep41 — balance_reader.go reads a holder's authoritative balance by
+// simulating the contract's balance(id) view function. The repair path writes
+// this value over event-derived rows.
 //
-// The returned value is the raw i128 the contract holds, formatted as a
-// decimal string with no scaling applied — the same form the processor
-// persists (see processor.go, which stores the folded big.Int delta
-// verbatim). Applying a decimals divisor here would make the two
+// The value is the raw i128 as a decimal string, no decimals scaling — the
+// same form the processor persists. Scaling here would make the two
 // incomparable.
 package sep41
 
@@ -35,12 +31,10 @@ func NewBalanceReader(rpc services.ContractMetadataService) *BalanceReader {
 	return &BalanceReader{rpc: rpc}
 }
 
-// ReadBalance simulates balance(holder) on the token contract and returns the
-// holder's balance as a raw i128 decimal string, along with the ledger the
-// value is true at. tokenContractAddress is a C-address; holderAddress is
-// either a G- or a C-address. Any failure — RPC error, simulation revert, or
-// a result that is not an i128 — is returned to the caller, which treats it
-// as skip-and-report.
+// ReadBalance simulates balance(holder) and returns the raw i128 decimal
+// string plus the ledger it is true at. tokenContractAddress is a C-address;
+// holderAddress is a G- or C-address. Any failure (RPC error, revert, non-i128
+// result) is returned; callers treat it as skip-and-report.
 func (r *BalanceReader) ReadBalance(ctx context.Context, tokenContractAddress, holderAddress string) (string, uint32, error) {
 	if r == nil {
 		return "", 0, fmt.Errorf("sep41: nil BalanceReader")

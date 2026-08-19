@@ -1,28 +1,20 @@
 package integrationtests
 
-// SEP-41 current-state repair coverage. The repair engine's iteration and
-// retry mechanics are covered by unit tests
-// (services.TestProtocolCurrentStateRepair*); this suite's unique value is
-// running the real protocol-repair CLI container against real corruption in a
-// real database while live ingestion keeps producing, so the two writers'
-// guards (ApplyAbsolute's optimistic-concurrency WHERE and BatchApplyDeltas'
-// strict-monotone CASE) are exercised against each other on a live row rather
-// than a fixture.
+// SEP-41 current-state repair coverage. Unit tests already cover the engine's
+// iteration and retries (services.TestProtocolCurrentStateRepair*); this suite
+// runs the real protocol-repair CLI container against real corruption while
+// live ingestion keeps producing — the only place the repair write and the
+// fold's ledger guard race each other on a live row.
 //
-// Nothing wallet-backend runs in-process here: the repair is the CLI
-// container, API assertions go through wbclient against the serving
-// container, and expected values are fixture arithmetic (the constants that
-// defined what was submitted on-chain). Raw SQL is used only to inspect and
-// corrupt table state.
+// Nothing wallet-backend runs in-process: the repair is the CLI container,
+// API assertions go through wbclient, and expected values are fixture
+// arithmetic. Raw SQL only inspects and corrupts table state.
 //
-// It reuses the custom SEP-41 token deployed in setup and classified by
-// DataMigrationTestSuite's protocol-setup run, so it must run after that
-// suite (and after AccountBalancesAfterLiveIngestionTestSuite, whose API
-// assertions pin the fixture balances this suite deliberately moves).
-//
-// NOTE: like DataMigrationTestSuite, this suite has no teardown. It leaves
-// account1 holding an extra sep41RepairMintStroops; nothing downstream
-// asserts on the custom SEP-41 token.
+// Ordering: must run after DataMigrationTestSuite (classifies the token and
+// builds the rows) and after AccountBalancesAfterLiveIngestionTestSuite
+// (whose API assertions pin the fixture balances this suite moves). No
+// teardown: account1 keeps an extra sep41RepairMintStroops; nothing
+// downstream asserts on the custom SEP-41 token.
 
 import (
 	"context"

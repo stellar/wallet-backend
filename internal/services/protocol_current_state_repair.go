@@ -18,10 +18,9 @@ const (
 	// repairPageSize is how many repair units ListUnits returns per page. Pages are
 	// fetched sequentially; units within a page are repaired concurrently.
 	repairPageSize = 1000
-	// maxRepairAttempts bounds the fetch-truth/apply retry loop per unit. An apply
-	// loses only when live ingestion wrote the row after the truth's ledger, so each
-	// retry needs a fresh simulation; a unit hot enough to lose every attempt is
-	// logged and skipped rather than chased.
+	// maxRepairAttempts bounds the fetch/apply retry loop per unit. Each retry
+	// needs fresh truth (an apply loses only to a newer fold write); a unit hot
+	// enough to lose every attempt is logged and skipped.
 	maxRepairAttempts = 5
 )
 
@@ -44,23 +43,20 @@ type (
 )
 
 // ProtocolCurrentStateRepair is the per-protocol seam the repair engine drives,
-// mirroring how the migration engine drives ProtocolProcessor. Implementations
-// own what a unit is, how its on-chain truth is read, and how that truth lands
-// in their tables; the engine owns iteration, concurrency, and retries.
+// mirroring how the migration engine drives ProtocolProcessor. The protocol owns
+// what a unit is, how its truth is read, and how truth lands in its tables; the
+// engine owns iteration, concurrency, and retries.
 type ProtocolCurrentStateRepair interface {
 	// ListUnits pages repair units in scope from the protocol's own tables.
 	// cursor is "" for the first page; a returned "" cursor ends iteration.
 	ListUnits(ctx context.Context, scope RepairScope, cursor string, limit int) ([]RepairUnit, string, error)
-	// FetchTruth reads the unit's authoritative state from the network (RPC
-	// simulation of the protocol's read-only interface) and returns it with the
-	// ledger it is true at. Values spanning multiple reads must be internally
-	// consistent at that single ledger. An error means the unit cannot be
-	// verified right now (e.g. the contract is archived) — the engine skips it
-	// and reports.
+	// FetchTruth reads the unit's authoritative state via RPC simulation and the
+	// ledger it is true at. Multi-read truth must be consistent at that single
+	// ledger. An error means the unit can't be verified right now (e.g. archived
+	// contract) — the engine skips it and reports.
 	FetchTruth(ctx context.Context, unit RepairUnit) (Truth, uint32, error)
-	// Apply conditionally writes the unit's truth inside dbTx, no-oping with
-	// applied=false when the row has moved past ledger — the engine then
-	// refetches truth and retries.
+	// Apply conditionally writes the truth inside dbTx. applied=false means the
+	// row moved past ledger — the engine refetches and retries.
 	Apply(ctx context.Context, dbTx pgx.Tx, unit RepairUnit, truth Truth, ledger uint32) (bool, error)
 }
 
@@ -112,11 +108,10 @@ func (s *repairStats) record(fn func(*repairStats)) {
 }
 
 // protocolCurrentStateRepairService repairs a protocol's current-state tables
-// from network truth, unit by unit, concurrently with live ingestion. No
-// coordination with the live fold is needed: Apply's conditional write and the
-// fold's strict-monotone ledger guard are evaluated against the same row inside
-// Postgres, so either order of concurrent writes converges (see the SEP-41
-// balances model for the guard).
+// from network truth, unit by unit, while live ingestion keeps writing. No
+// coordination is needed: Apply's conditional write and the fold's ledger guard
+// are both evaluated in SQL against the committed row, so either write order
+// converges (see the SEP-41 balances model).
 type protocolCurrentStateRepairService struct {
 	db             *pgxpool.Pool
 	protocolsModel data.ProtocolsModelInterface
@@ -152,10 +147,9 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 		return fmt.Errorf("no current-state repairer registered for protocol %q", protocolID)
 	}
 
-	// A current-state migration folds multi-ledger windows whose summed deltas the
-	// per-row ledger guard cannot split, so repairing concurrently with one could
-	// double-count. Live ingestion (post-handoff) commits per ledger, where the
-	// guard is exact.
+	// Refuse to run during a current-state migration: its multi-ledger window
+	// sums can straddle a repair's ledger, which the per-row guard cannot split.
+	// Live ingestion commits per ledger, where the guard is exact.
 	protocols, err := s.protocolsModel.GetByIDs(ctx, []string{protocolID})
 	if err != nil {
 		return fmt.Errorf("querying protocol %q: %w", protocolID, err)
@@ -237,9 +231,9 @@ func (s *protocolCurrentStateRepairService) repairPage(ctx context.Context, repa
 	return nil
 }
 
-// repairUnit runs the fetch-truth/apply loop for one unit. Every attempt uses a
-// fresh truth: an apply loses only when the fold wrote the row after the truth's
-// ledger, making the previous truth stale by definition.
+// repairUnit runs the fetch/apply loop for one unit. Every attempt refetches:
+// an apply loses only when the fold wrote past the truth's ledger, which makes
+// the previous truth stale by definition.
 func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repairer ProtocolCurrentStateRepair, unit RepairUnit, stats *repairStats) error {
 	stats.record(func(st *repairStats) { st.checked++ })
 
@@ -251,7 +245,7 @@ func (s *protocolCurrentStateRepairService) repairUnit(ctx context.Context, repa
 			return nil
 		}
 		var applied bool
-		// Single-row transaction: live ingestion upserts multi-row batches, and two
+		// Single-row tx: live ingestion writes multi-row batches, and two
 		// multi-row writers with different key orders can deadlock.
 		txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
 			var applyErr error

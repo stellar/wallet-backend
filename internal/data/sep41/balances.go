@@ -54,12 +54,11 @@ type BalanceModelInterface interface {
 	// the absolute new balance. This avoids needing to preload state from DB
 	// into memory at the cost of per-ledger SQL arithmetic on TEXT→numeric.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []Balance) error
-	// ApplyAbsolute writes an authoritative balance observed at bal.LedgerNumber,
-	// replacing whatever the fold accumulated, unless the row has moved past that
-	// ledger (returns applied=false; the caller refetches truth and retries). A
-	// zero value is stored as a permanent zero row, never deleted: its ledger
-	// stamp is the barrier the fold's guard checks stale deltas against, and
-	// GetByAccount hides zero rows from readers.
+	// ApplyAbsolute overwrites the row with an authoritative balance observed at
+	// bal.LedgerNumber. Returns applied=false when the row has moved past that
+	// ledger — the caller refetches truth and retries. Zeros are stored as
+	// permanent rows (never deleted; the stamp shields against stale deltas)
+	// and hidden by GetByAccount.
 	ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error)
 	// ListPairs pages (holder, token) pairs in (account_id, contract_id) keyset
 	// order, each with the token's C-address in TokenID. filterContract and
@@ -83,11 +82,9 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 		return nil, fmt.Errorf("empty account address")
 	}
 
-	// balance <> 0 hides repair-written zero rows: "holds nothing" is represented
-	// by row absence on the fold path, but the repair path stores zeros it
-	// discovers as permanent rows — their ledger stamp is what the fold's
-	// strict-monotone guard checks stale deltas against, so they must never be
-	// deleted. They are dead weight only to readers, so readers skip them.
+	// balance <> 0 hides repair-written zero rows. Repair keeps zeros as permanent
+	// rows (their ledger stamp shields against stale fold deltas), so readers must
+	// filter them to keep "holds nothing" meaning "no balance shown".
 	query := `
 		SELECT
 			b.contract_id, b.balance::text, b.last_modified_ledger,
@@ -192,15 +189,13 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	// arithmetic; the delta arrives as text (i128 decimal string) and is cast once at
 	// the boundary, since Postgres has no implicit text->numeric cast.
 	//
-	// The CASE guard applies a delta only when its ledger is strictly newer than the
-	// row's last_modified_ledger. Writers are ordered per pair (per-protocol cursor,
-	// per-ledger commits, deltas pre-summed per pair per ledger), so the guard never
-	// skips a legitimate fold delta. It exists for the repair path: a repair stamps a
-	// row with the RPC ledger R its simulated value is true at, and any fold delta for
-	// a ledger <= R is already included in that value — applying it would double-count.
-	// The guard must live in SQL, referencing the row's own column: under lock-wait
-	// recheck it re-evaluates against the committed row a concurrent repair just wrote.
-	// It also makes replaying an already-applied ledger's deltas a no-op.
+	// The CASE guard skips any delta at or below the row's ledger. A repair stamps a
+	// row with the ledger its simulated value is true at, and that value already
+	// includes every event up to the stamp — re-adding one would double-count. The
+	// guard must stay in SQL, comparing the row's own column: under lock-wait recheck
+	// it re-evaluates against whatever a concurrent repair just committed. Writers are
+	// ordered per pair, so no legitimate fold delta is ever skipped; replays become
+	// no-ops.
 	const upsertQuery = `
 		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
 		SELECT u.account_id, u.contract_id, u.balance::numeric, u.last_modified_ledger
@@ -218,11 +213,9 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 		return fmt.Errorf("applying SEP-41 balance deltas: %w", err)
 	}
 
-	// The ledger in the tuple scopes the sweep to rows whose delta above actually
-	// landed (last_modified_ledger moved to this batch's ledger). A zero row whose
-	// delta the guard skipped is a repair barrier at a newer ledger — deleting it
-	// would let a later stale delta INSERT a wrong row; the repair engine removes
-	// such rows itself once live ingestion has passed their ledger.
+	// The ledger in the tuple limits the sweep to rows this batch actually wrote.
+	// A zero row the guard skipped is a repair barrier at a newer ledger — deleting
+	// it would let a later stale delta INSERT a wrong row.
 	const deleteZeroesQuery = `
 		DELETE FROM sep41_balances
 		WHERE balance = 0
@@ -241,15 +234,13 @@ func (m *BalanceModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas
 	return nil
 }
 
-// ApplyAbsolute writes an authoritative balance value — the repair-side counterpart of
-// BatchApplyDeltas' fold deltas. The WHERE clause is the repair's optimistic-concurrency
-// guard: if the fold has written the row at a ledger newer than bal.LedgerNumber, the
-// simulated value is already stale and the write no-ops (applied=false). Equal ledgers
-// pass so re-running a repair at the same ledger stays idempotent. Zero values are
-// stored permanently, never deleted: the row's stamp is what the fold's guard checks
-// stale deltas against, and dropping it while such deltas may still be in flight would
-// let one INSERT a wrong row. GetByAccount hides zero rows, so readers still see
-// "holds nothing".
+// ApplyAbsolute writes an authoritative balance — the repair-side counterpart of
+// BatchApplyDeltas' deltas. The WHERE clause is the optimistic-concurrency guard:
+// a row already written at a newer ledger rejects the (now stale) value with
+// applied=false. Equal ledgers pass, so re-running a repair stays idempotent.
+// Zeros are stored permanently: deleting the row would drop the stamp the fold's
+// guard checks stale deltas against, letting one INSERT a wrong row. GetByAccount
+// hides zero rows from readers.
 func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balance) (bool, error) {
 	rawAcct, err := bal.AccountID.Value()
 	if err != nil {
@@ -275,10 +266,9 @@ func (m *BalanceModel) ApplyAbsolute(ctx context.Context, dbTx pgx.Tx, bal Balan
 	return tag.RowsAffected() == 1, nil
 }
 
-// ListPairs pages (holder, token) pairs from sep41_balances with the token's C-address
-// joined in, for callers that need to iterate the table as a work list (the repair
-// engine). Keyset pagination on the primary-key order keeps pages stable while rows
-// are concurrently inserted or deleted by the fold.
+// ListPairs pages (holder, token) pairs with the token's C-address joined in — the
+// repair engine's work list. Keyset pagination on the primary-key order keeps pages
+// stable while the fold concurrently inserts or deletes rows.
 func (m *BalanceModel) ListPairs(ctx context.Context, filterContract *uuid.UUID, filterAccount string, after *Balance, limit int32) ([]Balance, error) {
 	query := `
 		SELECT b.account_id, b.contract_id, ct.contract_id AS token_id
