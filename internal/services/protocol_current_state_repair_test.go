@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,7 +80,7 @@ func newRepairFixture(t *testing.T, repairer ProtocolCurrentStateRepair, protoco
 		protocolsModel.On("GetByIDs", ctx, []string{protocol.ID}).Return([]data.Protocols{protocol}, nil)
 	}
 
-	svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, 4)
+	svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4))
 	return ctx, svc
 }
 
@@ -215,7 +216,7 @@ func TestProtocolCurrentStateRepair_Run(t *testing.T) {
 		dbPool, _ := setupTestDB(t)
 		protocolsModel := data.NewProtocolsModelMock(t)
 		protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{readyProtocol}, nil)
-		svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, 4)
+		svc := NewProtocolCurrentStateRepairService(dbPool, protocolsModel, map[string]ProtocolCurrentStateRepair{"testproto": repairer}, pond.NewPool(4))
 
 		err := svc.Run(ctx, "testproto", RepairScope{})
 		require.Error(t, err)

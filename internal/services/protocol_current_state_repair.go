@@ -3,10 +3,10 @@ package services
 import (
 	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -135,9 +135,9 @@ type protocolCurrentStateRepairService struct {
 	db             *pgxpool.Pool
 	protocolsModel data.ProtocolsModelInterface
 	repairers      map[string]ProtocolCurrentStateRepair
-	// concurrency bounds simultaneous FetchTruth/Apply pipelines within a page —
+	// pool bounds simultaneous FetchTruth/Apply pipelines within a page —
 	// effectively the RPC simulation parallelism.
-	concurrency int
+	pool pond.Pool
 }
 
 // NewProtocolCurrentStateRepairService creates the repair engine. repairers maps
@@ -146,16 +146,13 @@ func NewProtocolCurrentStateRepairService(
 	dbPool *pgxpool.Pool,
 	protocolsModel data.ProtocolsModelInterface,
 	repairers map[string]ProtocolCurrentStateRepair,
-	concurrency int,
+	pool pond.Pool,
 ) *protocolCurrentStateRepairService {
-	if concurrency < 1 {
-		concurrency = 1
-	}
 	return &protocolCurrentStateRepairService{
 		db:             dbPool,
 		protocolsModel: protocolsModel,
 		repairers:      repairers,
-		concurrency:    concurrency,
+		pool:           pool,
 	}
 }
 
@@ -223,44 +220,22 @@ func (s *protocolCurrentStateRepairService) Run(ctx context.Context, protocolID 
 	return nil
 }
 
-// repairPage repairs one page of units with bounded concurrency. The first hard
-// error (DB failure) cancels the page and is returned; FetchTruth failures and
-// exhausted retries are per-unit outcomes recorded in stats, not errors.
+// repairPage repairs one page of units on the worker pool, which bounds how many
+// run at once. The group's context is cancelled by the first task error or by the
+// parent, so the first hard error (DB failure) aborts in-flight FetchTruth calls
+// and is returned; FetchTruth failures and exhausted retries are per-unit
+// outcomes recorded in stats, not errors.
 func (s *protocolCurrentStateRepairService) repairPage(ctx context.Context, repairer ProtocolCurrentStateRepair, units []RepairUnit, stats *repairStats) error {
-	pageCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var (
-		wg       sync.WaitGroup
-		errOnce  sync.Once
-		firstErr error
-	)
-	sem := make(chan struct{}, s.concurrency)
+	group := s.pool.NewGroupContext(ctx)
 
 	for _, unit := range units {
-		if pageCtx.Err() != nil {
-			break
-		}
-		sem <- struct{}{}
-		wg.Add(1)
-		go func(unit RepairUnit) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if err := s.repairUnit(pageCtx, repairer, unit, stats); err != nil {
-				errOnce.Do(func() {
-					firstErr = err
-					cancel()
-				})
-			}
-		}(unit)
+		group.SubmitErr(func() error {
+			return s.repairUnit(group.Context(), repairer, unit, stats)
+		})
 	}
-	wg.Wait()
 
-	if firstErr != nil {
-		return firstErr
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("context cancelled while repairing page: %w", err)
+	if err := group.Wait(); err != nil {
+		return fmt.Errorf("repairing page: %w", err)
 	}
 	return nil
 }

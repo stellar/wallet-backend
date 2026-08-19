@@ -181,7 +181,11 @@ func (c *protocolRepairCmd) runRepair(opts *repairOpts) error {
 		return fmt.Errorf("building current-state repairers: %w", err)
 	}
 
-	service := services.NewProtocolCurrentStateRepairService(dbPool, models.Protocols, repairers, opts.concurrency)
+	repairPool := pond.NewPool(opts.concurrency)
+	defer repairPool.StopAndWait()
+	m.RegisterPoolMetrics("repair", repairPool)
+
+	service := services.NewProtocolCurrentStateRepairService(dbPool, models.Protocols, repairers, repairPool)
 	scope := services.RepairScope{
 		ContractAddress: opts.contractAddress,
 		AccountAddress:  opts.accountAddress,
