@@ -89,6 +89,7 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 				ResolveStartLedger: func(_ context.Context) (uint32, error) {
 					return startLedger, nil
 				},
+				AcquiresCurrentStateLock: true,
 			},
 		},
 	}, nil
