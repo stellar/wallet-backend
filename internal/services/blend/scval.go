@@ -15,8 +15,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // mapGet returns the value keyed by the Symbol sym in an ScMap, and whether
@@ -172,35 +173,6 @@ func mapAddrI128(v xdr.ScVal) (map[string]string, bool) {
 	return out, true
 }
 
-// contractIDLen is the raw byte length of a strkey-decoded contract address
-// (a 32-byte sha256 hash), matching xdr.ContractId's array size.
-const contractIDLen = 32
-
-// contractAddressScVal builds the bare ScVal encoding of a contract C-address
-// as a Soroban `Address` value — the shape any `token: Address` (or similar)
-// function parameter expects, e.g. Comet's get_balance(token)/
-// get_normalized_weight(token) (see comet.go). buildSep40StellarAsset wraps
-// this same encoding inside a 2-element ScVec for the SEP-40
-// Asset::Stellar(Address) enum payload.
-func contractAddressScVal(contractAddress string) (xdr.ScVal, error) {
-	raw, err := strkey.Decode(strkey.VersionByteContract, contractAddress)
-	if err != nil {
-		return xdr.ScVal{}, fmt.Errorf("blend: decoding contract address %q: %w", contractAddress, err)
-	}
-	if len(raw) != contractIDLen {
-		return xdr.ScVal{}, fmt.Errorf("blend: contract address %q decoded to %d bytes, want %d", contractAddress, len(raw), contractIDLen)
-	}
-	var cid xdr.ContractId
-	copy(cid[:], raw)
-	return xdr.ScVal{
-		Type: xdr.ScValTypeScvAddress,
-		Address: &xdr.ScAddress{
-			Type:       xdr.ScAddressTypeScAddressTypeContract,
-			ContractId: &cid,
-		},
-	}, nil
-}
-
 // buildSep40StellarAsset builds the SEP-40 `Asset::Stellar(Address)`
 // argument ScVal for a lastprice(asset) call against a SEP-40-compatible
 // oracle (e.g. Reflector), given the strkey C-address of the priced Stellar
@@ -221,7 +193,7 @@ func contractAddressScVal(contractAddress string) (xdr.ScVal, error) {
 // which round-tripped to a real Some(PriceData{...}) response. See
 // TestBuildSep40StellarAsset for the full verification note.
 func buildSep40StellarAsset(contractAddress string) (xdr.ScVal, error) {
-	addrVal, err := contractAddressScVal(contractAddress)
+	addrVal, err := utils.ContractAddressScVal(contractAddress)
 	if err != nil {
 		return xdr.ScVal{}, fmt.Errorf("blend: building SEP-40 Asset::Stellar(%q): %w", contractAddress, err)
 	}

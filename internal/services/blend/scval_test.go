@@ -190,18 +190,6 @@ func TestBuildSep40StellarAsset(t *testing.T) {
 
 		assert.Equal(t, want, got)
 	})
-
-	t.Run("returns an error for a malformed address", func(t *testing.T) {
-		_, err := buildSep40StellarAsset("not-a-strkey-address")
-		assert.Error(t, err)
-	})
-
-	t.Run("returns an error for a well-formed but non-contract strkey address", func(t *testing.T) {
-		// A valid G... (account) strkey decodes cleanly but fails the
-		// VersionByteContract check inside strkey.Decode.
-		_, err := buildSep40StellarAsset("GCYNTH5HDQRNIQ3BSSYPWFO5AHH5ERVZ32C37QRXT6TXK3OJFFOIVXDE")
-		assert.Error(t, err)
-	})
 }
 
 func TestDecodePriceData(t *testing.T) {

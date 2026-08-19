@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func TestReadBalance(t *testing.T) {
@@ -63,7 +64,7 @@ func TestReadBalance(t *testing.T) {
 	})
 
 	t.Run("encodes a contract holder as a contract Address", func(t *testing.T) {
-		wantArg, err := holderAddressScVal(testContractB)
+		wantArg, err := utils.AddressScVal(testContractB)
 		require.NoError(t, err)
 		require.Equal(t, xdr.ScAddressTypeScAddressTypeContract, wantArg.Address.Type)
 

@@ -45,6 +45,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // cometPriceDecimals is the fixed-point precision cometValuation's outputs
@@ -201,7 +202,7 @@ func cometUnitKeyScVal(variant string) xdr.ScVal {
 // cometLedgerKey builds the base64-encoded LedgerKey for one of the Comet
 // pool's persistent ContractData entries at cometID.
 func cometLedgerKey(cometID string, key xdr.ScVal) (string, error) {
-	addrVal, err := contractAddressScVal(cometID)
+	addrVal, err := utils.ContractAddressScVal(cometID)
 	if err != nil {
 		return "", fmt.Errorf("blend: encoding comet pool address: %w", err)
 	}

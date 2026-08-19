@@ -14,6 +14,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // bigFromStroop scales a float amount into a 7-decimal ("STROOP") fixed-point
@@ -149,7 +150,7 @@ func cometEntryResult(t *testing.T, poolID string, key, val xdr.ScVal) entities.
 	keyB64, err := cometLedgerKey(poolID, key)
 	require.NoError(t, err)
 
-	addrVal, err := contractAddressScVal(poolID)
+	addrVal, err := utils.ContractAddressScVal(poolID)
 	require.NoError(t, err)
 	data := xdr.LedgerEntryData{
 		Type: xdr.LedgerEntryTypeContractData,
