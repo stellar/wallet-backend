@@ -166,6 +166,7 @@ type testRecordingProcessor struct {
 	persistedCurrentStateSeqs []uint32
 	lastProcessed             uint32
 	resetCount                int
+	wipeCalls                 int
 	requiresContractData      bool
 }
 
@@ -193,6 +194,11 @@ func (p *testRecordingProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx
 func (p *testRecordingProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.persistedCurrentStateSeqs = append(p.persistedCurrentStateSeqs, p.lastProcessed)
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_current_state_%d", p.id, p.lastProcessed), p.lastProcessed)
+}
+
+func (p *testRecordingProcessor) WipeCurrentState(_ context.Context, _ pgx.Tx) error {
+	p.wipeCalls++
+	return nil
 }
 
 // testCursorAdvancingProcessor embeds testRecordingProcessor and simulates

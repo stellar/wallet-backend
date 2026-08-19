@@ -38,6 +38,10 @@ type ProtocolMigrateCurrentStateConfig struct {
 	WindowSize             uint32
 	Metrics                *metrics.MigrationMetrics
 	TipProvider            func() (uint32, error)
+	// Rebuild wipes each protocol's current-state rows and resets its cursor
+	// (one transaction per protocol) before folding, and re-admits protocols
+	// whose migration already succeeded.
+	Rebuild bool
 }
 
 // NewProtocolMigrateCurrentStateService creates a new protocolMigrateCurrentStateService from the given config.
@@ -77,6 +81,7 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			windowSize:             cfg.WindowSize,
 			metrics:                mm,
 			tipProvider:            cfg.TipProvider,
+			rebuild:                cfg.Rebuild,
 			strategy: migrationStrategy{
 				Label:                 "current state",
 				Mode:                  StagingModeCurrentState,

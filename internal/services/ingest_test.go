@@ -1899,6 +1899,10 @@ func (p *testProtocolProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx)
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_history_written", p.id), p.processedLedger)
 }
 
+func (p *testProtocolProcessor) WipeCurrentState(_ context.Context, _ pgx.Tx) error {
+	return nil
+}
+
 func (p *testProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	p.persistCurrentStateCalls++
 	if p.failPersistCurrentStateAt != 0 && p.processedLedger == p.failPersistCurrentStateAt {

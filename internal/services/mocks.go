@@ -293,6 +293,11 @@ func (m *ProtocolProcessorMock) PersistCurrentState(ctx context.Context, dbTx pg
 	return args.Error(0)
 }
 
+func (m *ProtocolProcessorMock) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
 // NewProtocolProcessorMock creates a new instance of ProtocolProcessorMock.
 func NewProtocolProcessorMock(t interface {
 	mock.TestingT
