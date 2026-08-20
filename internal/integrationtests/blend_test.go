@@ -408,6 +408,81 @@ func (s *BlendMigrationTestSuite) TestProtocolSetupThenMigration() {
 	s.Assert().Equal(1, s.countBlendCategoryReason(ctx, pool, stack.Whale.Address(), "BLEND_BACKSTOP", "CREDIT"))
 
 	s.assertAllBlendPoolIDs(ctx, pool, stack.PoolID)
+
+	// ------------------------------------------------------------------
+	// Phase 5: protocol-migrate history --rebuild repairs a hole punched
+	// into the migrated history, over exactly the ledger range it is given.
+	// ------------------------------------------------------------------
+	s.runHistoryRebuild(ctx, pool, models, stack)
+}
+
+// runHistoryRebuild deletes one migrated Blend state change, rebuilds only the
+// ledger it lived in, and asserts the row came back without disturbing the rest
+// of the table, the classification-owned contract_tokens, or the protocol's
+// history cursor.
+func (s *BlendMigrationTestSuite) runHistoryRebuild(ctx context.Context, pool *pgxpool.Pool, models *data.Models, stack *infrastructure.BlendStack) {
+	// The borrower's BORROW row is a single, uniquely identifiable state change.
+	var borrowLedger uint32
+	err := pool.QueryRow(ctx,
+		`SELECT ledger_number FROM state_changes
+		 WHERE account_id = $1 AND state_change_category = 'BLEND_DEBT' AND state_change_reason = 'BORROW'`,
+		s.addressBytes(stack.Borrower.Address())).Scan(&borrowLedger)
+	s.Require().NoError(err, "the BLEND_DEBT/BORROW row asserted above must exist")
+
+	blendBefore := s.countBlendStateChanges(ctx, pool)
+	nonBlendBefore := s.countNonBlendStateChanges(ctx, pool)
+	contractTokensBefore := s.countRows(ctx, pool, "contract_tokens")
+	cursorBefore, err := models.IngestStore.Get(ctx, utils.ProtocolHistoryCursorName(blendProtocolID))
+	s.Require().NoError(err)
+
+	// Punch the hole.
+	tag, err := pool.Exec(ctx,
+		`DELETE FROM state_changes
+		 WHERE account_id = $1 AND state_change_category = 'BLEND_DEBT' AND state_change_reason = 'BORROW'`,
+		s.addressBytes(stack.Borrower.Address()))
+	s.Require().NoError(err)
+	s.Require().EqualValues(1, tag.RowsAffected())
+	s.Require().Zero(s.countBlendCategoryReason(ctx, pool, stack.Borrower.Address(), "BLEND_DEBT", "BORROW"),
+		"the row must be gone before the rebuild runs")
+
+	rebuildCmd := fmt.Sprintf("protocol-migrate history --protocol-id %s --rebuild "+
+		"--from-ledger %d --to-ledger %d --ledger-backend-type datastore --window-size 10",
+		blendProtocolID, borrowLedger, borrowLedger)
+	exitCode, logs, err := s.testEnv.Containers.RunWalletBackendCommand(ctx,
+		"wallet-backend-blend-protocol-migrate-history-rebuild", rebuildCmd, s.testEnv.Containers.DatastoreEnv())
+	s.Require().NoError(err)
+	s.Require().Zerof(exitCode, "protocol-migrate history --rebuild should exit 0 (see `docker logs wallet-backend-blend-protocol-migrate-history-rebuild`); logs:\n%s", logs)
+
+	// The deleted row is back, and the table as a whole is where it started:
+	// the rebuild re-derived its range rather than duplicating or dropping rows.
+	s.Assert().Equal(1, s.countBlendCategoryReason(ctx, pool, stack.Borrower.Address(), "BLEND_DEBT", "BORROW"),
+		"the rebuild should have re-derived the deleted BORROW row")
+	s.Assert().Equal(blendBefore, s.countBlendStateChanges(ctx, pool))
+	s.Assert().Equal(nonBlendBefore, s.countNonBlendStateChanges(ctx, pool),
+		"a Blend history rebuild must not touch other namespaces' state changes")
+	s.Assert().Equal(contractTokensBefore, s.countRows(ctx, pool, "contract_tokens"),
+		"contract_tokens is classification-owned and must survive a rebuild")
+
+	// The rebuild stays below live ingestion's frontier, so it neither moves the
+	// cursor nor reopens the migration.
+	cursorAfter, err := models.IngestStore.Get(ctx, utils.ProtocolHistoryCursorName(blendProtocolID))
+	s.Require().NoError(err)
+	s.Assert().Equal(cursorBefore, cursorAfter, "a history rebuild must leave the protocol's cursor alone")
+
+	protocols, err := models.Protocols.GetByIDs(ctx, []string{blendProtocolID})
+	s.Require().NoError(err)
+	s.Require().Len(protocols, 1)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].HistoryMigrationStatus)
+	s.Assert().Equal(data.StatusSuccess, protocols[0].CurrentStateMigrationStatus)
+}
+
+// countNonBlendStateChanges counts the state changes owned by every namespace
+// other than Blend's — the rows a Blend rebuild must leave untouched.
+func (s *BlendMigrationTestSuite) countNonBlendStateChanges(ctx context.Context, pool *pgxpool.Pool) int {
+	var count int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM state_changes WHERE state_change_category NOT LIKE 'BLEND\_%'`).Scan(&count)
+	s.Require().NoError(err)
+	return count
 }
 
 // findPositionInReserves returns the blend_reserves row for reserveIndex, or nil.
