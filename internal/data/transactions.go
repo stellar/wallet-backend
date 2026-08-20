@@ -269,9 +269,9 @@ func (m *TransactionModel) BatchCopy(
 }
 
 // BatchCopyAccounts inserts the transactions_accounts links using pgx's binary
-// COPY protocol, and returns the number of link rows written. txs supplies each
-// transaction's ledger_created_at, the link table's partition column; the two
-// arguments come from the same buffer and are read only.
+// COPY protocol. txs supplies each transaction's ledger_created_at, the link
+// table's partition column; the two arguments come from the same buffer and
+// are read only.
 //
 // IMPORTANT: like BatchCopy, this FAILS on duplicates — COPY has no conflict
 // handling.
@@ -280,9 +280,9 @@ func (m *TransactionModel) BatchCopyAccounts(
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
 	stellarAddressesByToID map[int64]map[string]struct{},
-) (int, error) {
+) error {
 	if len(stellarAddressesByToID) == 0 {
-		return 0, nil
+		return nil
 	}
 
 	start := time.Now()
@@ -302,14 +302,14 @@ func (m *TransactionModel) BatchCopyAccounts(
 			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
 			// the hypertable — and means the caller's transactions and
 			// participants disagree about which ToIDs exist.
-			return 0, fmt.Errorf("no transaction supplies ledger_created_at for to_id %d", toID)
+			return fmt.Errorf("no transaction supplies ledger_created_at for to_id %d", toID)
 		}
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
 		for addr := range addresses {
 			addrBytes, addrErr := types.AddressBytea(addr).Value()
 			if addrErr != nil {
-				return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 			}
 			taRows = append(taRows, []any{
 				ledgerCreatedAtPgtype,
@@ -331,8 +331,8 @@ func (m *TransactionModel) BatchCopyAccounts(
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopyAccounts", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
-		return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
+		return fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
 	}
 
-	return len(taRows), nil
+	return nil
 }

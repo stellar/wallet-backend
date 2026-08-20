@@ -149,7 +149,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 
 			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations)
 			if err == nil {
-				_, err = m.BatchCopyAccounts(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+				err = m.BatchCopyAccounts(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
 			}
 
 			if tc.wantErrContains != "" {
@@ -747,7 +747,7 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)
 				}
-				_, err = m.BatchCopyAccounts(ctx, pgxTx, ops, addressesByOpID)
+				err = m.BatchCopyAccounts(ctx, pgxTx, ops, addressesByOpID)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopyAccounts failed: %v", err)
