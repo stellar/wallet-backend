@@ -723,7 +723,7 @@ func ExtractContractDataChangesForLedger(ledgerMeta xdr.LedgerCloseMeta, tracked
 			Ledger:        ledgerMeta,
 			Hash:          resultPair.TransactionHash,
 		}
-		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
+		if err := collectContractDataChanges(&tx, ledgerSeq, &out); err != nil {
 			return nil, err
 		}
 	}
@@ -779,7 +779,7 @@ func ledgerTouchesTrackedContractData(ledgerMeta xdr.LedgerCloseMeta, trackedCon
 // last-write-wins folding per entry key is deterministic. Ledger-level
 // archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
 // per-tx entry removals appear with Post == nil.
-func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, out map[string][]ingest.Change) error {
+func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, out *map[string][]ingest.Change) error {
 	changes, chErr := tx.GetChanges()
 	if chErr != nil {
 		return fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
@@ -792,10 +792,11 @@ func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, 
 	return nil
 }
 
-// appendIfContractDataChange appends change into out under its owning
+// appendIfContractDataChange appends change into *out under its owning
 // contract's C-address strkey when it is a ContractData change carrying an
-// entry; every other change is ignored.
-func appendIfContractDataChange(out map[string][]ingest.Change, change ingest.Change, ledgerSeq uint32, txIndex uint32) error {
+// entry; every other change is ignored. *out is allocated on the first change
+// actually appended, so a caller that collects nothing keeps its nil map.
+func appendIfContractDataChange(out *map[string][]ingest.Change, change ingest.Change, ledgerSeq uint32, txIndex uint32) error {
 	if change.Type != xdr.LedgerEntryTypeContractData {
 		return nil
 	}
@@ -820,7 +821,10 @@ func appendIfContractDataChange(out map[string][]ingest.Change, change ingest.Ch
 		// dropping one would corrupt downstream state.
 		return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, txIndex, encErr)
 	}
-	out[addr] = append(out[addr], change)
+	if *out == nil {
+		*out = make(map[string][]ingest.Change)
+	}
+	(*out)[addr] = append((*out)[addr], change)
 	return nil
 }
 
@@ -869,9 +873,16 @@ func ledgerEntryChangesContainContractData(changes xdr.LedgerEntryChanges) bool 
 // Composition mirrors ingest.LedgerTransaction.GetChanges per meta version:
 // transaction-level changes before, each operation's changes in operation
 // order, then (V2+) transaction-level changes after. Returns nil when the
-// transaction is unsuccessful or contributes no ContractData changes.
+// transaction is unsuccessful, is not a Soroban transaction, or contributes no
+// ContractData changes.
 func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) (map[string][]ingest.Change, error) {
 	if !tx.Result.Successful() {
+		return nil, nil
+	}
+	// Only Soroban host functions write ContractData entries, and every Soroban
+	// transaction carries the SorobanTransactionData that IsSorobanTx tests, so
+	// a classic transaction is done before the walk allocates anything.
+	if !tx.IsSorobanTx() {
 		return nil, nil
 	}
 	ledgerSeq := tx.Ledger.LedgerSequence()
@@ -899,7 +910,7 @@ func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipant
 		return nil, fmt.Errorf("unsupported TransactionMeta version %d in ledger %d tx %d", tx.UnsafeMeta.V, ledgerSeq, tx.Index)
 	}
 
-	out := map[string][]ingest.Change{}
+	var out map[string][]ingest.Change
 	txLevel := func(ledgerEntryChanges xdr.LedgerEntryChanges) error {
 		if !ledgerEntryChangesContainContractData(ledgerEntryChanges) {
 			return nil
@@ -911,7 +922,7 @@ func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipant
 			changes[i].Ledger = &tx.Ledger
 		}
 		for _, change := range changes {
-			if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+			if err := appendIfContractDataChange(&out, change, ledgerSeq, tx.Index); err != nil {
 				return err
 			}
 		}
@@ -922,14 +933,20 @@ func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipant
 		return nil, err
 	}
 
-	wrappersByIndex := make(map[uint32]*processors.TransactionOperationWrapper, len(opsParticipants))
+	// Wrapper indices count the envelope's operations while opCount counts the
+	// meta's, one per operation for a successful transaction; the loop below only
+	// ever asks for indices below opCount, so a wrapper outside that range is
+	// unreachable either way.
+	wrappersByIndex := make([]*processors.TransactionOperationWrapper, opCount)
 	for _, opParticipants := range opsParticipants {
-		wrappersByIndex[opParticipants.OpWrapper.Index] = opParticipants.OpWrapper
+		if idx := opParticipants.OpWrapper.Index; idx < uint32(opCount) {
+			wrappersByIndex[idx] = opParticipants.OpWrapper
+		}
 	}
 	for opIdx := 0; opIdx < opCount; opIdx++ {
 		var changes []ingest.Change
 		var chErr error
-		if wrapper := wrappersByIndex[uint32(opIdx)]; wrapper != nil {
+		if wrapper := wrappersByIndex[opIdx]; wrapper != nil {
 			changes, chErr = wrapper.Changes()
 		} else {
 			// Every operation normally has a wrapper — its source account is
@@ -941,7 +958,7 @@ func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipant
 			return nil, fmt.Errorf("getting operation %d changes for ledger %d tx %d: %w", opIdx, ledgerSeq, tx.Index, chErr)
 		}
 		for _, change := range changes {
-			if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+			if err := appendIfContractDataChange(&out, change, ledgerSeq, tx.Index); err != nil {
 				return nil, err
 			}
 		}
