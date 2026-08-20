@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/asset"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	ttp "github.com/stellar/go-stellar-sdk/processors/token_transfer"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -34,27 +32,14 @@ func (p *TokenTransferProcessor) getContractType(asset *asset.Asset, contractAdd
 		return types.ContractTypeNative
 	}
 
-	// The SAC contract ID is a SHA-256 over the asset's contract-ID preimage
-	// plus a strkey encode, recomputed for the same few assets on every event,
-	// so it is memoized by asset identity. sacContractIDs is a sync.Map
-	// because one processor instance serves every pool worker concurrently.
 	issued := asset.GetIssuedAsset()
-	memoKey := issued.GetAssetCode() + "\x00" + issued.GetIssuer()
-
-	var sacContractIDStr string
-	if cached, ok := p.sacContractIDs.Load(memoKey); ok {
-		sacContractIDStr = cached.(string)
-	} else {
-		sacContractID, err := asset.ToXdrAsset().ContractID(p.networkPassphrase)
-		if err != nil {
-			return types.ContractTypeUnknown
-		}
-		sacContractIDStr = strkey.MustEncode(strkey.VersionByteContract, sacContractID[:])
-		p.sacContractIDs.Store(memoKey, sacContractIDStr)
+	sacContractID, err := p.assetContractIDs.fromCreditAsset(p.networkPassphrase, issued.GetAssetCode(), issued.GetIssuer())
+	if err != nil {
+		return types.ContractTypeUnknown
 	}
 
 	// Compare with the actual contract address
-	if sacContractIDStr == contractAddress {
+	if sacContractID == contractAddress {
 		return types.ContractTypeSAC
 	}
 	return types.ContractTypeUnknown
@@ -66,7 +51,7 @@ type TokenTransferProcessor struct {
 	eventsProcessor   *ttp.EventsProcessor
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
-	sacContractIDs    sync.Map // asset "<code>\x00<issuer>" → strkey-encoded SAC contract ID
+	assetContractIDs  AssetContractIDMemo
 }
 
 // NewTokenTransferProcessor creates a new token transfer processor for the specified Stellar network.

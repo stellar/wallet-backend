@@ -36,6 +36,7 @@ const (
 type SACEventsProcessor struct {
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
+	assetContractIDs  processors.AssetContractIDMemo
 }
 
 func NewSACEventsProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *SACEventsProcessor {
@@ -300,30 +301,23 @@ func (p *SACEventsProcessor) extractAccount(topics []xdr.ScVal, txMetaVersion in
 
 // isSACContract checks if a contract is an SAC contract
 func (p *SACEventsProcessor) isSACContract(asset xdr.Asset, contractID string) (bool, error) {
-	assetContractID, err := asset.ContractID(p.networkPassphrase)
+	assetContractID, err := p.assetContractIDs.FromAsset(p.networkPassphrase, asset)
 	if err != nil {
 		return false, fmt.Errorf("invalid asset contract ID: %w", err)
 	}
-	return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]) == contractID, nil
+	return assetContractID == contractID, nil
 }
 
 // extractTrustlineFlagChanges extracts the previous trustline flags for the given account.
-// The change scan now verifies the trustline belongs to the same SAC contract referenced by the event so
+// The change scan verifies the trustline belongs to the same SAC contract referenced by the event so
 // unrelated trustlines updated in the same operation are ignored.
 func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string, contractID string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
-	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
-	if err != nil {
-		return false, false, fmt.Errorf("invalid contract id %s: %w", contractID, err)
-	}
-	var expectedContract xdr.ContractId
-	copy(expectedContract[:], contractIDBytes)
-
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeTrustline {
 			continue
 		}
 
-		if !p.trustlineEntryMatches(change, accountToAuthorize, expectedContract) {
+		if !p.trustlineEntryMatches(change, accountToAuthorize, contractID) {
 			continue
 		}
 
@@ -437,7 +431,9 @@ func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVa
 }
 
 // trustlineEntryMatches verifies the ledger entry represents the SAC trustline for the target account.
-func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account string, expectedContract xdr.ContractId) bool {
+// Both contract IDs are compared strkey-encoded, which is equivalent to comparing the raw 32 bytes
+// because the encoding is injective, and it lets the derivation come from the memo.
+func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account string, expectedContractID string) bool {
 	var entry *xdr.LedgerEntry
 	if change.Pre != nil {
 		entry = change.Pre
@@ -459,12 +455,12 @@ func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account
 		return false
 	}
 
-	contractID, err := asset.ContractID(p.networkPassphrase)
+	contractID, err := p.assetContractIDs.FromAsset(p.networkPassphrase, asset)
 	if err != nil {
 		return false
 	}
 
-	return xdr.ContractId(contractID) == expectedContract
+	return contractID == expectedContractID
 }
 
 // contractDataChangeMatches ensures the contract-data change belongs to the SAC token and target balance key.
