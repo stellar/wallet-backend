@@ -885,17 +885,20 @@ const (
 // actually handed to BatchCopy — so ordinals come out contiguous (1..N, no
 // gaps) per group within the stream's namespace.
 func AssignStateChangeOrdinals(changes []StateChange, base int64) {
-	// A change's ordinal is the count of earlier same-group changes plus one.
-	// Streams are a handful of changes per transaction, so a quadratic scan is
-	// cheaper than a per-call map and allocates nothing.
+	// A counting map keeps the assignment linear in the slice: the indexer
+	// passes per-transaction streams of a handful of changes, but protocol
+	// processors pass a whole staged migration window at persist time, bounded
+	// only by the window, and that call runs inside the window's CAS-guarded
+	// transaction.
+	type ordinalKey struct {
+		toID        int64
+		operationID int64
+	}
+	counts := make(map[ordinalKey]int64, len(changes))
 	for i := range changes {
-		ordinal := int64(1)
-		for j := range i {
-			if changes[j].ToID == changes[i].ToID && changes[j].OperationID == changes[i].OperationID {
-				ordinal++
-			}
-		}
-		changes[i].StateChangeID = base + ordinal
+		key := ordinalKey{toID: changes[i].ToID, operationID: changes[i].OperationID}
+		counts[key]++
+		changes[i].StateChangeID = base + counts[key]
 	}
 }
 

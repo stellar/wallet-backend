@@ -614,6 +614,24 @@ func TestAssignStateChangeOrdinals_Deterministic(t *testing.T) {
 	}
 }
 
+func TestAssignStateChangeOrdinals_LargeInterleavedGroups(t *testing.T) {
+	// Window-sized input: protocol processors assign ordinals over a whole
+	// staged migration window, not a per-transaction stream. Three
+	// (to_id, operation_id) groups interleaved round-robin — element i is the
+	// (i/3 + 1)-th member of its group, so each group must come out numbered
+	// 1..N contiguously in slice order.
+	changes := make([]StateChange, 3*100)
+	for i := range changes {
+		changes[i] = StateChange{ToID: 1, OperationID: int64(10 * (i%3 + 1))}
+	}
+
+	AssignStateChangeOrdinals(changes, StateChangeOrdinalBaseIndexer)
+
+	for i := range changes {
+		assert.Equal(t, StateChangeOrdinalBaseIndexer+int64(i/3)+1, changes[i].StateChangeID, "index %d", i)
+	}
+}
+
 func TestAssignStateChangeOrdinals_DifferentEmittersNeverCollide(t *testing.T) {
 	indexerChanges := []StateChange{{ToID: 1, OperationID: 42}}
 	sep41Changes := []StateChange{{ToID: 1, OperationID: 42}}
