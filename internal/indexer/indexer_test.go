@@ -1517,7 +1517,7 @@ func extractContractDataChangesViaReader(ctx context.Context, networkPassphrase 
 		if !tx.Result.Successful() {
 			continue
 		}
-		if err := collectContractDataChanges(&tx, ledgerMeta.LedgerSequence(), changes); err != nil {
+		if err := collectContractDataChanges(&tx, ledgerMeta.LedgerSequence(), &changes); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -1724,6 +1724,8 @@ func contractDataCreateChanges(contractID xdr.ContractId) xdr.LedgerEntryChanges
 
 // contractDataTx builds a synthetic V3-meta transaction whose single operation
 // and (optionally) transaction-level-after segment carry ContractData changes.
+// The envelope carries SorobanTransactionData because that is the only shape
+// that can produce ContractData changes, and the collection path gates on it.
 func contractDataTx(successful bool, opContract xdr.ContractId, afterContract *xdr.ContractId) ingest.LedgerTransaction {
 	code := xdr.TransactionResultCodeTxSuccess
 	if !successful {
@@ -1738,6 +1740,14 @@ func contractDataTx(successful bool, opContract xdr.ContractId, afterContract *x
 	return ingest.LedgerTransaction{
 		Index:  1,
 		Ledger: testLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1: &xdr.TransactionV1Envelope{
+				Tx: xdr.Transaction{
+					Ext: xdr.TransactionExt{V: 1, SorobanData: &xdr.SorobanTransactionData{}},
+				},
+			},
+		},
 		Result: xdr.TransactionResultPair{
 			Result: xdr.TransactionResult{
 				Result: xdr.TransactionResultResult{Code: code, Results: &[]xdr.OperationResult{}},
@@ -1796,7 +1806,19 @@ func TestTransactionContractDataChanges(t *testing.T) {
 		tx := contractDataTx(false, opContract, &afterContract)
 		// Guard against a vacuous pass: the meta really does carry ContractData
 		// changes, so the nil result can only come from the success check.
-		require.True(t, ledgerEntryChangesContainContractData(tx.UnsafeMeta.MustV3().Operations[0].Changes))
+		require.Equal(t, xdr.LedgerEntryTypeContractData, tx.UnsafeMeta.MustV3().Operations[0].Changes[0].MustCreated().Data.Type)
+
+		got, err := transactionContractDataChanges(&tx, nil)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("classic transaction contributes nothing", func(t *testing.T) {
+		tx := contractDataTx(true, opContract, &afterContract)
+		tx.Envelope = xdr.TransactionEnvelope{Type: xdr.EnvelopeTypeEnvelopeTypeTxV0, V0: &xdr.TransactionV0Envelope{}}
+		// Guard against a vacuous pass: the meta really does carry ContractData
+		// changes, so the nil result can only come from the Soroban check.
+		require.Equal(t, xdr.LedgerEntryTypeContractData, tx.UnsafeMeta.MustV3().Operations[0].Changes[0].MustCreated().Data.Type)
 
 		got, err := transactionContractDataChanges(&tx, nil)
 		require.NoError(t, err)
