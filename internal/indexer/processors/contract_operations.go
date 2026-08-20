@@ -137,7 +137,7 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 // It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
 //
 // The whole path folds into the single participants accumulator the caller passes in:
-// one set per operation instead of one per processor, auth entry, and invocation-tree
+// one set per operation instead of one per helper, auth entry, and invocation-tree
 // node, with no Union merges. The accumulator must be thread-unsafe — it is built and
 // consumed within a single indexer worker goroutine (see Indexer.ProcessLedgerTransactions),
 // so a thread-safe set's mutex would be pure overhead on the hot path.
@@ -147,7 +147,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper, participants set.
 	}
 
 	// The op source is the one participant every Soroban op shape shares; adding it
-	// here keeps the sub-processors source-free and encodes the address once.
+	// here keeps the per-host-function helpers source-free and encodes the address once.
 	sourceAccount := op.SourceAccount()
 	participants.Add(sourceAccount.Address())
 
@@ -160,20 +160,17 @@ func participantsForSorobanOp(op *TransactionOperationWrapper, participants set.
 
 		switch invokeHostOp.HostFunction.Type {
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			createContractOpProcessor := CreateContractV1OpProcessor{op: op}
-			if err := createContractOpProcessor.AddParticipants(participants); err != nil {
+			if err := addCreateContractV1Participants(op.Network, invokeHostOp, participants); err != nil {
 				return fmt.Errorf("getting create contract participants: %w", err)
 			}
 
 		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			createContractV2OpProcessor := CreateContractV2OpProcessor{op: op}
-			if err := createContractV2OpProcessor.AddParticipants(participants); err != nil {
+			if err := addCreateContractV2Participants(op.Network, invokeHostOp, participants); err != nil {
 				return fmt.Errorf("getting create contract participants: %w", err)
 			}
 
 		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
-			invokeContractOpProcessor := InvokeContractOpProcessor{op: op}
-			if err := invokeContractOpProcessor.AddParticipants(participants); err != nil {
+			if err := addInvokeContractParticipants(op.Network, invokeHostOp, participants); err != nil {
 				return fmt.Errorf("getting invoke contract participants: %w", err)
 			}
 
@@ -223,79 +220,51 @@ func addContractIDsForPreimage(networkPassphrase string, preimage xdr.ContractId
 	}
 }
 
-type CreateContractV1OpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-// AddParticipants adds the operation's contract IDs and auth-entry participants to
-// the accumulator. The op source account is added by participantsForSorobanOp.
-func (p *CreateContractV1OpProcessor) AddParticipants(participants set.Set[string]) error {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
-	}
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeCreateContract {
-		return fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
-	}
-	createContractOp := invokeHostFunctionOp.HostFunction.MustCreateContract()
+// addCreateContractV1Participants adds the contract IDs derived from a
+// CreateContract host function's preimage, plus the operation's auth-entry
+// participants, to the accumulator. The op source account is added by
+// participantsForSorobanOp.
+func addCreateContractV1Participants(networkPassphrase string, invokeHostOp xdr.InvokeHostFunctionOp, participants set.Set[string]) error {
+	createContractOp := invokeHostOp.HostFunction.MustCreateContract()
 
 	// Contract IDs
-	if err := addContractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage, participants); err != nil {
+	if err := addContractIDsForPreimage(networkPassphrase, createContractOp.ContractIdPreimage, participants); err != nil {
 		return fmt.Errorf("getting contract ID: %w", err)
 	}
 
 	// Auth participants
-	if err := participantsForAuthEntries(p.op.Network, invokeHostFunctionOp.Auth, participants); err != nil {
+	if err := participantsForAuthEntries(networkPassphrase, invokeHostOp.Auth, participants); err != nil {
 		return fmt.Errorf("getting auth participants: %w", err)
 	}
 
 	return nil
 }
 
-type CreateContractV2OpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-// AddParticipants adds the operation's contract IDs and auth-entry participants to
-// the accumulator. The op source account is added by participantsForSorobanOp.
-func (p *CreateContractV2OpProcessor) AddParticipants(participants set.Set[string]) error {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
-	}
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeCreateContractV2 {
-		return fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
-	}
-	createContractOp := invokeHostFunctionOp.HostFunction.MustCreateContractV2()
+// addCreateContractV2Participants adds the contract IDs derived from a
+// CreateContractV2 host function's preimage, plus the operation's auth-entry
+// participants, to the accumulator. The op source account is added by
+// participantsForSorobanOp.
+func addCreateContractV2Participants(networkPassphrase string, invokeHostOp xdr.InvokeHostFunctionOp, participants set.Set[string]) error {
+	createContractOp := invokeHostOp.HostFunction.MustCreateContractV2()
 
 	// Contract IDs
-	if err := addContractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage, participants); err != nil {
+	if err := addContractIDsForPreimage(networkPassphrase, createContractOp.ContractIdPreimage, participants); err != nil {
 		return fmt.Errorf("getting contract ID: %w", err)
 	}
 
 	// Auth participants
-	if err := participantsForAuthEntries(p.op.Network, invokeHostFunctionOp.Auth, participants); err != nil {
+	if err := participantsForAuthEntries(networkPassphrase, invokeHostOp.Auth, participants); err != nil {
 		return fmt.Errorf("getting auth participants: %w", err)
 	}
 
 	return nil
 }
 
-type InvokeContractOpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-// AddParticipants adds the invoked contract ID and auth-entry participants to the
-// accumulator. The op source account is added by participantsForSorobanOp.
-func (p *InvokeContractOpProcessor) AddParticipants(participants set.Set[string]) error {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return fmt.Errorf("not a invoke contract operation: %w", ErrInvalidOpType)
-	}
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeInvokeContract {
-		return fmt.Errorf("not a invoke contract operation: %w", ErrInvalidOpType)
-	}
-	invokeContractOp := invokeHostFunctionOp.HostFunction.MustInvokeContract()
+// addInvokeContractParticipants adds the invoked contract ID and the operation's
+// auth-entry participants to the accumulator. The op source account is added by
+// participantsForSorobanOp.
+func addInvokeContractParticipants(networkPassphrase string, invokeHostOp xdr.InvokeHostFunctionOp, participants set.Set[string]) error {
+	invokeContractOp := invokeHostOp.HostFunction.MustInvokeContract()
 
 	// Contract ID
 	contractID, err := invokeContractOp.ContractAddress.String()
@@ -307,7 +276,7 @@ func (p *InvokeContractOpProcessor) AddParticipants(participants set.Set[string]
 	}
 
 	// Auth participants
-	if err := participantsForAuthEntries(p.op.Network, invokeHostFunctionOp.Auth, participants); err != nil {
+	if err := participantsForAuthEntries(networkPassphrase, invokeHostOp.Auth, participants); err != nil {
 		return fmt.Errorf("getting auth participants: %w", err)
 	}
 
