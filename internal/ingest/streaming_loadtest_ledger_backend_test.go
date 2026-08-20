@@ -119,12 +119,13 @@ func truncatedFrame() []byte {
 	return append(header[:], make([]byte, 8)...)
 }
 
-// makeStreamLedger builds a marshalable LedgerCloseMeta (version 1 or 2) with
-// the given header sequence, txCount transactions, and one ledger entry per
-// entrySeq value carried as an upgrade change. Close time is 0, matching what
-// apply-load emits. The transaction set is a generalized V1 set with one
-// phase, which is what loadtest.MergeLedgers requires of both sides.
-func makeStreamLedger(version int32, seq uint32, txCount int, entrySeqs ...uint32) xdr.LedgerCloseMeta {
+// makeStreamLedger builds a marshalable V2 LedgerCloseMeta — the only version
+// apply-load can emit (see mutableHeader) — with the given header sequence,
+// txCount transactions, and one ledger entry per entrySeq value carried as an
+// upgrade change. Close time is 0, matching what apply-load emits. The
+// transaction set is a generalized V1 set with one phase, which is what
+// appendLedger requires of both sides.
+func makeStreamLedger(seq uint32, txCount int, entrySeqs ...uint32) xdr.LedgerCloseMeta {
 	header := xdr.LedgerHeaderHistoryEntry{
 		Header: xdr.LedgerHeader{
 			LedgerSeq: xdr.Uint32(seq),
@@ -138,30 +139,14 @@ func makeStreamLedger(version int32, seq uint32, txCount int, entrySeqs ...uint3
 		},
 	}
 
-	if version == 2 {
-		txProcessing := make([]xdr.TransactionResultMetaV1, txCount)
-		for i := range txProcessing {
-			txProcessing[i] = xdr.TransactionResultMetaV1{
-				Result:            successfulTxResult(),
-				TxApplyProcessing: xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{}},
-			}
-		}
-		return xdr.LedgerCloseMeta{V: 2, V2: &xdr.LedgerCloseMetaV2{
-			LedgerHeader:       header,
-			TxSet:              txSet,
-			TxProcessing:       txProcessing,
-			UpgradesProcessing: entryUpgrades(entrySeqs),
-		}}
-	}
-
-	txProcessing := make([]xdr.TransactionResultMeta, txCount)
+	txProcessing := make([]xdr.TransactionResultMetaV1, txCount)
 	for i := range txProcessing {
-		txProcessing[i] = xdr.TransactionResultMeta{
+		txProcessing[i] = xdr.TransactionResultMetaV1{
 			Result:            successfulTxResult(),
 			TxApplyProcessing: xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{}},
 		}
 	}
-	return xdr.LedgerCloseMeta{V: 1, V1: &xdr.LedgerCloseMetaV1{
+	return xdr.LedgerCloseMeta{V: 2, V2: &xdr.LedgerCloseMetaV2{
 		LedgerHeader:       header,
 		TxSet:              txSet,
 		TxProcessing:       txProcessing,
@@ -179,6 +164,20 @@ func makeV0StreamLedger(seq uint32) xdr.LedgerCloseMeta {
 	}}
 }
 
+// makeV1StreamLedger builds a V1 LedgerCloseMeta, the protocol-20-22 shape
+// apply-load cannot produce and the backend therefore rejects.
+func makeV1StreamLedger(seq uint32) xdr.LedgerCloseMeta {
+	return xdr.LedgerCloseMeta{V: 1, V1: &xdr.LedgerCloseMetaV1{
+		LedgerHeader: xdr.LedgerHeaderHistoryEntry{
+			Header: xdr.LedgerHeader{LedgerSeq: xdr.Uint32(seq)},
+		},
+		TxSet: xdr.GeneralizedTransactionSet{
+			V:       1,
+			V1TxSet: &xdr.TransactionSetV1{},
+		},
+	}}
+}
+
 func successfulTxResult() xdr.TransactionResultPair {
 	return xdr.TransactionResultPair{
 		Result: xdr.TransactionResult{
@@ -192,7 +191,7 @@ func successfulTxResult() xdr.TransactionResultPair {
 }
 
 // entryUpgrades parks one ledger entry per sequence in a base-fee upgrade's
-// changes. Upgrade changes are a convenient carrier because MergeLedgers
+// changes. Upgrade changes are a convenient carrier because appendLedger
 // appends them in pipe order, so a merged ledger exposes each source stream's
 // entries separately.
 func entryUpgrades(entrySeqs []uint32) []xdr.UpgradeEntryMeta {
@@ -226,17 +225,9 @@ func entryUpgrades(entrySeqs []uint32) []xdr.UpgradeEntryMeta {
 // carries, in merge order (first pipe's entries first).
 func streamEntrySeqs(t *testing.T, lcm xdr.LedgerCloseMeta) []uint32 {
 	t.Helper()
-	var upgrades []xdr.UpgradeEntryMeta
-	switch lcm.V {
-	case 1:
-		upgrades = lcm.V1.UpgradesProcessing
-	case 2:
-		upgrades = lcm.V2.UpgradesProcessing
-	default:
-		t.Fatalf("unexpected ledger version %d", lcm.V)
-	}
+	require.Equal(t, int32(2), lcm.V, "unexpected ledger version")
 	var seqs []uint32
-	for _, upgrade := range upgrades {
+	for _, upgrade := range lcm.V2.UpgradesProcessing {
 		for _, change := range upgrade.Changes {
 			require.NotNil(t, change.State)
 			seqs = append(seqs, uint32(change.State.LastModifiedLedgerSeq))
@@ -247,38 +238,20 @@ func streamEntrySeqs(t *testing.T, lcm xdr.LedgerCloseMeta) []uint32 {
 
 func streamTxCount(t *testing.T, lcm xdr.LedgerCloseMeta) int {
 	t.Helper()
-	switch lcm.V {
-	case 1:
-		return len(lcm.V1.TxProcessing)
-	case 2:
-		return len(lcm.V2.TxProcessing)
-	}
-	t.Fatalf("unexpected ledger version %d", lcm.V)
-	return 0
+	require.Equal(t, int32(2), lcm.V, "unexpected ledger version")
+	return len(lcm.V2.TxProcessing)
 }
 
 func streamPhaseCount(t *testing.T, lcm xdr.LedgerCloseMeta) int {
 	t.Helper()
-	switch lcm.V {
-	case 1:
-		return len(lcm.V1.TxSet.V1TxSet.Phases)
-	case 2:
-		return len(lcm.V2.TxSet.V1TxSet.Phases)
-	}
-	t.Fatalf("unexpected ledger version %d", lcm.V)
-	return 0
+	require.Equal(t, int32(2), lcm.V, "unexpected ledger version")
+	return len(lcm.V2.TxSet.V1TxSet.Phases)
 }
 
 func streamCloseTime(t *testing.T, lcm xdr.LedgerCloseMeta) xdr.TimePoint {
 	t.Helper()
-	switch lcm.V {
-	case 1:
-		return lcm.V1.LedgerHeader.Header.ScpValue.CloseTime
-	case 2:
-		return lcm.V2.LedgerHeader.Header.ScpValue.CloseTime
-	}
-	t.Fatalf("unexpected ledger version %d", lcm.V)
-	return 0
+	require.Equal(t, int32(2), lcm.V, "unexpected ledger version")
+	return lcm.V2.LedgerHeader.Header.ScpValue.CloseTime
 }
 
 type getLedgerResult struct {
@@ -320,7 +293,7 @@ func TestStreamingLoadtestBackend_RenumbersFirstEpoch(t *testing.T) {
 	// tags genesis-created entries with lastModified 1.
 	feeder := newPipeFeeder(t, paths[0])
 	for raw := uint32(2); raw <= 4; raw++ {
-		feeder.send(makeStreamLedger(1, raw, 1, 1, raw+5))
+		feeder.send(makeStreamLedger(raw, 1, 1, raw+5))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
@@ -353,7 +326,7 @@ func TestStreamingLoadtestBackend_MergesEveryPipe(t *testing.T) {
 		feeder := newPipeFeeder(t, path)
 		for n := uint32(0); n < 2; n++ {
 			raw := rawStarts[i] + n
-			feeder.send(makeStreamLedger(1, raw, txCounts[i], raw+5))
+			feeder.send(makeStreamLedger(raw, txCounts[i], raw+5))
 		}
 	}
 
@@ -372,29 +345,6 @@ func TestStreamingLoadtestBackend_MergesEveryPipe(t *testing.T) {
 	}
 }
 
-func TestStreamingLoadtestBackend_MergesV2Ledgers(t *testing.T) {
-	paths := mkFIFOs(t, 2)
-	backend := newStreamingBackend(t, paths, 0)
-
-	rawStarts := []uint32{2, 50}
-	for i, path := range paths {
-		feeder := newPipeFeeder(t, path)
-		feeder.send(makeStreamLedger(2, rawStarts[i], 2, rawStarts[i]+5))
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
-	defer cancel()
-	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(10)))
-
-	lcm, err := backend.GetLedger(ctx, 10)
-	require.NoError(t, err)
-	require.Equal(t, int32(2), lcm.V)
-	assert.Equal(t, uint32(10), lcm.LedgerSequence())
-	assert.Equal(t, 4, streamTxCount(t, lcm))
-	assert.Equal(t, []uint32{7, 55}, streamEntrySeqs(t, lcm))
-	assert.Greater(t, uint64(streamCloseTime(t, lcm)), uint64(0))
-}
-
 func TestStreamingLoadtestBackend_RestartsOnePipeOnly(t *testing.T) {
 	paths := mkFIFOs(t, 3)
 	backend := newStreamingBackend(t, paths, 0)
@@ -404,11 +354,11 @@ func TestStreamingLoadtestBackend_RestartsOnePipeOnly(t *testing.T) {
 	for _, i := range []int{0, 2} {
 		feeder := newPipeFeeder(t, paths[i])
 		for raw := uint32(2); raw <= 8; raw++ {
-			feeder.send(makeStreamLedger(1, raw, 1))
+			feeder.send(makeStreamLedger(raw, 1))
 		}
 	}
 	shortLived := newPipeFeeder(t, paths[1])
-	shortLived.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	shortLived.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -428,7 +378,7 @@ func TestStreamingLoadtestBackend_RestartsOnePipeOnly(t *testing.T) {
 	pending := getLedgerAsync(backend, ctx, 3)
 	time.Sleep(reopenGrace)
 	restarted := newPipeFeeder(t, paths[1])
-	restarted.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	restarted.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	res := <-pending
 	require.NoError(t, res.err)
@@ -448,7 +398,7 @@ func TestStreamingLoadtestBackend_RecoversFromTruncatedFrame(t *testing.T) {
 	backend := newStreamingBackend(t, paths, 0)
 
 	killed := newPipeFeeder(t, paths[0])
-	killed.send(makeStreamLedger(1, 2, 1))
+	killed.send(makeStreamLedger(2, 1))
 	killed.sendRaw(truncatedFrame())
 	killed.close()
 
@@ -465,7 +415,7 @@ func TestStreamingLoadtestBackend_RecoversFromTruncatedFrame(t *testing.T) {
 	pending := getLedgerAsync(backend, ctx, 2)
 	time.Sleep(reopenGrace)
 	clean := newPipeFeeder(t, paths[0])
-	clean.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	clean.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	res := <-pending
 	require.NoError(t, res.err)
@@ -482,7 +432,7 @@ func TestStreamingLoadtestBackend_StampsAdvancingCloseTime(t *testing.T) {
 
 	feeder := newPipeFeeder(t, paths[0])
 	for raw := uint32(2); raw <= 4; raw++ {
-		feeder.send(makeStreamLedger(1, raw, 1))
+		feeder.send(makeStreamLedger(raw, 1))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
@@ -507,7 +457,7 @@ func TestStreamingLoadtestBackend_RetryServesCachedLedger(t *testing.T) {
 	// Exactly one frame per emitted ledger: a retry that consumed another
 	// frame would leave nothing for the follow-up request.
 	feeder := newPipeFeeder(t, paths[0])
-	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	feeder.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -522,7 +472,7 @@ func TestStreamingLoadtestBackend_RetryServesCachedLedger(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first, retried, "a repeat request replays the cached ledger verbatim")
 
-	feeder.send(makeStreamLedger(1, 4, 1))
+	feeder.send(makeStreamLedger(4, 1))
 	lcm, err := backend.GetLedger(ctx, 3)
 	require.NoError(t, err)
 	assert.Equal(t, uint32(3), lcm.LedgerSequence(), "the retry left the stream position untouched")
@@ -535,7 +485,7 @@ func TestStreamingLoadtestBackend_PacesEmits(t *testing.T) {
 
 	feeder := newPipeFeeder(t, paths[0])
 	for raw := uint32(2); raw <= 4; raw++ {
-		feeder.send(makeStreamLedger(1, raw, 1))
+		feeder.send(makeStreamLedger(raw, 1))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
@@ -561,7 +511,7 @@ func TestStreamingLoadtestBackend_TracksLatestLedgerSequence(t *testing.T) {
 	backend := newStreamingBackend(t, paths, 0)
 
 	feeder := newPipeFeeder(t, paths[0])
-	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	feeder.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -618,7 +568,7 @@ func TestStreamingLoadtestBackend_RejectsBadRequests(t *testing.T) {
 		paths := mkFIFOs(t, 1)
 		backend := newStreamingBackend(t, paths, 0)
 		feeder := newPipeFeeder(t, paths[0])
-		feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+		feeder.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 		require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
 		_, err := backend.GetLedger(ctx, 1)
@@ -627,15 +577,25 @@ func TestStreamingLoadtestBackend_RejectsBadRequests(t *testing.T) {
 		require.ErrorContains(t, err, "non-sequential ledger request: expected 2, got 3")
 	})
 
-	t.Run("unsupported ledger version", func(t *testing.T) {
-		paths := mkFIFOs(t, 1)
-		backend := newStreamingBackend(t, paths, 0)
-		feeder := newPipeFeeder(t, paths[0])
-		feeder.send(makeV0StreamLedger(2))
+	t.Run("unsupported ledger versions", func(t *testing.T) {
+		// V0 predates generalized transaction sets; V1 (protocols 20-22)
+		// cannot come out of apply-load, which always runs the core binary's
+		// current protocol. The backend is V2-only and must reject both.
+		for name, ledger := range map[string]xdr.LedgerCloseMeta{
+			"v0": makeV0StreamLedger(2),
+			"v1": makeV1StreamLedger(2),
+		} {
+			t.Run(name, func(t *testing.T) {
+				paths := mkFIFOs(t, 1)
+				backend := newStreamingBackend(t, paths, 0)
+				feeder := newPipeFeeder(t, paths[0])
+				feeder.send(ledger)
 
-		require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
-		_, err := backend.GetLedger(ctx, 1)
-		require.ErrorContains(t, err, "version")
+				require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+				_, err := backend.GetLedger(ctx, 1)
+				require.ErrorContains(t, err, "is not supported")
+			})
+		}
 	})
 }
 
@@ -646,7 +606,7 @@ func TestStreamingLoadtestBackend_RejectsSequenceGapWithinEpoch(t *testing.T) {
 	// A gap inside one writer's lifetime means frames were lost, which is not
 	// the same as the writer restarting and is not recoverable by reopening.
 	feeder := newPipeFeeder(t, paths[0])
-	feeder.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 5, 1))
+	feeder.send(makeStreamLedger(2, 1), makeStreamLedger(5, 1))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -730,7 +690,7 @@ func TestStreamingLoadtestBackend_TCPStreamsFrames(t *testing.T) {
 
 	feeder := newTCPFeeder(t, addr)
 	for raw := uint32(2); raw <= 4; raw++ {
-		feeder.send(makeStreamLedger(1, raw, 1, 1, raw+5))
+		feeder.send(makeStreamLedger(raw, 1, 1, raw+5))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
@@ -749,7 +709,7 @@ func TestStreamingLoadtestBackend_TCPReconnectStartsNewEpoch(t *testing.T) {
 	backend, addr := newTCPStreamingBackend(t)
 
 	first := newTCPFeeder(t, addr)
-	first.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	first.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -768,7 +728,7 @@ func TestStreamingLoadtestBackend_TCPReconnectStartsNewEpoch(t *testing.T) {
 	// grace delay is needed before attaching it.
 	pending := getLedgerAsync(backend, ctx, 3)
 	restarted := newTCPFeeder(t, addr)
-	restarted.send(makeStreamLedger(1, 2, 1), makeStreamLedger(1, 3, 1))
+	restarted.send(makeStreamLedger(2, 1), makeStreamLedger(3, 1))
 
 	res := <-pending
 	require.NoError(t, res.err)
@@ -788,9 +748,9 @@ func TestStreamingLoadtestBackend_MergesMixedSources(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, backend.Close()) })
 
 	pipeSide := newPipeFeeder(t, fifo)
-	pipeSide.send(makeStreamLedger(1, 2, 1, 7), makeStreamLedger(1, 3, 1, 8))
+	pipeSide.send(makeStreamLedger(2, 1, 7), makeStreamLedger(3, 1, 8))
 	tcpSide := newTCPFeeder(t, backend.sources[1].listener.Addr().String())
-	tcpSide.send(makeStreamLedger(1, 50, 2, 55), makeStreamLedger(1, 51, 2, 56))
+	tcpSide.send(makeStreamLedger(50, 2, 55), makeStreamLedger(51, 2, 56))
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
 	defer cancel()
@@ -821,7 +781,7 @@ func TestStreamingLoadtestBackend_TCPAdoptsPendingAcceptAfterCancel(t *testing.T
 
 	// The retried call adopts the pending accept instead of stacking another.
 	feeder := newTCPFeeder(t, addr)
-	feeder.send(makeStreamLedger(1, 2, 1))
+	feeder.send(makeStreamLedger(2, 1))
 	lcm, err := backend.GetLedger(prepCtx, 1)
 	require.NoError(t, err)
 	assert.Equal(t, uint32(1), lcm.LedgerSequence())
