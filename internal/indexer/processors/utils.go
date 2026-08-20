@@ -58,23 +58,21 @@ func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) 
 	return nil
 }
 
-// assetContractIDMemo caches asset→contract-ID derivations — each one a
-// SHA-256 over the asset's contract-ID preimage plus a strkey encode —
-// which processors otherwise recompute for the same few assets on every
-// event. Results are content-derived (the processor's network passphrase is
-// fixed at construction), so entries never invalidate and the memo is
-// bounded by the distinct assets a process sees. sync.Map because one
-// processor instance serves every indexer pool worker concurrently, and the
-// workload is read-mostly once warm.
-type assetContractIDMemo struct {
+// AssetContractIDMemo caches asset→contract-ID derivations (a SHA-256 over the
+// asset's contract-ID preimage plus a strkey encode) per processor. Entries never
+// invalidate because the processor's network passphrase is fixed at construction.
+// sync.Map because the indexer pool workers share one processor instance. Keys are
+// "<type>\x00<code>\x00<issuer>", the complete identity of an asset; neither a
+// trimmed alphanumeric code nor a base32 issuer can contain NUL, so no two assets
+// share a key, and every accessor normalizes to the same three components. The
+// zero value is ready to use.
+type AssetContractIDMemo struct {
 	m sync.Map // "<type>\x00<code>\x00<issuer>" → strkey-encoded contract ID
 }
 
-// operationXDRBuffers recycles XDR encoding buffers across ConvertOperation
-// calls, which run on every indexer pool worker concurrently.
-var operationXDRBuffers = sync.Pool{New: func() any { return xdr.NewEncodingBuffer() }}
-
-func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+// fromDetails returns the contract ID of the asset described by the extracted
+// asset detail strings.
+func (memo *AssetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	key := assetType + "\x00" + assetCode + "\x00" + assetIssuer
 	if id, ok := memo.m.Load(key); ok {
 		return id.(string), nil
@@ -86,6 +84,33 @@ func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType
 	memo.m.Store(key, id)
 	return id, nil
 }
+
+// FromAsset returns the contract ID of an asset held as XDR. Extracting the
+// key components costs a strkey encode of the issuer on every call, hit or
+// miss, which is why callers already holding the code and issuer as strings go
+// through fromCreditAsset instead.
+func (memo *AssetContractIDMemo) FromAsset(networkPassphrase string, asset xdr.Asset) (string, error) {
+	var assetType, assetCode, assetIssuer string
+	if err := asset.Extract(&assetType, &assetCode, &assetIssuer); err != nil {
+		return "", fmt.Errorf("extracting asset details: %w", err)
+	}
+	return memo.fromDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+}
+
+// fromCreditAsset returns the contract ID of an issued asset held as its code
+// and issuer, the shape token transfer events carry. The code length fixes the
+// asset type, the same way xdr.MustNewCreditAsset derives it from the code.
+func (memo *AssetContractIDMemo) fromCreditAsset(networkPassphrase string, assetCode, assetIssuer string) (string, error) {
+	assetType := "credit_alphanum4"
+	if len(assetCode) > 4 {
+		assetType = "credit_alphanum12"
+	}
+	return memo.fromDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+}
+
+// operationXDRBuffers recycles XDR encoding buffers across ConvertOperation
+// calls, which run on every indexer pool worker concurrently.
+var operationXDRBuffers = sync.Pool{New: func() any { return xdr.NewEncodingBuffer() }}
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	var asset xdr.Asset

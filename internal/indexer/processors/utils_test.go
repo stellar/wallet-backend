@@ -177,3 +177,90 @@ func Test_strkeyPrefixMatchesVersionByte(t *testing.T) {
 		}
 	}
 }
+
+// memoAssetIssuerAlt is a second issuer, used to show the issuer participates in
+// the memo key.
+const memoAssetIssuerAlt = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+
+// memoEntryCount reports how many distinct assets the memo has cached.
+func memoEntryCount(memo *AssetContractIDMemo) int {
+	count := 0
+	memo.m.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// Test_AssetContractIDMemo pins the property the memo rests on: a cached lookup
+// returns exactly what an uncached derivation returns, for every asset shape,
+// and each distinct asset gets its own entry. The asset set separates the two
+// credit widths under one issuer (including the 4-vs-5 character boundary where
+// the width flips), one code under two issuers, and the native asset.
+func Test_AssetContractIDMemo(t *testing.T) {
+	assets := []struct {
+		name  string
+		asset xdr.Asset
+	}{
+		{name: "native", asset: xdr.MustNewNativeAsset()},
+		{name: "alphanum4", asset: xdr.MustNewCreditAsset(testAssetCode, testAssetIssuer)},
+		{name: "alphanum12 at the width boundary", asset: xdr.MustNewCreditAsset(testAssetCode+"X", testAssetIssuer)},
+		{name: "alphanum12 at full width", asset: xdr.MustNewCreditAsset("USDCOIN12345", testAssetIssuer)},
+		{name: "alphanum4 under another issuer", asset: xdr.MustNewCreditAsset(testAssetCode, memoAssetIssuerAlt)},
+	}
+
+	var memo AssetContractIDMemo
+	for _, tc := range assets {
+		t.Run(tc.name, func(t *testing.T) {
+			rawContractID, err := tc.asset.ContractID(networkPassphrase)
+			require.NoError(t, err)
+			want := strkey.MustEncode(strkey.VersionByteContract, rawContractID[:])
+
+			// The miss and the hit must both agree with the uncached derivation.
+			// A key that collided with an asset cached by an earlier subtest
+			// would surface here as the other asset's contract ID.
+			missed, err := memo.FromAsset(networkPassphrase, tc.asset)
+			require.NoError(t, err)
+			assert.Equal(t, want, missed)
+
+			hit, err := memo.FromAsset(networkPassphrase, tc.asset)
+			require.NoError(t, err)
+			assert.Equal(t, want, hit)
+		})
+	}
+	assert.Equal(t, len(assets), memoEntryCount(&memo), "each distinct asset must occupy its own entry")
+}
+
+// Test_AssetContractIDMemoAccessorsAgree pins that the accessors are one
+// mechanism and not three: the same asset arriving as XDR, as extracted detail
+// strings, or as a bare code and issuer resolves to one contract ID and shares
+// one entry.
+func Test_AssetContractIDMemoAccessorsAgree(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetType string
+		code      string
+	}{
+		{name: "alphanum4", assetType: "credit_alphanum4", code: testAssetCode},
+		{name: "alphanum12", assetType: "credit_alphanum12", code: testAssetCode + "X"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var memo AssetContractIDMemo
+
+			fromAsset, err := memo.FromAsset(networkPassphrase, xdr.MustNewCreditAsset(tc.code, testAssetIssuer))
+			require.NoError(t, err)
+
+			fromDetails, err := memo.fromDetails(networkPassphrase, tc.assetType, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, fromAsset, fromDetails)
+
+			fromCredit, err := memo.fromCreditAsset(networkPassphrase, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, fromAsset, fromCredit)
+
+			assert.Equal(t, 1, memoEntryCount(&memo), "all three accessors must key the asset identically")
+		})
+	}
+}
