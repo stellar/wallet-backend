@@ -7,11 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// WipeCurrentState deletes every Blend current-state row. Callers run it in
-// the same transaction that resets the protocol's migration cursor, so live
-// ingestion — serialized on the cursor row lock — can never observe or fold
-// onto a half-wiped table. Classification tables (protocol_wasms,
-// protocol_contracts) are deliberately untouched: nothing would rebuild them.
+// WipeCurrentState deletes every Blend current-state row, in the same
+// transaction as the caller's cursor reset. Classification tables
+// (protocol_wasms, protocol_contracts) are deliberately untouched: nothing
+// rebuilds them.
 func WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	for _, table := range []string{
 		"blend_pools",

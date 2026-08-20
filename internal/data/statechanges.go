@@ -575,13 +575,14 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 // DeleteNamespaceLedgerRange deletes one protocol's state-change rows for the
 // inclusive ledger range [fromLedger, toLedger] and returns how many went.
 // base is the protocol's state_change_id namespace base
-// (ProtocolProcessor.StateChangeOrdinalBase). The ledger bound is expressed as
-// a to_id span — to_id carries the ledger in its high 32 bits — so chunk
-// skipping and compressed-batch min/max metadata both prune it, and
-// state_change_id is a compression orderby column, so its per-batch min/max
-// excludes batches holding only other namespaces without decompressing them.
-// Runs in its own transaction with the DML decompression cap lifted: callers
-// bound the per-statement work by slicing the ledger range, not via the cap.
+// (ProtocolProcessor.StateChangeOrdinalBase).
+//
+// Both predicates prune compressed batches without decompressing them: to_id
+// carries the ledger in its high 32 bits, and both columns are compression
+// orderby columns with per-batch min/max metadata. Runs in its own
+// transaction with the DML decompression cap lifted — callers bound the
+// per-statement work by slicing the ledger range (see
+// historyRebuildDeleteSlice), not via the cap.
 func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base int64, fromLedger, toLedger uint32) (int64, error) {
 	const query = `
 		DELETE FROM state_changes

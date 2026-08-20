@@ -13,12 +13,8 @@ import (
 
 // ProtocolCurrentStateRebuildService wipes a protocol's current-state rows
 // and rebuilds them from the protocol's first ledger. Current-state columns
-// are running totals over the full event history, so — unlike history, which
-// rebuilds any range in isolation — a correct rebuild must replay from
-// genesis. The wipe and the cursor reset share one transaction per protocol:
-// the cursor UPDATE takes the row lock live ingestion's per-ledger CAS also
-// needs, so live serializes against the wipe and skips the protocol's writes
-// until the rebuild reaches the tip and hands ownership back.
+// are running totals, so a correct rebuild must replay the full event
+// history — there is no shorter range to rebuild from.
 type ProtocolCurrentStateRebuildService interface {
 	Run(ctx context.Context, protocolIDs []string) error
 }
@@ -43,10 +39,9 @@ func NewProtocolCurrentStateRebuildService(cfg ProtocolMigrateCurrentStateConfig
 	}, nil
 }
 
-// Run validates the protocols, wipes each one's current-state rows (resetting
-// its cursor and migration status in the same transaction), and re-runs the
-// current-state migration from the start ledger. Holds each protocol's
-// current-state advisory lock for the duration.
+// Run wipes each protocol's current state and re-runs the migration from the
+// start ledger, holding each protocol's current-state advisory lock
+// throughout.
 func (s *protocolCurrentStateRebuildService) Run(ctx context.Context, protocolIDs []string) error {
 	protocolIDs = dedupePreservingOrder(protocolIDs)
 	if err := s.validate(ctx, protocolIDs); err != nil {
@@ -65,15 +60,13 @@ func (s *protocolCurrentStateRebuildService) Run(ctx context.Context, protocolID
 		}
 	}
 
-	// The wipe reset every status to not_started, so the engine runs the
-	// normal migration lifecycle: in_progress → fold from the cursor → CAS
-	// handoff at the tip → success.
+	// Statuses are not_started after the wipe, so this is a normal migration
+	// run: fold from the start ledger, hand off to live at the frontier.
 	return s.engine.Run(ctx, protocolIDs)
 }
 
-// validate requires each protocol to exist, be classified, and not have a
-// migration marked in_progress — that is dead-run residue to investigate, not
-// state to wipe under.
+// validate requires each protocol to exist, be classified, and not be marked
+// in_progress (dead-run residue — investigate, don't wipe under it).
 func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, protocolIDs []string) error {
 	for _, pid := range protocolIDs {
 		if _, ok := s.engine.processors[pid]; !ok {
@@ -105,9 +98,11 @@ func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, proto
 }
 
 // wipe deletes the protocol's current-state rows and resets its cursor to
-// startLedger − 1 and its migration status to not_started, all in one
-// transaction. The cursor row is updated, never deleted — live ingestion
-// treats a vanished cursor row as a fatal incident (ErrCASCursorMissing).
+// startLedger−1 and its status to not_started, all in ONE transaction: the
+// cursor UPDATE takes the row lock live's per-ledger CAS also needs, so live
+// can never fold onto a half-wiped table. The cursor row is UPDATEd, never
+// deleted: live treats a missing cursor row as a fatal incident
+// (ErrCASCursorMissing).
 func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string) error {
 	processor := s.engine.processors[protocolID]
 	cursorName := s.engine.strategy.CursorName(protocolID)

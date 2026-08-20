@@ -14,20 +14,36 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// historyRebuildDeleteSlice is how many ledgers each DELETE statement covers
-// while wiping a protocol's history rows. Each slice runs in its own
-// transaction: small enough to bound decompression and WAL per statement,
-// large enough that a full-window wipe stays a few thousand statements.
+// historyRebuildDeleteSlice is how many ledgers each history-wipe DELETE
+// covers, one transaction per slice.
+//
+// Why sliced: state_changes is compressed. Deleting from a compressed batch
+// decompresses the whole batch (~1000 rows) inside the transaction, so one
+// full-window DELETE would decompress unbounded data. Slicing bounds each
+// statement to 10k ledgers' worth of work, regardless of chunk-interval
+// tuning (batch min/max metadata prunes within chunks).
+//
+// Why the cap is lifted anyway: TimescaleDB's 100k-decompressed-tuples cap
+// counts the whole ~1000-row batch even when we delete one row from it, so
+// it trips based on data interleaving, not slice size. The slice bounds the
+// real work; the cap only adds data-dependent failures.
+//
+// Why 10k: at default 1-day chunks (~17k mainnet ledgers) a slice stays
+// chunk-scale, and a 90-day window wipes in ~156 statements. Order of
+// magnitude is all that matters; not a flag on purpose.
+//
+// Crash mid-wipe is safe: the cursor reset already stopped live's writes,
+// and rerunning the rebuild is idempotent.
 const historyRebuildDeleteSlice uint32 = 10_000
 
 // ProtocolHistoryRebuildService deletes a protocol's state-change rows and
-// re-runs the history migration over the retained window. Mirrors the
-// current-state rebuild: the wipe restores a never-migrated protocol's
-// preconditions (cursor at the retention floor, status not_started, no rows),
-// after which the unmodified migration engine folds forward and hands off to
-// live ingestion at the frontier. The cursor reset commits before any delete,
-// so live stops writing the protocol's history for the duration — its writes
-// resume at handoff, exactly as after a first migration.
+// re-runs the history migration over the retained window.
+//
+// Same shape as the current-state rebuild: the wipe makes the protocol look
+// never-migrated (cursor at the retention floor, status not_started, no
+// rows), then the unmodified engine migrates it and hands off to live
+// ingestion at the frontier. Live writes no history for the protocol between
+// the cursor reset and the handoff.
 type ProtocolHistoryRebuildService interface {
 	Run(ctx context.Context, protocolIDs []string) error
 }
@@ -82,11 +98,10 @@ func NewProtocolHistoryRebuildService(cfg ProtocolHistoryRebuildConfig) (*protoc
 	}, nil
 }
 
-// Run validates the protocols, wipes each one's history rows (resetting its
-// cursor and migration status first), and re-runs the history migration over
-// the retained window. Holds each protocol's history advisory lock for the
-// duration. Rerunning after a failure is safe: the wipe is idempotent and the
-// re-derived rows land at deterministic state_change_ids.
+// Run wipes each protocol's history and re-runs the history migration,
+// holding each protocol's history advisory lock throughout. Safe to rerun
+// after a failure: the wipe is idempotent and re-derived rows land at
+// deterministic state_change_ids.
 func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []string) error {
 	protocolIDs = dedupePreservingOrder(protocolIDs)
 	if err := s.validate(ctx, protocolIDs); err != nil {
@@ -110,15 +125,13 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 		}
 	}
 
-	// The wipe reset every status to not_started, so the engine runs the
-	// normal migration lifecycle: in_progress → fold from the retention
-	// floor → CAS handoff at the frontier → success.
+	// Statuses are not_started after the wipe, so this is a normal migration
+	// run: fold from the retention floor, hand off to live at the frontier.
 	return s.engine.Run(ctx, protocolIDs)
 }
 
-// validate requires each protocol to exist, be classified, and not have a
-// history migration marked in_progress — that is dead-run residue to
-// investigate, not state to wipe under.
+// validate requires each protocol to exist, be classified, and not be marked
+// in_progress (dead-run residue — investigate, don't wipe under it).
 func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolIDs []string) error {
 	for _, pid := range protocolIDs {
 		if _, ok := s.engine.processors[pid]; !ok {
@@ -149,8 +162,8 @@ func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolID
 	return nil
 }
 
-// retainedWindow returns the ledger bounds of the rows a wipe must cover:
-// from the oldest retained ledger through live ingestion's committed tip.
+// retainedWindow returns the wipe bounds: oldest retained ledger through
+// live ingestion's committed tip.
 func (s *protocolHistoryRebuildService) retainedWindow(ctx context.Context) (uint32, uint32, error) {
 	oldest, err := s.engine.ingestStore.Get(ctx, data.OldestLedgerCursorName)
 	if err != nil {
@@ -169,15 +182,13 @@ func (s *protocolHistoryRebuildService) retainedWindow(ctx context.Context) (uin
 	return oldest, latest, nil
 }
 
-// wipe resets the protocol's cursor to oldest − 1 and its migration status to
-// not_started in one transaction, then deletes the protocol's history rows in
-// ledger slices, each its own transaction (DML on the compressed hypertable
-// cannot run as one statement). The cursor reset commits FIRST: from that
-// moment live ingestion's per-ledger CAS fails and it writes no new history
-// rows for this protocol, so the deletes race nothing and the engine's folds
-// re-derive every ledger exactly once. The cursor row is updated, never
-// deleted — live treats a vanished cursor row as a fatal incident
-// (ErrCASCursorMissing).
+// wipe resets the cursor to oldest−1 and the status to not_started (one
+// transaction), then deletes the protocol's rows in ledger slices.
+//
+// Order matters: the cursor reset commits first, which makes live's per-ledger
+// CAS fail — live stops writing this protocol's history, so the deletes race
+// nothing. The cursor row is UPDATEd, never deleted: live treats a missing
+// cursor row as a fatal incident (ErrCASCursorMissing).
 func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID string, oldest, latest uint32) error {
 	cursorName := s.engine.strategy.CursorName(protocolID)
 	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {

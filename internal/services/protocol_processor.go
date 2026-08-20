@@ -93,12 +93,10 @@ type ProtocolProcessor interface {
 	PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
 
 	// WipeCurrentState deletes every row of this protocol's current-state
-	// tables in the caller's transaction. The current-state migration's
-	// --rebuild mode calls it in the same transaction that resets the
-	// protocol's cursor, so live ingestion (serialized on the cursor row lock)
-	// can never fold onto a half-wiped table. It must not touch classification
-	// or metadata tables (contract_tokens, protocol_wasms, protocol_contracts)
-	// — nothing rebuilds those.
+	// tables in the caller's transaction (the current-state rebuild's wipe).
+	// It must not touch contract_tokens, protocol_wasms, or
+	// protocol_contracts — classification owns those and nothing rebuilds
+	// them.
 	WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error
 }
 
