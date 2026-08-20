@@ -616,8 +616,8 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(startLedger))
 		m.appMetrics.Ingestion.OldestLedger.Set(float64(startLedger))
 	} else {
-		// Remove any bulk rows a crashed run left above the cursor before that
-		// ledger is re-ingested: persistLedgerData commits the sibling COPY
+		// Remove any bulk rows a crashed run left above the cursor before those
+		// ledgers are re-ingested: persistLedgerData commits the sibling COPY
 		// transactions before the coordinating transaction that carries the
 		// cursor, so a crash between those commits orphans the persist batch
 		// past the cursor. Fatal on failure — ingesting over the orphans
