@@ -537,7 +537,9 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 
 // GetContractDataChanges returns the buffer's ContractData changes grouped by
 // owning contract C-address, in transaction application order within each
-// contract; callers must not modify it.
+// contract; callers must not modify it. The map is allocated at construction
+// and never replaced, so a buffer from NewIndexerBuffer never returns nil here
+// — the RequiresContractData processors range over the result unconditionally.
 func (b *IndexerBuffer) GetContractDataChanges() map[string][]ingest.Change {
 	return b.contractDataChangesByContract
 }
