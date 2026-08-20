@@ -88,7 +88,10 @@ type metaSource struct {
 	stream io.ReadCloser
 	// opening carries the result of an in-flight blocking open (FIFO open or
 	// TCP accept). It is retained across a context cancellation so a retried
-	// GetLedger reuses the pending open instead of leaking the descriptor.
+	// GetLedger adopts the pending open instead of starting a second one: two
+	// concurrent read descriptors on one FIFO would split the byte stream
+	// between them and corrupt every frame, a second Accept would strand the
+	// producer's live connection, and the abandoned descriptor would leak.
 	opening chan openSourceResult
 	// frames delivers decoded frames in order from the reader goroutine. The
 	// channel buffers sourceLookaheadFrames so the reader decodes ahead of
@@ -497,7 +500,8 @@ func decodeFrames(raw <-chan rawFrame, frames chan<- sourceReadResult, done <-ch
 // appendLedger merges src's content into dst: transaction-set phases,
 // transaction results, upgrades, and evicted keys are appended, and dst's
 // header (already renumbered and stamped by the caller) stands for the merged
-// ledger. Both sides must be V1/V2 with generalized transaction sets.
+// ledger. Both sides must be V2 with generalized transaction sets (see
+// mutableHeader for why no other version can occur).
 //
 // Unlike the SDK's loadtest.MergeLedgers, this deliberately does NOT rewrite
 // ledger-sequence references inside ledger entries (lastModifiedLedgerSeq,
@@ -509,43 +513,39 @@ func appendLedger(dst *xdr.LedgerCloseMeta, src xdr.LedgerCloseMeta) error {
 	if src.V != dst.V {
 		return fmt.Errorf("source ledger version %d is incompatible with destination version %d", src.V, dst.V)
 	}
-	switch dst.V {
-	case 1:
-		srcTxSet, ok := src.V1.TxSet.GetV1TxSet()
-		if !ok {
-			return fmt.Errorf("source ledger txset version %d is not supported", src.V1.TxSet.V)
-		}
-		dst.V1.TxSet.V1TxSet.Phases = append(dst.V1.TxSet.V1TxSet.Phases, srcTxSet.Phases...)
-		dst.V1.TxProcessing = append(dst.V1.TxProcessing, src.V1.TxProcessing...)
-		dst.V1.UpgradesProcessing = append(dst.V1.UpgradesProcessing, src.V1.UpgradesProcessing...)
-		dst.V1.EvictedKeys = append(dst.V1.EvictedKeys, src.V1.EvictedKeys...)
-	case 2:
-		srcTxSet, ok := src.V2.TxSet.GetV1TxSet()
-		if !ok {
-			return fmt.Errorf("source ledger txset version %d is not supported", src.V2.TxSet.V)
-		}
-		dst.V2.TxSet.V1TxSet.Phases = append(dst.V2.TxSet.V1TxSet.Phases, srcTxSet.Phases...)
-		dst.V2.TxProcessing = append(dst.V2.TxProcessing, src.V2.TxProcessing...)
-		dst.V2.UpgradesProcessing = append(dst.V2.UpgradesProcessing, src.V2.UpgradesProcessing...)
-		dst.V2.EvictedKeys = append(dst.V2.EvictedKeys, src.V2.EvictedKeys...)
-	default:
-		return fmt.Errorf("ledger version %d is not supported", dst.V)
+	if _, err := mutableHeader(dst); err != nil {
+		return err
 	}
+	srcTxSet, ok := src.V2.TxSet.GetV1TxSet()
+	if !ok {
+		return fmt.Errorf("source ledger txset version %d is not supported", src.V2.TxSet.V)
+	}
+	dst.V2.TxSet.V1TxSet.Phases = append(dst.V2.TxSet.V1TxSet.Phases, srcTxSet.Phases...)
+	dst.V2.TxProcessing = append(dst.V2.TxProcessing, src.V2.TxProcessing...)
+	dst.V2.UpgradesProcessing = append(dst.V2.UpgradesProcessing, src.V2.UpgradesProcessing...)
+	dst.V2.EvictedKeys = append(dst.V2.EvictedKeys, src.V2.EvictedKeys...)
 	return nil
 }
 
-// setLedgerSeq rewrites the ledger header sequence. Only V1/V2 are accepted:
-// that is what protocol-27+ cores emit, and merging requires generalized
-// transaction sets, which V0 predates.
-func setLedgerSeq(lcm *xdr.LedgerCloseMeta, sequence uint32) error {
-	switch lcm.V {
-	case 1:
-		lcm.V1.LedgerHeader.Header.LedgerSeq = xdr.Uint32(sequence)
-	case 2:
-		lcm.V2.LedgerHeader.Header.LedgerSeq = xdr.Uint32(sequence)
-	default:
-		return fmt.Errorf("ledger version %d is not supported", lcm.V)
+// mutableHeader returns the ledger header for in-place rewrites. Only V2 is
+// accepted: apply-load pins its ledger protocol to the core binary's current
+// version (neither LEDGER_PROTOCOL_VERSION nor its testing override is
+// settable from a config file), and every protocol since 23 emits V2 meta —
+// so no apply-load build this backend can face produces V0 or V1.
+func mutableHeader(lcm *xdr.LedgerCloseMeta) (*xdr.LedgerHeader, error) {
+	if lcm.V != 2 {
+		return nil, fmt.Errorf("ledger version %d is not supported", lcm.V)
 	}
+	return &lcm.V2.LedgerHeader.Header, nil
+}
+
+// setLedgerSeq rewrites the ledger header sequence.
+func setLedgerSeq(lcm *xdr.LedgerCloseMeta, sequence uint32) error {
+	header, err := mutableHeader(lcm)
+	if err != nil {
+		return err
+	}
+	header.LedgerSeq = xdr.Uint32(sequence)
 	return nil
 }
 
@@ -553,18 +553,15 @@ func setLedgerSeq(lcm *xdr.LedgerCloseMeta, sequence uint32) error {
 // clamped to be non-decreasing. apply-load emits closeTime 0 on every ledger;
 // downstream storage partitions rows by this timestamp, so it must advance.
 func (b *StreamingLoadtestLedgerBackend) stampCloseTime(lcm *xdr.LedgerCloseMeta) error {
+	header, err := mutableHeader(lcm)
+	if err != nil {
+		return err
+	}
 	ct := xdr.TimePoint(time.Now().Unix())
 	if ct < b.lastCloseTime {
 		ct = b.lastCloseTime
 	}
-	switch lcm.V {
-	case 1:
-		lcm.V1.LedgerHeader.Header.ScpValue.CloseTime = ct
-	case 2:
-		lcm.V2.LedgerHeader.Header.ScpValue.CloseTime = ct
-	default:
-		return fmt.Errorf("ledger version %d is not supported", lcm.V)
-	}
+	header.ScpValue.CloseTime = ct
 	b.lastCloseTime = ct
 	return nil
 }
