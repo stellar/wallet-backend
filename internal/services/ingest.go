@@ -295,8 +295,7 @@ func (m *ingestService) insertTransactionsAccounts(ctx context.Context, pgxTx pg
 	if len(stellarAddressesByToID) == 0 {
 		return nil
 	}
-	_, err := m.models.Transactions.BatchCopyAccounts(ctx, pgxTx, txs, stellarAddressesByToID)
-	if err != nil {
+	if err := m.models.Transactions.BatchCopyAccounts(ctx, pgxTx, txs, stellarAddressesByToID); err != nil {
 		return fmt.Errorf("batch inserting transactions accounts: %w", err)
 	}
 	return nil
@@ -319,8 +318,7 @@ func (m *ingestService) insertOperationsAccounts(ctx context.Context, pgxTx pgx.
 	if len(stellarAddressesByOpID) == 0 {
 		return nil
 	}
-	_, err := m.models.Operations.BatchCopyAccounts(ctx, pgxTx, ops, stellarAddressesByOpID)
-	if err != nil {
+	if err := m.models.Operations.BatchCopyAccounts(ctx, pgxTx, ops, stellarAddressesByOpID); err != nil {
 		return fmt.Errorf("batch inserting operations accounts: %w", err)
 	}
 	return nil
