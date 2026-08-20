@@ -250,9 +250,9 @@ func TestCurrentStateRebuild(t *testing.T) {
 	})
 }
 
-// TestProtocolHistoryRebuildValidate pins the precondition that makes the
-// protocol's history cursor a safe range cap: the history migration must have
-// completed.
+// TestProtocolHistoryRebuildValidate pins the rebuild's preconditions: any
+// settled migration status may be rebuilt, but in_progress is dead-run
+// residue to investigate, not state to wipe under.
 func TestProtocolHistoryRebuildValidate(t *testing.T) {
 	testCases := []struct {
 		name                   string
@@ -261,16 +261,10 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 		wantErrContains        string
 	}{
 		{
-			name:                   "history migration not started",
-			classificationStatus:   data.StatusSuccess,
-			historyMigrationStatus: data.StatusNotStarted,
-			wantErrContains:        "run protocol-migrate history first",
-		},
-		{
-			name:                   "history migration in progress",
+			name:                   "history migration in progress is dead-run residue",
 			classificationStatus:   data.StatusSuccess,
 			historyMigrationStatus: data.StatusInProgress,
-			wantErrContains:        "run protocol-migrate history first",
+			wantErrContains:        "in_progress",
 		},
 		{
 			name:                   "classification not complete",
@@ -282,6 +276,16 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 			name:                   "history migration succeeded",
 			classificationStatus:   data.StatusSuccess,
 			historyMigrationStatus: data.StatusSuccess,
+		},
+		{
+			name:                   "history migration never ran",
+			classificationStatus:   data.StatusSuccess,
+			historyMigrationStatus: data.StatusNotStarted,
+		},
+		{
+			name:                   "history migration previously failed",
+			classificationStatus:   data.StatusSuccess,
+			historyMigrationStatus: data.StatusFailed,
 		},
 	}
 
@@ -319,77 +323,28 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 	}
 }
 
-// TestProtocolHistoryRebuildResolveRange pins the clamping of a requested range
-// to what exists: the retention floor below and the committed history frontier
-// above.
-func TestProtocolHistoryRebuildResolveRange(t *testing.T) {
+// TestProtocolHistoryRebuildRetainedWindow pins the wipe bounds: the oldest
+// retained ledger through live ingestion's committed tip, with clear errors
+// before ingestion has produced either cursor.
+func TestProtocolHistoryRebuildRetainedWindow(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
 
 	testCases := []struct {
 		name            string
 		oldest          uint32
-		frontier        uint32
-		fromLedger      uint32
-		toLedger        uint32
-		wantFrom        uint32
-		wantTo          uint32
+		latest          uint32
 		wantErrContains string
 	}{
-		{
-			name:   "from below the retention floor clamps up",
-			oldest: 500, frontier: 900,
-			fromLedger: 100, toLedger: 800,
-			wantFrom: 500, wantTo: 800,
-		},
-		{
-			name:   "to above the frontier caps down",
-			oldest: 500, frontier: 900,
-			fromLedger: 600, toLedger: 5000,
-			wantFrom: 600, wantTo: 900,
-		},
-		{
-			name:   "to of zero defaults to the frontier",
-			oldest: 500, frontier: 900,
-			fromLedger: 600, toLedger: 0,
-			wantFrom: 600, wantTo: 900,
-		},
-		{
-			name:   "from of zero defaults to the retention floor",
-			oldest: 500, frontier: 900,
-			fromLedger: 0, toLedger: 0,
-			wantFrom: 500, wantTo: 900,
-		},
-		{
-			name:   "an in-range request is left alone",
-			oldest: 500, frontier: 900,
-			fromLedger: 600, toLedger: 700,
-			wantFrom: 600, wantTo: 700,
-		},
-		{
-			name:   "from above the frontier leaves an empty range",
-			oldest: 500, frontier: 900,
-			fromLedger: 1000, toLedger: 0,
-			wantErrContains: "resolved rebuild range is empty",
-		},
-		{
-			name:   "ingestion has not started",
-			oldest: 0, frontier: 900,
-			fromLedger: 600, toLedger: 700,
-			wantErrContains: "ingestion has not started yet",
-		},
-		{
-			name:   "no history cursor despite a completed migration",
-			oldest: 500, frontier: 0,
-			fromLedger: 600, toLedger: 700,
-			wantErrContains: "no history cursor",
-		},
+		{name: "both cursors present", oldest: 500, latest: 900},
+		{name: "ingestion has not started", oldest: 0, latest: 900, wantErrContains: "oldest_ingest_ledger is 0"},
+		{name: "no ledger committed yet", oldest: 500, latest: 0, wantErrContains: "latest_ingest_ledger is 0"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, tc.oldest)
-			setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), tc.frontier)
+			setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, tc.latest)
 
 			svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
 				DB: dbPool, LedgerBackend: &multiLedgerBackend{},
@@ -397,66 +352,37 @@ func TestProtocolHistoryRebuildResolveRange(t *testing.T) {
 				IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
 				NetworkPassphrase: "Test SDF Network ; September 2015",
 				Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-				FromLedger:        tc.fromLedger,
-				ToLedger:          tc.toLedger,
 			})
 			require.NoError(t, err)
 
-			from, to, err := svc.resolveRange(ctx, []string{"testproto"})
+			oldest, latest, err := svc.retainedWindow(ctx)
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantFrom, from)
-			assert.Equal(t, tc.wantTo, to)
+			assert.Equal(t, tc.oldest, oldest)
+			assert.Equal(t, tc.latest, latest)
 		})
 	}
 }
 
-// TestProtocolHistoryRebuildResolveRangeMultiProtocol pins that the cap is the
-// lowest frontier across the protocols — the highest ledger every one of them
-// has committed.
-func TestProtocolHistoryRebuildResolveRangeMultiProtocol(t *testing.T) {
+// TestProtocolHistoryRebuildWipe pins the wipe: the cursor and status reset
+// commit before the sliced deletes, the deletes cover exactly the retained
+// window in slices, and neighbouring ledgers and other namespaces survive.
+func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
 
-	setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, 100)
-	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("proto1"), 900)
-	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("proto2"), 700)
-
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
-		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
-		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-		Processors: []ProtocolProcessor{
-			&testRecordingProcessor{id: "proto1", ingestStore: ingestStore},
-			&testRecordingProcessor{id: "proto2", ingestStore: ingestStore},
-		},
-	})
-	require.NoError(t, err)
-
-	from, to, err := svc.resolveRange(ctx, []string{"proto1", "proto2"})
-	require.NoError(t, err)
-	assert.Equal(t, uint32(100), from)
-	assert.Equal(t, uint32(700), to)
-}
-
-// TestProtocolHistoryRebuildDeleteHistoryRows pins the ledger slicing: a range
-// spanning several full slices plus a final partial one deletes exactly the
-// protocol's rows inside it, leaving neighbouring ledgers and other namespaces
-// alone.
-func TestProtocolHistoryRebuildDeleteHistoryRows(t *testing.T) {
-	ctx := context.Background()
-	dbPool, ingestStore := setupTestDB(t)
+	// A prior migration left the cursor at the frontier; the wipe must reset it.
+	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 26_000)
 
 	// [100, 25000] slices into [100,10099], [10100,20099], [20100,25000] — two
 	// full slices and a partial tail. Seed both edges of every slice.
 	const (
-		from uint32 = 100
-		to   uint32 = 25_000
+		oldest uint32 = 100
+		latest uint32 = 25_000
 	)
 	inRange := []uint32{100, 10_099, 10_100, 20_099, 20_100, 25_000}
 	outOfRange := []uint32{99, 25_001}
@@ -470,16 +396,19 @@ func TestProtocolHistoryRebuildDeleteHistoryRows(t *testing.T) {
 	}
 	require.Len(t, remainingStateChanges(t, ctx, dbPool), 10)
 
+	protocolsModel := data.NewProtocolsModelMock(t)
+	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
+
 	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
 		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
-		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
+		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
 		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, svc.deleteHistoryRows(ctx, "testproto", from, to))
+	require.NoError(t, svc.wipe(ctx, "testproto", oldest, latest))
 
 	assert.Equal(t, [][2]int64{
 		{types.StateChangeOrdinalBaseIndexer + 1, 100},
@@ -487,81 +416,57 @@ func TestProtocolHistoryRebuildDeleteHistoryRows(t *testing.T) {
 		{types.StateChangeOrdinalBaseSEP41 + 1, 99},
 		{types.StateChangeOrdinalBaseSEP41 + 1, 25_001},
 	}, remainingStateChanges(t, ctx, dbPool))
+
+	// The cursor sits at the retention floor so live's CAS fails until the
+	// engine's folds catch up and hand off.
+	assert.Equal(t, oldest-1, getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")))
 }
 
-// TestHistoryRebuildReDerive pins the rebuild's replay loop: it covers exactly
-// the inclusive range, persists in windows, and never reads or writes the
-// protocol's cursor — which live ingestion owns.
-func TestHistoryRebuildReDerive(t *testing.T) {
-	ctx := context.Background()
-	dbPool, ingestStore := setupTestDB(t)
-
-	// Live ingestion's committed frontier. The replay must leave it alone.
-	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 999)
-
-	protocolContractsModel := data.NewProtocolContractsModelMock(t)
-	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
-	processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
-
-	backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
-		199: dummyLedgerMeta(199), 200: dummyLedgerMeta(200), 201: dummyLedgerMeta(201),
-		202: dummyLedgerMeta(202), 203: dummyLedgerMeta(203), 204: dummyLedgerMeta(204),
-		205: dummyLedgerMeta(205),
-	}}
-
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
-		DB: dbPool, LedgerBackend: backend,
-		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: protocolContractsModel,
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-		Processors:        []ProtocolProcessor{processor},
-		WindowSize:        2,
-	})
-	require.NoError(t, err)
-
-	require.NoError(t, svc.reDerive(ctx, []string{"testproto"}, 200, 204))
-
-	// Exactly [200, 204] — neither 199 below nor 205 above, both of which the
-	// backend would have served.
-	require.Len(t, processor.processedInputs, 5)
-	for i, seq := range []uint32{200, 201, 202, 203, 204} {
-		assert.Equal(t, seq, processor.processedInputs[i].LedgerSequence)
-	}
-	// Windows [200,201] and [202,203] commit at size 2; [204] is flushed when the
-	// range runs out.
-	assert.Equal(t, []uint32{201, 203, 204}, processor.persistedHistorySeqs)
-
-	// The cursor is untouched: no CAS, no init, no advance.
-	assert.Equal(t, uint32(999), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")))
-}
-
-// TestProtocolHistoryRebuildRun exercises the whole service: validate, range
-// resolution, the delete, and the bounded re-derivation — with the protocol's
-// history cursor and other namespaces intact at the end.
+// TestProtocolHistoryRebuildRun exercises the whole service: validate, the
+// wipe (cursor + status reset, rows deleted), and the re-migration through the
+// engine to CAS handoff — mirroring the current-state rebuild.
 func TestProtocolHistoryRebuildRun(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
 
-	setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, 100)
-	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 210)
+	setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, 200)
+	setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, 204)
+	// A prior migration left the cursor at the frontier; the rebuild must
+	// reset it so the fold restarts at the retention floor.
+	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 204)
 
-	// Rows the rebuild must delete, plus neighbours outside its range and a row
-	// in another namespace inside it.
+	// Rows the wipe must delete, one retention leftover below the floor that
+	// must survive, and an indexer-namespace row inside the window that must
+	// survive.
 	for _, ledger := range []uint32{200, 202, 204} {
 		seedStateChange(t, ctx, dbPool, types.StateChangeOrdinalBaseSEP41, ledger)
 	}
-	for _, ledger := range []uint32{199, 205} {
-		seedStateChange(t, ctx, dbPool, types.StateChangeOrdinalBaseSEP41, ledger)
-	}
+	seedStateChange(t, ctx, dbPool, types.StateChangeOrdinalBaseSEP41, 199)
 	seedStateChange(t, ctx, dbPool, types.StateChangeOrdinalBaseIndexer, 202)
 
 	protocolsModel := data.NewProtocolsModelMock(t)
+	// The rebuild's validate sees the completed migration; after the wipe
+	// resets the status, the engine's validate sees not_started and admits.
 	protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
 		{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusSuccess},
+	}, nil).Once()
+	protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+		{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusNotStarted},
 	}, nil)
+	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
+	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
+	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
 	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
-	processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+	processor := &testCursorObservingProcessor{
+		testCursorAdvancingProcessor: testCursorAdvancingProcessor{
+			testRecordingProcessor: testRecordingProcessor{id: "testproto", ingestStore: ingestStore},
+			dbPool:                 dbPool,
+			advanceAtSeq:           204,
+			cursorNameFunc:         utils.ProtocolHistoryCursorName,
+		},
+	}
 
 	backend := &multiLedgerBackend{ledgers: map[uint32]xdr.LedgerCloseMeta{
 		200: dummyLedgerMeta(200), 201: dummyLedgerMeta(201), 202: dummyLedgerMeta(202),
@@ -574,28 +479,30 @@ func TestProtocolHistoryRebuildRun(t *testing.T) {
 		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:        []ProtocolProcessor{processor},
-		FromLedger:        200,
-		ToLedger:          204,
 		WindowSize:        2,
 	})
 	require.NoError(t, err)
 
 	require.NoError(t, svc.Run(ctx, []string{"testproto"}))
 
-	// The protocol's rows inside [200, 204] are gone; its neighbours and the
-	// indexer namespace are untouched.
+	// The wipe removed the protocol's retained-window rows; the retention
+	// leftover below the floor and the indexer namespace survive.
 	assert.Equal(t, [][2]int64{
 		{types.StateChangeOrdinalBaseIndexer + 1, 202},
 		{types.StateChangeOrdinalBaseSEP41 + 1, 199},
-		{types.StateChangeOrdinalBaseSEP41 + 1, 205},
 	}, remainingStateChanges(t, ctx, dbPool))
 
-	// Every ledger in the range was re-folded and persisted.
+	// The fold restarted at the retention floor (cursor was 199 at first fold,
+	// not the stale 204) and covered the whole window.
+	assert.Equal(t, uint32(199), processor.cursorAtFirstFold)
 	require.Len(t, processor.processedInputs, 5)
-	assert.Equal(t, []uint32{201, 203, 204}, processor.persistedHistorySeqs)
-
-	// The rebuild never touches the cursor or the migration status.
-	assert.Equal(t, uint32(210), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")))
+	for i, seq := range []uint32{200, 201, 202, 203, 204} {
+		assert.Equal(t, seq, processor.processedInputs[i].LedgerSequence)
+	}
+	// Windows [200,201] and [202,203] persist; 204's CAS loses to the simulated
+	// live takeover, so its window is discarded and the run hands off.
+	assert.Equal(t, []uint32{201, 203}, processor.persistedHistorySeqs)
+	assert.Equal(t, uint32(304), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")))
 }
 
 // TestProtocolHistoryRebuildRefusesWhileLockHeld pins that a history rebuild

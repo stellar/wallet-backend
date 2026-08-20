@@ -418,32 +418,22 @@ func (s *BlendMigrationTestSuite) TestProtocolSetupThenMigration() {
 }
 
 // runHistoryRebuild corrupts one migrated Blend state change in place, deletes
-// another, rebuilds the ledger range spanning both, and asserts the corrupted
-// value is restored and the deleted row is back — without disturbing the rest
-// of the table, the classification-owned contract_tokens, or the protocol's
-// history cursor.
+// another, wipes and re-migrates the protocol's history, and asserts the
+// corrupted value is restored and the deleted row is back — without disturbing
+// other namespaces or the classification-owned contract_tokens.
 func (s *BlendMigrationTestSuite) runHistoryRebuild(ctx context.Context, pool *pgxpool.Pool, models *data.Models, stack *infrastructure.BlendStack) {
 	// The borrower's BORROW and REPAY rows are single, uniquely identifiable
-	// state changes at two different ledgers.
-	var borrowLedger uint32
-	err := pool.QueryRow(ctx,
-		`SELECT ledger_number FROM state_changes
-		 WHERE account_id = $1 AND state_change_category = 'BLEND_DEBT' AND state_change_reason = 'BORROW'`,
-		s.addressBytes(stack.Borrower.Address())).Scan(&borrowLedger)
-	s.Require().NoError(err, "the BLEND_DEBT/BORROW row asserted above must exist")
-	var repayLedger uint32
+	// state changes.
 	var repayAmount string
-	err = pool.QueryRow(ctx,
-		`SELECT ledger_number, amount FROM state_changes
+	err := pool.QueryRow(ctx,
+		`SELECT amount FROM state_changes
 		 WHERE account_id = $1 AND state_change_category = 'BLEND_DEBT' AND state_change_reason = 'REPAY'`,
-		s.addressBytes(stack.Borrower.Address())).Scan(&repayLedger, &repayAmount)
+		s.addressBytes(stack.Borrower.Address())).Scan(&repayAmount)
 	s.Require().NoError(err, "the BLEND_DEBT/REPAY row asserted above must exist")
 
 	blendBefore := s.countBlendStateChanges(ctx, pool)
 	nonBlendBefore := s.countNonBlendStateChanges(ctx, pool)
 	contractTokensBefore := s.countRows(ctx, pool, "contract_tokens")
-	cursorBefore, err := models.IngestStore.Get(ctx, utils.ProtocolHistoryCursorName(blendProtocolID))
-	s.Require().NoError(err)
 
 	// Corrupt the REPAY amount in place — the decode-bug shape the rebuild
 	// exists for: the row is present but its value is wrong.
@@ -466,10 +456,8 @@ func (s *BlendMigrationTestSuite) runHistoryRebuild(ctx context.Context, pool *p
 	s.Require().Zero(s.countBlendCategoryReason(ctx, pool, stack.Borrower.Address(), "BLEND_DEBT", "BORROW"),
 		"the row must be gone before the rebuild runs")
 
-	fromLedger, toLedger := min(borrowLedger, repayLedger), max(borrowLedger, repayLedger)
 	rebuildCmd := fmt.Sprintf("protocol-migrate history --protocol-id %s --rebuild "+
-		"--from-ledger %d --to-ledger %d --ledger-backend-type datastore --window-size 10",
-		blendProtocolID, fromLedger, toLedger)
+		"--ledger-backend-type datastore --window-size 10", blendProtocolID)
 	exitCode, logs, err := s.testEnv.Containers.RunWalletBackendCommand(ctx,
 		"wallet-backend-blend-protocol-migrate-history-rebuild", rebuildCmd, s.testEnv.Containers.DatastoreEnv())
 	s.Require().NoError(err)
@@ -494,11 +482,11 @@ func (s *BlendMigrationTestSuite) runHistoryRebuild(ctx context.Context, pool *p
 	s.Assert().Equal(contractTokensBefore, s.countRows(ctx, pool, "contract_tokens"),
 		"contract_tokens is classification-owned and must survive a rebuild")
 
-	// The rebuild stays below live ingestion's frontier, so it neither moves the
-	// cursor nor reopens the migration.
+	// The rebuild ends the way a migration does: ownership handed back to live
+	// ingestion at the frontier, statuses at success.
 	cursorAfter, err := models.IngestStore.Get(ctx, utils.ProtocolHistoryCursorName(blendProtocolID))
 	s.Require().NoError(err)
-	s.Assert().Equal(cursorBefore, cursorAfter, "a history rebuild must leave the protocol's cursor alone")
+	s.Assert().Positive(cursorAfter, "the handoff leaves the cursor at live's frontier")
 
 	protocols, err := models.Protocols.GetByIDs(ctx, []string{blendProtocolID})
 	s.Require().NoError(err)

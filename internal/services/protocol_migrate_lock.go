@@ -21,6 +21,21 @@ const (
 	lockScopeHistory      = "history"
 )
 
+// dedupePreservingOrder returns protocolIDs with duplicates removed, keeping
+// first occurrences in order. Callers dedupe before locking so a repeated ID
+// cannot double-acquire (and then double-release) its own lock.
+func dedupePreservingOrder(protocolIDs []string) []string {
+	seen := make(map[string]struct{}, len(protocolIDs))
+	unique := make([]string, 0, len(protocolIDs))
+	for _, pid := range protocolIDs {
+		if _, dup := seen[pid]; !dup {
+			seen[pid] = struct{}{}
+			unique = append(unique, pid)
+		}
+	}
+	return unique
+}
+
 // migrateAdvisoryLockID derives the per-protocol, per-scope advisory lock
 // key. Same fnv64a construction as the live-ingest lock
 // (generateAdvisoryLockID). The input string is the wire-level lock key —
