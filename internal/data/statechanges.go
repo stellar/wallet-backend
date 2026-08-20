@@ -586,10 +586,12 @@ func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base 
 	const query = `
 		DELETE FROM state_changes
 		WHERE state_change_id >= $1 AND state_change_id < $2
-		  AND to_id >= $3 AND to_id < $4
+		  AND to_id >= $3 AND to_id <= $4
 	`
 	fromToID := toid.New(int32(fromLedger), 0, 0).ToInt64()
-	afterToID := toid.AfterLedger(int32(toLedger)).ToInt64()
+	// AfterLedger is the MAXIMUM to_id within toLedger (not the first of
+	// toLedger+1), hence the inclusive upper bound above.
+	maxToID := toid.AfterLedger(int32(toLedger)).ToInt64()
 
 	var deleted int64
 	start := time.Now()
@@ -597,9 +599,9 @@ func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base 
 		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
 			return fmt.Errorf("lifting DML decompression cap: %w", execErr)
 		}
-		tag, execErr := dbTx.Exec(ctx, query, base, base+types.StateChangeOrdinalNamespaceWidth, fromToID, afterToID)
+		tag, execErr := dbTx.Exec(ctx, query, base, base+types.StateChangeOrdinalNamespaceWidth, fromToID, maxToID)
 		if execErr != nil {
-			return execErr
+			return fmt.Errorf("executing namespace-range delete: %w", execErr)
 		}
 		deleted = tag.RowsAffected()
 		return nil

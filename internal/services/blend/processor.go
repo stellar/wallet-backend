@@ -925,7 +925,10 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 // reserves, backstop, emissions, claimed totals, oracle prices, auctions) in
 // the caller's transaction. See ProtocolProcessor.
 func (p *processor) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
-	return blenddata.WipeCurrentState(ctx, dbTx)
+	if err := blenddata.WipeCurrentState(ctx, dbTx); err != nil {
+		return fmt.Errorf("wiping Blend current state: %w", err)
+	}
+	return nil
 }
 
 // PersistCurrentState writes every staged current-state set in the order
