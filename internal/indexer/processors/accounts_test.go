@@ -424,6 +424,7 @@ func TestAccountChangedExceptSigners_MatchesSDK(t *testing.T) {
 		{"removed account", entry(baseAccount(), seq), nil},
 		{"identical", entry(baseAccount(), seq), entry(baseAccount(), seq)},
 		{"last modified differs", entry(baseAccount(), seq), entry(baseAccount(), seq+1)},
+		{"account id", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.AccountId = otherAccountID }), seq)},
 		{"balance", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.Balance = 2000 }), seq)},
 		{"seqnum", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.SeqNum = 43 }), seq)},
 		{"num sub entries", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.NumSubEntries = 3 }), seq)},
@@ -435,6 +436,11 @@ func TestAccountChangedExceptSigners_MatchesSDK(t *testing.T) {
 			"inflation dest changed",
 			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &baseAccountID }), seq),
 			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &otherAccountID }), seq),
+		},
+		{
+			"inflation dest cleared",
+			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &otherAccountID }), seq),
+			entry(baseAccount(), seq),
 		},
 		{
 			"signers only",
@@ -452,6 +458,11 @@ func TestAccountChangedExceptSigners_MatchesSDK(t *testing.T) {
 		{
 			"sponsoring ids changed",
 			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{nil}), seq),
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
+		},
+		{
+			"sponsoring ids length differs",
+			entry(withV2(baseAccount(), 0, 0, nil), seq),
 			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
 		},
 		{
