@@ -27,7 +27,7 @@ type ProtocolContracts struct {
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
 	GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error)
-	BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
+	BatchGetByContractIDs(ctx context.Context, q db.Querier, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
 	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
 
@@ -143,8 +143,11 @@ func (m *ProtocolContractsModel) GetByWasmHashes(ctx context.Context, wasmHashes
 // BatchGetByContractIDs returns, for the given contract IDs, the protocol_contracts
 // rows whose wasm is classified to a protocol, grouped by protocol ID. Live ingestion
 // uses this to resolve membership for only the contracts that emitted events in a
-// ledger, instead of loading every committed contract for a protocol.
-func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
+// ledger, instead of loading every committed contract for a protocol. q must be the
+// persist transaction when rows it staged must be visible: a batched persist
+// classifies contracts at the batch head, and later ledgers of the same uncommitted
+// batch resolve membership through this lookup.
+func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, q db.Querier, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
 	if len(contractIDs) == 0 {
 		return nil, nil
 	}
@@ -157,7 +160,7 @@ func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, cont
 	`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, contractIDs)
+	rows, err := q.Query(ctx, query, contractIDs)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Inc()

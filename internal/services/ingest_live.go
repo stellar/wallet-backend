@@ -350,10 +350,14 @@ func (m *ingestService) stageCoordinatedWrites(
 		// this ledger. One bounded query serves every protocol; ledgers with no
 		// contract events skip it entirely. The buffered overlay (below) covers
 		// contracts deployed or upgraded this ledger, which are not yet committed.
+		// The lookup runs on the coordinating transaction, not the pool: in a
+		// batched persist, contracts classified at the batch head are staged on
+		// this still-uncommitted transaction, and a mid-batch ledger's membership
+		// must include them or its events would be silently dropped.
 		var committedByProtocol map[string][]data.ProtocolContracts
 		if eventContractIDs := distinctEventContractIDs(contractEvents); len(eventContractIDs) > 0 {
 			var lookupErr error
-			committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+			committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, dbTx, eventContractIDs)
 			if lookupErr != nil {
 				return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
 			}
