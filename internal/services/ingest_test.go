@@ -2381,7 +2381,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		// Inject a failing contract-id lookup over the otherwise-real models.
 		contractsMock := data.NewProtocolContractsModelMock(t)
-		contractsMock.On("BatchGetByContractIDs", mock.Anything, mock.Anything).
+		contractsMock.On("BatchGetByContractIDs", mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, fmt.Errorf("db boom")).Once()
 		models.ProtocolContracts = contractsMock
 
@@ -2997,7 +2997,7 @@ func Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline(t *testing.T) 
 // succeeds, so a pre-commit failure leaves the database exactly as it was and the ledger fully
 // retryable.
 func Test_persistLedgerData_Batch(t *testing.T) {
-	setupTest := func(t *testing.T) (context.Context, *ingestService, *pgxpool.Pool) {
+	setupTest := func(t *testing.T, processors ...ProtocolProcessor) (context.Context, *ingestService, *pgxpool.Pool) {
 		t.Helper()
 		dbt := dbtest.Open(t)
 		t.Cleanup(func() { dbt.Close() })
@@ -3025,6 +3025,7 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
+			ProtocolProcessors:    processors,
 		})
 		require.NoError(t, err)
 		return ctx, svc, pool
@@ -3091,6 +3092,49 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx,
 			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
 		assert.Equal(t, "99", cursor, "the cursor must stay below the whole batch")
+	})
+
+	t.Run("a mid-batch ledger's membership sees contracts classified at the batch head", func(t *testing.T) {
+		var wRaw, cRaw [32]byte
+		wRaw[0], cRaw[0] = 0xA7, 0xC7
+		wasmHash := types.HashBytea(hex.EncodeToString(wRaw[:]))
+		contractHex := types.HashBytea(hex.EncodeToString(cRaw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, pool := setupTest(t, processor)
+		processor.ingestStore = svc.models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		// protocol_wasms.protocol_id is an FK into protocols.
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto')`)
+		require.NoError(t, err)
+
+		// The batch head uploads the wasm and deploys contract C, classified to
+		// testproto by the head's plan.
+		head := batchItem(100)
+		head.buffer.PushProtocolWasm(data.ProtocolWasms{WasmHash: wasmHash})
+		head.buffer.PushProtocolContracts(data.ProtocolContracts{ContractID: contractHex, WasmHash: wasmHash})
+		head.plan = &ClassificationPlan{Matches: map[types.HashBytea]string{wasmHash: "testproto"}}
+
+		// The mid-batch ledger carries only an event from C: nothing re-buffers
+		// the contract, so its membership can come only from the rows the head
+		// staged on the still-uncommitted coordinating transaction.
+		mid := batchItem(101)
+		contractID := xdr.ContractId(cRaw)
+		mid.buffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &contractID}},
+		)
+
+		require.NoError(t, svc.persistLedgerData(ctx, []persistItem{head, mid}))
+
+		// ProcessLedger ran last for the mid-batch ledger; its membership must
+		// include the head-classified contract.
+		assert.Equal(t, uint32(101), processor.processedLedger)
+		require.Len(t, processor.lastContracts, 1)
+		assert.Equal(t, contractHex, processor.lastContracts[0].ContractID)
 	})
 }
 
