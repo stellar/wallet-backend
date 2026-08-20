@@ -51,10 +51,14 @@ type ProtocolHistoryRebuildConfig struct {
 	// ToLedger is the last ledger to rebuild; 0 means the protocol's committed
 	// history frontier. Values above the frontier are capped to it — ledgers
 	// past it are live ingestion's to write.
-	ToLedger    uint32
-	WindowSize  uint32
-	Metrics     *metrics.MigrationMetrics
-	TipProvider func() (uint32, error)
+	ToLedger uint32
+	// OldestLedgerCursorName is the ingest_store key holding the oldest
+	// retained ledger. Empty means data.OldestLedgerCursorName; it must match
+	// the value the ingest service uses.
+	OldestLedgerCursorName string
+	WindowSize             uint32
+	Metrics                *metrics.MigrationMetrics
+	TipProvider            func() (uint32, error)
 }
 
 type protocolHistoryRebuildService struct {
@@ -68,6 +72,7 @@ type protocolHistoryRebuildService struct {
 	processors     map[string]ProtocolProcessor
 	fromLedger     uint32
 	toLedger       uint32
+	oldestCursor   string
 	windowSize     uint32
 	metrics        *metrics.MigrationMetrics
 	tipProvider    func() (uint32, error)
@@ -90,6 +95,11 @@ func NewProtocolHistoryRebuildService(cfg ProtocolHistoryRebuildConfig) (*protoc
 		return nil, fmt.Errorf("from ledger %d is after to ledger %d", cfg.FromLedger, cfg.ToLedger)
 	}
 
+	oldestCursor := cfg.OldestLedgerCursorName
+	if oldestCursor == "" {
+		oldestCursor = data.OldestLedgerCursorName
+	}
+
 	mm := cfg.Metrics
 	if mm == nil {
 		mm = metrics.NewMetrics(prometheus.NewRegistry()).Migration
@@ -106,6 +116,7 @@ func NewProtocolHistoryRebuildService(cfg ProtocolHistoryRebuildConfig) (*protoc
 		processors:     ppMap,
 		fromLedger:     cfg.FromLedger,
 		toLedger:       cfg.ToLedger,
+		oldestCursor:   oldestCursor,
 		windowSize:     cfg.WindowSize,
 		metrics:        mm,
 		tipProvider:    cfg.TipProvider,
@@ -212,7 +223,7 @@ func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolID
 // the cap is the lowest committed history frontier across the protocols
 // (ledgers above it belong to live ingestion).
 func (s *protocolHistoryRebuildService) resolveRange(ctx context.Context, protocolIDs []string) (uint32, uint32, error) {
-	oldest, err := s.ingestStore.Get(ctx, data.OldestLedgerCursorName)
+	oldest, err := s.ingestStore.Get(ctx, s.oldestCursor)
 	if err != nil {
 		return 0, 0, fmt.Errorf("reading oldest ingest ledger: %w", err)
 	}
