@@ -72,13 +72,6 @@ type migrationStrategy struct {
 
 	// ResolveStartLedger returns the first ledger sequence to consider for migration.
 	ResolveStartLedger func(ctx context.Context) (uint32, error)
-
-	// AcquiresCurrentStateLock: current-state migration takes the per-protocol
-	// advisory lock so two migrations (or a migration and a rebuild) cannot
-	// write the same protocol's current-state tables concurrently. Plain
-	// history migration writes append-only history tables and does not
-	// contend; a history rebuild takes the lock itself before deleting.
-	AcquiresCurrentStateLock bool
 }
 
 // protocolMigrateEngine is the shared migration engine parameterized by a strategy.
@@ -99,11 +92,6 @@ type protocolMigrateEngine struct {
 	// tipProvider returns the real chain tip (RPC getHealth) for the %-remaining
 	// gauge, or nil when no RPC URL is configured.
 	tipProvider func() (uint32, error)
-	// rebuild makes Run wipe each protocol's current-state rows and reset its
-	// cursor (one transaction per protocol) before folding, and makes validate
-	// re-admit protocols whose migration already succeeded. Only the
-	// current-state strategy sets it — history rebuilds run bounded instead.
-	rebuild bool
 	// bounded, when non-nil, folds exactly the inclusive ledger range
 	// [from, to] with no cursor reads or writes, no live-frontier gating, and
 	// no CAS: the history rebuild re-derives rows at or below live's committed
@@ -129,20 +117,6 @@ func (s *protocolMigrateEngine) Run(ctx context.Context, protocolIDs []string) e
 	if len(activeProtocolIDs) == 0 {
 		log.Ctx(ctx).Infof("All protocols already completed %s migration, nothing to do", s.strategy.Label)
 		return nil
-	}
-
-	if s.strategy.AcquiresCurrentStateLock {
-		release, lockErr := acquireCurrentStateLocks(ctx, s.db, activeProtocolIDs)
-		if lockErr != nil {
-			return fmt.Errorf("locking current state for %s migration: %w", s.strategy.Label, lockErr)
-		}
-		defer release()
-	}
-
-	if s.rebuild {
-		if wipeErr := s.wipeCurrentState(ctx, activeProtocolIDs); wipeErr != nil {
-			return wipeErr
-		}
 	}
 
 	if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
@@ -251,49 +225,14 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 		if p.ClassificationStatus != data.StatusSuccess {
 			return nil, fmt.Errorf("protocol %q classification not complete (status: %s)", pid, p.ClassificationStatus)
 		}
-		if s.strategy.MigrationStatusField(p) == data.StatusSuccess && !s.rebuild {
+		if s.strategy.MigrationStatusField(p) == data.StatusSuccess {
 			log.Ctx(ctx).Infof("Protocol %q %s migration already completed, skipping", pid, s.strategy.Label)
 			continue
-		}
-		// A rebuild targets completed protocols, so success does not skip. An
-		// in-progress status with no lock held is dead-run residue — refuse
-		// rather than wipe under a run whose state is unknown.
-		if s.rebuild && s.strategy.MigrationStatusField(p) == data.StatusInProgress {
-			return nil, fmt.Errorf("protocol %q %s migration is marked in_progress; investigate the dead run before rebuilding", pid, s.strategy.Label)
 		}
 		active = append(active, pid)
 	}
 
 	return active, nil
-}
-
-// wipeCurrentState deletes each protocol's current-state rows and resets its
-// migration cursor to the resolved start ledger, one transaction per protocol.
-// The cursor UPDATE takes the row lock live ingestion's per-ledger CAS also
-// needs, so live serializes against the wipe: whichever commits first, live's
-// next CAS on this protocol fails and it skips the protocol's folds until the
-// migration hands back ownership at the frontier. The cursor row is updated,
-// never deleted — live treats a vanished cursor row as a fatal incident
-// (ErrCASCursorMissing).
-func (s *protocolMigrateEngine) wipeCurrentState(ctx context.Context, protocolIDs []string) error {
-	startLedgerBase, err := s.strategy.ResolveStartLedger(ctx)
-	if err != nil {
-		return fmt.Errorf("resolving start ledger for rebuild: %w", err)
-	}
-	for _, pid := range protocolIDs {
-		processor := s.processors[pid]
-		cursorName := s.strategy.CursorName(pid)
-		if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-			if updErr := s.ingestStore.Update(ctx, dbTx, cursorName, startLedgerBase-1); updErr != nil {
-				return fmt.Errorf("resetting cursor %s: %w", cursorName, updErr)
-			}
-			return processor.WipeCurrentState(ctx, dbTx)
-		}); txErr != nil {
-			return fmt.Errorf("wiping current state for %s: %w", pid, txErr)
-		}
-		log.Ctx(ctx).Infof("Protocol %s: current-state rows wiped, cursor %s reset to %d", pid, cursorName, startLedgerBase-1)
-	}
-	return nil
 }
 
 // stageTimers accumulates per-stage wall-clock across the whole migration run so the loop can

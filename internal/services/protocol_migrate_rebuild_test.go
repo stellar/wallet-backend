@@ -120,9 +120,15 @@ func TestCurrentStateRebuild(t *testing.T) {
 			},
 		}
 
+		// The rebuild's validate sees the completed migration; after the wipe
+		// resets the status, the engine's validate sees not_started and admits.
 		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusSuccess},
+		}, nil).Once()
+		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
+			{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusNotStarted},
 		}, nil)
+		protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
 		protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 		protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
 		protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
@@ -131,13 +137,12 @@ func TestCurrentStateRebuild(t *testing.T) {
 			100: dummyLedgerMeta(100), 101: dummyLedgerMeta(101), 102: dummyLedgerMeta(102),
 		}}
 
-		svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		svc, err := NewProtocolCurrentStateRebuildService(ProtocolMigrateCurrentStateConfig{
 			DB: dbPool, LedgerBackend: backend,
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
 			Processors:  []ProtocolProcessor{processor},
 			StartLedger: 100,
-			Rebuild:     true,
 		})
 		require.NoError(t, err)
 
@@ -168,13 +173,12 @@ func TestCurrentStateRebuild(t *testing.T) {
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusInProgress},
 		}, nil)
 
-		svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		svc, err := NewProtocolCurrentStateRebuildService(ProtocolMigrateCurrentStateConfig{
 			DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
 			Processors:  []ProtocolProcessor{processor},
 			StartLedger: 100,
-			Rebuild:     true,
 		})
 		require.NoError(t, err)
 
@@ -224,14 +228,14 @@ func TestCurrentStateRebuild(t *testing.T) {
 		protocolsModel.On("GetByIDs", mock.Anything, []string{"testproto"}).Return([]data.Protocols{
 			{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusSuccess},
 		}, nil)
+		protocolsModel.On("UpdateCurrentStateMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
 
-		svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
+		svc, err := NewProtocolCurrentStateRebuildService(ProtocolMigrateCurrentStateConfig{
 			DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 			ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
 			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
 			Processors:  []ProtocolProcessor{processor},
 			StartLedger: 100,
-			Rebuild:     true,
 		})
 		require.NoError(t, err)
 
@@ -610,8 +614,8 @@ func TestProtocolHistoryRebuildRun(t *testing.T) {
 }
 
 // TestProtocolHistoryRebuildRefusesWhileLockHeld pins that a history rebuild
-// takes the same per-protocol advisory lock as a current-state migration, so the
-// two cannot write a protocol concurrently.
+// takes the per-protocol history advisory lock, so two history runs cannot
+// write a protocol concurrently.
 func TestProtocolHistoryRebuildRefusesWhileLockHeld(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -634,7 +638,7 @@ func TestProtocolHistoryRebuildRefusesWhileLockHeld(t *testing.T) {
 	conn, err := dbPool.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
-	lockID := currentStateAdvisoryLockID("testproto")
+	lockID := migrateAdvisoryLockID(lockScopeHistory, "testproto")
 	acquired, err := db.AcquireAdvisoryLock(ctx, conn, lockID)
 	require.NoError(t, err)
 	require.True(t, acquired)

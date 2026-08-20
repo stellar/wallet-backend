@@ -377,8 +377,12 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			return nil
 		},
 		func(opts *migrationCommandOpts) error {
-			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
-				service, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
+			label := "current-state"
+			if rebuild {
+				label = "current-state rebuild"
+			}
+			return runMigration(label, opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
+				cfg := services.ProtocolMigrateCurrentStateConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
 					ProtocolsModel:         models.Protocols,
@@ -390,8 +394,18 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					WindowSize:             opts.windowSize,
 					Metrics:                migrationMetrics,
 					TipProvider:            tipProvider,
-					Rebuild:                rebuild,
-				})
+				}
+				if rebuild {
+					service, err := services.NewProtocolCurrentStateRebuildService(cfg)
+					if err != nil {
+						return fmt.Errorf("creating protocol current-state rebuild service: %w", err)
+					}
+					if err := service.Run(ctx, opts.protocolIDs); err != nil {
+						return fmt.Errorf("running protocol current-state rebuild: %w", err)
+					}
+					return nil
+				}
+				service, err := services.NewProtocolMigrateCurrentStateService(cfg)
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate current-state service: %w", err)
 				}

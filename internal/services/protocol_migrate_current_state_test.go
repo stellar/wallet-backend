@@ -20,21 +20,16 @@ import (
 
 // TestCurrentStateMigrationRefusesWhileLockHeld pins the current-state
 // advisory-lock exclusion from the migrate side: a held per-protocol lock
-// (another migration or a rebuild) makes Run fail before it marks anything
-// in progress.
+// (another migration or a rebuild) makes Run fail before it reads or marks
+// anything.
 func TestCurrentStateMigrationRefusesWhileLockHeld(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	dbPool, ingestStore := setupTestDB(t)
 
-	protocolsModel := data.NewProtocolsModelMock(t)
-	protocolsModel.On("GetByIDs", ctx, []string{"testproto"}).Return([]data.Protocols{
-		{ID: "testproto", ClassificationStatus: data.StatusSuccess, CurrentStateMigrationStatus: data.StatusNotStarted},
-	}, nil)
-
 	svc, err := NewProtocolMigrateCurrentStateService(ProtocolMigrateCurrentStateConfig{
 		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
-		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
+		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
 		IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:  []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
 		StartLedger: 100,
@@ -45,7 +40,7 @@ func TestCurrentStateMigrationRefusesWhileLockHeld(t *testing.T) {
 	conn, err := dbPool.Acquire(ctx)
 	require.NoError(t, err)
 	defer conn.Release()
-	lockID := currentStateAdvisoryLockID("testproto")
+	lockID := migrateAdvisoryLockID(lockScopeCurrentState, "testproto")
 	acquired, err := db.AcquireAdvisoryLock(ctx, conn, lockID)
 	require.NoError(t, err)
 	require.True(t, acquired)

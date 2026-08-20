@@ -38,10 +38,6 @@ type ProtocolMigrateCurrentStateConfig struct {
 	WindowSize             uint32
 	Metrics                *metrics.MigrationMetrics
 	TipProvider            func() (uint32, error)
-	// Rebuild wipes each protocol's current-state rows and resets its cursor
-	// (one transaction per protocol) before folding, and re-admits protocols
-	// whose migration already succeeded.
-	Rebuild bool
 }
 
 // NewProtocolMigrateCurrentStateService creates a new protocolMigrateCurrentStateService from the given config.
@@ -81,7 +77,6 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 			windowSize:             cfg.WindowSize,
 			metrics:                mm,
 			tipProvider:            cfg.TipProvider,
-			rebuild:                cfg.Rebuild,
 			strategy: migrationStrategy{
 				Label:                 "current state",
 				Mode:                  StagingModeCurrentState,
@@ -94,13 +89,18 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 				ResolveStartLedger: func(_ context.Context) (uint32, error) {
 					return startLedger, nil
 				},
-				AcquiresCurrentStateLock: true,
 			},
 		},
 	}, nil
 }
 
-// Run performs current-state migration for the given protocol IDs.
+// Run performs current-state migration for the given protocol IDs, holding
+// each protocol's current-state advisory lock for the duration.
 func (s *protocolMigrateCurrentStateService) Run(ctx context.Context, protocolIDs []string) error {
+	release, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeCurrentState, dedupePreservingOrder(protocolIDs))
+	if err != nil {
+		return fmt.Errorf("locking protocols for current-state migration: %w", err)
+	}
+	defer release()
 	return s.engine.Run(ctx, protocolIDs)
 }

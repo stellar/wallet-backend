@@ -122,7 +122,7 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 		return fmt.Errorf("validating protocols for history rebuild: %w", err)
 	}
 
-	release, lockErr := acquireCurrentStateLocks(ctx, s.db, protocolIDs)
+	release, lockErr := acquireMigrateLocks(ctx, s.db, lockScopeHistory, protocolIDs)
 	if lockErr != nil {
 		return fmt.Errorf("locking protocols for history rebuild: %w", lockErr)
 	}
