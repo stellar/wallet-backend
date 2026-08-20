@@ -489,14 +489,14 @@ func TestProtocolHistoryRebuildDeleteHistoryRows(t *testing.T) {
 	}, remainingStateChanges(t, ctx, dbPool))
 }
 
-// TestProtocolMigrateEngineBoundedFold pins the rebuild fold: it covers exactly
-// the inclusive range, persists through the window machinery, and never reads or
-// writes the protocol's cursor — which live ingestion owns.
-func TestProtocolMigrateEngineBoundedFold(t *testing.T) {
+// TestHistoryRebuildReDerive pins the rebuild's replay loop: it covers exactly
+// the inclusive range, persists in windows, and never reads or writes the
+// protocol's cursor — which live ingestion owns.
+func TestHistoryRebuildReDerive(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
 
-	// Live ingestion's committed frontier. The bounded fold must leave it alone.
+	// Live ingestion's committed frontier. The replay must leave it alone.
 	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 999)
 
 	protocolContractsModel := data.NewProtocolContractsModelMock(t)
@@ -509,32 +509,17 @@ func TestProtocolMigrateEngineBoundedFold(t *testing.T) {
 		205: dummyLedgerMeta(205),
 	}}
 
-	engine := protocolMigrateEngine{
-		db:                     dbPool,
-		ledgerBackend:          backend,
-		protocolsModel:         data.NewProtocolsModelMock(t),
-		protocolContractsModel: protocolContractsModel,
-		ingestStore:            ingestStore,
-		processors:             map[string]ProtocolProcessor{"testproto": processor},
-		windowSize:             2,
-		metrics:                metrics.NewMetrics(prometheus.NewRegistry()).Migration,
-		bounded:                &boundedLedgerRange{from: 200, to: 204},
-		strategy: migrationStrategy{
-			Label: "history rebuild",
-			Mode:  StagingModeHistory,
-			Persist: func(ctx context.Context, dbTx pgx.Tx, proc ProtocolProcessor) error {
-				return proc.PersistHistory(ctx, dbTx)
-			},
-			CursorName: utils.ProtocolHistoryCursorName,
-			ResolveStartLedger: func(_ context.Context) (uint32, error) {
-				return 200, nil
-			},
-		},
-	}
-
-	handedOff, err := engine.processAllProtocols(ctx, []string{"testproto"})
+	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+		DB: dbPool, LedgerBackend: backend,
+		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: protocolContractsModel,
+		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+		NetworkPassphrase: "Test SDF Network ; September 2015",
+		Processors:        []ProtocolProcessor{processor},
+		WindowSize:        2,
+	})
 	require.NoError(t, err)
-	assert.Empty(t, handedOff, "a bounded fold ends by exhausting its range, never by handoff")
+
+	require.NoError(t, svc.reDerive(ctx, []string{"testproto"}, 200, 204))
 
 	// Exactly [200, 204] — neither 199 below nor 205 above, both of which the
 	// backend would have served.

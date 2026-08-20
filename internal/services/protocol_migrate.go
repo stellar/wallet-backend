@@ -92,18 +92,6 @@ type protocolMigrateEngine struct {
 	// tipProvider returns the real chain tip (RPC getHealth) for the %-remaining
 	// gauge, or nil when no RPC URL is configured.
 	tipProvider func() (uint32, error)
-	// bounded, when non-nil, folds exactly the inclusive ledger range
-	// [from, to] with no cursor reads or writes, no live-frontier gating, and
-	// no CAS: the history rebuild re-derives rows at or below live's committed
-	// frontier, where no concurrent writer exists. Callers must not use
-	// engine.Run in this mode — it is driven via processAllProtocols directly,
-	// so no migration status is touched either.
-	bounded *boundedLedgerRange
-}
-
-// boundedLedgerRange is an inclusive ledger range for bounded (rebuild) folds.
-type boundedLedgerRange struct {
-	from, to uint32
 }
 
 // Run performs migration for the given protocol IDs using the configured strategy.
@@ -271,31 +259,23 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		return nil, err
 	}
 
-	// Initialize trackers: read/initialize cursor for each protocol. Bounded
-	// (rebuild) folds track position in memory only — the real cursor belongs
-	// to live ingestion and is never read or written.
+	// Initialize trackers: read/initialize cursor for each protocol
 	trackers := make([]*protocolTracker, 0, len(protocolIDs))
 	for _, pid := range protocolIDs {
 		cursorName := s.strategy.CursorName(pid)
-		var cursorValue uint32
-		if s.bounded != nil {
-			cursorValue = s.bounded.from - 1
-		} else {
-			var readErr error
-			cursorValue, readErr = s.ingestStore.Get(ctx, cursorName)
-			if readErr != nil {
-				return nil, fmt.Errorf("reading %s cursor for %s: %w", s.strategy.Label, pid, readErr)
-			}
+		cursorValue, readErr := s.ingestStore.Get(ctx, cursorName)
+		if readErr != nil {
+			return nil, fmt.Errorf("reading %s cursor for %s: %w", s.strategy.Label, pid, readErr)
+		}
 
-			if cursorValue == 0 {
-				initValue := startLedgerBase - 1
-				if initErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-					return s.ingestStore.Update(ctx, dbTx, cursorName, initValue)
-				}); initErr != nil {
-					return nil, fmt.Errorf("initializing %s cursor for %s: %w", s.strategy.Label, pid, initErr)
-				}
-				cursorValue = initValue
+		if cursorValue == 0 {
+			initValue := startLedgerBase - 1
+			if initErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+				return s.ingestStore.Update(ctx, dbTx, cursorName, initValue)
+			}); initErr != nil {
+				return nil, fmt.Errorf("initializing %s cursor for %s: %w", s.strategy.Label, pid, initErr)
 			}
+			cursorValue = initValue
 		}
 
 		trackers = append(trackers, &protocolTracker{
@@ -332,25 +312,19 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 	}
 
 	startLedger := minCursor(trackers) + 1
-	ledgerRange := ledgerbackend.UnboundedRange(startLedger)
-	rangeDesc := "unbounded"
-	if s.bounded != nil {
-		ledgerRange = ledgerbackend.BoundedRange(startLedger, s.bounded.to)
-		rangeDesc = fmt.Sprintf("through %d", s.bounded.to)
-	}
-	log.Ctx(ctx).Infof("Processing ledgers starting at %d (%s) for %d protocol(s), window size %d",
-		startLedger, rangeDesc, len(protocolIDs), windowSize)
+	log.Ctx(ctx).Infof("Processing ledgers starting at %d (unbounded) for %d protocol(s), window size %d",
+		startLedger, len(protocolIDs), windowSize)
 
 	prepareFn := func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerRange)
+		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerbackend.UnboundedRange(startLedger))
 	}
 	if _, prepErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff, prepareFn,
 		func(attempt int, err error, backoff time.Duration) {
-			log.Ctx(ctx).Warnf("Error preparing range from %d (attempt %d/%d): %v, retrying in %v...",
+			log.Ctx(ctx).Warnf("Error preparing unbounded range from %d (attempt %d/%d): %v, retrying in %v...",
 				startLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
 		},
 	); prepErr != nil {
-		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing range from %d: %w", startLedger, prepErr)
+		return handedOffProtocolIDs(trackers), fmt.Errorf("preparing unbounded range from %d: %w", startLedger, prepErr)
 	}
 
 	// Refresh the target_tip gauge off the hot path: a background goroutine polls RPC health so
@@ -376,16 +350,6 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		if allHandedOff(trackers) {
 			return handedOffProtocolIDs(trackers), nil
 		}
-		// A bounded fold ends by exhausting its range, not by CAS handoff:
-		// flush what remains and return.
-		if s.bounded != nil && seq > s.bounded.to {
-			for _, t := range trackers {
-				if flushErr := s.flushWindow(ctx, t); flushErr != nil {
-					return handedOffProtocolIDs(trackers), flushErr
-				}
-			}
-			return handedOffProtocolIDs(trackers), nil
-		}
 
 		// Fold seq only after live ingestion has committed it: live's cursor advances in
 		// the same transaction as the ledger's protocol_contracts classifications, so
@@ -395,21 +359,15 @@ func (s *protocolMigrateEngine) processAllProtocols(ctx context.Context, protoco
 		// the new one — so no window outgrows the membership snapshot it opened with,
 		// and the next (blocking) fetch never strands a cursor behind the frontier. A
 		// flush can hand off the last active tracker, so re-check after.
-		//
-		// Bounded folds skip the gate: their range is capped at live's committed
-		// frontier before the run starts, so every classification any folded
-		// ledger can need committed long ago.
-		if s.bounded == nil {
-			var gateErr error
-			gateStart := time.Now()
-			cachedLiveCursor, gateErr = s.gateOnLiveFrontier(ctx, trackers, seq, cachedLiveCursor)
-			timers.gate += time.Since(gateStart)
-			if gateErr != nil {
-				return handedOffProtocolIDs(trackers), gateErr
-			}
-			if allHandedOff(trackers) {
-				return handedOffProtocolIDs(trackers), nil
-			}
+		var gateErr error
+		gateStart := time.Now()
+		cachedLiveCursor, gateErr = s.gateOnLiveFrontier(ctx, trackers, seq, cachedLiveCursor)
+		timers.gate += time.Since(gateStart)
+		if gateErr != nil {
+			return handedOffProtocolIDs(trackers), gateErr
+		}
+		if allHandedOff(trackers) {
+			return handedOffProtocolIDs(trackers), nil
 		}
 
 		fetchStart := time.Now()
@@ -669,27 +627,6 @@ func (s *protocolMigrateEngine) flushWindow(ctx context.Context, t *protocolTrac
 	}
 	flushStart := time.Now()
 	winEnd := t.cursorValue + t.pending
-
-	// Bounded (rebuild) folds persist without a CAS: they have no cursor —
-	// position is tracked in memory — and no competing writer, since the whole
-	// range sits at or below live's committed frontier.
-	if s.bounded != nil {
-		if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-			if _, execErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); execErr != nil {
-				return fmt.Errorf("setting synchronous_commit=off: %w", execErr)
-			}
-			return s.strategy.Persist(ctx, dbTx, t.processor)
-		}); txErr != nil {
-			return fmt.Errorf("persisting window [%d,%d] for protocol %s: %w", t.cursorValue+1, winEnd, t.protocolID, txErr)
-		}
-		t.processor.Reset()
-		t.cursorValue = winEnd
-		t.pending = 0
-		s.metrics.Cursor.WithLabelValues(t.protocolID).Set(float64(winEnd))
-		s.metrics.PhaseDuration.WithLabelValues("flush").Observe(time.Since(flushStart).Seconds())
-		return nil
-	}
-
 	expected := strconv.FormatUint(uint64(t.cursorValue), 10) // winStart - 1
 	next := strconv.FormatUint(uint64(winEnd), 10)
 

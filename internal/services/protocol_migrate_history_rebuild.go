@@ -2,15 +2,21 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -140,35 +146,133 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 		}
 	}
 
-	engine := protocolMigrateEngine{
-		db:                     s.db,
-		ledgerBackend:          s.ledgerBackend,
-		protocolsModel:         s.protocolsModel,
-		protocolContractsModel: s.contractsModel,
-		ingestStore:            s.ingestStore,
-		networkPassphrase:      s.passphrase,
-		processors:             s.processors,
-		windowSize:             s.windowSize,
-		metrics:                s.metrics,
-		tipProvider:            s.tipProvider,
-		bounded:                &boundedLedgerRange{from: from, to: to},
-		strategy: migrationStrategy{
-			Label: "history rebuild",
-			Mode:  StagingModeHistory,
-			Persist: func(ctx context.Context, dbTx pgx.Tx, proc ProtocolProcessor) error {
-				return proc.PersistHistory(ctx, dbTx)
-			},
-			CursorName: utils.ProtocolHistoryCursorName,
-			ResolveStartLedger: func(_ context.Context) (uint32, error) {
-				return from, nil
-			},
-		},
-	}
-	if _, foldErr := engine.processAllProtocols(ctx, protocolIDs); foldErr != nil {
+	if foldErr := s.reDerive(ctx, protocolIDs, from, to); foldErr != nil {
 		return fmt.Errorf("re-deriving history for %v over ledgers [%d, %d]: %w", protocolIDs, from, to, foldErr)
 	}
 
 	log.Ctx(ctx).Infof("History rebuild completed for %v over ledgers [%d, %d]", protocolIDs, from, to)
+	return nil
+}
+
+// reDerive replays the inclusive ledger range [from, to] and persists each
+// protocol's history rows in windows. It is deliberately not the migrate
+// engine: every ledger in the range sits at or below live ingestion's
+// committed frontier, so there is no cursor to advance, no frontier to gate
+// on, and no handoff — and classification for the whole range was committed
+// before the run started, so membership is loaded once instead of refreshed
+// per window.
+func (s *protocolHistoryRebuildService) reDerive(ctx context.Context, protocolIDs []string, from, to uint32) error {
+	contractsByProtocol := make(map[string][]data.ProtocolContracts, len(protocolIDs))
+	requiresContractData := false
+	tracked := map[xdr.ContractId]struct{}{}
+	for _, pid := range protocolIDs {
+		contracts, loadErr := s.contractsModel.GetByProtocolID(ctx, s.db, pid)
+		if loadErr != nil {
+			return fmt.Errorf("loading contracts for %s: %w", pid, loadErr)
+		}
+		contractsByProtocol[pid] = contracts
+		if !s.processors[pid].RequiresContractData() {
+			continue
+		}
+		requiresContractData = true
+		for _, c := range contracts {
+			idBytes, decErr := hex.DecodeString(string(c.ContractID))
+			if decErr != nil || len(idBytes) != len(xdr.ContractId{}) {
+				return fmt.Errorf("protocol %s contract id %q is not a 32-byte hex hash: %w", pid, c.ContractID, decErr)
+			}
+			tracked[xdr.ContractId(idBytes)] = struct{}{}
+		}
+	}
+
+	prepareFn := func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, s.ledgerBackend.PrepareRange(ctx, ledgerbackend.BoundedRange(from, to))
+	}
+	if _, prepErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff, prepareFn,
+		func(attempt int, err error, backoff time.Duration) {
+			log.Ctx(ctx).Warnf("Error preparing range [%d, %d] (attempt %d/%d): %v, retrying in %v...",
+				from, to, attempt+1, maxLedgerFetchRetries, err, backoff)
+		},
+	); prepErr != nil {
+		return fmt.Errorf("preparing range [%d, %d]: %w", from, to, prepErr)
+	}
+
+	windowSize := s.windowSize
+	if windowSize == 0 {
+		windowSize = 1
+	}
+
+	flush := func(winStart, winEnd uint32) error {
+		for _, pid := range protocolIDs {
+			processor := s.processors[pid]
+			if txErr := db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
+				// Safe to relax durability: a crash just means rerunning the
+				// rebuild, whose delete makes the re-derivation idempotent.
+				if _, execErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); execErr != nil {
+					return fmt.Errorf("setting synchronous_commit=off: %w", execErr)
+				}
+				return processor.PersistHistory(ctx, dbTx)
+			}); txErr != nil {
+				return fmt.Errorf("persisting window [%d,%d] for protocol %s: %w", winStart, winEnd, pid, txErr)
+			}
+			processor.Reset()
+		}
+		return nil
+	}
+
+	var pending uint32
+	for seq := from; seq <= to; seq++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled: %w", err)
+		}
+
+		ledgerMeta, fetchErr := s.ledgerBackend.GetLedger(ctx, seq)
+		if fetchErr != nil {
+			return fmt.Errorf("fetching ledger %d: %w", seq, fetchErr)
+		}
+		ledgerEvents, eventsErr := indexer.ExtractContractEventsForLedger(ledgerMeta)
+		if eventsErr != nil {
+			return fmt.Errorf("extracting contract events for ledger %d: %w", seq, eventsErr)
+		}
+		var contractDataChanges map[string][]ingest.Change
+		if requiresContractData {
+			var cdErr error
+			contractDataChanges, cdErr = indexer.ExtractContractDataChangesForLedger(ledgerMeta, tracked)
+			if cdErr != nil {
+				return fmt.Errorf("extracting contract data changes for ledger %d: %w", seq, cdErr)
+			}
+		}
+
+		for _, pid := range protocolIDs {
+			input := ProtocolProcessorInput{
+				LedgerSequence:      seq,
+				LedgerCloseTime:     ledgerMeta.LedgerCloseTime(),
+				ContractEvents:      ledgerEvents,
+				ProtocolContracts:   contractsByProtocol[pid],
+				StagingMode:         StagingModeHistory,
+				ContractDataChanges: contractDataChanges,
+			}
+			if processErr := s.processors[pid].ProcessLedger(ctx, input); processErr != nil {
+				return fmt.Errorf("processing ledger %d for protocol %s: %w", seq, pid, processErr)
+			}
+		}
+
+		pending++
+		if pending >= windowSize {
+			if flushErr := flush(seq-pending+1, seq); flushErr != nil {
+				return flushErr
+			}
+			pending = 0
+		}
+
+		s.metrics.CurrentLedger.Set(float64(seq))
+		s.metrics.LedgersProcessed.Inc()
+		if (seq-from+1)%progressLogInterval == 0 {
+			log.Ctx(ctx).Infof("Rebuild progress: processed ledger %d of [%d, %d]", seq, from, to)
+		}
+	}
+	if pending > 0 {
+		return flush(to-pending+1, to)
+	}
 	return nil
 }
 
