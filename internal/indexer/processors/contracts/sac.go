@@ -356,7 +356,7 @@ func (p *SACEventsProcessor) isSACContract(asset xdr.Asset, contractID string) (
 }
 
 // extractTrustlineFlagChanges extracts the previous trustline flags for the given account.
-// The change scan now verifies the trustline belongs to the same SAC contract referenced by the event so
+// The change scan verifies the trustline belongs to the same SAC contract referenced by the event so
 // unrelated trustlines updated in the same operation are ignored.
 func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string, contractID string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
 	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)

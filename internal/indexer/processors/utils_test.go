@@ -177,3 +177,118 @@ func Test_strkeyPrefixMatchesVersionByte(t *testing.T) {
 		}
 	}
 }
+
+// memoAssetIssuerAlt is a second issuer, used to show the issuer participates in
+// the memo key.
+const memoAssetIssuerAlt = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+
+// memoEntryCount reports how many distinct assets the memo has cached.
+func memoEntryCount(memo *assetContractIDMemo) int {
+	count := 0
+	memo.m.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// uncachedContractID derives an asset's contract ID without the memo.
+func uncachedContractID(t *testing.T, asset xdr.Asset) string {
+	t.Helper()
+	raw, err := asset.ContractID(networkPassphrase)
+	require.NoError(t, err)
+	return strkey.MustEncode(strkey.VersionByteContract, raw[:])
+}
+
+// Test_assetContractIDMemo pins the property the memo rests on: a cached lookup
+// returns exactly what an uncached derivation returns, for every asset shape,
+// and each distinct asset gets its own entry. The asset set separates the two
+// credit widths under one issuer (including the 4-vs-5 character boundary where
+// the width flips), one code under two issuers, and the native asset.
+func Test_assetContractIDMemo(t *testing.T) {
+	assets := []struct {
+		name  string
+		asset xdr.Asset
+	}{
+		{name: "native", asset: xdr.MustNewNativeAsset()},
+		{name: "alphanum4", asset: xdr.MustNewCreditAsset(testAssetCode, testAssetIssuer)},
+		{name: "alphanum12 at the width boundary", asset: xdr.MustNewCreditAsset(testAssetCode+"X", testAssetIssuer)},
+		{name: "alphanum12 at full width", asset: xdr.MustNewCreditAsset("USDCOIN12345", testAssetIssuer)},
+		{name: "alphanum4 under another issuer", asset: xdr.MustNewCreditAsset(testAssetCode, memoAssetIssuerAlt)},
+	}
+
+	var memo assetContractIDMemo
+	for _, tc := range assets {
+		t.Run(tc.name, func(t *testing.T) {
+			want := uncachedContractID(t, tc.asset)
+			var assetType, code, issuer string
+			require.NoError(t, tc.asset.Extract(&assetType, &code, &issuer))
+
+			// The miss and the hit must both agree with the uncached derivation.
+			// A key that collided with an asset cached by an earlier subtest
+			// would surface here as the other asset's contract ID.
+			missed, err := memo.fromDetails(networkPassphrase, assetType, code, issuer)
+			require.NoError(t, err)
+			assert.Equal(t, want, missed)
+
+			hit, err := memo.fromDetails(networkPassphrase, assetType, code, issuer)
+			require.NoError(t, err)
+			assert.Equal(t, want, hit)
+		})
+	}
+	assert.Equal(t, len(assets), memoEntryCount(&memo), "each distinct asset must occupy its own entry")
+}
+
+// Test_assetContractIDMemoAccessorsAgree pins that the two accessors key an
+// asset identically: the same asset arriving as extracted detail strings or as
+// a bare code and issuer resolves to one contract ID and shares one entry.
+func Test_assetContractIDMemoAccessorsAgree(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetType string
+		code      string
+	}{
+		{name: "alphanum4", assetType: "credit_alphanum4", code: testAssetCode},
+		{name: "alphanum12", assetType: "credit_alphanum12", code: testAssetCode + "X"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var memo assetContractIDMemo
+			want := uncachedContractID(t, xdr.MustNewCreditAsset(tc.code, testAssetIssuer))
+
+			fromDetails, err := memo.fromDetails(networkPassphrase, tc.assetType, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, want, fromDetails)
+
+			fromCredit, err := memo.fromCreditAsset(networkPassphrase, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, want, fromCredit)
+
+			assert.Equal(t, 1, memoEntryCount(&memo), "both accessors must key the asset identically")
+		})
+	}
+}
+
+// Test_assetContractIDMemoClearsAtCapacity pins the memory bound: the entry
+// that takes the memo past assetContractIDMemoMaxEntries clears it, and lookups
+// keep returning the right contract ID afterwards.
+func Test_assetContractIDMemoClearsAtCapacity(t *testing.T) {
+	var memo assetContractIDMemo
+	code := func(i int) string { return fmt.Sprintf("M%07d", i) }
+
+	for i := range assetContractIDMemoMaxEntries {
+		_, err := memo.fromCreditAsset(networkPassphrase, code(i), testAssetIssuer)
+		require.NoError(t, err)
+	}
+	require.Equal(t, assetContractIDMemoMaxEntries, memoEntryCount(&memo))
+
+	_, err := memo.fromCreditAsset(networkPassphrase, code(assetContractIDMemoMaxEntries), testAssetIssuer)
+	require.NoError(t, err)
+	assert.Equal(t, 0, memoEntryCount(&memo), "the overflowing entry must clear the memo")
+
+	got, err := memo.fromCreditAsset(networkPassphrase, code(0), testAssetIssuer)
+	require.NoError(t, err)
+	assert.Equal(t, uncachedContractID(t, xdr.MustNewCreditAsset(code(0), testAssetIssuer)), got)
+	assert.Equal(t, 1, memoEntryCount(&memo))
+}
