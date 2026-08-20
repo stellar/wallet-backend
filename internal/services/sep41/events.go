@@ -299,10 +299,26 @@ func extractAmountAndMuxedID(val xdr.ScVal) (*big.Int, *uint64, error) {
 }
 
 // extractAddressFromScVal decodes an address ScVal to its strkey-encoded form.
+//
+// A muxed address (SC_ADDRESS_TYPE_MUXED_ACCOUNT) is reduced to its base account: the
+// multiplexing id is off-chain routing metadata rather than account identity, so a
+// balance or allowance belongs to the underlying G-account. This mirrors the classic
+// ingestion path (MuxedAccount.ToAccountId()) and keeps every downstream key on the base
+// account. When a token carries a muxed id it travels separately in the event's
+// to_muxed_id data field (see extractAmountAndMuxedID), which is where it is surfaced for
+// history.
 func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {
 		return "", fmt.Errorf("invalid address")
+	}
+	if addr.Type == xdr.ScAddressTypeScAddressTypeMuxedAccount {
+		muxed := addr.MustMuxedAccount()
+		s, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
+		if err != nil {
+			return "", fmt.Errorf("encoding muxed account base address: %w", err)
+		}
+		return s, nil
 	}
 	s, err := addr.String()
 	if err != nil {
