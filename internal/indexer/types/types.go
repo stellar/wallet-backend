@@ -90,6 +90,12 @@ func (a AddressBytea) Value() (driver.Value, error) {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
 	if versionByte == strkey.VersionByteMuxedAccount {
+		// strkey.DecodeAny validates the checksum and version byte but not the
+		// version-specific payload length, so guard it before slicing: a muxed payload
+		// must be exactly 40 bytes (32-byte ed25519 key + 8-byte id).
+		if len(rawBytes) != 40 {
+			return nil, fmt.Errorf("stellar muxed address %s has a %d-byte payload; expected 40 bytes", a, len(rawBytes))
+		}
 		versionByte = strkey.VersionByteAccountID
 		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the trailing 8-byte id
 	}

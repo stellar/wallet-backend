@@ -560,7 +560,8 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 
 	// Distinct base accounts still stay distinct — normalization only strips the id.
 	gOther := keypair.MustRandom().Address()
-	vOther, _ := AddressBytea(gOther).Value()
+	vOther, err := AddressBytea(gOther).Value()
+	require.NoError(t, err)
 	assert.NotEqual(t, baseBytes, vOther)
 }
 
@@ -575,6 +576,17 @@ func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
 	_, err = AddressBytea(bogus).Value()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "5-byte")
+
+	// A checksum-valid muxed strkey with a short (<32-byte) payload must be rejected,
+	// not panic: strkey.DecodeAny does not enforce the version-specific payload length,
+	// so Value must guard before slicing the ed25519 key out of it.
+	shortMuxed, err := strkey.Encode(strkey.VersionByteMuxedAccount, []byte{1, 2, 3, 4, 5})
+	require.NoError(t, err)
+	require.NotPanics(t, func() {
+		_, err = AddressBytea(shortMuxed).Value()
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected 40 bytes")
 
 	// Control: a normal contract address still encodes fine.
 	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
