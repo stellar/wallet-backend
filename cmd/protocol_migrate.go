@@ -279,10 +279,9 @@ func runMigration(
 
 func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 	var (
-		oldestLedgerCursorName string
-		rebuild                bool
-		fromLedger             uint32
-		toLedger               uint32
+		rebuild    bool
+		fromLedger uint32
+		toLedger   uint32
 	)
 
 	return buildMigrationCommand(
@@ -290,7 +289,6 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 		"Backfill protocol history state from oldest to latest ingested ledger",
 		"Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors.",
 		func(cmd *cobra.Command, opts *migrationCommandOpts) {
-			cmd.Flags().StringVar(&oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
 			cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Delete the protocol's history rows for the ledger range and re-derive them from the ledger backend. Defaults to the full retained window.")
 			cmd.Flags().Uint32Var(&fromLedger, "from-ledger", 0, "First ledger to rebuild. 0 (default) means the oldest retained ledger. Requires --rebuild.")
 			cmd.Flags().Uint32Var(&toLedger, "to-ledger", 0, "Last ledger to rebuild. 0 (default) means the protocol's committed history frontier. Requires --rebuild.")
@@ -318,7 +316,6 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 						Processors:             processors,
 						FromLedger:             fromLedger,
 						ToLedger:               toLedger,
-						OldestLedgerCursorName: oldestLedgerCursorName,
 						WindowSize:             opts.windowSize,
 						Metrics:                migrationMetrics,
 						TipProvider:            tipProvider,
@@ -341,7 +338,6 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					IngestStore:            models.IngestStore,
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
-					OldestLedgerCursorName: oldestLedgerCursorName,
 					WindowSize:             opts.windowSize,
 					Metrics:                migrationMetrics,
 					TipProvider:            tipProvider,

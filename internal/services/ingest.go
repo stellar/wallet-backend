@@ -69,7 +69,6 @@ type IngestServiceConfig struct {
 	IsPermanentFetchError func(error) bool
 
 	// === Cursors ===
-	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
 	TokenIngestionService TokenIngestionService
@@ -129,7 +128,6 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	ingestionMode             string
 	models                    *data.Models
-	oldestLedgerCursorName    string
 	advisoryLockID            int
 	appTracker                apptracker.AppTracker
 	rpcService                RPCService
@@ -200,7 +198,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
 		appTracker:                cfg.AppTracker,
 		rpcService:                cfg.RPCService,

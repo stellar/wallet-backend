@@ -59,18 +59,17 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 
 	const testNetwork = "advisory-lock-release-test"
 	svc, err := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeLive,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		AppTracker:             &apptracker.MockAppTracker{},
-		RPCService:             &RPCServiceMock{},
-		LedgerBackend:          mockBackend,
-		CheckpointService:      checkpointMock,
-		Metrics:                m,
-		GetLedgersLimit:        defaultGetLedgersLimit,
-		Network:                testNetwork,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
+		IngestionMode:     IngestionModeLive,
+		Models:            models,
+		AppTracker:        &apptracker.MockAppTracker{},
+		RPCService:        &RPCServiceMock{},
+		LedgerBackend:     mockBackend,
+		CheckpointService: checkpointMock,
+		Metrics:           m,
+		GetLedgersLimit:   defaultGetLedgersLimit,
+		Network:           testNetwork,
+		NetworkPassphrase: network.TestNetworkPassphrase,
+		Archive:           &HistoryArchiveMock{},
 	})
 	require.NoError(t, err)
 
