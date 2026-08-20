@@ -77,7 +77,7 @@ var (
 type EffectsProcessor struct {
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
-	assetContractIDs  assetContractIDMemo
+	assetContractIDs  AssetContractIDMemo
 }
 
 // NewEffectsProcessor creates a new effects processor for the specified Stellar network.
