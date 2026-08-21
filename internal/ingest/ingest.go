@@ -130,10 +130,13 @@ func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
 
 func Ingest(cfg Configs) error {
 	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// loop and the in-flight ledger's transaction, so that ledger is rolled back
-	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
-	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
-	// state is ever persisted. Cleanup (deferred below) then drains the servers and
+	// pipeline: an in-flight batch that has not reached its commit barrier rolls
+	// back entirely, while the barrier itself runs detached (context.WithoutCancel
+	// in persistLedgerData) so a batch never half-commits on shutdown. Ingestion is
+	// idempotent and gap-driven: a rolled-back batch is simply re-fetched and
+	// re-ingested on the next startup, and any sibling rows a crash strands above
+	// the committed cursor are removed by startup reconciliation
+	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the servers and
 	// tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

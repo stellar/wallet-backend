@@ -302,8 +302,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// indeterminate case — a first-commit error whose commit actually
 	// reached the server — self-heals: the retry collides on primary keys,
 	// which is permanent, and startup reconciliation repairs after restart.
+	//
+	// The barrier runs detached from the pipeline context: a cancellation
+	// landing mid-barrier (SIGTERM on a rolling restart, or another stage's
+	// failure cancelling the errgroup) must not abort between commits, or a
+	// routine shutdown would manufacture a fatal ErrPartialPersist. Detached,
+	// the batch commits fully or not at all — cancellation before the barrier
+	// still rolls everything back, and the next start re-ingests cleanly.
+	commitCtx := context.WithoutCancel(ctx)
 	for i, s := range siblings {
-		if commitErr := siblingTxs[i].Commit(ctx); commitErr != nil {
+		if commitErr := siblingTxs[i].Commit(commitCtx); commitErr != nil {
 			if i > 0 {
 				return fmt.Errorf("committing %s for %s: %w: %w", s.name, label, ErrPartialPersist, commitErr)
 			}
@@ -312,7 +320,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	}
 	// The coordinating transaction commits strictly last: it carries the
 	// cursor, so its commit is the point at which the batch's ledgers exist.
-	if commitErr := coordTx.Commit(ctx); commitErr != nil {
+	if commitErr := coordTx.Commit(commitCtx); commitErr != nil {
 		return fmt.Errorf("committing coordinating transaction for %s: %w: %w", label, ErrPartialPersist, commitErr)
 	}
 	return nil
