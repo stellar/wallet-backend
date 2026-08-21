@@ -933,6 +933,18 @@ func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) boo
 // classification actually lands. The sets are owned by the persist goroutine
 // and start empty each process — a restart just cuts conservatively until
 // re-warmed.
+//
+// Marking is unconditional on the classification VERDICT, and that is sound:
+// a verdict is either deterministic (matched, or spec extraction failed —
+// re-running cannot change it) or the whole plan failed fail-fast before
+// this function ran. The one thing a seen input can still be missing is
+// best-effort RPC enrichment (SEP-41 token metadata) absorbed by a
+// validator's Prefetch: its retry channel is the next classification pass
+// over the contract, which under a sustained persist backlog (batch > 1)
+// pauses until the pipeline catches back up to batch size 1, a restart, or
+// a binding change. Deliberate: gating seen-ness on enrichment would cut a
+// batch head per re-observation of any permanently-unfetchable token and
+// disable batching wholesale on RPC-less deployments (the loadtest rig).
 func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
 	for _, pl := range batch {
 		for hash := range pl.buffer.GetProtocolWasms() {
