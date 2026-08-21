@@ -1532,7 +1532,7 @@ func Test_persistBatchCut(t *testing.T) {
 
 	svc := &ingestService{
 		classifiedWasms:     map[string]struct{}{},
-		classifiedContracts: map[string]struct{}{},
+		classifiedContracts: map[string]types.HashBytea{},
 	}
 
 	pending := []processedLedger{
@@ -1550,6 +1550,14 @@ func Test_persistBatchCut(t *testing.T) {
 
 	// A different, unseen contract still cuts.
 	pending[2] = processedLedger{seq: 3, buffer: bufferWithContract("cafe02")}
+	assert.Equal(t, 2, svc.persistBatchCut(pending))
+
+	// The same contract re-observed with a DIFFERENT wasm binding is an
+	// unclassified input again: membership only moves under a classification
+	// plan, so a binding change must open a batch head.
+	upgraded := indexer.NewIndexerBuffer()
+	upgraded.PushProtocolContracts(data.ProtocolContracts{ContractID: types.HashBytea("cafe01"), WasmHash: types.HashBytea("wasm02")})
+	pending[2] = processedLedger{seq: 3, buffer: upgraded}
 	assert.Equal(t, 2, svc.persistBatchCut(pending))
 }
 
@@ -2625,9 +2633,31 @@ func Test_getEffectiveProtocolContracts_RemovesContractsUpgradedAwayFromProtocol
 	contracts := getEffectiveProtocolContracts("testproto",
 		[]data.ProtocolContracts{baseContract},
 		map[string]data.ProtocolContracts{string(upgradedContract.ContractID): upgradedContract},
-		nil,
+		map[types.HashBytea]string{upgradedContract.WasmHash: "otherproto"},
 	)
 	assert.Empty(t, contracts)
+}
+
+// Test_getEffectiveProtocolContracts_NilClassificationKeepsCommitted pins the
+// mid-batch semantics: ledgers riding behind a batch head run with no
+// classification plan (classification == nil), and their buffered contracts
+// are pure re-observations — every binding was already seen committed, the
+// batch cut guarantees it. Committed membership must stand untouched;
+// dropping a re-observed contract here silently discards that ledger's
+// events for it.
+func Test_getEffectiveProtocolContracts_NilClassificationKeepsCommitted(t *testing.T) {
+	t.Parallel()
+
+	trackedContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
+
+	// The tracked contract shows up in the buffer again (TTL bump, restore, or
+	// any instance change re-observes it) on a mid-batch ledger.
+	contracts := getEffectiveProtocolContracts("testproto",
+		[]data.ProtocolContracts{trackedContract},
+		map[string]data.ProtocolContracts{string(trackedContract.ContractID): trackedContract},
+		nil,
+	)
+	assert.Equal(t, []data.ProtocolContracts{trackedContract}, contracts)
 }
 
 func Test_distinctEventContractIDs(t *testing.T) {
@@ -2951,6 +2981,57 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 			`SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, w2Raw[:]).Scan(&protocolID))
 		require.NotNil(t, protocolID)
 		assert.Equal(t, "otherproto", *protocolID)
+	})
+
+	t.Run("mid-batch re-observation of a committed contract keeps its membership", func(t *testing.T) {
+		var w3Raw, c3Raw [32]byte
+		w3Raw[0], c3Raw[0] = 0xA3, 0xC3
+		w3 := types.HashBytea(hex.EncodeToString(w3Raw[:]))
+		c3 := types.HashBytea(hex.EncodeToString(c3Raw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto')`)
+		require.NoError(t, err)
+
+		// Committed state from earlier ledgers: c3 is a testproto contract via w3.
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_wasms (wasm_hash, protocol_id) VALUES ($1, 'testproto')`, w3Raw[:])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_contracts (contract_id, wasm_hash) VALUES ($1, $2)`, c3Raw[:], w3Raw[:])
+		require.NoError(t, err)
+
+		// A two-ledger batch. The mid-batch ledger (101) re-observes c3 — any
+		// instance change (TTL bump, restore, storage write) buffers it again
+		// with its unchanged binding — and c3 emits an event. Mid-batch
+		// ledgers carry no classification plan; the re-observation must not
+		// evict c3's committed membership or its events are silently dropped.
+		headBuffer := indexer.NewIndexerBuffer()
+		midBuffer := indexer.NewIndexerBuffer()
+		midBuffer.PushProtocolContracts(data.ProtocolContracts{ContractID: c3, WasmHash: w3})
+		eventContractID := xdr.ContractId(c3Raw)
+		midBuffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &eventContractID}},
+		)
+
+		items := []persistItem{
+			{seq: 100, meta: dummyLedgerMeta(100), contractData: newContractDataMemo(nil, 100), buffer: headBuffer},
+			{seq: 101, meta: dummyLedgerMeta(101), contractData: newContractDataMemo(nil, 101), buffer: midBuffer},
+		}
+		require.NoError(t, svc.persistLedgerData(ctx, items))
+
+		// Both ledgers staged; the mid-batch ledger (the last ProcessLedger
+		// call) still saw c3 as a testproto contract.
+		require.Equal(t, 2, processor.processLedgerCalls)
+		require.Len(t, processor.lastContracts, 1)
+		assert.Equal(t, c3, processor.lastContracts[0].ContractID)
 	})
 }
 

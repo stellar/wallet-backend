@@ -916,8 +916,11 @@ func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) boo
 			return true
 		}
 	}
-	for contractID := range buffer.GetProtocolContracts() {
-		if _, seen := m.classifiedContracts[contractID]; !seen {
+	for contractID, contract := range buffer.GetProtocolContracts() {
+		// A binding change — even to an already-classified wasm — is an
+		// unclassified input: membership only moves under a classification
+		// plan, and mid-batch ledgers run without one.
+		if seenHash, seen := m.classifiedContracts[contractID]; !seen || seenHash != contract.WasmHash {
 			return true
 		}
 	}
@@ -938,8 +941,8 @@ func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
 		for hash := range pl.buffer.GetProtocolWasmBytecodes() {
 			m.classifiedWasms[hash] = struct{}{}
 		}
-		for contractID := range pl.buffer.GetProtocolContracts() {
-			m.classifiedContracts[contractID] = struct{}{}
+		for contractID, contract := range pl.buffer.GetProtocolContracts() {
+			m.classifiedContracts[contractID] = contract.WasmHash
 		}
 	}
 }
@@ -1220,17 +1223,25 @@ func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.Contract
 // getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
 // committed contracts resolved for this protocol. committed holds the protocol's
 // contracts among those that emitted events this ledger. bufferedContracts holds
-// contracts deployed or upgraded this ledger (keyed by hex contract id); classification
-// maps this-ledger wasm hashes to their protocol. A contract whose binding changed this
-// ledger is dropped from committed and re-added only if its new classification still
-// matches the protocol.
+// contracts observed (deployed, upgraded, or any instance change) this ledger,
+// keyed by hex contract id; classification maps this-ledger wasm hashes to their
+// protocol. A contract whose binding changed this ledger is dropped from
+// committed and re-added only if its new classification still matches the
+// protocol.
+//
+// A nil classification means no reclassification happened this ledger, not
+// that nothing is classified: mid-batch ledgers run without a plan because
+// the batch cut (hasUnclassifiedInputs) guarantees every input they buffer —
+// including each contract's wasm binding — was already seen committed, so
+// their buffered entries are pure re-observations and committed membership
+// stands as is.
 func getEffectiveProtocolContracts(
 	protocolID string,
 	committed []data.ProtocolContracts,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
 ) []data.ProtocolContracts {
-	if len(bufferedContracts) == 0 {
+	if len(bufferedContracts) == 0 || classification == nil {
 		return committed
 	}
 
