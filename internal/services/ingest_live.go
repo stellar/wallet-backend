@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -91,6 +92,24 @@ type persistItem struct {
 	buffer       *indexer.IndexerBuffer
 }
 
+// protocolHistorySink is where stageCoordinatedWrites sends the protocol
+// processors' history rows: the state_changes sibling transaction, serialized
+// by the same mutex as the sibling's own COPYs (pgx.Tx is not safe for
+// concurrent use). History rows are state_changes rows, and no table may be
+// written by two concurrent transactions — see the chunk-boundary deadlock
+// note at the sibling definitions in persistLedgerData.
+type protocolHistorySink struct {
+	dbTx pgx.Tx
+	mu   *sync.Mutex
+}
+
+// persist runs one processor's PersistHistory on the sink under its mutex.
+func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProcessor) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return processor.PersistHistory(ctx, h.dbTx) //nolint:wrapcheck // the call site wraps with protocol and ledger context
+}
+
 // batchLabel names a batch in errors and logs: "ledger N" for a single
 // ledger, "ledgers N-M" for a coalesced batch.
 func batchLabel(items []persistItem) string {
@@ -107,7 +126,8 @@ func batchLabel(items []persistItem) string {
 // another) stream concurrently on sibling connections, each in its own
 // transaction covering every ledger in the batch, while the coordinating
 // transaction stages everything else (contracts, classification, protocol
-// state, SAC balances, cursor) ledger by ledger in order — the per-protocol
+// current state, SAC balances, cursor — protocol history rows ride the
+// state_changes sibling) ledger by ledger in order — the per-protocol
 // CAS chain advances N-1 → N inside the transaction, and the guarded
 // cursor's final value is the batch's last ledger. All the slow work
 // happens uncommitted and invisible; only after every stream and the
@@ -140,6 +160,15 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		}
 	}()
 
+	// The protocol processors' history rows are state_changes rows too, and two
+	// transactions inserting into the same hypertable can deadlock undetectably
+	// at a chunk boundary (TimescaleDB serializes chunk creation while the
+	// coordinating goroutine is blocked in Go, invisible to Postgres's deadlock
+	// detector). So every state_changes write — the ledger's own rows on the
+	// sibling goroutine and protocol history on the coordinating goroutine —
+	// goes through the one state_changes sibling transaction, serialized by
+	// stateChangesMu because pgx.Tx is not safe for concurrent use.
+	var stateChangesMu sync.Mutex
 	siblings := []struct {
 		name string
 		run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
@@ -157,6 +186,8 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 			return m.insertOperationsAccounts(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
 		}},
 		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			stateChangesMu.Lock()
+			defer stateChangesMu.Unlock()
 			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
 		}},
 		// Each balance family rides the transaction that stages its FK parents,
@@ -212,10 +243,19 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	}
 
 	// Stream the sibling writes and stage the coordinated writes concurrently.
-	// Every sibling owns a disjoint set of tables with no FKs among them or to
-	// any other transaction's tables, and the goroutines only read the
+	// No table is ever written by two transactions: every sibling owns a
+	// disjoint set of tables with no FKs among them or to any other
+	// transaction's tables, and the coordinating goroutine's one write outside
+	// its own set — protocol history, which is state_changes rows — goes to the
+	// state_changes sibling under stateChangesMu. The goroutines only read the
 	// quiescent buffers, so the transactions never contend. Within each
 	// transaction the batch's ledgers run in order.
+	var stateChangesTx pgx.Tx
+	for i, s := range siblings {
+		if s.name == "state_changes" {
+			stateChangesTx = siblingTxs[i]
+		}
+	}
 	g, gctx := errgroup.WithContext(ctx)
 	for i, s := range siblings {
 		g.Go(func() error {
@@ -227,10 +267,11 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 			return nil
 		})
 	}
+	history := protocolHistorySink{dbTx: stateChangesTx, mu: &stateChangesMu}
 	g.Go(func() error {
 		for j := range items {
 			it := &items[j]
-			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, it.seq, it.meta, it.plan, it.contractData, it.buffer); stageErr != nil {
+			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, history, it.seq, it.meta, it.plan, it.contractData, it.buffer); stageErr != nil {
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
 		}
@@ -268,10 +309,17 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 // stageCoordinatedWrites runs every per-ledger write the siblings don't own
 // on the coordinating transaction: SAC contract tokens, protocol
 // classification and wasm/contract rows, CAS-gated protocol state, the SAC
-// balance changes, and finally the guarded cursor.
+// balance changes, and finally the guarded cursor. The one exception is
+// protocol history — those are state_changes rows, so they go through
+// history (the state_changes sibling) rather than this transaction. Their
+// CAS stays here: the siblings commit strictly before this transaction, so a
+// committed cursor still implies committed history rows, and a crash in
+// between leaves only rows above the cursor, which DeleteRowsAboveLedger
+// removes at startup like any other state_changes orphan.
 func (m *ingestService) stageCoordinatedWrites(
 	ctx context.Context,
 	dbTx pgx.Tx,
+	history protocolHistorySink,
 	ledgerSeq uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
 	plan *ClassificationPlan,
@@ -445,7 +493,7 @@ func (m *ingestService) stageCoordinatedWrites(
 
 			if historySwapped {
 				persistStart := time.Now()
-				persistErr := processor.PersistHistory(ctx, dbTx)
+				persistErr := history.persist(ctx, processor)
 				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_history").Observe(time.Since(persistStart).Seconds())
 				if persistErr != nil {
 					return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
