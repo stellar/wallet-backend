@@ -17,11 +17,11 @@ import (
 
 const (
 	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
-	// MinIngestMaxConns is the smallest pool live persist can run in: 8 connections
-	// held at its commit barrier (the coordinator plus 7 siblings), plus the
+	// MinIngestMaxConns is the smallest pool live persist can run in: 6 connections
+	// held at its commit barrier (the coordinator plus 5 siblings), plus the
 	// advisory-lock session, which is held until the process exits. Below this, a
 	// sibling waits forever for a connection nothing releases.
-	MinIngestMaxConns int32 = 9
+	MinIngestMaxConns int32 = 7
 	// DefaultMaxConns leaves headroom for the transient classification reads.
 	DefaultMaxConns        int32         = 12
 	DefaultMinConns        int32         = 5

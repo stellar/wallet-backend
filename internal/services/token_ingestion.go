@@ -15,13 +15,9 @@ import (
 )
 
 // TokenIngestionService provides write access to account token storage during live ingestion.
-// The balance writes are split by where their foreign-key parents are staged: each balance
-// family runs on the transaction that carries its parent rows, so every FK check passes at
-// that transaction's own commit. Trustline balances ride the sibling that inserts
-// trustline_assets, pool-share balances ride the sibling that upserts liquidity_pools, and
-// SAC balances stay on the coordinating transaction because their parent (contract_tokens)
-// is also written by the classification path there — splitting those writers across
-// concurrent transactions could deadlock at the commit barrier on a same-key insert.
+// Balances are current state, so live ingestion applies every family on the coordinating
+// transaction, which also stages each family's foreign-key parents (trustline_assets,
+// liquidity_pools, contract_tokens) and commits the cursor.
 type TokenIngestionService interface {
 	// ProcessTrustlineChanges applies trustline balance changes. dbTx must be the
 	// transaction on which this ledger's trustline_assets rows are staged: the balance

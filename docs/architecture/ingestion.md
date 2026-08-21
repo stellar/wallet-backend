@@ -39,7 +39,7 @@ Live mode follows the network tip, one ledger after another, and in normal opera
 ### Startup
 
 1. The command rejects `START_LEDGER` and `END_LEDGER` in live mode. Live mode resumes from the stored cursor.
-2. The process checks the pool size before it opens the pool. Live persist holds 8 connections at its commit barrier (seven siblings and the coordinator) and the advisory-lock session holds a ninth, so a `DB_MAX_CONNS` below 9 stops the process with `db-max-conns is <n>, below the 9 connections live persist requires`. The default `DB_MAX_CONNS` is 12, which leaves room for the classification reads. Backfill skips this check.
+2. The process checks the pool size before it opens the pool. Live persist holds 6 connections at its commit barrier (five siblings and the coordinator) and the advisory-lock session holds a seventh, so a `DB_MAX_CONNS` below 7 stops the process with `db-max-conns is <n>, below the 7 connections live persist requires`. The default `DB_MAX_CONNS` is 12, which leaves room for the classification reads. Backfill skips this check.
 3. The process opens the database pool and applies the settings listed under [TimescaleDB policies the live ingester applies](#timescaledb-policies-the-live-ingester-applies).
 4. It builds the ledger source, the RPC client, the history archive client, the protocol validators and processors, and starts the HTTP servers.
 5. It takes the advisory lock on a dedicated connection. That connection stays checked out for the life of the process.
@@ -83,7 +83,7 @@ Persist does these steps for each batch:
 
 1. **Lock-session check.** It runs `SELECT 1` on the connection that holds the advisory lock. The process never unlocks mid-run, so a live session means a held lock. A database failover can end that session on the server without this process seeing a disconnect, and this check is what catches it.
 2. **Classification plan.** It builds one plan for the whole batch from the union of the batch's uploaded WASMs, their bytecode, and deployed contracts. Each WASM is matched against the registered protocol validators, and the validators make any RPC calls they need here, for example to fetch SEP-41 token metadata. Hashes uploaded in an earlier ledger come from a read of `protocol_wasms` on the pool, which sees exactly what the previous batch committed. That read has its own retry, described under [Errors and retries](#errors-and-retries). When a later ledger of the batch rebinds a contract to a different WASM, the plan keeps the earlier binding as a candidate too, so the earlier ledger still claims the contract under the binding it saw. No database transaction is open during this step, and every retry of the batch reuses the same plan.
-3. **Open the transactions.** It opens the coordinating transaction and seven sibling transactions, each sibling on its own connection. Each sibling runs `SET LOCAL synchronous_commit = off`.
+3. **Open the transactions.** It opens the coordinating transaction and five sibling transactions, each sibling on its own connection. Each sibling runs `SET LOCAL synchronous_commit = off`.
 4. **Write.** The siblings and the coordinating transaction write at the same time. Each one writes every ledger of the batch, in ledger order.
 5. **Commit barrier.** If every writer succeeded, the siblings commit in the order below, then the coordinating transaction commits last.
 6. **Hand back.** It records the per-ledger metrics and returns the batch's buffers to the free pool.
@@ -97,14 +97,11 @@ The commit set, in commit order:
 | 3 | `operations` sibling | `operations` by `COPY` |
 | 4 | `operations_accounts` sibling | `operations_accounts` by `COPY` |
 | 5 | `state_changes` sibling | `state_changes` by `COPY`, plus the protocol history rows the coordinating transaction sends it |
-| 6 | `balances` sibling | `native_balances`, then `liquidity_pools`, then `liquidity_pool_balances`, as upserts and deletes |
-| 7 | `trustlines` sibling | `trustline_assets` inserts, then `trustline_balances` upserts and deletes |
-| 8 | Coordinating transaction | The plan's validator writes once per batch, such as `contract_tokens`. Then per ledger: `contract_tokens` rows for SACs not yet stored, `protocol_wasms` stamped with their protocol, each protocol's cursor swap and current-state rows, `protocol_contracts`, `sac_balances`, and `latest_ingest_ledger`. |
+| 6 | Coordinating transaction | The plan's validator writes once per batch, such as `contract_tokens`. Then per ledger: `contract_tokens` rows for SACs not yet stored, `protocol_wasms` stamped with their protocol, each protocol's cursor swap and current-state rows, `protocol_contracts`, every balance family (`native_balances`, `trustline_assets` and `trustline_balances`, `liquidity_pools` and `liquidity_pool_balances`, `sac_balances`), and `latest_ingest_ledger`. |
 
-Each writer owns its own tables, and no table has a foreign key into another transaction's tables, so the eight transactions never contend. Each balance family rides the transaction that writes its foreign-key parents. Two placements follow from that rule:
+Each writer owns its own tables, and no table has a foreign key into another transaction's tables, so the six transactions never contend. The siblings hold only append-only history, which startup reconciliation can delete above the cursor. All current state is overwritten in place, so it commits with the cursor on the coordinating transaction, and each balance family's foreign-key parent is written on that same transaction.
 
-- **SAC balances** stay on the coordinating transaction. Their parent is `contract_tokens`, which the classification path also writes there. A same-key insert from two concurrent transactions could deadlock at the commit barrier.
-- **Protocol history rows** are `state_changes` rows, so they go through the `state_changes` sibling under a mutex. Two transactions inserting into the same hypertable can deadlock at a chunk boundary in a way PostgreSQL's deadlock detector cannot see. The protocol cursor swap for those rows stays on the coordinating transaction, so a committed cursor still implies committed history rows.
+**Protocol history rows** are `state_changes` rows, so they go through the `state_changes` sibling under a mutex. Two transactions inserting into the same hypertable can deadlock at a chunk boundary in a way PostgreSQL's deadlock detector cannot see. The protocol cursor swap for those rows stays on the coordinating transaction, so a committed cursor still implies committed history rows.
 
 Contract-event membership for protocols is looked up on the coordinating transaction, not the pool. A contract classified at the head of a batch is uncommitted until the barrier, and a later ledger of the same batch must still see it.
 
@@ -112,14 +109,9 @@ Contract-event membership for protocols is looked up on the coordinating transac
 
 **The barrier runs detached from the pipeline context.** A cancellation that lands mid-barrier, from a shutdown signal or another stage's failure, does not stop it between commits. A shutdown never leaves a batch half committed. A cancellation before the barrier still rolls everything back.
 
-**The crash window.** Nothing is visible until the barrier starts. A crash between the first sibling commit and the coordinating commit can leave rows from ledgers above the committed cursor:
+**The crash window.** Nothing is visible until the barrier starts. A crash between the first sibling commit and the coordinating commit can leave rows in the five bulk tables from ledgers above the committed cursor. API reads hide them, because each root history read carries a bound on the committed cursor in the same snapshot, and startup reconciliation deletes them. Current state commits with the cursor, so it never reflects a ledger above it.
 
-| Rows above the cursor | What covers them |
-| --- | --- |
-| The five bulk tables | API reads hide them, because each root history read carries a bound on the committed cursor in the same snapshot. Startup reconciliation deletes them. |
-| Balance tables | They stay visible until those ledgers re-ingest and the upserts reapply. The balance siblings commit last among the siblings to keep this window short. |
-
-The cursor bound applies to the transaction-by-hash and operation-by-ID lookups and to the per-account lists of transactions, operations, and state changes. A database with no cursor row reads unbounded.
+The cursor bound applies to the transaction-by-hash and operation-by-ID lookups and to the per-account lists of transactions, operations, and state changes. A database with no cursor row reads unbounded. The `balances` field reads all its sources in one read-only `REPEATABLE READ` transaction, so a balance page reflects one ledger. The exception is SEP-41 balances: they are written only when the SEP-41 current-state cursor swap wins, so before that cursor exists or while `protocol-migrate` is still catching it up, they reflect an older ledger than the native, trustline, SAC, and liquidity pool balances on the same page.
 
 **Per-ledger order inside the coordinating transaction.** For each protocol whose cursor exists, the transaction swaps the cursor from `N-1` to `N`. Only a won swap lets that protocol write its rows for the ledger. Last, it advances `latest_ingest_ledger` with a guarded update that succeeds only when the stored value is `N-1`, or `N` for the first ledger after a checkpoint bootstrap. A refused update means another writer moved the cursor, which is the backstop for a lost lock the session check has not caught yet. In a batch, the cursor ends at the batch's last ledger.
 
@@ -326,7 +318,7 @@ When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_
 | Event | What the process does | What to do |
 | --- | --- | --- |
 | A second live ingester starts for the same network | The second one exits with `advisory lock not acquired`. The first keeps running. | Run one live ingester per network. |
-| `DB_MAX_CONNS` below 9 in live mode | The process refuses to start with `db-max-conns is <n>, below the 9 connections live persist requires`. | Raise `DB_MAX_CONNS`. The default is 12. |
+| `DB_MAX_CONNS` below 7 in live mode | The process refuses to start with `db-max-conns is <n>, below the 7 connections live persist requires`. | Raise `DB_MAX_CONNS`. The default is 12. |
 | Database failover ends the lock session | The next lock-session check fails and the process exits with `advisory lock session is no longer alive, the lock may have been lost`. If a second ingester advanced the cursor first, the guarded cursor update refuses the write. | Restart. Transient connection errors during persist are retried before that. |
 | SIGINT or SIGTERM | A batch before its barrier rolls back. A barrier in progress completes. Live mode exits with status 0. A failed lock-session check during shutdown counts as shutdown, not lock loss. | None. The next start refetches the rolled-back ledgers. |
 | Commit fails after the first sibling committed | The process exits with `ledger persist partially committed`. | Restart. Startup reconciliation deletes the orphaned bulk rows, and the batch re-ingests. |
