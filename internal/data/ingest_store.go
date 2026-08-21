@@ -268,6 +268,36 @@ func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) 
 	return oldest, nil
 }
 
+// BulkCopyTable is one table live ingestion streams with COPY on its own
+// sibling transaction, paired with the TOID-ordered column that says which
+// ledger a row belongs to.
+type BulkCopyTable struct {
+	Table      string
+	TOIDColumn string
+}
+
+// BulkCopyTables is the authoritative set of those tables; every enumeration
+// of them derives from this one. A table missing from DeleteRowsAboveLedger
+// below leaves orphaned rows above the cursor, and re-ingesting their ledgers
+// then collides on primary keys COPY has no ON CONFLICT to resolve.
+var BulkCopyTables = []BulkCopyTable{
+	{"transactions", "to_id"},
+	{"transactions_accounts", "tx_to_id"},
+	{"operations", "id"},
+	{"operations_accounts", "operation_id"},
+	{"state_changes", "to_id"},
+}
+
+// BulkCopyTableNames returns the table names alone, in the same order, for the
+// callers that maintain the tables rather than their rows.
+func BulkCopyTableNames() []string {
+	names := make([]string, len(BulkCopyTables))
+	for i, t := range BulkCopyTables {
+		names[i] = t.Table
+	}
+	return names
+}
+
 // DeleteRowsAboveLedger removes every row belonging to a ledger past the given
 // one from the five bulk-COPY tables, in one transaction. It is live
 // ingestion's startup reconciliation: sibling COPY transactions commit before
@@ -303,34 +333,24 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 		log.Ctx(ctx).Warnf("startup reconciliation: cursor ledger %d has no transactions row, deleting without a ledger_created_at bound — every chunk of the five bulk tables is scanned", ledger)
 	}
 
-	targets := []struct {
-		table  string
-		column string
-	}{
-		{"transactions", "to_id"},
-		{"transactions_accounts", "tx_to_id"},
-		{"operations", "id"},
-		{"operations_accounts", "operation_id"},
-		{"state_changes", "to_id"},
-	}
 	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
-		for _, target := range targets {
-			query := fmt.Sprintf(`DELETE FROM %s WHERE %s >= $1`, target.table, target.column)
+		for _, target := range BulkCopyTables {
+			query := fmt.Sprintf(`DELETE FROM %s WHERE %s >= $1`, target.Table, target.TOIDColumn)
 			args := []any{minTOID}
 			if !bound.IsZero() {
-				query = fmt.Sprintf(`DELETE FROM %s WHERE ledger_created_at >= $2 AND %s >= $1`, target.table, target.column)
+				query = fmt.Sprintf(`DELETE FROM %s WHERE ledger_created_at >= $2 AND %s >= $1`, target.Table, target.TOIDColumn)
 				args = append(args, bound)
 			}
 			start := time.Now()
 			tag, execErr := dbTx.Exec(ctx, query, args...)
-			m.Metrics.QueryDuration.WithLabelValues("DeleteRowsAboveLedger", target.table).Observe(time.Since(start).Seconds())
-			m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsAboveLedger", target.table).Inc()
+			m.Metrics.QueryDuration.WithLabelValues("DeleteRowsAboveLedger", target.Table).Observe(time.Since(start).Seconds())
+			m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsAboveLedger", target.Table).Inc()
 			if execErr != nil {
-				m.Metrics.QueryErrors.WithLabelValues("DeleteRowsAboveLedger", target.table, utils.GetDBErrorType(execErr)).Inc()
-				return fmt.Errorf("deleting %s rows above ledger %d: %w", target.table, ledger, execErr)
+				m.Metrics.QueryErrors.WithLabelValues("DeleteRowsAboveLedger", target.Table, utils.GetDBErrorType(execErr)).Inc()
+				return fmt.Errorf("deleting %s rows above ledger %d: %w", target.Table, ledger, execErr)
 			}
 			if tag.RowsAffected() > 0 {
-				log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", tag.RowsAffected(), target.table, ledger)
+				log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", tag.RowsAffected(), target.Table, ledger)
 			}
 		}
 		return nil
