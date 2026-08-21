@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stretchr/testify/require"
@@ -530,4 +531,55 @@ func TestSACBalanceModel_BatchCopy(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 3, count)
 	})
+}
+
+func TestSACBalanceModel_DeleteUnverified(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+	model := &SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	sacAddr := randomContractAddress(t)
+	sacID := DeterministicContractID(sacAddr)
+	orphanAddr := randomContractAddress(t) // deliberately has no contract_tokens row
+	orphanID := DeterministicContractID(orphanAddr)
+	holder := randomContractAddress(t)
+
+	// A confirmed SAC parent for the verified balance.
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO contract_tokens (id, contract_id, type, code, issuer, decimals)
+		VALUES ($1, $2, 'SAC', 'USDC', 'GISSUER1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 7)`,
+		sacID, sacAddr)
+	require.NoError(t, err)
+
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		// Stream in a verified balance and an orphan balance (no contract_tokens parent).
+		// The deferred fk_contract_token permits the orphan until COMMIT.
+		if bErr := model.BatchCopy(ctx, dbTx, []SACBalance{
+			{AccountID: types.AddressBytea(holder), ContractID: sacID, Balance: "1000", IsAuthorized: true, LedgerNumber: 100},
+			{AccountID: types.AddressBytea(holder), ContractID: orphanID, Balance: "9999", IsAuthorized: true, LedgerNumber: 100},
+		}); bErr != nil {
+			return bErr
+		}
+		deleted, dErr := model.DeleteUnverified(ctx, dbTx)
+		if dErr != nil {
+			return dErr
+		}
+		require.Equal(t, int64(1), deleted, "only the orphan balance is deleted")
+		return nil
+	})
+	require.NoError(t, err, "the orphan balance must be deleted so the deferred FK holds at COMMIT")
+
+	// Only the verified SAC balance survived.
+	got, err := model.GetByAccount(ctx, holder, nil, nil, ASC)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, sacID, got[0].ContractID)
+	require.Equal(t, "1000", got[0].Balance)
 }

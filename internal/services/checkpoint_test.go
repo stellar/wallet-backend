@@ -250,8 +250,9 @@ func TestCheckpointService_PopulateFromCheckpoint_AccountEntry(t *testing.T) {
 	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything,
 		mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 }),
 	).Return(nil).Once()
-	// SAC balances are handled separately in finalize (not via the batch), and only
-	// copied when there are verified balances — none here.
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 }),
+	).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
@@ -322,6 +323,7 @@ func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testin
 	// trustline/native/sac (those flush empty).
 	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
 	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
 	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool {
 		return len(pools) == 1 && pools[0].PoolID == expectedPoolID &&
 			pools[0].AssetA == "native" && pools[0].AmountA == 100 &&
@@ -432,10 +434,10 @@ func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest
 	}
 }
 
-// TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded proves a SAC
-// balance is recorded when its contract is confirmed as a SAC via
-// its instance entry. The instance carries the asset info, so contract_tokens is written
-// with type=SAC and code/issuer set — no RPC enrichment is needed.
+// TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded proves that when a
+// SAC balance's contract is confirmed as a SAC via its instance entry, contract_tokens is
+// written with type=SAC and code/issuer from the instance (no RPC enrichment), and the
+// balance survives the finalize cleanup that deletes rows for unconfirmed contracts.
 func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *testing.T) {
 	f := setupCheckpointTest(t)
 
@@ -450,7 +452,10 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
 
-	// The verified SAC balance is recorded in finalize (trustline/native/lp batch is empty).
+	// The presence of the SAC balance triggers a batch flush; the other balance types flush empty.
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	// The balance is streamed to sac_balances during the scan.
 	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool {
 		return len(b) == 1 && b[0].ContractID == wbdata.DeterministicContractID(contractAddr)
 	})).Return(nil).Once()
@@ -459,6 +464,8 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC) &&
 			cs[0].Code != nil && *cs[0].Code == "USDC"
 	})).Return(nil).Once()
+	// finalize runs the cleanup; the verified balance has a parent, so nothing is deleted.
+	f.sacBalanceModel.On("DeleteUnverified", mock.Anything, mock.Anything).Return(int64(0), nil).Once()
 
 	// FetchSACMetadata must NOT be called: the verified instance already provides metadata.
 
@@ -468,10 +475,9 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 
 // TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped verifies that a
 // Balance-shaped contract-data entry whose contract is NOT confirmed as a SAC (no instance
-// entry in the checkpoint) is dropped: no balance is recorded, no contract_tokens row is
-// created from the shape, and no RPC enrichment runs. Recording it would associate a balance
-// with a contract of unknown type and, in live ingestion, violate the deferred
-// fk_contract_token at COMMIT.
+// entry in the checkpoint) does not create a contract_tokens row from the shape and is removed
+// by the finalize cleanup (DeleteUnverified). The row is streamed in but deleted before
+// COMMIT, so the deferred fk_contract_token holds and no unconfirmed contract is classified.
 func TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped(t *testing.T) {
 	f := setupCheckpointTest(t)
 
@@ -483,9 +489,14 @@ func TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped(t 
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
 
-	// The unverified balance is dropped, so nothing is written: no SAC BatchCopy (finalize
-	// skips the empty set), no contractModel.BatchInsert from the shape, and no
-	// FetchSACMetadata. The strict mocks fail the test on any such unexpected call.
+	// The presence of the SAC balance triggers a batch flush; the other balance types flush empty.
+	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	// The balance is streamed in during the scan...
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 1 })).Return(nil).Once()
+	// ...but no contract_tokens row is created from the shape, and finalize deletes it.
+	f.sacBalanceModel.On("DeleteUnverified", mock.Anything, mock.Anything).Return(int64(1), nil).Once()
+	// No contractModel.BatchInsert and no FetchSACMetadata: the strict mocks fail on any such call.
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
@@ -754,6 +765,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 			batch: &batch{
 				nativeBalances:    make([]wbdata.NativeBalance, 0),
 				trustlineBalances: make([]wbdata.TrustlineBalance, 0),
+				sacBalances:       make([]wbdata.SACBalance, 0),
 			},
 		}
 	}
@@ -855,7 +867,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 
 		// Non-SAC balance entries are no longer tracked (SEP-41 tracking removed)
 		assert.Equal(t, 0, proc.entries)
-		assert.Empty(t, proc.pendingSACBalances)
+		assert.Empty(t, proc.batch.sacBalances)
 	})
 
 	t.Run("unhandled_entry_type_ignored", func(t *testing.T) {
