@@ -12,6 +12,7 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -231,9 +232,17 @@ func (r *Resolver) getAccountBalances(ctx context.Context, address string, first
 	queryLimit := *params.Limit + 1
 	networkPassphrase := r.rpcService.NetworkPassphrase()
 
-	nodes, err := r.getAccountBalanceNodes(ctx, address, sources, cursor, params, queryLimit, networkPassphrase)
+	// Each balance source is its own query. One read-only snapshot keeps them
+	// on the same ledger, so a payment between two sources can't show the old
+	// balance of one next to the new balance of the other.
+	var nodes []*balanceNode
+	err = db.RunInReadSnapshot(ctx, r.models.DB, func(ctx context.Context) error {
+		var nodesErr error
+		nodes, nodesErr = r.getAccountBalanceNodes(ctx, address, sources, cursor, params, queryLimit, networkPassphrase)
+		return nodesErr
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading balances for %s: %w", address, err)
 	}
 
 	conn := NewConnectionWithRelayPagination(nodes, params, func(node *balanceNode) string {
