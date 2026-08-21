@@ -10,16 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/support/log"
+
+	"github.com/stellar/wallet-backend/internal/data"
 )
 
-// hypertables lists all TimescaleDB hypertables managed by the ingestion system.
-var hypertables = []string{
-	"transactions",
-	"transactions_accounts",
-	"operations",
-	"operations_accounts",
-	"state_changes",
-}
+// hypertables lists all TimescaleDB hypertables managed by the ingestion
+// system: exactly the tables ingestion bulk-loads with COPY.
+var hypertables = data.BulkCopyTableNames()
 
 // configureHypertableSettings applies chunk interval, retention policy, and
 // compression schedule settings to all hypertables. Chunk interval only affects
