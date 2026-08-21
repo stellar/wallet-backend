@@ -83,13 +83,17 @@ var ErrPartialPersist = errors.New("ledger persist partially committed")
 // calls already resolved; nil when the ledger had nothing to classify) and
 // its ContractData extraction memo. Both are shared verbatim across
 // persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
-// calls or re-runs the extraction walk.
+// calls or re-runs the extraction walk. transactions and operations hold the
+// buffer's rows materialized by persistLedgerData, so the two siblings that
+// each need them share one slice.
 type persistItem struct {
 	seq          uint32
-	meta         xdr.LedgerCloseMeta
+	closeTime    int64
 	plan         *ClassificationPlan
 	contractData *contractDataMemo
 	buffer       *indexer.IndexerBuffer
+	transactions []*types.Transaction
+	operations   []*types.Operation
 }
 
 // protocolHistorySink is where stageCoordinatedWrites sends the protocol
@@ -108,6 +112,63 @@ func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProc
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return processor.PersistHistory(ctx, h.dbTx) //nolint:wrapcheck // the call site wraps with protocol and ledger context
+}
+
+// persistSibling is one sibling transaction: the table family it owns and the
+// per-ledger writes it streams.
+type persistSibling struct {
+	name string
+	run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
+}
+
+// persistSiblings builds the sibling set persistLedgerData streams
+// concurrently. The first five own the bulk-COPY tables (data.BulkCopyTables,
+// which startup reconciliation reads to clear their orphans); the last two own
+// the balance families. stateChangesMu serializes the state_changes
+// transaction, which the coordinating goroutine also writes protocol history
+// through — see protocolHistorySink and the chunk-boundary deadlock note in
+// persistLedgerData.
+func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
+	return []persistSibling{
+		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactions(ctx, dbTx, it.transactions)
+		}},
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactionsAccounts(ctx, dbTx, it.transactions, it.buffer.GetTransactionsParticipants())
+		}},
+		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperations(ctx, dbTx, it.operations)
+		}},
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperationsAccounts(ctx, dbTx, it.operations, it.buffer.GetOperationsParticipants())
+		}},
+		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			stateChangesMu.Lock()
+			defer stateChangesMu.Unlock()
+			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
+		}},
+		// Each balance family rides the transaction that stages its FK parents,
+		// so the coordinating transaction's serial path stays short and every
+		// foreign key is checked within one commit. The SAC balances remain in
+		// stageCoordinatedWrites: their parent (contract_tokens) is also written
+		// by the classification path there, and a same-key insert from two
+		// concurrent transactions could deadlock at the commit barrier.
+		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
+				it.buffer.GetAccountChanges(),
+				it.buffer.GetLiquidityPoolShareChanges(),
+				it.buffer.GetLiquidityPoolChanges(),
+			)
+		}},
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+					return fmt.Errorf("inserting trustline assets: %w", err)
+				}
+			}
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
+		}},
+	}
 }
 
 // batchLabel names a batch in errors and logs: "ledger N" for a single
@@ -146,6 +207,21 @@ func batchLabel(items []persistItem) string {
 func (m *ingestService) persistLedgerData(ctx context.Context, items []persistItem) error {
 	label := batchLabel(items)
 
+	for i := range items {
+		// Ledger 0 has no predecessor, and this path addresses one twice: the
+		// per-protocol CAS expects ledgerSeq-1 and the guarded cursor update
+		// accepts it, both of which underflow on an unsigned zero.
+		if items[i].seq == 0 {
+			return fmt.Errorf("persisting %s: ledger sequence 0 is not persistable", label)
+		}
+		// Materialize the buffer's rows once per ledger: the transactions and
+		// transactions_accounts siblings share one transaction slice, and the
+		// two operations siblings share one operation slice, rather than each
+		// getter rebuilding its slice per sibling.
+		items[i].transactions = items[i].buffer.GetTransactions()
+		items[i].operations = items[i].buffer.GetOperations()
+	}
+
 	// The sibling transactions and the coordinating transaction are all opened
 	// up front on this goroutine, so ownership at the commit barrier below is
 	// deterministic; the deferred rollbacks tolerate ErrTxClosed and so are
@@ -169,49 +245,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// goes through the one state_changes sibling transaction, serialized by
 	// stateChangesMu because pgx.Tx is not safe for concurrent use.
 	var stateChangesMu sync.Mutex
-	siblings := []struct {
-		name string
-		run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
-	}{
-		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactions(ctx, dbTx, it.buffer.GetTransactions())
-		}},
-		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactionsAccounts(ctx, dbTx, it.buffer.GetTransactions(), it.buffer.GetTransactionsParticipants())
-		}},
-		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperations(ctx, dbTx, it.buffer.GetOperations())
-		}},
-		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperationsAccounts(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
-		}},
-		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			stateChangesMu.Lock()
-			defer stateChangesMu.Unlock()
-			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
-		}},
-		// Each balance family rides the transaction that stages its FK parents,
-		// so the coordinating transaction's serial path stays short and every
-		// foreign key is checked within one commit. The SAC balances remain in
-		// stageCoordinatedWrites: their parent (contract_tokens) is also written
-		// by the classification path there, and a same-key insert from two
-		// concurrent transactions could deadlock at the commit barrier.
-		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
-				it.buffer.GetAccountChanges(),
-				it.buffer.GetLiquidityPoolShareChanges(),
-				it.buffer.GetLiquidityPoolChanges(),
-			)
-		}},
-		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
-				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
-					return fmt.Errorf("inserting trustline assets: %w", err)
-				}
-			}
-			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
-		}},
-	}
+	siblings := m.persistSiblings(&stateChangesMu)
 	siblingTxs := make([]pgx.Tx, len(siblings))
 	for i, s := range siblings {
 		conn, acquireErr := m.models.DB.Acquire(ctx)
@@ -271,7 +305,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	g.Go(func() error {
 		for j := range items {
 			it := &items[j]
-			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, history, it.seq, it.meta, it.plan, it.contractData, it.buffer); stageErr != nil {
+			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, history, it.seq, it.closeTime, it.plan, it.contractData, it.buffer); stageErr != nil {
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
 		}
@@ -338,7 +372,7 @@ func (m *ingestService) stageCoordinatedWrites(
 	dbTx pgx.Tx,
 	history protocolHistorySink,
 	ledgerSeq uint32,
-	ledgerMeta xdr.LedgerCloseMeta,
+	ledgerCloseTime int64,
 	plan *ClassificationPlan,
 	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
@@ -406,7 +440,6 @@ func (m *ingestService) stageCoordinatedWrites(
 	// run only for cursors that win the swap, so a protocol still backfilling (its
 	// cursor behind tip) costs a single CAS and a continue.
 	if len(m.protocolProcessors) > 0 {
-		ledgerCloseTime := ledgerMeta.LedgerCloseTime()
 		contractEvents := buffer.GetContractEvents()
 		expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
 		next := strconv.FormatUint(uint64(ledgerSeq), 10)
@@ -758,15 +791,16 @@ type fetchedLedger struct {
 	meta xdr.LedgerCloseMeta
 }
 
-// processedLedger is the process→persist handoff. transactions are the
-// materialized transactions from the staging pass, reused by the persist
-// stage for ContractData extraction. processDuration rides along so the
-// per-ledger Duration metric can sum the ledger's stage times instead of
-// counting the time it sat queued between stages.
+// processedLedger is the process→persist handoff. The close time and the
+// ContractData memo over the staging pass's materialized transactions are
+// both derived at the end of that pass, so the decoded close meta itself
+// never rides the queue. processDuration rides along so the per-ledger
+// Duration metric can sum the ledger's stage times instead of counting the
+// time it sat queued between stages.
 type processedLedger struct {
 	seq             uint32
-	meta            xdr.LedgerCloseMeta
-	transactions    []ingest.LedgerTransaction
+	closeTime       int64
+	contractData    *contractDataMemo
 	buffer          *indexer.IndexerBuffer
 	processDuration time.Duration
 }
@@ -925,7 +959,13 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())
 
 		select {
-		case processed <- processedLedger{seq: fl.seq, meta: fl.meta, transactions: transactions, buffer: buffer, processDuration: processDuration}:
+		case processed <- processedLedger{
+			seq:             fl.seq,
+			closeTime:       fl.meta.LedgerCloseTime(),
+			contractData:    newContractDataMemo(transactions, fl.seq),
+			buffer:          buffer,
+			processDuration: processDuration,
+		}:
 		case <-ctx.Done():
 			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
 		}
@@ -1090,8 +1130,8 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		for i, pl := range batch {
 			items[i] = persistItem{
 				seq:          pl.seq,
-				meta:         pl.meta,
-				contractData: newContractDataMemo(pl.transactions, pl.seq),
+				closeTime:    pl.closeTime,
+				contractData: pl.contractData,
 				buffer:       pl.buffer,
 			}
 		}
