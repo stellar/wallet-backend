@@ -545,9 +545,27 @@ func (m *ingestService) stageCoordinatedWrites(
 	return nil
 }
 
+// livePersistConnections is the number of pool connections live ingestion
+// pins simultaneously: persistLedgerData's 7 sibling transactions and the
+// coordinating transaction at its commit barrier, plus the advisory-lock
+// session startLiveIngestion holds for the process lifetime.
+const livePersistConnections = 9
+
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
 // acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
+	// Fail fast on a pool that cannot fit the persist barrier. All
+	// livePersistConnections are held by ingestion at once, and
+	// pgxpool.Acquire has no timeout: on a smaller pool the last Acquire
+	// waits forever on connections this same goroutine already holds — no
+	// error, no log, fetch and process parked on full channels while lag
+	// climbs.
+	if maxConns := m.models.DB.Config().MaxConns; maxConns < livePersistConnections {
+		return fmt.Errorf(
+			"live ingestion pins %d DB connections (7 persist siblings + coordinating transaction + advisory lock) but the pool allows only %d; raise --db-max-conns/DB_MAX_CONNS (default %d)",
+			livePersistConnections, maxConns, db.DefaultMaxConns)
+	}
+
 	conn, err := m.models.DB.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquiring a connection from the pool: %w", err)
