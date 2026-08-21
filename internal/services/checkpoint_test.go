@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/ingest/sac"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -249,9 +250,8 @@ func TestCheckpointService_PopulateFromCheckpoint_AccountEntry(t *testing.T) {
 	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything,
 		mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 }),
 	).Return(nil).Once()
-	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything,
-		mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 }),
-	).Return(nil).Once()
+	// SAC balances are handled separately in finalize (not via the batch), and only
+	// copied when there are verified balances — none here.
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
@@ -322,7 +322,6 @@ func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testin
 	// trustline/native/sac (those flush empty).
 	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
 	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
-	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
 	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool {
 		return len(pools) == 1 && pools[0].PoolID == expectedPoolID &&
 			pools[0].AssetA == "native" && pools[0].AmountA == 100 &&
@@ -378,12 +377,29 @@ func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T
 	require.NoError(t, err)
 }
 
+// makeSACInstanceChange builds a verified SAC contract-instance entry for the
+// given classic asset. The contract ID is the deterministically derived Stellar
+// Asset Contract ID for that asset, so sac.AssetFromContractData authenticates it
+// — this is what identifies a contract as a SAC rather than a shape look-alike.
+func makeSACInstanceChange(t *testing.T, code, issuer, passphrase string) (ingest.Change, [32]byte) {
+	t.Helper()
+	asset := xdr.MustNewCreditAsset(code, issuer)
+	contractID, err := asset.ContractID(passphrase)
+	require.NoError(t, err)
+	data, err := sac.AssetToContractData(false, code, issuer, contractID)
+	require.NoError(t, err)
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &xdr.LedgerEntry{Data: data},
+	}, contractID
+}
+
 // makeSACBalanceChange builds an ingest.Change for a ContractData Balance
 // entry whose holder is itself a contract — the shape
 // sac.ContractBalanceFromContractData requires to recognize a SAC balance.
-// With no preceding contract-instance entry in the same checkpoint, this is
-// how a SAC contract ends up in contract_tokens with Code/Name/Symbol unset,
-// needing RPC enrichment (see finalize's pendingSACMetadata bookkeeping).
+// The shape alone does not identify the contract as a SAC; the checkpoint
+// records such a balance only when the contract is also confirmed via its
+// instance entry (see makeSACInstanceChange).
 func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest.Change {
 	return ingest.Change{
 		Type: xdr.LedgerEntryTypeContractData,
@@ -416,148 +432,60 @@ func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest
 	}
 }
 
-// checkpointCommitProbeKey is a scratch ingest_store row written by an
-// initializeCursors callback, inside the load's own transaction, purely so a
-// test can prove — via a real, separate connection — whether the load
-// transaction has actually committed yet. Postgres MVCC hides the row from
-// any other connection until commit, which is what makes this a genuine
-// after-commit check rather than an assertion on mock call ordering alone.
-const checkpointCommitProbeKey = "checkpoint_commit_probe"
+// TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded proves a SAC
+// balance is recorded when its contract is confirmed as a SAC via
+// its instance entry. The instance carries the asset info, so contract_tokens is written
+// with type=SAC and code/issuer set — no RPC enrichment is needed.
+func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *testing.T) {
+	f := setupCheckpointTest(t)
 
-func writeCheckpointCommitProbe(dbTx pgx.Tx) error {
-	_, err := dbTx.Exec(context.Background(),
-		`INSERT INTO ingest_store (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-		checkpointCommitProbeKey, "committed")
-	return err
+	issuer := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	instanceChange, contractID := makeSACInstanceChange(t, "USDC", issuer, f.svc.networkPassphrase)
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	holderHash := [32]byte{8, 8, 8}
+	balanceChange := makeSACBalanceChange(contractID, holderHash)
+
+	f.reader.On("Read").Return(instanceChange, nil).Once()
+	f.reader.On("Read").Return(balanceChange, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	// The verified SAC balance is recorded in finalize (trustline/native/lp batch is empty).
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool {
+		return len(b) == 1 && b[0].ContractID == wbdata.DeterministicContractID(contractAddr)
+	})).Return(nil).Once()
+	// contract_tokens is written from the instance with code/issuer already set (no enrichment).
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC) &&
+			cs[0].Code != nil && *cs[0].Code == "USDC"
+	})).Return(nil).Once()
+
+	// FetchSACMetadata must NOT be called: the verified instance already provides metadata.
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
 }
 
-// TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit
-// is the ING-10 regression test: it proves FetchSACMetadata (the RPC call)
-// only happens once the load transaction — including cursor initialization —
-// has already committed, by querying the commit probe row from the real DB
-// pool (a connection independent of the load's transaction) from inside the
-// FetchSACMetadata mock's callback. If the RPC call were still made inside
-// the load transaction (the ING-10 bug), the probe row would not yet be
-// visible and this assertion would fail.
-func TestCheckpointService_PopulateFromCheckpoint_SACMetadataEnrichedAfterCommit(t *testing.T) {
+// TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped verifies that a
+// Balance-shaped contract-data entry whose contract is NOT confirmed as a SAC (no instance
+// entry in the checkpoint) is dropped: no balance is recorded, no contract_tokens row is
+// created from the shape, and no RPC enrichment runs. Recording it would associate a balance
+// with a contract of unknown type and, in live ingestion, violate the deferred
+// fk_contract_token at COMMIT.
+func TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped(t *testing.T) {
 	f := setupCheckpointTest(t)
 
 	tokenHash := [32]byte{9, 9, 9}
 	holderHash := [32]byte{8, 8, 8}
 	change := makeSACBalanceChange(tokenHash, holderHash)
-	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
 
 	f.reader.On("Read").Return(change, nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
 
-	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
-	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 0 })).Return(nil).Once()
-	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 1 })).Return(nil).Once()
-
-	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
-		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Type == string(types.ContractTypeSAC) && cs[0].Code == nil
-	})).Return(nil).Once()
-
-	enrichedName := "Test Token"
-	enrichedSymbol := "TST"
-	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
-		Run(func(_ mock.Arguments) {
-			var value string
-			queryErr := f.svc.db.QueryRow(context.Background(),
-				`SELECT value FROM ingest_store WHERE key = $1`, checkpointCommitProbeKey).Scan(&value)
-			require.NoError(t, queryErr, "the load transaction (including cursor init) must already be committed before SAC metadata enrichment runs")
-			assert.Equal(t, "committed", value)
-		}).
-		Return([]*wbdata.Contract{{
-			ID:         wbdata.DeterministicContractID(tokenAddr),
-			ContractID: tokenAddr,
-			Type:       string(types.ContractTypeSAC),
-			Name:       &enrichedName,
-			Symbol:     &enrichedSymbol,
-		}}, nil).Once()
-
-	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
-		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
-	})).Return(nil).Once()
-
-	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, writeCheckpointCommitProbe)
-	require.NoError(t, err)
-}
-
-// TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad
-// is the other half of ING-10: a failed SAC metadata fetch must be logged and
-// leave the already-committed load's rows in place (defaults, unenriched),
-// not fail PopulateFromCheckpoint.
-func TestCheckpointService_PopulateFromCheckpoint_SACMetadataFetchFailureDoesNotFailLoad(t *testing.T) {
-	f := setupCheckpointTest(t)
-
-	tokenHash := [32]byte{7, 7, 7}
-	holderHash := [32]byte{6, 6, 6}
-	change := makeSACBalanceChange(tokenHash, holderHash)
-
-	f.reader.On("Read").Return(change, nil).Once()
-	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
-	f.reader.On("Close").Return(nil).Once()
-
-	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-
-	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-
-	// The enrichment is retried; every attempt fails, and the load still must not fail.
-	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, mock.Anything).
-		Return(nil, errors.New("rpc unavailable")).Times(f.svc.sacEnrichmentRetries)
-
-	// No "BatchUpdateMetadata" expectation is registered: if enrichSACMetadata
-	// called it despite the fetch failing, the mock would fail this test for
-	// an unexpected call.
-
-	cursorsCalled := false
-	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error {
-		cursorsCalled = true
-		return nil
-	})
-	require.NoError(t, err, "a SAC metadata fetch failure must not fail the completed load")
-	assert.True(t, cursorsCalled)
-}
-
-// TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds proves the
-// bounded retry absorbs a transient enrichment blip: FetchSACMetadata fails twice, then
-// succeeds, and the enrichment write runs exactly once.
-func TestCheckpointService_PopulateFromCheckpoint_SACMetadataRetriedThenSucceeds(t *testing.T) {
-	f := setupCheckpointTest(t)
-
-	tokenHash := [32]byte{4, 4, 4}
-	holderHash := [32]byte{3, 3, 3}
-	change := makeSACBalanceChange(tokenHash, holderHash)
-	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
-
-	f.reader.On("Read").Return(change, nil).Once()
-	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
-	f.reader.On("Close").Return(nil).Once()
-
-	f.trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-
-	enrichedName := "Retry Token"
-	enrichedSymbol := "RTY"
-	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
-		Return(nil, errors.New("rpc blip")).Twice()
-	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
-		Return([]*wbdata.Contract{{
-			ID:         wbdata.DeterministicContractID(tokenAddr),
-			ContractID: tokenAddr,
-			Type:       string(types.ContractTypeSAC),
-			Name:       &enrichedName,
-			Symbol:     &enrichedSymbol,
-		}}, nil).Once()
-	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
-		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
-	})).Return(nil).Once()
+	// The unverified balance is dropped, so nothing is written: no SAC BatchCopy (finalize
+	// skips the empty set), no contractModel.BatchInsert from the shape, and no
+	// FetchSACMetadata. The strict mocks fail the test on any such unexpected call.
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
@@ -826,7 +754,6 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 			batch: &batch{
 				nativeBalances:    make([]wbdata.NativeBalance, 0),
 				trustlineBalances: make([]wbdata.TrustlineBalance, 0),
-				sacBalances:       make([]wbdata.SACBalance, 0),
 			},
 		}
 	}
@@ -928,7 +855,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 
 		// Non-SAC balance entries are no longer tracked (SEP-41 tracking removed)
 		assert.Equal(t, 0, proc.entries)
-		assert.Empty(t, proc.batch.sacBalances)
+		assert.Empty(t, proc.pendingSACBalances)
 	})
 
 	t.Run("unhandled_entry_type_ignored", func(t *testing.T) {

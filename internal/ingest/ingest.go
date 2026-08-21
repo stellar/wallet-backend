@@ -233,6 +233,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TrustlineBalanceModel:     models.TrustlineBalance,
 		NativeBalanceModel:        models.NativeBalance,
 		SACBalanceModel:           models.SACBalance,
+		ContractModel:             models.Contract,
 		LiquidityPoolModel:        models.LiquidityPool,
 		LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
 		NetworkPassphrase:         cfg.NetworkPassphrase,

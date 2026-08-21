@@ -42,6 +42,14 @@ func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *ContractModelMock) GetExistingSACByID(ctx context.Context, dbTx pgx.Tx, ids []uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, dbTx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
 func (m *ContractModelMock) GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error) {
 	args := m.Called(ctx, q)
 	if args.Get(0) == nil {
