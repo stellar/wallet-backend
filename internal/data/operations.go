@@ -429,58 +429,7 @@ func (m *OperationModel) BatchCopyAccounts(
 	operations []*types.Operation,
 	stellarAddressesByOpID map[int64]map[string]struct{},
 ) error {
-	if len(stellarAddressesByOpID) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	// Build OpID -> LedgerCreatedAt lookup from operations
-	ledgerCreatedAtByOpID := make(map[int64]time.Time, len(operations))
-	for _, op := range operations {
-		ledgerCreatedAtByOpID[op.ID] = op.LedgerCreatedAt
-	}
-
-	// COPY operations_accounts using pgx binary format with native pgtype types. Upstream participants handling ensures
-	// that account address is not NULL here.
-	var oaRows [][]any
-	for opID, addresses := range stellarAddressesByOpID {
-		ledgerCreatedAt, ok := ledgerCreatedAtByOpID[opID]
-		if !ok {
-			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
-			// the hypertable — and means the caller's operations and
-			// participants disagree about which IDs exist.
-			return fmt.Errorf("no operation supplies ledger_created_at for operation_id %d", opID)
-		}
-		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-		opIDPgtype := pgtype.Int8{Int64: opID, Valid: true}
-		for addr := range addresses {
-			addrBytes, addrErr := types.AddressBytea(addr).Value()
-			if addrErr != nil {
-				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-			}
-			oaRows = append(oaRows, []any{
-				ledgerCreatedAtPgtype,
-				opIDPgtype,
-				addrBytes,
-			})
-		}
-	}
-
-	_, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"operations_accounts"},
-		[]string{"ledger_created_at", "operation_id", "account_id"},
-		pgx.CopyFromRows(oaRows),
-	)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopyAccounts", "operations_accounts").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopyAccounts", "operations_accounts").Observe(float64(len(oaRows)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", "operations_accounts").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchCopyAccounts", "operations_accounts", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("pgx CopyFrom operations_accounts: %w", err)
-	}
-
-	return nil
+	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "operations_accounts", "operation_id", operations,
+		func(op *types.Operation) (int64, time.Time) { return op.ID, op.LedgerCreatedAt },
+		stellarAddressesByOpID)
 }
