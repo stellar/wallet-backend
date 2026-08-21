@@ -309,6 +309,15 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// routine shutdown would manufacture a fatal ErrPartialPersist. Detached,
 	// the batch commits fully or not at all — cancellation before the barrier
 	// still rolls everything back, and the next start re-ingests cleanly.
+	//
+	// Deliberate consistency trade: the commits are sequential, so a reader
+	// can observe the window between them — a transactions row whose
+	// participant links land a commit later, or an operation whose state
+	// changes are not yet visible. The window is one commit round-trip per
+	// sibling (the slow streaming all happened before the barrier), the
+	// cursor still commits strictly last (a ledger is only acknowledged
+	// complete), and re-reads converge. Hiding it would mean bounding every
+	// read by the committed cursor across the whole API surface.
 	commitCtx := context.WithoutCancel(ctx)
 	for i, s := range siblings {
 		if commitErr := siblingTxs[i].Commit(commitCtx); commitErr != nil {
@@ -1033,7 +1042,15 @@ func (m *ingestService) persistBatch(ctx context.Context, batch []processedLedge
 		return 0, fmt.Errorf("persisting %s: %w", batchLabel(items), err)
 	}
 	duration := time.Since(start)
+
 	m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
+	// insert_into_db records the true wall time of one persist commit — the
+	// value the histogram's ledger-close-time grading buckets measure. A
+	// batched commit is one observation, not len(batch) amortized shares:
+	// batching engages exactly when persist has fallen behind, which
+	// per-ledger dilution would report as healthy. persist_batch_size carries
+	// the batch size alongside.
+	m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(duration.Seconds())
 	return duration, nil
 }
 
@@ -1050,8 +1067,6 @@ func (m *ingestService) recordBatchPersisted(ctx context.Context, batch []proces
 	classifyShare := classifyDuration / time.Duration(len(batch))
 	persistShare := persistDuration / time.Duration(len(batch))
 	for _, pl := range batch {
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
-
 		ledgerDuration := pl.processDuration + classifyShare + persistShare
 		m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
