@@ -751,19 +751,13 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 
 	countRows := func(t *testing.T) map[string][2]int {
 		counts := make(map[string][2]int)
-		for table, column := range map[string]string{
-			"transactions":          "to_id",
-			"transactions_accounts": "tx_to_id",
-			"operations":            "id",
-			"operations_accounts":   "operation_id",
-			"state_changes":         "to_id",
-		} {
+		for _, target := range BulkCopyTables {
 			var atCursor, aboveCursor int
 			boundary := toid.New(int32(cursorLedger+1), 0, 0).ToInt64()
 			require.NoError(t, dbConnectionPool.QueryRow(ctx,
-				fmt.Sprintf(`SELECT count(*) FILTER (WHERE %[1]s < $1), count(*) FILTER (WHERE %[1]s >= $1) FROM %[2]s`, column, table),
+				fmt.Sprintf(`SELECT count(*) FILTER (WHERE %[1]s < $1), count(*) FILTER (WHERE %[1]s >= $1) FROM %[2]s`, target.TOIDColumn, target.Table),
 				boundary).Scan(&atCursor, &aboveCursor))
-			counts[table] = [2]int{atCursor, aboveCursor}
+			counts[target.Table] = [2]int{atCursor, aboveCursor}
 		}
 		return counts
 	}
