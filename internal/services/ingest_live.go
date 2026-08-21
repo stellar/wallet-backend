@@ -297,6 +297,15 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// routine shutdown would manufacture a fatal ErrPartialPersist. Detached,
 	// the batch commits fully or not at all — cancellation before the barrier
 	// still rolls everything back, and the next start re-ingests cleanly.
+	//
+	// Deliberate consistency trade: the commits are sequential, so a reader
+	// can observe the window between them — a transactions row whose
+	// participant links land a commit later, or an operation whose state
+	// changes are not yet visible. The window is one commit round-trip per
+	// sibling (the slow streaming all happened before the barrier), the
+	// cursor still commits strictly last (a ledger is only acknowledged
+	// complete), and re-reads converge. Hiding it would mean bounding every
+	// read by the committed cursor across the whole API surface.
 	commitCtx := context.WithoutCancel(ctx)
 	for i, s := range siblings {
 		if commitErr := siblingTxs[i].Commit(commitCtx); commitErr != nil {
@@ -971,7 +980,18 @@ func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) boo
 // a binding change. Deliberate: gating seen-ness on enrichment would cut a
 // batch head per re-observation of any permanently-unfetchable token and
 // disable batching wholesale on RPC-less deployments (the loadtest rig).
+// maxClassificationSeenEntries bounds the combined seen-set size. The sets
+// otherwise grow by one entry per distinct wasm/contract ever observed —
+// unbounded over a long uptime. Clearing at the cap is safe: a miss only
+// makes the next batch cut conservative (the state at process start), and
+// the sets re-warm as batches commit.
+const maxClassificationSeenEntries = 100_000
+
 func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
+	if len(m.classifiedWasms)+len(m.classifiedContracts) > maxClassificationSeenEntries {
+		clear(m.classifiedWasms)
+		clear(m.classifiedContracts)
+	}
 	for _, pl := range batch {
 		for hash := range pl.buffer.GetProtocolWasms() {
 			m.classifiedWasms[hash] = struct{}{}
@@ -1085,16 +1105,26 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		}
 		persistDuration := time.Since(dbStart)
 		m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
-		m.markClassificationInputsSeen(batch)
+		// The seen-sets only feed persistBatchCut, and the cut can only ever
+		// exceed 1 when batching is enabled — at the default cap of 1 the
+		// fold would grow the maps forever for nothing.
+		if m.livePersistMaxBatchSize > 1 {
+			m.markClassificationInputsSeen(batch)
+		}
 
-		// Per-ledger phase observations record each ledger's amortized share
-		// of the batch, so the histograms keep per-ledger semantics and stay
-		// comparable across batch sizes.
+		// insert_into_db records the true wall time of one persist commit —
+		// the value the histogram's ledger-close-time grading buckets
+		// measure. A batched commit is one observation, not len(batch)
+		// amortized shares: batching engages exactly when persist has fallen
+		// behind, which per-ledger dilution would report as healthy.
+		// persist_batch_size carries the batch size alongside.
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
+
+		// The per-ledger total keeps amortized shares so ledger durations
+		// stay comparable across batch sizes.
 		classifyShare := classifyDuration / time.Duration(len(batch))
 		persistShare := persistDuration / time.Duration(len(batch))
 		for _, pl := range batch {
-			m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
-
 			ledgerDuration := pl.processDuration + classifyShare + persistShare
 			m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
 			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
