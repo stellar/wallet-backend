@@ -288,6 +288,54 @@ func TestNativeBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1500), balance)
 	})
+
+	t.Run("identical re-upsert does not rewrite the row", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &NativeBalanceModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		accountAddr := keypair.MustRandom().Address()
+		upsert := func(nb NativeBalance) {
+			pgxTx, err := dbConnectionPool.Begin(ctx)
+			require.NoError(t, err)
+			require.NoError(t, m.BatchUpsert(ctx, pgxTx, []NativeBalance{nb}, nil))
+			require.NoError(t, pgxTx.Commit(ctx))
+		}
+
+		nb := NativeBalance{
+			AccountID:          types.AddressBytea(accountAddr),
+			Balance:            1000,
+			MinimumBalance:     500,
+			BuyingLiabilities:  10,
+			SellingLiabilities: 20,
+			NumSubEntries:      3,
+			LedgerNumber:       100,
+		}
+		upsert(nb)
+
+		// Re-observing the same values at a later ledger leaves the row untouched.
+		nb.LedgerNumber = 200
+		upsert(nb)
+
+		got, err := m.GetByAccount(ctx, accountAddr)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Equal(t, uint32(100), got.LedgerNumber)
+
+		// A changed value writes both the value and the ledger that changed it.
+		nb.Balance = 2000
+		nb.LedgerNumber = 300
+		upsert(nb)
+
+		got, err = m.GetByAccount(ctx, accountAddr)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Equal(t, int64(2000), got.Balance)
+		require.Equal(t, uint32(300), got.LedgerNumber)
+	})
 }
 
 func TestNativeBalanceModel_BatchCopy(t *testing.T) {
