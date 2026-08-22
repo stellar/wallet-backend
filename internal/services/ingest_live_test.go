@@ -172,7 +172,8 @@ func Test_mergedAcrossLedgers(t *testing.T) {
 		for _, c := range changes {
 			buffer.PushAccountChange(c)
 		}
-		return persistItem{seq: seq, buffer: buffer}
+		require.NoError(t, buffer.BuildCopyRows())
+		return persistItem{processedLedger: processedLedger{seq: seq, buffer: buffer}}
 	}
 	get := (*indexer.IndexerBuffer).GetAccountChanges
 
@@ -244,7 +245,8 @@ func Test_mergedUniqueTrustlineAssets(t *testing.T) {
 				Operation:   types.TrustlineOpUpdate,
 			})
 		}
-		return persistItem{seq: seq, buffer: buffer}
+		require.NoError(t, buffer.BuildCopyRows())
+		return persistItem{processedLedger: processedLedger{seq: seq, buffer: buffer}}
 	}
 
 	usdc := "USDC:" + testAddr1
@@ -310,16 +312,15 @@ func Test_persistLedgerData_CoalescesBalanceUpsertsAcrossBatch(t *testing.T) {
 	).Return(nil).Maybe()
 
 	svc, err := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeLive,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		RPCService:             &RPCServiceMock{},
-		LedgerBackend:          &LedgerBackendMock{},
-		TokenIngestionService:  mockTokenIngestionService,
-		Metrics:                m,
-		Network:                network.TestNetworkPassphrase,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         &LedgerBackendMock{},
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
 	})
 	require.NoError(t, err)
 
@@ -334,10 +335,11 @@ func Test_persistLedgerData_CoalescesBalanceUpsertsAcrossBatch(t *testing.T) {
 			Operation:    types.AccountOpUpdate,
 			Balance:      balance,
 		})
-		return persistItem{seq: seq, buffer: buffer}
+		require.NoError(t, buffer.BuildCopyRows())
+		return persistItem{processedLedger: processedLedger{seq: seq, buffer: buffer}}
 	}
 
-	err = svc.persistLedgerData(ctx, []persistItem{item(100, 10), item(101, 20)})
+	err = svc.persistLedgerData(ctx, []persistItem{item(100, 10), item(101, 20)}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, nativeCalls, "one native/pool upsert per batch, not per ledger")
