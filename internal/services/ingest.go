@@ -298,6 +298,7 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
 		return err
 	}
+	m.recordStateChangeMetrics(stateChanges)
 	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 	return nil
 }
@@ -348,7 +349,10 @@ func (m *ingestService) insertOperationsAccounts(ctx context.Context, pgxTx pgx.
 	return nil
 }
 
-// insertStateChanges batch inserts state changes and records metrics.
+// insertStateChanges batch inserts state changes into the database. The
+// per-reason/category counters are recorded by the callers, off the write path:
+// this runs inside the state_changes persist transaction, which the live
+// pipeline serializes across every ledger of a batch.
 func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, stateChanges []types.StateChange) error {
 	if len(stateChanges) == 0 {
 		return nil
@@ -357,7 +361,6 @@ func (m *ingestService) insertStateChanges(ctx context.Context, pgxTx pgx.Tx, st
 	if err != nil {
 		return fmt.Errorf("batch inserting state changes: %w", err)
 	}
-	m.recordStateChangeMetrics(stateChanges)
 	return nil
 }
 
