@@ -296,3 +296,9 @@ func (m *TransactionModel) BatchCopyAccounts(
 		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
 		stellarAddressesByToID)
 }
+
+// CopyAccountRows streams pre-built transactions_accounts tuples (see
+// BuildAccountLinkCopyRows) and returns the number of rows the server accepted.
+func (m *TransactionModel) CopyAccountRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return CopyAccountLinkRows(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", rows)
+}

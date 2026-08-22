@@ -444,3 +444,9 @@ func (m *OperationModel) BatchCopyAccounts(
 		func(op *types.Operation) (int64, time.Time) { return op.ID, op.LedgerCreatedAt },
 		stellarAddressesByOpID)
 }
+
+// CopyAccountRows streams pre-built operations_accounts tuples (see
+// BuildAccountLinkCopyRows) and returns the number of rows the server accepted.
+func (m *OperationModel) CopyAccountRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return CopyAccountLinkRows(ctx, pgxTx, m.Metrics, "operations_accounts", "operation_id", rows)
+}

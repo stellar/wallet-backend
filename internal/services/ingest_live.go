@@ -53,16 +53,13 @@ var ErrPartialPersist = errors.New("ledger persist partially committed")
 // its buffer, which carries the ledger's ContractData changes collected by
 // the process stage. Both are shared verbatim across
 // persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
-// calls or re-collects changes. transactions and operations hold the
-// buffer's rows materialized by persistLedgerData, so the two siblings that
-// each need them share one slice.
+// calls, re-collects changes, or rebuilds the COPY rows the buffer carries
+// (IndexerBuffer.BuildCopyRows).
 type persistItem struct {
-	seq          uint32
-	closeTime    int64
-	plan         *ClassificationPlan
-	buffer       *indexer.IndexerBuffer
-	transactions []*types.Transaction
-	operations   []*types.Operation
+	seq       uint32
+	closeTime int64
+	plan      *ClassificationPlan
+	buffer    *indexer.IndexerBuffer
 }
 
 // protocolHistorySink is where stageCoordinatedWrites sends the protocol
@@ -157,22 +154,42 @@ func mergedUniqueTrustlineAssets(items []persistItem) []data.TrustlineAsset {
 // persistLedgerData.
 func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
 	return []persistSibling{
+		// The five bulk siblings stream the COPY rows the process stage
+		// prebuilt on each buffer (IndexerBuffer.BuildCopyRows): no row is
+		// built or encoded on a persist connection's critical path. The
+		// backfill path has no process/persist split and keeps using the
+		// BatchCopy compositions instead.
 		{"transactions", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactions(ctx, dbTx, it.transactions)
+			if _, err := m.models.Transactions.CopyRows(ctx, dbTx, it.buffer.GetTransactionCopyRows()); err != nil {
+				return fmt.Errorf("batch inserting transactions: %w", err)
+			}
+			return nil
 		})},
 		{"transactions_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactionsAccounts(ctx, dbTx, it.transactions, it.buffer.GetTransactionsParticipants())
+			if _, err := m.models.Transactions.CopyAccountRows(ctx, dbTx, it.buffer.GetTransactionAccountCopyRows()); err != nil {
+				return fmt.Errorf("batch inserting transactions accounts: %w", err)
+			}
+			return nil
 		})},
 		{"operations", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperations(ctx, dbTx, it.operations)
+			if _, err := m.models.Operations.CopyRows(ctx, dbTx, it.buffer.GetOperationCopyRows()); err != nil {
+				return fmt.Errorf("batch inserting operations: %w", err)
+			}
+			return nil
 		})},
 		{"operations_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperationsAccounts(ctx, dbTx, it.operations, it.buffer.GetOperationsParticipants())
+			if _, err := m.models.Operations.CopyAccountRows(ctx, dbTx, it.buffer.GetOperationAccountCopyRows()); err != nil {
+				return fmt.Errorf("batch inserting operations accounts: %w", err)
+			}
+			return nil
 		})},
 		{"state_changes", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			stateChangesMu.Lock()
 			defer stateChangesMu.Unlock()
-			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
+			if _, err := m.models.StateChanges.CopyRows(ctx, dbTx, it.buffer.GetStateChangeCopyRows()); err != nil {
+				return fmt.Errorf("batch inserting state changes: %w", err)
+			}
+			return nil
 		})},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every
@@ -248,12 +265,6 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		if items[i].seq == 0 {
 			return fmt.Errorf("persisting %s: ledger sequence 0 is not persistable", label)
 		}
-		// Materialize the buffer's rows once per ledger: the transactions and
-		// transactions_accounts siblings share one transaction slice, and the
-		// two operations siblings share one operation slice, rather than each
-		// getter rebuilding its slice per sibling.
-		items[i].transactions = items[i].buffer.GetTransactions()
-		items[i].operations = items[i].buffer.GetOperations()
 	}
 
 	// Every transaction is owned by this goroutine: the coordinating
@@ -1017,6 +1028,13 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 		if err := m.processLedger(ctx, fl.meta, buffer); err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
+		}
+		// Materialize the bulk tables' COPY rows here, on the process stage:
+		// the persist stage's COPYs stream these tuples as-is, so the
+		// row-building CPU never sits on a persist connection's critical path.
+		if err := buffer.BuildCopyRows(); err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("building COPY rows for ledger %d: %w", fl.seq, err)
 		}
 		processDuration := time.Since(processStart)
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())

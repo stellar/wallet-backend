@@ -3339,6 +3339,9 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		buffer.PushTransaction(testAddr1, &tx)
 		buffer.PushOperation(testAddr1, &op, &tx)
 		buffer.PushStateChange(&tx, &op, sc)
+		// The process stage prebuilds the COPY rows before handing a buffer to
+		// persist; a test faking that handoff must do the same.
+		require.NoError(t, buffer.BuildCopyRows())
 		return persistItem{seq: seq, buffer: buffer}
 	}
 
@@ -3502,6 +3505,9 @@ func Test_persistProcessedLedgers_recordsStateChangeMetricsAfterCommit(t *testin
 	buffer.PushOperation(testAddr1, &op, &tx)
 	buffer.PushStateChange(&tx, &op, sc1)
 	buffer.PushStateChange(&tx, &op, sc2)
+	// The process stage prebuilds the COPY rows before handing a buffer to
+	// persist; a test faking that handoff must do the same.
+	require.NoError(t, buffer.BuildCopyRows())
 
 	processed := make(chan processedLedger, 1)
 	processed <- processedLedger{seq: ledgerSeq, buffer: buffer}
@@ -3566,11 +3572,12 @@ func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 	require.NoError(t, err)
 	ingestSvc := svc
 
-	tx := createTestTransaction("collision-hash", 100)
+	tx := createTestTransaction(fmt.Sprintf("%064x", ledgerSeq), 100)
 	op := createTestOperation(101)
 	buffer := indexer.NewIndexerBuffer()
 	buffer.PushTransaction(testAddr1, &tx)
 	buffer.PushOperation(testAddr1, &op, &tx)
+	require.NoError(t, buffer.BuildCopyRows())
 
 	// Pre-insert a row with the transaction's exact primary key (to_id, ledger_created_at) so
 	// the transactions sibling's COPY fails after the other siblings have streamed their rows.
