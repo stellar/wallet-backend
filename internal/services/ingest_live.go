@@ -153,10 +153,10 @@ func batchLabel(items []persistItem) string {
 // another) stream concurrently on sibling connections, each in its own
 // transaction covering every ledger in the batch, while the coordinating
 // transaction stages everything else (contracts, classification, protocol
-// current state, SAC balances, cursor — protocol history rows ride the
+// current state, SAC balances — protocol history rows ride the
 // state_changes sibling) ledger by ledger in order — the per-protocol
-// CAS chain advances N-1 → N inside the transaction, and the guarded
-// cursor's final value is the batch's last ledger. All the slow work
+// CAS chain advances N-1 → N inside the transaction, and one guarded
+// cursor update after the last ledger sets the batch's last value. All the slow work
 // happens uncommitted and invisible; only after every stream and the
 // coordinator succeed do the commits fire, siblings first and the
 // coordinating transaction strictly last. The cursor it carries is the
@@ -307,6 +307,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
 		}
+		// Advance the latest-ledger cursor once for the whole batch. This
+		// transaction commits atomically, so only the batch's final value was
+		// ever observable; per-ledger updates would be N-1 wasted round trips.
+		// The update is guarded: a session that silently lost its advisory
+		// lock (server-side failover, see startLiveIngestion's
+		// checkLockSession) must not blindly overwrite a value a second
+		// instance already advanced, or the cursor could regress.
+		if curErr := m.models.IngestStore.UpdateGuarded(gctx, coordTx, data.LatestLedgerCursorName, items[0].seq, items[len(items)-1].seq); curErr != nil {
+			return fmt.Errorf("updating cursor for %s: %w", label, curErr)
+		}
 		return nil
 	})
 	if err = g.Wait(); err != nil {
@@ -357,8 +367,10 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 
 // stageCoordinatedWrites runs every per-ledger write the siblings don't own
 // on the coordinating transaction: SAC contract tokens, protocol
-// classification and wasm/contract rows, CAS-gated protocol state, the SAC
-// balance changes, and finally the guarded cursor.
+// classification and wasm/contract rows, CAS-gated protocol state, and the
+// SAC balance changes. The guarded latest-ledger cursor is not per-ledger
+// work: the coordinator goroutine advances it once after the batch's last
+// ledger stages.
 //
 // One exception: protocol history rows are state_changes rows, so they go
 // through history (the state_changes sibling), not this transaction. Their
@@ -569,14 +581,6 @@ func (m *ingestService) stageCoordinatedWrites(
 		buffer.GetSACBalanceChanges(),
 	); txErr != nil {
 		return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
-	}
-
-	// 5. Advance the latest-ledger cursor. The update is guarded: a session that
-	// silently lost its advisory lock (server-side failover, see startLiveIngestion's
-	// checkLockSession) must not blindly overwrite a value a second instance already
-	// advanced, or the cursor could regress.
-	if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, data.LatestLedgerCursorName, ledgerSeq); txErr != nil {
-		return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 	}
 
 	return nil
