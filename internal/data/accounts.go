@@ -66,13 +66,9 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 }
 
 // batchCopyAccounts inserts the rows of an account-link table (transactions_accounts,
-// operations_accounts) using pgx's binary COPY protocol. parents supplies each link's
-// ledger_created_at — the link table's partition column — through idAndCreatedAt, keyed
-// by the same ID that keys addressesByID; both arguments come from the same buffer and
-// are read only. idColumn names the link table's ID column.
-//
-// IMPORTANT: like the parent table's BatchCopy, this FAILS on duplicates — COPY has no
-// conflict handling.
+// operations_accounts) using pgx's binary COPY protocol: it materializes every link up
+// front with BuildAccountLinkCopyRows, then streams them with CopyAccountLinkRows.
+// idColumn names the link table's parent-ID column.
 func batchCopyAccounts[T any](
 	ctx context.Context,
 	pgxTx pgx.Tx,
@@ -83,11 +79,44 @@ func batchCopyAccounts[T any](
 	idAndCreatedAt func(T) (int64, time.Time),
 	addressesByID map[int64]map[string]struct{},
 ) error {
-	if len(addressesByID) == 0 {
-		return nil
+	rows, err := BuildAccountLinkCopyRows(nil, parents, idAndCreatedAt, addressesByID, make(types.AddressByteaMemo))
+	if err != nil {
+		return fmt.Errorf("building %s COPY rows: %w", table, err)
 	}
+	if _, err := CopyAccountLinkRows(ctx, pgxTx, dbMetrics, table, idColumn, rows); err != nil {
+		return err
+	}
+	return nil
+}
 
-	start := time.Now()
+// accountLinkCopyColumns is the COPY column order for an account-link table; idColumn is
+// that table's parent-ID column (tx_to_id, operation_id). The order returned here is the
+// tuple order BuildAccountLinkCopyRows appends below — the two must be read together.
+func accountLinkCopyColumns(idColumn string) []string {
+	return []string{"ledger_created_at", idColumn, "account_id"}
+}
+
+// BuildAccountLinkCopyRows appends one accountLinkCopyColumns-shaped tuple per
+// (parent, participant address) link to rows and returns the extended slice, so callers
+// can reuse one backing array across batches. parents supplies each link's
+// ledger_created_at — the link table's partition column — through idAndCreatedAt, keyed by
+// the same ID that keys addressesByID; both arguments are read only.
+//
+// memo caches strkey→BYTEA conversions across the appended rows; it is a plain map, so one
+// call must not share it with another goroutine. Participants are deduplicated per parent
+// row upstream, so a busy account repeats once per transaction/operation here and the memo
+// collapses that to one decode per unique address per build. Upstream participants
+// handling ensures that account address is not NULL here.
+func BuildAccountLinkCopyRows[T any](
+	rows [][]any,
+	parents []T,
+	idAndCreatedAt func(T) (int64, time.Time),
+	addressesByID map[int64]map[string]struct{},
+	memo types.AddressByteaMemo,
+) ([][]any, error) {
+	if len(addressesByID) == 0 {
+		return rows, nil
+	}
 
 	// Build ID -> LedgerCreatedAt lookup from the parent rows
 	ledgerCreatedAtByID := make(map[int64]time.Time, len(parents))
@@ -96,12 +125,6 @@ func batchCopyAccounts[T any](
 		ledgerCreatedAtByID[id] = ledgerCreatedAt
 	}
 
-	// COPY the link table using pgx binary format with native pgtype types. Upstream
-	// participants handling ensures that account address is not NULL here.
-	// Participants are deduplicated per parent row upstream, so a busy account
-	// repeats once per transaction/operation here; the memo collapses that to
-	// one decode per unique address per batch.
-	memo := make(types.AddressByteaMemo)
 	type linkRow struct {
 		createdAt pgtype.Timestamptz
 		id        int64
@@ -114,13 +137,13 @@ func batchCopyAccounts[T any](
 			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
 			// the hypertable — and means the caller's parent rows and
 			// participants disagree about which IDs exist.
-			return fmt.Errorf("no row supplies ledger_created_at for %s %d", idColumn, id)
+			return nil, fmt.Errorf("no row supplies ledger_created_at for %d", id)
 		}
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		for addr := range addresses {
 			addrBytes, addrErr := memo.Bytes(types.AddressBytea(addr))
 			if addrErr != nil {
-				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+				return nil, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 			}
 			links = append(links, linkRow{createdAt: ledgerCreatedAtPgtype, id: id, addr: addrBytes})
 		}
@@ -135,25 +158,40 @@ func batchCopyAccounts[T any](
 		}
 		return cmp.Compare(a.id, b.id)
 	})
-	rows := make([][]any, len(links))
-	for i, link := range links {
-		rows[i] = []any{link.createdAt, pgtype.Int8{Int64: link.id, Valid: true}, link.addr}
+	for _, link := range links {
+		rows = append(rows, []any{link.createdAt, pgtype.Int8{Int64: link.id, Valid: true}, link.addr})
+	}
+	return rows, nil
+}
+
+// CopyAccountLinkRows streams pre-built account-link tuples (see BuildAccountLinkCopyRows)
+// into table with pgx's binary COPY protocol and returns the number of rows the server
+// accepted. idColumn names the link table's parent-ID column.
+//
+// IMPORTANT: like the parent table's BatchCopy, this FAILS on duplicates — COPY has no
+// conflict handling.
+func CopyAccountLinkRows(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	dbMetrics *metrics.DBMetrics,
+	table string,
+	idColumn string,
+	rows [][]any,
+) (int64, error) {
+	if len(rows) == 0 {
+		return 0, nil
 	}
 
-	_, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{table},
-		[]string{"ledger_created_at", idColumn, "account_id"},
-		pgx.CopyFromRows(rows),
-	)
+	start := time.Now()
+	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{table}, accountLinkCopyColumns(idColumn), pgx.CopyFromRows(rows))
 	duration := time.Since(start).Seconds()
 	dbMetrics.QueryDuration.WithLabelValues("BatchCopyAccounts", table).Observe(duration)
 	dbMetrics.BatchSize.WithLabelValues("BatchCopyAccounts", table).Observe(float64(len(rows)))
 	dbMetrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", table).Inc()
 	if err != nil {
 		dbMetrics.QueryErrors.WithLabelValues("BatchCopyAccounts", table, utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("pgx CopyFrom %s: %w", table, err)
+		return 0, fmt.Errorf("pgx CopyFrom %s: %w", table, err)
 	}
 
-	return nil
+	return copyCount, nil
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -527,4 +528,75 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, ops, 1, "time-pinned child lookup must find the operation via the hydrated timestamp")
 	assert.Equal(t, int64(4098), ops[0].Operation.ID)
+}
+
+func TestBuildTransactionCopyRows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	hash := types.HashBytea("f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877")
+	hashBytes, err := hash.Value()
+	require.NoError(t, err)
+
+	txs := []*types.Transaction{
+		{
+			Hash:            hash,
+			ToID:            4096,
+			FeeCharged:      100,
+			ResultCode:      "TransactionResultCodeTxSuccess",
+			LedgerNumber:    42,
+			LedgerCreatedAt: now,
+			IsFeeBump:       true,
+		},
+		{
+			Hash:            hash,
+			ToID:            8192,
+			FeeCharged:      0,
+			ResultCode:      "TransactionResultCodeTxFailed",
+			LedgerNumber:    43,
+			LedgerCreatedAt: now,
+			IsFeeBump:       false,
+		},
+	}
+
+	want := [][]any{
+		{
+			hashBytes,
+			pgtype.Int8{Int64: 4096, Valid: true},
+			pgtype.Int8{Int64: 100, Valid: true},
+			pgtype.Text{String: "TransactionResultCodeTxSuccess", Valid: true},
+			pgtype.Int4{Int32: 42, Valid: true},
+			pgtype.Timestamptz{Time: now, Valid: true},
+			pgtype.Bool{Bool: true, Valid: true},
+		},
+		{
+			hashBytes,
+			pgtype.Int8{Int64: 8192, Valid: true},
+			pgtype.Int8{Int64: 0, Valid: true},
+			pgtype.Text{String: "TransactionResultCodeTxFailed", Valid: true},
+			pgtype.Int4{Int32: 43, Valid: true},
+			pgtype.Timestamptz{Time: now, Valid: true},
+			pgtype.Bool{Bool: false, Valid: true},
+		},
+	}
+
+	// The pre-sized slice is reused across builds, so the second build must append
+	// rather than overwrite.
+	rows := make([][]any, 0, len(txs))
+	rows, err = BuildTransactionCopyRows(rows, txs[:1])
+	require.NoError(t, err)
+	rows, err = BuildTransactionCopyRows(rows, txs[1:])
+	require.NoError(t, err)
+	require.Len(t, rows, len(want))
+	for i := range want {
+		require.Len(t, rows[i], len(transactionCopyColumns), "row width must match the COPY column list")
+		require.Len(t, want[i], len(transactionCopyColumns), "expectation width must match the COPY column list")
+		for j := range want[i] {
+			assert.Equal(t, want[i][j], rows[i][j], "row %d column %s", i, transactionCopyColumns[j])
+		}
+	}
+}
+
+func TestBuildTransactionCopyRows_InvalidHash(t *testing.T) {
+	_, err := BuildTransactionCopyRows(nil, []*types.Transaction{{Hash: types.HashBytea("nothex"), ToID: 4096}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "converting hash")
 }
