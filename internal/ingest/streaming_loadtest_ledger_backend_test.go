@@ -619,6 +619,32 @@ func TestStreamingLoadtestBackend_RejectsSequenceGapWithinEpoch(t *testing.T) {
 	require.ErrorContains(t, err, "sequence mismatch within stream epoch")
 }
 
+func TestStreamingLoadtestBackend_ConcatenatedRunsStartImplicitEpoch(t *testing.T) {
+	paths := mkFIFOs(t, 1)
+	backend := newStreamingBackend(t, paths, 0)
+
+	// Two runs' frames arrive on one uninterrupted byte stream — the shape a
+	// corpus replayer produces when it reattaches its pipe before the reader
+	// drained to EOF. The raw sequence stepping backwards (4 -> 2) marks the
+	// second run; the backend must treat it as an epoch boundary and keep
+	// renumbering monotonically instead of erroring.
+	feeder := newPipeFeeder(t, paths[0])
+	feeder.send(
+		makeStreamLedger(2, 1), makeStreamLedger(3, 1), makeStreamLedger(4, 1),
+		makeStreamLedger(2, 1), makeStreamLedger(3, 1),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamTestTimeout)
+	defer cancel()
+	require.NoError(t, backend.PrepareRange(ctx, ledgerbackend.UnboundedRange(1)))
+
+	for _, want := range []uint32{1, 2, 3, 4, 5} {
+		lcm, err := backend.GetLedger(ctx, want)
+		require.NoError(t, err)
+		assert.Equal(t, want, lcm.LedgerSequence())
+	}
+}
+
 func TestNewLedgerBackend_StreamingLoadtest(t *testing.T) {
 	backend, err := NewLedgerBackend(context.Background(), Configs{
 		LedgerBackendType:           LedgerBackendTypeStreamingLoadtest,
