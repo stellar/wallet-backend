@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,6 +102,52 @@ func perLedger(f func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error) 
 	}
 }
 
+// mergedAcrossLedgers folds each ledger's netted per-key change map into one
+// map by unconditional overwrite in ascending ledger order: a later ledger's
+// final state for a key supersedes an earlier ledger's entirely. Removes are
+// ordinary values here, so a remove that survives the merge still executes
+// its delete; a key absent from a later ledger keeps the earlier ledger's
+// final state, which is exactly what per-ledger upserts would have left
+// behind. Order values are NEVER compared across ledgers — AccountChange's
+// SortKey is a within-ledger rank with no ledger term — which is why this
+// overwrites in ledger order instead of reusing the buffer's
+// highest-order-wins push. Items must be in ascending ledger order
+// (persistProcessedLedgers builds them that way from its FIFO queue). With a
+// single item the buffer's live map passes through uncopied; callers must
+// treat every returned map as read-only.
+func mergedAcrossLedgers[K comparable, V any](items []persistItem, get func(*indexer.IndexerBuffer) map[K]V) map[K]V {
+	if len(items) == 1 {
+		return get(items[0].buffer)
+	}
+	merged := make(map[K]V)
+	for i := range items {
+		maps.Copy(merged, get(items[i].buffer))
+	}
+	return merged
+}
+
+// mergedUniqueTrustlineAssets deduplicates the batch's trustline assets by
+// their content-derived deterministic ID ahead of the one BatchInsert. With a
+// single item the buffer's slice passes through uncopied; callers must treat
+// it as read-only.
+func mergedUniqueTrustlineAssets(items []persistItem) []data.TrustlineAsset {
+	if len(items) == 1 {
+		return items[0].buffer.GetUniqueTrustlineAssets()
+	}
+	seen := make(map[uuid.UUID]struct{})
+	var assets []data.TrustlineAsset
+	for i := range items {
+		for _, asset := range items[i].buffer.GetUniqueTrustlineAssets() {
+			if _, ok := seen[asset.ID]; ok {
+				continue
+			}
+			seen[asset.ID] = struct{}{}
+			assets = append(assets, asset)
+		}
+	}
+	return assets
+}
+
 // persistSiblings builds the sibling set persistLedgerData streams
 // concurrently. The first five own the bulk-COPY tables (data.BulkCopyTables,
 // which startup reconciliation reads to clear their orphans); the last two own
@@ -132,21 +180,28 @@ func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSib
 		// stageCoordinatedWrites: their parent (contract_tokens) is also written
 		// by the classification path there, and a same-key insert from two
 		// concurrent transactions could deadlock at the commit barrier.
-		{"balances", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		//
+		// Both balance families upsert ONCE per batch over the ledgers' merged
+		// final state (mergedAcrossLedgers): a batch that touches an account N
+		// times writes one tuple version instead of N. Values that change and
+		// revert within a batch net to zero row writes — same end state, less
+		// WAL — because the data layer's no-op guards see identical values.
+		{"balances", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
 			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
-				it.buffer.GetAccountChanges(),
-				it.buffer.GetLiquidityPoolShareChanges(),
-				it.buffer.GetLiquidityPoolChanges(),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetAccountChanges),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetLiquidityPoolShareChanges),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetLiquidityPoolChanges),
 			)
-		})},
-		{"trustlines", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+		}},
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if uniqueAssets := mergedUniqueTrustlineAssets(items); len(uniqueAssets) > 0 {
 				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
 					return fmt.Errorf("inserting trustline assets: %w", err)
 				}
 			}
-			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
-		})},
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx,
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetTrustlineChanges))
+		}},
 	}
 }
 
