@@ -65,11 +65,20 @@ func (d DepthLimit) MutateOperationContext(_ context.Context, opCtx *graphql.Ope
 // how they read in the query); FragmentSpreads are resolved against fragments and otherwise
 // treated the same as an InlineFragment.
 func selectionSetDepth(set ast.SelectionSet, fragments ast.FragmentDefinitionList) int {
-	return selectionSetDepthMemo(set, fragments, map[string]bool{}, map[string]int{}, 0)
+	// ast.FragmentDefinitionList is a slice, so its ForName is a linear scan. Index it by name
+	// once here so spread resolution during the walk is O(1) rather than O(fragments) per spread
+	// (which would make an adversarial fan-out Θ(fragments²)).
+	fragmentsByName := make(map[string]*ast.FragmentDefinition, len(fragments))
+	for _, def := range fragments {
+		if _, exists := fragmentsByName[def.Name]; !exists {
+			fragmentsByName[def.Name] = def
+		}
+	}
+	return selectionSetDepthMemo(set, fragmentsByName, map[string]bool{}, map[string]int{}, 0)
 }
 
-// selectionSetDepthMemo is the recursive core of selectionSetDepth, threading two maps through the
-// walk: visitedFragments and fragmentDepths.
+// selectionSetDepthMemo is the recursive core of selectionSetDepth, threading three maps through
+// the walk: fragmentsByName, visitedFragments, and fragmentDepths.
 //
 // visitedFragments tracks fragment names currently on the recursion stack, guarding against a
 // fragment that (directly or transitively) spreads itself: rather than recursing forever, a
@@ -81,17 +90,17 @@ func selectionSetDepth(set ast.SelectionSet, fragments ast.FragmentDefinitionLis
 // encounter we simply add the current depth. Without this cache, a fragment reachable through
 // multiple spreads is re-expanded on every path to it, so a document whose fragments fan out into
 // one another can force work that grows exponentially with the number of fragments even though the
-// document itself is small and its actual depth is shallow. Memoizing bounds the walk to
-// O(number of fragments + selections).
-func selectionSetDepthMemo(set ast.SelectionSet, fragments ast.FragmentDefinitionList, visitedFragments map[string]bool, fragmentDepths map[string]int, depth int) int {
+// document itself is small and its actual depth is shallow. Together with the O(1) fragmentsByName
+// lookup, memoizing bounds the walk to O(number of fragments + selections).
+func selectionSetDepthMemo(set ast.SelectionSet, fragmentsByName map[string]*ast.FragmentDefinition, visitedFragments map[string]bool, fragmentDepths map[string]int, depth int) int {
 	maxDepth := depth
 	for _, sel := range set {
 		var childDepth int
 		switch sel := sel.(type) {
 		case *ast.Field:
-			childDepth = selectionSetDepthMemo(sel.SelectionSet, fragments, visitedFragments, fragmentDepths, depth+1)
+			childDepth = selectionSetDepthMemo(sel.SelectionSet, fragmentsByName, visitedFragments, fragmentDepths, depth+1)
 		case *ast.InlineFragment:
-			childDepth = selectionSetDepthMemo(sel.SelectionSet, fragments, visitedFragments, fragmentDepths, depth)
+			childDepth = selectionSetDepthMemo(sel.SelectionSet, fragmentsByName, visitedFragments, fragmentDepths, depth)
 		case *ast.FragmentSpread:
 			if visitedFragments[sel.Name] {
 				continue
@@ -100,12 +109,12 @@ func selectionSetDepthMemo(set ast.SelectionSet, fragments ast.FragmentDefinitio
 			// expand it once (from depth 0, guarded against cycles) and cache the result.
 			relDepth, cached := fragmentDepths[sel.Name]
 			if !cached {
-				def := fragments.ForName(sel.Name)
-				if def == nil {
+				def, ok := fragmentsByName[sel.Name]
+				if !ok {
 					continue
 				}
 				visitedFragments[sel.Name] = true
-				relDepth = selectionSetDepthMemo(def.SelectionSet, fragments, visitedFragments, fragmentDepths, 0)
+				relDepth = selectionSetDepthMemo(def.SelectionSet, fragmentsByName, visitedFragments, fragmentDepths, 0)
 				delete(visitedFragments, sel.Name)
 				fragmentDepths[sel.Name] = relDepth
 			}
