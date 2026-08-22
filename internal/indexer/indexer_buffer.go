@@ -4,7 +4,9 @@
 package indexer
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -181,12 +183,14 @@ func (b *IndexerBuffer) GetNumberOfOperations() int {
 	return len(b.opByID)
 }
 
-// GetTransactions returns all unique transactions.
+// GetTransactions returns all unique transactions in ascending ToID order. The transactions
+// hypertable's primary key leads with to_id, so COPYing in this order walks the index left to right.
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	txs := make([]*types.Transaction, 0, len(b.txByToID))
 	for _, txPtr := range b.txByToID {
 		txs = append(txs, txPtr)
 	}
+	slices.SortFunc(txs, func(a, b *types.Transaction) int { return cmp.Compare(a.ToID, b.ToID) })
 
 	return txs
 }
@@ -376,12 +380,14 @@ func (b *IndexerBuffer) PushOperation(participant string, operation *types.Opera
 	b.recordTransaction(participant, transaction)
 }
 
-// GetOperations returns all unique operations from the canonical storage.
+// GetOperations returns all unique operations from the canonical storage in ascending ID order.
+// The operations primary key is its only index, so COPYing in this order walks it left to right.
 func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	ops := make([]*types.Operation, 0, len(b.opByID))
 	for _, opPtr := range b.opByID {
 		ops = append(ops, opPtr)
 	}
+	slices.SortFunc(ops, func(a, b *types.Operation) int { return cmp.Compare(a.ID, b.ID) })
 	return ops
 }
 

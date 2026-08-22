@@ -202,6 +202,29 @@ func TestIndexerBuffer_GetAllTransactions(t *testing.T) {
 	})
 }
 
+func TestIndexerBuffer_GetTransactions_SortedByToID(t *testing.T) {
+	t.Run("🟢 returns transactions in ascending ToID order", func(t *testing.T) {
+		indexerBuffer := NewIndexerBuffer()
+
+		tx3 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 3}
+		tx1 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 1}
+		tx2 := types.Transaction{Hash: "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763", ToID: 2}
+
+		indexerBuffer.PushTransaction("alice", &tx3)
+		indexerBuffer.PushTransaction("bob", &tx1)
+		indexerBuffer.PushTransaction("charlie", &tx2)
+
+		allTxs := indexerBuffer.GetTransactions()
+		require.Len(t, allTxs, 3)
+
+		toIDs := make([]int64, 0, len(allTxs))
+		for _, tx := range allTxs {
+			toIDs = append(toIDs, tx.ToID)
+		}
+		assert.Equal(t, []int64{1, 2, 3}, toIDs)
+	})
+}
+
 func TestIndexerBuffer_GetAllTransactionsParticipants(t *testing.T) {
 	t.Run("🟢 returns correct participants mapping", func(t *testing.T) {
 		indexerBuffer := NewIndexerBuffer()
@@ -234,6 +257,30 @@ func TestIndexerBuffer_GetAllOperations(t *testing.T) {
 		allOps := indexerBuffer.GetOperations()
 		require.Len(t, allOps, 2)
 		assert.ElementsMatch(t, []*types.Operation{&op1, &op2}, allOps)
+	})
+}
+
+func TestIndexerBuffer_GetOperations_SortedByID(t *testing.T) {
+	t.Run("🟢 returns operations in ascending ID order", func(t *testing.T) {
+		indexerBuffer := NewIndexerBuffer()
+
+		tx1 := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+		op3 := types.Operation{ID: 3}
+		op1 := types.Operation{ID: 1}
+		op2 := types.Operation{ID: 2}
+
+		indexerBuffer.PushOperation("alice", &op3, &tx1)
+		indexerBuffer.PushOperation("bob", &op1, &tx1)
+		indexerBuffer.PushOperation("charlie", &op2, &tx1)
+
+		allOps := indexerBuffer.GetOperations()
+		require.Len(t, allOps, 3)
+
+		ids := make([]int64, 0, len(allOps))
+		for _, op := range allOps {
+			ids = append(ids, op.ID)
+		}
+		assert.Equal(t, []int64{1, 2, 3}, ids)
 	})
 }
 
