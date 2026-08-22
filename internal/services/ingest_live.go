@@ -80,23 +80,10 @@ func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProc
 }
 
 // persistSibling is one sibling transaction: the table family it owns and the
-// per-ledger writes it streams.
+// writes it streams for a batch of ledgers.
 type persistSibling struct {
 	name string
 	run  func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error
-}
-
-// perLedger adapts a per-ledger sibling write to the batch run signature,
-// applying it to each item in ascending ledger order.
-func perLedger(f func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error) func(context.Context, pgx.Tx, []persistItem) error {
-	return func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
-		for i := range items {
-			if err := f(ctx, dbTx, &items[i]); err != nil {
-				return fmt.Errorf("ledger %d: %w", items[i].seq, err)
-			}
-		}
-		return nil
-	}
 }
 
 // mergedAcrossLedgers folds each ledger's netted per-key change map into one
@@ -145,6 +132,28 @@ func mergedUniqueTrustlineAssets(items []persistItem) []data.TrustlineAsset {
 	return assets
 }
 
+// concatCopyRows concatenates the batch's prebuilt COPY rows in item order.
+// Per-ledger rows are already in primary-key order and the parent tables'
+// keys are ledger-monotonic, so item-order concatenation preserves global
+// order for them; the account-link tables become at most batch-size sorted
+// runs, which walk the btree exactly as the sequential per-ledger COPYs did.
+// With a single item the buffer's live slice passes through uncopied; callers
+// must treat the result as read-only.
+func concatCopyRows(items []persistItem, get func(*indexer.IndexerBuffer) [][]any) [][]any {
+	if len(items) == 1 {
+		return get(items[0].buffer)
+	}
+	total := 0
+	for i := range items {
+		total += len(get(items[i].buffer))
+	}
+	rows := make([][]any, 0, total)
+	for i := range items {
+		rows = append(rows, get(items[i].buffer)...)
+	}
+	return rows
+}
+
 // persistSiblings builds the sibling set persistLedgerData streams
 // concurrently. The first five own the bulk-COPY tables (data.BulkCopyTables,
 // which startup reconciliation reads to clear their orphans); the last two own
@@ -156,41 +165,44 @@ func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSib
 	return []persistSibling{
 		// The five bulk siblings stream the COPY rows the process stage
 		// prebuilt on each buffer (IndexerBuffer.BuildCopyRows): no row is
-		// built or encoded on a persist connection's critical path. The
+		// built or encoded on a persist connection's critical path. Each runs
+		// ONE COPY per table per batch over the batch's concatenated rows
+		// (concatCopyRows), so a coalesced batch pays one COPY setup and
+		// teardown round trip per table instead of one per ledger. The
 		// backfill path has no process/persist split and keeps using the
 		// BatchCopy compositions instead.
-		{"transactions", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if _, err := m.models.Transactions.CopyRows(ctx, dbTx, it.buffer.GetTransactionCopyRows()); err != nil {
+		{"transactions", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Transactions.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)); err != nil {
 				return fmt.Errorf("batch inserting transactions: %w", err)
 			}
 			return nil
-		})},
-		{"transactions_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if _, err := m.models.Transactions.CopyAccountRows(ctx, dbTx, it.buffer.GetTransactionAccountCopyRows()); err != nil {
+		}},
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Transactions.CopyAccountRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionAccountCopyRows)); err != nil {
 				return fmt.Errorf("batch inserting transactions accounts: %w", err)
 			}
 			return nil
-		})},
-		{"operations", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if _, err := m.models.Operations.CopyRows(ctx, dbTx, it.buffer.GetOperationCopyRows()); err != nil {
+		}},
+		{"operations", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Operations.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationCopyRows)); err != nil {
 				return fmt.Errorf("batch inserting operations: %w", err)
 			}
 			return nil
-		})},
-		{"operations_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if _, err := m.models.Operations.CopyAccountRows(ctx, dbTx, it.buffer.GetOperationAccountCopyRows()); err != nil {
+		}},
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Operations.CopyAccountRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationAccountCopyRows)); err != nil {
 				return fmt.Errorf("batch inserting operations accounts: %w", err)
 			}
 			return nil
-		})},
-		{"state_changes", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		}},
+		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
 			stateChangesMu.Lock()
 			defer stateChangesMu.Unlock()
-			if _, err := m.models.StateChanges.CopyRows(ctx, dbTx, it.buffer.GetStateChangeCopyRows()); err != nil {
+			if _, err := m.models.StateChanges.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetStateChangeCopyRows)); err != nil {
 				return fmt.Errorf("batch inserting state changes: %w", err)
 			}
 			return nil
-		})},
+		}},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every
 		// foreign key is checked within one commit. The SAC balances remain in

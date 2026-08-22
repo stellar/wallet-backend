@@ -222,6 +222,59 @@ func Test_mergedAcrossLedgers(t *testing.T) {
 	})
 }
 
+// Test_concatCopyRows pins the batch-level COPY input: one COPY per table per
+// batch means the rows must arrive in item order, which is ascending ledger
+// order, so the concatenation keeps the ledger-monotonic key order the
+// sequential per-ledger COPYs had.
+func Test_concatCopyRows(t *testing.T) {
+	// Distinct valid hashes: the transactions COPY row carries the decoded hash.
+	hashes := []string{
+		"e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760",
+		"a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761",
+		"b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
+	}
+	item := func(seq uint32, toIDs ...int64) persistItem {
+		buffer := indexer.NewIndexerBuffer()
+		for i, toID := range toIDs {
+			tx := types.Transaction{Hash: types.HashBytea(hashes[i]), ToID: toID, LedgerNumber: seq}
+			buffer.PushTransaction(testAddr1, &tx)
+		}
+		require.NoError(t, buffer.BuildCopyRows())
+		return persistItem{seq: seq, buffer: buffer}
+	}
+	get := (*indexer.IndexerBuffer).GetTransactionCopyRows
+
+	t.Run("two items concatenate in item order", func(t *testing.T) {
+		first, second := item(100, 4096, 4097), item(101, 8192)
+		want := make([][]any, 0, 3)
+		want = append(want, get(first.buffer)...)
+		want = append(want, get(second.buffer)...)
+
+		got := concatCopyRows([]persistItem{first, second}, get)
+		require.Len(t, got, 3)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("single item passes the live slice through uncopied", func(t *testing.T) {
+		it := item(100, 4096)
+		got := concatCopyRows([]persistItem{it}, get)
+		require.Len(t, got, 1)
+		assert.Equal(t, reflect.ValueOf(it.buffer.GetTransactionCopyRows()).Pointer(), reflect.ValueOf(got).Pointer())
+	})
+
+	t.Run("an item with no rows does not disturb the order", func(t *testing.T) {
+		first, empty, last := item(100, 4096), item(101), item(102, 8192)
+		require.Empty(t, get(empty.buffer))
+		want := make([][]any, 0, 2)
+		want = append(want, get(first.buffer)...)
+		want = append(want, get(last.buffer)...)
+
+		got := concatCopyRows([]persistItem{first, empty, last}, get)
+		require.Len(t, got, 2)
+		assert.Equal(t, want, got)
+	})
+}
+
 func Test_mergedUniqueTrustlineAssets(t *testing.T) {
 	item := func(seq uint32, assets ...string) persistItem {
 		buffer := indexer.NewIndexerBuffer()
