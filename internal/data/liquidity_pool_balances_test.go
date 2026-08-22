@@ -201,6 +201,41 @@ func TestLiquidityPoolBalanceModel_BatchUpsertAndCopy(t *testing.T) {
 		require.False(t, ok)
 	})
 
+	t.Run("identical re-upsert does not rewrite the row", func(t *testing.T) {
+		cleanUpDB()
+		account := keypair.MustRandom().Address()
+		pool := poolIDHex(1)
+
+		upsert := func(lpb LiquidityPoolBalance) {
+			tx, err := dbConnectionPool.Begin(ctx)
+			require.NoError(t, err)
+			require.NoError(t, m.BatchUpsert(ctx, tx, []LiquidityPoolBalance{lpb}, nil))
+			require.NoError(t, tx.Commit(ctx))
+		}
+		readBack := func() LiquidityPoolBalance {
+			balances, err := m.GetByAccount(ctx, account, nil, nil, ASC)
+			require.NoError(t, err)
+			require.Len(t, balances, 1)
+			return balances[0]
+		}
+
+		lpb := LiquidityPoolBalance{AccountID: types.AddressBytea(account), PoolID: pool, Shares: 1000, LedgerNumber: 100}
+		upsert(lpb)
+
+		// Re-observing the same shares at a later ledger leaves the row untouched.
+		lpb.LedgerNumber = 200
+		upsert(lpb)
+		require.Equal(t, uint32(100), readBack().LedgerNumber)
+
+		// Changed shares write both the value and the ledger that changed it.
+		lpb.Shares = 2000
+		lpb.LedgerNumber = 300
+		upsert(lpb)
+		got := readBack()
+		require.Equal(t, int64(2000), got.Shares)
+		require.Equal(t, uint32(300), got.LedgerNumber)
+	})
+
 	t.Run("BatchCopy bulk inserts", func(t *testing.T) {
 		cleanUpDB()
 		account := keypair.MustRandom().Address()
@@ -278,6 +313,37 @@ func TestLiquidityPoolModel_BatchUpsertAndCopy(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 		_, ok = readPool(pool)
 		require.False(t, ok)
+	})
+
+	t.Run("identical re-upsert does not rewrite the row", func(t *testing.T) {
+		cleanUpDB()
+		pool := poolIDHex(1)
+
+		upsert := func(lp LiquidityPool) {
+			tx, err := dbConnectionPool.Begin(ctx)
+			require.NoError(t, err)
+			require.NoError(t, m.BatchUpsert(ctx, tx, []LiquidityPool{lp}, nil))
+			require.NoError(t, tx.Commit(ctx))
+		}
+
+		lp := LiquidityPool{PoolID: pool, AssetA: "native", AmountA: 100, AssetB: "USDC:ISSUER1", AmountB: 200, LedgerNumber: 100}
+		upsert(lp)
+
+		// Re-observing the same reserves at a later ledger leaves the row untouched.
+		lp.LedgerNumber = 200
+		upsert(lp)
+		got, ok := readPool(pool)
+		require.True(t, ok)
+		require.Equal(t, uint32(100), got.LedgerNumber)
+
+		// Changed reserves write both the value and the ledger that changed it.
+		lp.AmountA = 999
+		lp.LedgerNumber = 300
+		upsert(lp)
+		got, ok = readPool(pool)
+		require.True(t, ok)
+		require.Equal(t, int64(999), got.AmountA)
+		require.Equal(t, uint32(300), got.LedgerNumber)
 	})
 
 	t.Run("BatchCopy bulk inserts", func(t *testing.T) {

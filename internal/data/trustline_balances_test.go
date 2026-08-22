@@ -383,6 +383,54 @@ func TestTrustlineBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1500), balance)
 	})
+
+	t.Run("identical re-upsert does not rewrite the row", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &TrustlineBalanceModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		accountAddr := keypair.MustRandom().Address()
+		upsert := func(tl TrustlineBalance) {
+			pgxTx, err := dbConnectionPool.Begin(ctx)
+			require.NoError(t, err)
+			require.NoError(t, m.BatchUpsert(ctx, pgxTx, []TrustlineBalance{tl}, nil))
+			require.NoError(t, pgxTx.Commit(ctx))
+		}
+		readBack := func() TrustlineBalance {
+			balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
+			require.NoError(t, err)
+			require.Len(t, balances, 1)
+			return balances[0]
+		}
+
+		tl := TrustlineBalance{
+			AccountID:          types.AddressBytea(accountAddr),
+			AssetID:            assetID1,
+			Balance:            1000,
+			Limit:              10000,
+			BuyingLiabilities:  100,
+			SellingLiabilities: 50,
+			Flags:              1,
+			LedgerNumber:       100,
+		}
+		upsert(tl)
+
+		// Re-observing the same values at a later ledger leaves the row untouched.
+		tl.LedgerNumber = 200
+		upsert(tl)
+		require.Equal(t, uint32(100), readBack().LedgerNumber)
+
+		// A changed value writes both the value and the ledger that changed it.
+		tl.Balance = 2000
+		tl.LedgerNumber = 300
+		upsert(tl)
+		got := readBack()
+		require.Equal(t, int64(2000), got.Balance)
+		require.Equal(t, uint32(300), got.LedgerNumber)
+	})
 }
 
 func TestTrustlineBalanceModel_BatchCopy(t *testing.T) {
