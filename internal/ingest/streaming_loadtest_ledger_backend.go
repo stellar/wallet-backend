@@ -324,9 +324,21 @@ func (b *StreamingLoadtestLedgerBackend) nextFrame(ctx context.Context, p *metaS
 				p.seqDiff = int64(sequence) - int64(frameSeq)
 				p.diffValid = true
 				log.Infof("streaming-loadtest: source %s new epoch: raw ledger %d maps to %d (diff %d)", p.source, frameSeq, sequence, p.seqDiff)
+			} else if int64(frameSeq)+p.seqDiff < int64(sequence) {
+				// The raw sequence went backwards: a fresh apply-load run's
+				// frames arrived on the same byte stream with no intervening
+				// EOF. Runs always count up from raw 2, so a backwards step
+				// can only be a new run — which is an epoch boundary that
+				// happened to skip the close/reopen handshake (a replayer
+				// reattaching its pipe before the reader drained to EOF
+				// concatenates two runs this way). Frame alignment is intact
+				// (writers emit whole frames), so re-derive the diff exactly
+				// as a reopen would and keep going.
+				p.seqDiff = int64(sequence) - int64(frameSeq)
+				log.Infof("streaming-loadtest: source %s implicit new epoch (raw sequence reset): raw ledger %d maps to %d (diff %d)",
+					p.source, frameSeq, sequence, p.seqDiff)
 			} else if int64(frameSeq)+p.seqDiff != int64(sequence) {
-				// apply-load emits every ledger it closes, in order, with no
-				// gaps. A mismatch inside an epoch means frames were lost or
+				// A forward gap inside an epoch means frames were lost or
 				// reordered — unrecoverable, unlike a writer restart.
 				return xdr.LedgerCloseMeta{}, fmt.Errorf(
 					"sequence mismatch within stream epoch: raw ledger %d + diff %d != requested %d",
