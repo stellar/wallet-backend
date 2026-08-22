@@ -84,7 +84,20 @@ func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProc
 // per-ledger writes it streams.
 type persistSibling struct {
 	name string
-	run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
+	run  func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error
+}
+
+// perLedger adapts a per-ledger sibling write to the batch run signature,
+// applying it to each item in ascending ledger order.
+func perLedger(f func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error) func(context.Context, pgx.Tx, []persistItem) error {
+	return func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+		for i := range items {
+			if err := f(ctx, dbTx, &items[i]); err != nil {
+				return fmt.Errorf("ledger %d: %w", items[i].seq, err)
+			}
+		}
+		return nil
+	}
 }
 
 // persistSiblings builds the sibling set persistLedgerData streams
@@ -96,44 +109,44 @@ type persistSibling struct {
 // persistLedgerData.
 func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
 	return []persistSibling{
-		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		{"transactions", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertTransactions(ctx, dbTx, it.transactions)
-		}},
-		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		})},
+		{"transactions_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertTransactionsAccounts(ctx, dbTx, it.transactions, it.buffer.GetTransactionsParticipants())
-		}},
-		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		})},
+		{"operations", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertOperations(ctx, dbTx, it.operations)
-		}},
-		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		})},
+		{"operations_accounts", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.insertOperationsAccounts(ctx, dbTx, it.operations, it.buffer.GetOperationsParticipants())
-		}},
-		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		})},
+		{"state_changes", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			stateChangesMu.Lock()
 			defer stateChangesMu.Unlock()
 			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
-		}},
+		})},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every
 		// foreign key is checked within one commit. The SAC balances remain in
 		// stageCoordinatedWrites: their parent (contract_tokens) is also written
 		// by the classification path there, and a same-key insert from two
 		// concurrent transactions could deadlock at the commit barrier.
-		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		{"balances", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
 				it.buffer.GetAccountChanges(),
 				it.buffer.GetLiquidityPoolShareChanges(),
 				it.buffer.GetLiquidityPoolChanges(),
 			)
-		}},
-		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		})},
+		{"trustlines", perLedger(func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
 			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
 				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
 					return fmt.Errorf("inserting trustline assets: %w", err)
 				}
 			}
 			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
-		}},
+		})},
 	}
 }
 
@@ -291,10 +304,8 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	g, gctx := errgroup.WithContext(ctx)
 	for i, s := range siblings {
 		g.Go(func() error {
-			for j := range items {
-				if runErr := s.run(gctx, siblingTxs[i], &items[j]); runErr != nil {
-					return fmt.Errorf("streaming %s for ledger %d: %w", s.name, items[j].seq, runErr)
-				}
+			if runErr := s.run(gctx, siblingTxs[i], items); runErr != nil {
+				return fmt.Errorf("streaming %s for %s: %w", s.name, label, runErr)
 			}
 			return nil
 		})
