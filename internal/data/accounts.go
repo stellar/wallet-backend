@@ -5,8 +5,11 @@
 package data
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,7 +102,12 @@ func batchCopyAccounts[T any](
 	// repeats once per transaction/operation here; the memo collapses that to
 	// one decode per unique address per batch.
 	memo := make(types.AddressByteaMemo)
-	var rows [][]any
+	type linkRow struct {
+		createdAt pgtype.Timestamptz
+		id        int64
+		addr      []byte
+	}
+	links := make([]linkRow, 0, len(addressesByID))
 	for id, addresses := range addressesByID {
 		ledgerCreatedAt, ok := ledgerCreatedAtByID[id]
 		if !ok {
@@ -109,18 +117,27 @@ func batchCopyAccounts[T any](
 			return fmt.Errorf("no row supplies ledger_created_at for %s %d", idColumn, id)
 		}
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-		idPgtype := pgtype.Int8{Int64: id, Valid: true}
 		for addr := range addresses {
 			addrBytes, addrErr := memo.Bytes(types.AddressBytea(addr))
 			if addrErr != nil {
 				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 			}
-			rows = append(rows, []any{
-				ledgerCreatedAtPgtype,
-				idPgtype,
-				addrBytes,
-			})
+			links = append(links, linkRow{createdAt: ledgerCreatedAtPgtype, id: id, addr: addrBytes})
 		}
+	}
+	// The maps above iterate in randomized order, but the link table's primary
+	// key leads with account_id: COPYing in (account_id, id) order walks the
+	// index left-to-right, revisiting each btree page once, instead of paying a
+	// random descent — and, on a cold cache, a random page read — per row.
+	slices.SortFunc(links, func(a, b linkRow) int {
+		if c := bytes.Compare(a.addr, b.addr); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.id, b.id)
+	})
+	rows := make([][]any, len(links))
+	for i, link := range links {
+		rows[i] = []any{link.createdAt, pgtype.Int8{Int64: link.id, Valid: true}, link.addr}
 	}
 
 	_, err := pgxTx.CopyFrom(
