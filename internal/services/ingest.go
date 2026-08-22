@@ -140,12 +140,14 @@ type ingestService struct {
 	livePersistMaxBatchSize   int
 	// classifiedWasms / classifiedContracts are the persist batch cut's
 	// seen-sets: classification inputs already applied by a COMMITTED batch
-	// this process. classifiedContracts records the wasm hash each contract
-	// was last seen bound to, so a contract upgrading to a different (even
-	// already-classified) wasm counts as unclassified and opens a batch head
-	// — mid-batch ledgers therefore carry zero binding changes, which is what
-	// lets them run without a classification plan. Owned exclusively by the
-	// persist goroutine (persistProcessedLedgers) — no synchronization. See
+	// this process. Owned exclusively by the persist goroutine
+	// (persistProcessedLedgers) — no synchronization.
+	//
+	// classifiedContracts records the wasm hash each contract was last seen
+	// bound to. A contract upgrading to a different wasm — even an
+	// already-classified one — counts as unclassified and opens a batch
+	// head. Mid-batch ledgers therefore carry zero binding changes, which is
+	// what lets them run without a classification plan. See
 	// hasUnclassifiedInputs in ingest_live.go.
 	classifiedWasms     map[string]struct{}
 	classifiedContracts map[string]types.HashBytea

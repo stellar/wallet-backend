@@ -139,15 +139,17 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 }
 
 func Ingest(cfg Configs) error {
-	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// pipeline: an in-flight batch that has not reached its commit barrier rolls
-	// back entirely, while the barrier itself runs detached (context.WithoutCancel
-	// in persistLedgerData) so a batch never half-commits on shutdown. Ingestion is
-	// idempotent and gap-driven: a rolled-back batch is simply re-fetched and
-	// re-ingested on the next startup, and any sibling rows a crash strands above
-	// the committed cursor are removed by startup reconciliation
-	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the servers and
-	// tears down the remaining resources in order.
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the
+	// ingest pipeline. What happens to the in-flight batch:
+	//   - before its commit barrier: rolls back entirely;
+	//   - at the barrier: commits fully — the barrier runs detached
+	//     (context.WithoutCancel in persistLedgerData), so a batch never
+	//     half-commits on shutdown.
+	// Ingestion is idempotent and gap-driven: a rolled-back batch re-fetches
+	// and re-ingests on the next startup, and sibling rows a crash strands
+	// above the committed cursor are removed by startup reconciliation
+	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the
+	// servers and tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

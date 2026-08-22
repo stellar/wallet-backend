@@ -97,11 +97,10 @@ type persistItem struct {
 }
 
 // protocolHistorySink is where stageCoordinatedWrites sends the protocol
-// processors' history rows: the state_changes sibling transaction, serialized
-// by the same mutex as the sibling's own COPYs (pgx.Tx is not safe for
-// concurrent use). History rows are state_changes rows, and no table may be
-// written by two concurrent transactions — see the chunk-boundary deadlock
-// note at the sibling definitions in persistLedgerData.
+// processors' history rows. History rows are state_changes rows, so the sink
+// is the state_changes sibling transaction, under the same mutex as that
+// sibling's own COPYs. No table may be written by two concurrent
+// transactions — see the chunk-boundary deadlock note in persistLedgerData.
 type protocolHistorySink struct {
 	dbTx pgx.Tx
 	mu   *sync.Mutex
@@ -236,14 +235,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		}
 	}()
 
-	// The protocol processors' history rows are state_changes rows too, and two
-	// transactions inserting into the same hypertable can deadlock undetectably
-	// at a chunk boundary (TimescaleDB serializes chunk creation while the
-	// coordinating goroutine is blocked in Go, invisible to Postgres's deadlock
-	// detector). So every state_changes write — the ledger's own rows on the
-	// sibling goroutine and protocol history on the coordinating goroutine —
-	// goes through the one state_changes sibling transaction, serialized by
-	// stateChangesMu because pgx.Tx is not safe for concurrent use.
+	// Rule: every state_changes write goes through the ONE state_changes
+	// sibling transaction — the ledger's own rows (sibling goroutine) and
+	// protocol history (coordinating goroutine) alike. stateChangesMu
+	// serializes them; pgx.Tx is not safe for concurrent use.
+	//
+	// Why one transaction: two of our own transactions inserting into the
+	// same hypertable can deadlock UNDETECTABLY at a chunk boundary.
+	// TimescaleDB serializes chunk creation, and the waiting side is a
+	// goroutine blocked in Go — a cycle Postgres's deadlock detector cannot
+	// see. The result is a silent, permanent ingestion hang.
 	var stateChangesMu sync.Mutex
 	siblings := m.persistSiblings(&stateChangesMu)
 	siblingTxs := make([]pgx.Tx, len(siblings))
@@ -317,29 +318,29 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		return fmt.Errorf("persisting ledger data for %s: %w", label, err)
 	}
 
-	// Commit barrier. A failed FIRST commit still leaves nothing durable
-	// (its transaction aborts, the others roll back), so it stays retryable;
-	// once any commit has succeeded the set can no longer roll back
-	// atomically and every subsequent failure is ErrPartialPersist. The one
-	// indeterminate case — a first-commit error whose commit actually
-	// reached the server — self-heals: the retry collides on primary keys,
-	// which is permanent, and startup reconciliation repairs after restart.
+	// Commit barrier. Three properties, each load-bearing:
 	//
-	// The barrier runs detached from the pipeline context: a cancellation
-	// landing mid-barrier (SIGTERM on a rolling restart, or another stage's
-	// failure cancelling the errgroup) must not abort between commits, or a
-	// routine shutdown would manufacture a fatal ErrPartialPersist. Detached,
-	// the batch commits fully or not at all — cancellation before the barrier
-	// still rolls everything back, and the next start re-ingests cleanly.
+	// 1. Retryable until the first commit lands. A failed FIRST commit
+	//    leaves nothing durable (its transaction aborts, the others roll
+	//    back). After any success the set cannot roll back atomically, so
+	//    every later failure is ErrPartialPersist. The one indeterminate
+	//    case — a first-commit error whose commit actually reached the
+	//    server — self-heals: the retry collides on primary keys (permanent)
+	//    and startup reconciliation repairs after restart.
 	//
-	// Deliberate consistency trade: the commits are sequential, so a reader
-	// can observe the window between them — a transactions row whose
-	// participant links land a commit later, or an operation whose state
-	// changes are not yet visible. The window is one commit round-trip per
-	// sibling (the slow streaming all happened before the barrier), the
-	// cursor still commits strictly last (a ledger is only acknowledged
-	// complete), and re-reads converge. Hiding it would mean bounding every
-	// read by the committed cursor across the whole API surface.
+	// 2. Detached from the pipeline context (WithoutCancel). A cancellation
+	//    landing mid-barrier — SIGTERM on a rolling restart, or another
+	//    stage's failure — must not abort between commits, or a routine
+	//    shutdown would manufacture a fatal ErrPartialPersist. Detached, the
+	//    batch commits fully or not at all. Cancellation before the barrier
+	//    still rolls everything back.
+	//
+	// 3. Torn reads are a deliberate trade. Commits are sequential, so a
+	//    reader can briefly see a transactions row before its participant
+	//    links, or an operation before its state changes. The window is one
+	//    commit round-trip per sibling, the cursor still commits last, and
+	//    re-reads converge. Hiding it would mean bounding every read by the
+	//    committed cursor across the whole API surface.
 	commitCtx := context.WithoutCancel(ctx)
 	for i, s := range siblings {
 		if commitErr := siblingTxs[i].Commit(commitCtx); commitErr != nil {
@@ -360,13 +361,15 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 // stageCoordinatedWrites runs every per-ledger write the siblings don't own
 // on the coordinating transaction: SAC contract tokens, protocol
 // classification and wasm/contract rows, CAS-gated protocol state, the SAC
-// balance changes, and finally the guarded cursor. The one exception is
-// protocol history — those are state_changes rows, so they go through
-// history (the state_changes sibling) rather than this transaction. Their
-// CAS stays here: the siblings commit strictly before this transaction, so a
-// committed cursor still implies committed history rows, and a crash in
-// between leaves only rows above the cursor, which DeleteRowsAboveLedger
-// removes at startup like any other state_changes orphan.
+// balance changes, and finally the guarded cursor.
+//
+// One exception: protocol history rows are state_changes rows, so they go
+// through history (the state_changes sibling), not this transaction. Their
+// CAS stays here, and that is still safe:
+//   - siblings commit strictly before this transaction, so a committed
+//     cursor implies committed history rows;
+//   - a crash in between leaves only rows above the cursor, which
+//     DeleteRowsAboveLedger removes at startup like any state_changes orphan.
 func (m *ingestService) stageCoordinatedWrites(
 	ctx context.Context,
 	dbTx pgx.Tx,
@@ -1002,31 +1005,33 @@ func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) boo
 	return false
 }
 
-// markClassificationInputsSeen folds a successfully COMMITTED batch's
-// classification inputs into the seen-sets consulted by the batch cut. Only
-// committed inputs count: a rolled-back batch must keep cutting until its
-// classification actually lands. The sets are owned by the persist goroutine
-// and start empty each process — a restart just cuts conservatively until
-// re-warmed.
-//
-// Marking is unconditional on the classification VERDICT, and that is sound:
-// a verdict is either deterministic (matched, or spec extraction failed —
-// re-running cannot change it) or the whole plan failed fail-fast before
-// this function ran. The one thing a seen input can still be missing is
-// best-effort RPC enrichment (SEP-41 token metadata) absorbed by a
-// validator's Prefetch: its retry channel is the next classification pass
-// over the contract, which under a sustained persist backlog (batch > 1)
-// pauses until the pipeline catches back up to batch size 1, a restart, or
-// a binding change. Deliberate: gating seen-ness on enrichment would cut a
-// batch head per re-observation of any permanently-unfetchable token and
-// disable batching wholesale on RPC-less deployments (the loadtest rig).
-// maxClassificationSeenEntries bounds the combined seen-set size. The sets
-// otherwise grow by one entry per distinct wasm/contract ever observed —
-// unbounded over a long uptime. Clearing at the cap is safe: a miss only
-// makes the next batch cut conservative (the state at process start), and
-// the sets re-warm as batches commit.
+// maxClassificationSeenEntries bounds the combined seen-set size; at the cap
+// both maps are cleared. The sets otherwise grow by one entry per distinct
+// wasm/contract ever observed — unbounded over a long uptime. Clearing is
+// safe: a miss only makes the next batch cut conservative (the state at
+// process start), and the sets re-warm as batches commit.
 const maxClassificationSeenEntries = 100_000
 
+// markClassificationInputsSeen folds a successfully COMMITTED batch's
+// classification inputs into the seen-sets consulted by the batch cut.
+//
+//   - Only committed inputs count. A rolled-back batch must keep cutting
+//     until its classification actually lands.
+//   - Owned by the persist goroutine; starts empty each process. A restart
+//     just cuts conservatively until re-warmed.
+//   - Marking ignores the classification VERDICT, and that is sound: a
+//     verdict is either deterministic (matched, or spec extraction failed —
+//     re-running cannot change it) or the whole plan failed fail-fast before
+//     this function ran.
+//
+// One deliberate trade: a seen input can still be missing best-effort RPC
+// enrichment (SEP-41 token metadata) absorbed by a validator's Prefetch. Its
+// retry channel is the next classification pass over the contract, which
+// under a sustained persist backlog (batch > 1) pauses until the pipeline
+// catches back up to batch size 1, a restart, or a binding change. Gating
+// seen-ness on enrichment instead would cut a batch head per re-observation
+// of any permanently-unfetchable token — disabling batching wholesale on
+// RPC-less deployments (the loadtest rig).
 func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
 	if len(m.classifiedWasms)+len(m.classifiedContracts) > maxClassificationSeenEntries {
 		clear(m.classifiedWasms)
