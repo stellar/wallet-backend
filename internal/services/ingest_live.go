@@ -12,6 +12,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -187,10 +188,12 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		items[i].operations = items[i].buffer.GetOperations()
 	}
 
-	// The sibling transactions and the coordinating transaction are all opened
-	// up front on this goroutine, so ownership at the commit barrier below is
-	// deterministic; the deferred rollbacks tolerate ErrTxClosed and so are
-	// no-ops for whatever committed.
+	// Every transaction is owned by this goroutine: the coordinating
+	// transaction opens here, the sibling transactions land in slices this
+	// goroutine reads once their setup goroutines finish, and all the cleanup
+	// defers are registered on this frame — so ownership at the commit barrier
+	// below is deterministic. The deferred rollbacks tolerate ErrTxClosed and
+	// so are no-ops for whatever committed.
 	coordTx, err := m.models.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning coordinating transaction for %s: %w", label, err)
@@ -213,34 +216,62 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// see. The result is a silent, permanent ingestion hang.
 	var stateChangesMu sync.Mutex
 	siblings := m.persistSiblings(&stateChangesMu)
+	// The sibling transactions open concurrently — each Begin and SET round
+	// trip overlaps the others' instead of queueing seven deep before any
+	// COPY byte moves. Each goroutine writes only its own slice index, and
+	// Wait() orders those writes before this goroutine reads them. The pool
+	// cannot self-deadlock on the parallel Acquires: the livePersistConnections
+	// floor reserves a connection per sibling on top of the coordinating
+	// transaction and the advisory-lock session.
+	siblingConns := make([]*pgxpool.Conn, len(siblings))
 	siblingTxs := make([]pgx.Tx, len(siblings))
+	var setup errgroup.Group
 	for i, s := range siblings {
-		conn, acquireErr := m.models.DB.Acquire(ctx)
-		if acquireErr != nil {
-			return fmt.Errorf("acquiring %s connection for %s: %w", s.name, label, acquireErr)
-		}
-		defer conn.Release()
-		tx, beginErr := conn.Begin(ctx)
-		if beginErr != nil {
-			return fmt.Errorf("beginning %s transaction for %s: %w", s.name, label, beginErr)
-		}
-		siblingTxs[i] = tx
-		defer func(name string, tx pgx.Tx) {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
-				log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
+		setup.Go(func() error {
+			conn, acquireErr := m.models.DB.Acquire(ctx)
+			if acquireErr != nil {
+				return fmt.Errorf("acquiring %s connection for %s: %w", s.name, label, acquireErr)
 			}
-		}(s.name, tx)
-		// Sibling commits skip the WAL-flush wait. Durability is untouched:
-		// the coordinating transaction commits synchronously and strictly
-		// last, and its flush covers all earlier WAL — including these
-		// commit records — so a durable cursor implies durable siblings. A
-		// crash inside the window can only lose rows the cursor never
-		// acknowledged: startup reconciliation (DeleteRowsAboveLedger)
-		// removes the bulk families' anyway, and the balances sibling's
-		// idempotent upserts reapply on re-ingest.
-		if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
-			return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+			siblingConns[i] = conn
+			tx, beginErr := conn.Begin(ctx)
+			if beginErr != nil {
+				return fmt.Errorf("beginning %s transaction for %s: %w", s.name, label, beginErr)
+			}
+			siblingTxs[i] = tx
+			// Sibling commits skip the WAL-flush wait. Durability is untouched:
+			// the coordinating transaction commits synchronously and strictly
+			// last, and its flush covers all earlier WAL — including these
+			// commit records — so a durable cursor implies durable siblings. A
+			// crash inside the window can only lose rows the cursor never
+			// acknowledged: startup reconciliation (DeleteRowsAboveLedger)
+			// removes the bulk families' anyway, and the balances sibling's
+			// idempotent upserts reapply on re-ingest.
+			if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
+				return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+			}
+			return nil
+		})
+	}
+	setupErr := setup.Wait()
+	// Cleanup registration happens on this frame AFTER Wait, error or not: a
+	// failed setup goroutine does not cancel its peers (plain errgroup.Group),
+	// so every conn and tx any of them opened is in the slices by now and gets
+	// its rollback-then-release defers — the same per-sibling LIFO order the
+	// serial setup produced.
+	for i := range siblings {
+		if conn := siblingConns[i]; conn != nil {
+			defer conn.Release()
 		}
+		if tx := siblingTxs[i]; tx != nil {
+			defer func(name string, tx pgx.Tx) {
+				if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+					log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
+				}
+			}(siblings[i].name, tx)
+		}
+	}
+	if setupErr != nil {
+		return fmt.Errorf("opening sibling transactions for %s: %w", label, setupErr)
 	}
 
 	// Stream the sibling writes and stage the coordinated writes concurrently.
