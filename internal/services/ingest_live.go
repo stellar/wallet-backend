@@ -1075,6 +1075,9 @@ func (m *ingestService) recordBatchPersisted(ctx context.Context, batch []proces
 		m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 		m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
+		// The per-reason/category fold runs here, off the persist
+		// transaction the state_changes sibling serializes.
+		m.recordStateChangeMetrics(pl.buffer.GetStateChanges())
 		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
 
