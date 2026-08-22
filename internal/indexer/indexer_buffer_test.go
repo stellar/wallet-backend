@@ -1,9 +1,12 @@
 package indexer
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -982,5 +985,102 @@ func TestIndexerBuffer_PushTrustlineChange_MemoizedAssets(t *testing.T) {
 		buffer.PushTrustlineChange(trustline(addrA, 100, types.TrustlineOpAdd))
 		assert.Len(t, buffer.GetTrustlineChanges(), 1)
 		require.Len(t, buffer.GetUniqueTrustlineAssets(), 1)
+	})
+}
+
+// TestIndexerBuffer_BuildCopyRows pins that the buffer's prebuilt rows are
+// exactly what the data-layer builders produce from the same contents, and
+// that Clear() invalidates the rows while keeping their backing arrays and
+// the address memo (below its cap).
+func TestIndexerBuffer_BuildCopyRows(t *testing.T) {
+	kp1 := keypair.MustRandom()
+	kp2 := keypair.MustRandom()
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+
+	newFilledBuffer := func() *IndexerBuffer {
+		b := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 4096, LedgerNumber: 1, LedgerCreatedAt: now}
+		op := types.Operation{ID: 4097, LedgerNumber: 1, LedgerCreatedAt: now}
+		b.PushTransaction(kp1.Address(), &tx)
+		b.PushTransaction(kp2.Address(), &tx)
+		b.PushOperation(kp1.Address(), &op, &tx)
+		b.PushStateChange(&tx, &op, types.StateChange{
+			ToID:                4096,
+			StateChangeID:       1,
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   types.StateChangeReasonCredit,
+			LedgerCreatedAt:     now,
+			LedgerNumber:        1,
+			AccountID:           types.AddressBytea(kp1.Address()),
+			OperationID:         4097,
+			TokenID:             types.NullAddressBytea{AddressBytea: types.AddressBytea(kp2.Address()), Valid: true},
+			KeyValue:            types.NullableJSONB{"limit": "10"},
+		})
+		return b
+	}
+
+	t.Run("🟢 rows equal the data-layer builders' output", func(t *testing.T) {
+		b := newFilledBuffer()
+		require.NoError(t, b.BuildCopyRows())
+
+		wantTxRows, err := data.BuildTransactionCopyRows(nil, b.GetTransactions())
+		require.NoError(t, err)
+		wantOpRows, err := data.BuildOperationCopyRows(nil, b.GetOperations())
+		require.NoError(t, err)
+		wantSCRows, err := data.BuildStateChangeCopyRows(nil, b.GetStateChanges(), make(types.AddressByteaMemo))
+		require.NoError(t, err)
+		wantTxLinkRows, err := data.BuildAccountLinkCopyRows(nil, b.GetTransactions(),
+			func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
+			b.GetTransactionsParticipants(), make(types.AddressByteaMemo))
+		require.NoError(t, err)
+		wantOpLinkRows, err := data.BuildAccountLinkCopyRows(nil, b.GetOperations(),
+			func(op *types.Operation) (int64, time.Time) { return op.ID, op.LedgerCreatedAt },
+			b.GetOperationsParticipants(), make(types.AddressByteaMemo))
+		require.NoError(t, err)
+
+		assert.Equal(t, wantTxRows, b.GetTransactionCopyRows())
+		assert.Equal(t, wantOpRows, b.GetOperationCopyRows())
+		assert.Equal(t, wantSCRows, b.GetStateChangeCopyRows())
+		assert.Equal(t, wantTxLinkRows, b.GetTransactionAccountCopyRows())
+		assert.Equal(t, wantOpLinkRows, b.GetOperationAccountCopyRows())
+	})
+
+	t.Run("🟢 rebuilding replaces the previous ledger's rows", func(t *testing.T) {
+		b := newFilledBuffer()
+		require.NoError(t, b.BuildCopyRows())
+		require.Len(t, b.GetTransactionCopyRows(), 1)
+
+		b.Clear()
+		assert.Empty(t, b.GetTransactionCopyRows())
+		assert.Empty(t, b.GetOperationCopyRows())
+		assert.Empty(t, b.GetStateChangeCopyRows())
+		assert.Empty(t, b.GetTransactionAccountCopyRows())
+		assert.Empty(t, b.GetOperationAccountCopyRows())
+
+		tx := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 8192, LedgerNumber: 2, LedgerCreatedAt: now}
+		b.PushTransaction(kp1.Address(), &tx)
+		require.NoError(t, b.BuildCopyRows())
+		require.Len(t, b.GetTransactionCopyRows(), 1)
+		assert.Empty(t, b.GetOperationCopyRows())
+	})
+
+	t.Run("🟢 Clear keeps row capacity and the address memo below its cap", func(t *testing.T) {
+		b := newFilledBuffer()
+		require.NoError(t, b.BuildCopyRows())
+		require.NotEmpty(t, b.addressByteaMemo)
+		memoLen := len(b.addressByteaMemo)
+
+		b.Clear()
+		assert.NotZero(t, cap(b.transactionRows), "Clear must keep the rows' backing array")
+		assert.Len(t, b.addressByteaMemo, memoLen, "Clear must keep the memo below the cap")
+	})
+
+	t.Run("🟢 Clear drops the address memo past its cap", func(t *testing.T) {
+		b := NewIndexerBuffer()
+		for i := range maxAddressByteaMemoEntries + 1 {
+			b.addressByteaMemo[fmt.Sprintf("addr-%d", i)] = []byte{1}
+		}
+		b.Clear()
+		assert.Empty(t, b.addressByteaMemo)
 	})
 }
