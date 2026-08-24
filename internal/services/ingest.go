@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
-	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -17,7 +16,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -50,7 +48,6 @@ type IngestServiceConfig struct {
 	// === Core ===
 	IngestionMode string
 	Models        *data.Models
-	AppTracker    apptracker.AppTracker
 	Metrics       *metrics.Metrics
 
 	// === Stellar Network ===
@@ -95,17 +92,11 @@ type IngestServiceConfig struct {
 	// dispatcher uses it to extract spec entries from candidate wasm bytecode.
 	WasmSpecExtractor WasmSpecExtractor
 
-	// === Metadata Service (used for SAC; per-protocol validators/processors get
-	// it via ProtocolDeps and are responsible for their own protocol metadata) ===
-	ContractMetadataService ContractMetadataService
-
-	// === Processing Options ===
-	GetLedgersLimit int
-
 	// === Backfill Tuning ===
 	BackfillWorkers           int
 	BackfillBatchSize         int
 	BackfillDBInsertBatchSize int
+	LivePersistMaxBatchSize   int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -131,7 +122,6 @@ type ingestService struct {
 	models                    *data.Models
 	oldestLedgerCursorName    string
 	advisoryLockID            int
-	appTracker                apptracker.AppTracker
 	rpcService                RPCService
 	ledgerBackend             ledgerbackend.LedgerBackend
 	ledgerBackendFactory      LedgerBackendFactory
@@ -141,18 +131,29 @@ type ingestService struct {
 	postLockTasks             []func(context.Context)
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
-	getLedgersLimit           int
 	ledgerIndexer             *indexer.Indexer
 	archive                   historyarchive.ArchiveInterface
 	ledgerIndexerPool         pond.Pool
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
-	knownContractIDs          set.Set[string]
-	contractMetadataService   ContractMetadataService
-	protocolProcessors        map[string]ProtocolProcessor
-	protocolValidators        []ProtocolValidator
-	wasmSpecExtractor         WasmSpecExtractor
+	livePersistMaxBatchSize   int
+	// classifiedWasms / classifiedContracts are the persist batch cut's
+	// seen-sets: classification inputs already applied by a COMMITTED batch
+	// this process. Owned exclusively by the persist goroutine
+	// (persistProcessedLedgers) — no synchronization.
+	//
+	// classifiedContracts records the wasm hash each contract was last seen
+	// bound to. A contract upgrading to a different wasm — even an
+	// already-classified one — counts as unclassified and opens a batch
+	// head. Mid-batch ledgers therefore carry zero binding changes, which is
+	// what lets them run without a classification plan. See
+	// hasUnclassifiedInputs in ingest_live.go.
+	classifiedWasms     map[string]struct{}
+	classifiedContracts map[string]types.HashBytea
+	protocolProcessors  map[string]ProtocolProcessor
+	protocolValidators  []ProtocolValidator
+	wasmSpecExtractor   WasmSpecExtractor
 	// protocolCursors tracks, per protocol, whether its history/current-state
 	// ingest_store cursor rows exist. See casProtocolCursor and
 	// snapshotProtocolCursors in ingest_live.go. Always non-nil; empty maps
@@ -164,10 +165,10 @@ type ingestService struct {
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a
 	// ledger). This is CPU-bound XDR decode/processing work, not RPC-bound, so it's sized off
-	// NumCPU rather than an RPC batch size; 2x gives headroom for goroutines blocked on the
-	// occasional DB lookup without letting the pool grow unbounded (pond.NewPool(0) is
-	// unbounded).
-	ledgerIndexerPool := pond.NewPool(2 * runtime.NumCPU())
+	// GOMAXPROCS — which honors a container CPU limit, where NumCPU reports the node's cores —
+	// with 2x headroom for goroutines blocked on the occasional DB lookup, without letting the
+	// pool grow unbounded (pond.NewPool(0) is unbounded).
+	ledgerIndexerPool := pond.NewPool(2 * runtime.GOMAXPROCS(0))
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
@@ -176,6 +177,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	if backfillWorkers <= 0 {
 		backfillWorkers = runtime.NumCPU()
 	}
+
+	// A batch cap below 1 cannot hold even a single ledger; clamp so the
+	// zero value means unbatched persists.
+	livePersistMaxBatchSize := max(1, cfg.LivePersistMaxBatchSize)
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
@@ -202,7 +207,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		models:                    cfg.Models,
 		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
-		appTracker:                cfg.AppTracker,
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,
@@ -212,17 +216,17 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		postLockTasks:             cfg.PostLockTasks,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
-		getLedgersLimit:           cfg.GetLedgersLimit,
 		ledgerIndexer:             ledgerIndexer,
 		ledgerIndexerPool:         ledgerIndexerPool,
-		contractMetadataService:   cfg.ContractMetadataService,
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,
 		archive:                   cfg.Archive,
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		knownContractIDs:          set.NewSet[string](),
+		livePersistMaxBatchSize:   livePersistMaxBatchSize,
+		classifiedWasms:           make(map[string]struct{}),
+		classifiedContracts:       make(map[string]types.HashBytea),
 		protocolProcessors:        ppMap,
 		protocolCursors: &protocolCursorSnapshot{
 			historyExists:      make(map[string]bool, len(ppMap)),
@@ -274,46 +278,74 @@ func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.Ledger
 }
 
 // insertIntoDB persists the processed data from the buffer to the database.
-func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) (int, int, error) {
+func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer indexer.IndexerBufferInterface) error {
 	txs := buffer.GetTransactions()
 	txParticipants := buffer.GetTransactionsParticipants()
 	ops := buffer.GetOperations()
 	opParticipants := buffer.GetOperationsParticipants()
 	stateChanges := buffer.GetStateChanges()
 
-	if err := m.insertTransactions(ctx, dbTx, txs, txParticipants); err != nil {
-		return 0, 0, err
+	if err := m.insertTransactions(ctx, dbTx, txs); err != nil {
+		return err
 	}
-	if err := m.insertOperations(ctx, dbTx, ops, opParticipants); err != nil {
-		return 0, 0, err
+	if err := m.insertTransactionsAccounts(ctx, dbTx, txs, txParticipants); err != nil {
+		return err
+	}
+	if err := m.insertOperations(ctx, dbTx, ops); err != nil {
+		return err
+	}
+	if err := m.insertOperationsAccounts(ctx, dbTx, ops, opParticipants); err != nil {
+		return err
 	}
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
-		return 0, 0, err
+		return err
 	}
 	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
-	return len(txs), len(ops), nil
+	return nil
 }
 
-// insertTransactions batch inserts transactions with their participants into the database.
-func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]map[string]struct{}) error {
+// insertTransactions batch inserts transactions into the database.
+func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs, stellarAddressesByToID)
+	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs)
 	if err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
 	}
 	return nil
 }
 
-// insertOperations batch inserts operations with their participants into the database.
-func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]map[string]struct{}) error {
+// insertTransactionsAccounts batch inserts the transactions_accounts links into the database.
+func (m *ingestService) insertTransactionsAccounts(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction, stellarAddressesByToID map[int64]map[string]struct{}) error {
+	if len(stellarAddressesByToID) == 0 {
+		return nil
+	}
+	if err := m.models.Transactions.BatchCopyAccounts(ctx, pgxTx, txs, stellarAddressesByToID); err != nil {
+		return fmt.Errorf("batch inserting transactions accounts: %w", err)
+	}
+	return nil
+}
+
+// insertOperations batch inserts operations into the database.
+func (m *ingestService) insertOperations(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation) error {
 	if len(ops) == 0 {
 		return nil
 	}
-	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops, stellarAddressesByOpID)
+	_, err := m.models.Operations.BatchCopy(ctx, pgxTx, ops)
 	if err != nil {
 		return fmt.Errorf("batch inserting operations: %w", err)
+	}
+	return nil
+}
+
+// insertOperationsAccounts batch inserts the operations_accounts links into the database.
+func (m *ingestService) insertOperationsAccounts(ctx context.Context, pgxTx pgx.Tx, ops []*types.Operation, stellarAddressesByOpID map[int64]map[string]struct{}) error {
+	if len(stellarAddressesByOpID) == 0 {
+		return nil
+	}
+	if err := m.models.Operations.BatchCopyAccounts(ctx, pgxTx, ops, stellarAddressesByOpID); err != nil {
+		return fmt.Errorf("batch inserting operations accounts: %w", err)
 	}
 	return nil
 }

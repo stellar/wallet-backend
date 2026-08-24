@@ -17,11 +17,22 @@ type IngestionMetrics struct {
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_duration_seconds_bucket[5m]))
 	Duration prometheus.Histogram
 	// PhaseDuration observes per-phase ingestion time, labeled by phase.
+	// process_ledger is one observation per ledger; prepare_classification
+	// and insert_into_db are one observation per persist batch recording the
+	// batch's true wall time — never divided by batch size, so the
+	// ledger-close-time grading buckets read the real commit latency even
+	// (especially) while persist is behind. PersistBatchSize carries how
+	// many ledgers each commit coalesced.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_phase_duration_seconds_bucket{phase="process_ledger"}[5m]))
 	PhaseDuration *prometheus.HistogramVec
 	// LedgersProcessed counts total ledgers ingested.
 	// PromQL: rate(wallet_ingestion_ledgers_total[5m])
 	LedgersProcessed prometheus.Counter
+	// PersistBatchSize observes how many ledgers each persist commit coalesced.
+	// Sits at 1 while the pipeline keeps pace; larger values mean the persist
+	// stage found a backlog and amortized it into one commit.
+	// PromQL: histogram_quantile(0.5, rate(wallet_ingestion_persist_batch_size_bucket[5m]))
+	PersistBatchSize prometheus.Histogram
 	// TransactionsTotal counts total transactions ingested.
 	// PromQL: rate(wallet_ingestion_transactions_total[5m])
 	TransactionsTotal prometheus.Counter
@@ -92,13 +103,23 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Buckets: []float64{0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7, 10},
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_ingestion_phase_duration_seconds",
-			Help:    "Duration of each ingestion phase.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60},
+			Name: "wallet_ingestion_phase_duration_seconds",
+			Help: "Duration of each ingestion phase.",
+			// The 0.6 and 1 boundaries are the grading bars: the pipeline's
+			// contract is that the slowest stage's p99 stays under the ledger
+			// close time, 600ms at Phase-3 block rates and 1s for the loadtest
+			// rig's 1.67x-sized merged ledgers. 0.5 and 0.75 bracket them so
+			// movement between runs is visible rather than rounded away.
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10},
 		}, []string{"phase"}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
 			Help: "Total number of ledgers processed during ingestion.",
+		}),
+		PersistBatchSize: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_persist_batch_size",
+			Help:    "Ledgers coalesced into one persist commit. 1 while the pipeline keeps pace; larger under backlog.",
+			Buckets: []float64{1, 2, 3, 4, 5, 8, 12, 16},
 		}),
 		TransactionsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_transactions_total",
@@ -163,6 +184,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.Duration,
 		m.PhaseDuration,
 		m.LedgersProcessed,
+		m.PersistBatchSize,
 		m.TransactionsTotal,
 		m.OperationsTotal,
 		m.ParticipantsCount,

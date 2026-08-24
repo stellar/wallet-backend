@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -36,7 +38,7 @@ const (
 // contractDataMemo lazily extracts ContractData changes from a ledger's
 // already-materialized transactions (from the processLedger staging pass) and
 // memoizes the result. Extraction is pure over (transactions, ledgerSeq), so
-// one memo shared across ingestProcessedDataWithRetry's attempts means the
+// one memo shared across persistLedgerDataWithRetry's attempts means the
 // extraction walk runs at most once per ledger — never inside a retried
 // attempt's open transaction — and only when a CAS-winning processor
 // requires it, so a protocol still backfilling costs nothing extra.
@@ -51,15 +53,11 @@ func newContractDataMemo(transactions []ingest.LedgerTransaction, ledgerSeq uint
 	return &contractDataMemo{transactions: transactions, ledgerSeq: ledgerSeq}
 }
 
-// get returns the memoized extraction, running it on first use. A nil
-// receiver yields an empty result — callers with no materialized
-// transactions pass a nil memo, and a RequiresContractData processor must
-// still receive a non-nil (empty) ContractDataChanges map, same as an
-// extraction over zero transactions produces.
+// get returns the memoized extraction, running it on first use. The result is
+// always non-nil, including over zero transactions, because a
+// RequiresContractData processor must receive a ContractDataChanges map it can
+// range over unconditionally.
 func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
-	if c == nil {
-		return map[string][]ingest.Change{}, nil
-	}
 	if !c.extracted {
 		changes, err := indexer.ExtractContractDataChangesFromTransactions(c.transactions, c.ledgerSeq)
 		if err != nil {
@@ -71,264 +69,548 @@ func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
 	return c.changes, nil
 }
 
-// persistLedgerData persists processed ledger data to the database in a single
-// atomic transaction. It handles: trustline assets, contract tokens, filtered
-// data insertion, token changes, and cursor update. plan is this ledger's
-// classification plan, computed by prepareClassificationPlan before any
-// transaction opens (RPC calls already resolved); pass the same plan across
-// ingestProcessedDataWithRetry's retry attempts so a retry never re-issues
-// RPC calls. plan may be nil when there was nothing to classify this ledger.
-// contractData carries the ledger's ContractData extraction memo; like plan,
-// the same memo is shared across retry attempts so a retry never re-runs the
-// extraction walk. It is nil exactly when ledgerMeta is.
-func (m *ingestService) persistLedgerData(
+// ErrPartialPersist marks a persist failure that occurred after the first
+// sibling commit succeeded: some of the ledger's tables are durable and the
+// rest are not, the transaction set can no longer roll back atomically, and no
+// in-process retry can fix it (COPY has no ON CONFLICT, so re-running the
+// ledger would collide on primary keys). It is classified permanent so the
+// process exits; startup reconciliation (DeleteRowsAboveLedger) removes the
+// orphaned rows above the committed cursor before ingestion resumes.
+var ErrPartialPersist = errors.New("ledger persist partially committed")
+
+// persistItem is one ledger's persist payload: its classification plan
+// (computed by prepareClassificationPlan before any transaction opens, RPC
+// calls already resolved; nil when the ledger had nothing to classify) and
+// its ContractData extraction memo. Both are shared verbatim across
+// persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
+// calls or re-runs the extraction walk. transactions and operations hold the
+// buffer's rows materialized by persistLedgerData, so the two siblings that
+// each need them share one slice.
+type persistItem struct {
+	seq          uint32
+	closeTime    int64
+	plan         *ClassificationPlan
+	contractData *contractDataMemo
+	buffer       *indexer.IndexerBuffer
+	transactions []*types.Transaction
+	operations   []*types.Operation
+}
+
+// protocolHistorySink is where stageCoordinatedWrites sends the protocol
+// processors' history rows. History rows are state_changes rows, so the sink
+// is the state_changes sibling transaction, under the same mutex as that
+// sibling's own COPYs. No table may be written by two concurrent
+// transactions — see the chunk-boundary deadlock note in persistLedgerData.
+type protocolHistorySink struct {
+	dbTx pgx.Tx
+	mu   *sync.Mutex
+}
+
+// persist runs one processor's PersistHistory on the sink under its mutex.
+func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProcessor) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return processor.PersistHistory(ctx, h.dbTx) //nolint:wrapcheck // the call site wraps with protocol and ledger context
+}
+
+// persistSibling is one sibling transaction: the table family it owns and the
+// per-ledger writes it streams.
+type persistSibling struct {
+	name string
+	run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
+}
+
+// persistSiblings builds the sibling set persistLedgerData streams
+// concurrently. The first five own the bulk-COPY tables (data.BulkCopyTables,
+// which startup reconciliation reads to clear their orphans); the last two own
+// the balance families. stateChangesMu serializes the state_changes
+// transaction, which the coordinating goroutine also writes protocol history
+// through — see protocolHistorySink and the chunk-boundary deadlock note in
+// persistLedgerData.
+func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
+	return []persistSibling{
+		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactions(ctx, dbTx, it.transactions)
+		}},
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactionsAccounts(ctx, dbTx, it.transactions, it.buffer.GetTransactionsParticipants())
+		}},
+		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperations(ctx, dbTx, it.operations)
+		}},
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperationsAccounts(ctx, dbTx, it.operations, it.buffer.GetOperationsParticipants())
+		}},
+		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			stateChangesMu.Lock()
+			defer stateChangesMu.Unlock()
+			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
+		}},
+		// Each balance family rides the transaction that stages its FK parents,
+		// so the coordinating transaction's serial path stays short and every
+		// foreign key is checked within one commit. The SAC balances remain in
+		// stageCoordinatedWrites: their parent (contract_tokens) is also written
+		// by the classification path there, and a same-key insert from two
+		// concurrent transactions could deadlock at the commit barrier.
+		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
+				it.buffer.GetAccountChanges(),
+				it.buffer.GetLiquidityPoolShareChanges(),
+				it.buffer.GetLiquidityPoolChanges(),
+			)
+		}},
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+					return fmt.Errorf("inserting trustline assets: %w", err)
+				}
+			}
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
+		}},
+	}
+}
+
+// batchLabel names a batch in errors and logs: "ledger N" for a single
+// ledger, "ledgers N-M" for a coalesced batch.
+func batchLabel(items []persistItem) string {
+	if len(items) == 1 {
+		return fmt.Sprintf("ledger %d", items[0].seq)
+	}
+	return fmt.Sprintf("ledgers %d-%d", items[0].seq, items[len(items)-1].seq)
+}
+
+// persistLedgerData persists a batch of consecutive ledgers in one commit
+// set. The five bulk COPY families — transactions, transactions_accounts,
+// operations, operations_accounts, state_changes — plus the balance
+// families (native/pool on one sibling, trustline assets and balances on
+// another) stream concurrently on sibling connections, each in its own
+// transaction covering every ledger in the batch, while the coordinating
+// transaction stages everything else (contracts, classification, protocol
+// current state, SAC balances, cursor — protocol history rows ride the
+// state_changes sibling) ledger by ledger in order — the per-protocol
+// CAS chain advances N-1 → N inside the transaction, and the guarded
+// cursor's final value is the batch's last ledger. All the slow work
+// happens uncommitted and invisible; only after every stream and the
+// coordinator succeed do the commits fire, siblings first and the
+// coordinating transaction strictly last. The cursor it carries is the
+// authority: the only crash state this ordering can produce is sibling rows
+// above the committed cursor — DeleteRowsAboveLedger removes the bulk
+// families' at startup, and the balance siblings' idempotent upserts simply
+// reapply when those ledgers re-ingest. A failure before the first commit
+// rolls everything back and the whole batch is cleanly retryable; a failure
+// after it wraps ErrPartialPersist and is fatal.
+//
+// Only the first ledger of a batch may carry a classification plan: a
+// plan's pool reads see exactly the state the previous batch committed (see
+// the batch cut in persistProcessedLedgers).
+func (m *ingestService) persistLedgerData(ctx context.Context, items []persistItem) error {
+	label := batchLabel(items)
+
+	for i := range items {
+		// Ledger 0 has no predecessor, and this path addresses one twice: the
+		// per-protocol CAS expects ledgerSeq-1 and the guarded cursor update
+		// accepts it, both of which underflow on an unsigned zero.
+		if items[i].seq == 0 {
+			return fmt.Errorf("persisting %s: ledger sequence 0 is not persistable", label)
+		}
+		// Materialize the buffer's rows once per ledger: the transactions and
+		// transactions_accounts siblings share one transaction slice, and the
+		// two operations siblings share one operation slice, rather than each
+		// getter rebuilding its slice per sibling.
+		items[i].transactions = items[i].buffer.GetTransactions()
+		items[i].operations = items[i].buffer.GetOperations()
+	}
+
+	// The sibling transactions and the coordinating transaction are all opened
+	// up front on this goroutine, so ownership at the commit barrier below is
+	// deterministic; the deferred rollbacks tolerate ErrTxClosed and so are
+	// no-ops for whatever committed.
+	coordTx, err := m.models.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning coordinating transaction for %s: %w", label, err)
+	}
+	defer func() {
+		if rbErr := coordTx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+			log.Ctx(ctx).Warnf("rolling back coordinating transaction for %s: %v", label, rbErr)
+		}
+	}()
+
+	// Rule: every state_changes write goes through the ONE state_changes
+	// sibling transaction — the ledger's own rows (sibling goroutine) and
+	// protocol history (coordinating goroutine) alike. stateChangesMu
+	// serializes them; pgx.Tx is not safe for concurrent use.
+	//
+	// Why one transaction: two of our own transactions inserting into the
+	// same hypertable can deadlock UNDETECTABLY at a chunk boundary.
+	// TimescaleDB serializes chunk creation, and the waiting side is a
+	// goroutine blocked in Go — a cycle Postgres's deadlock detector cannot
+	// see. The result is a silent, permanent ingestion hang.
+	var stateChangesMu sync.Mutex
+	siblings := m.persistSiblings(&stateChangesMu)
+	siblingTxs := make([]pgx.Tx, len(siblings))
+	for i, s := range siblings {
+		conn, acquireErr := m.models.DB.Acquire(ctx)
+		if acquireErr != nil {
+			return fmt.Errorf("acquiring %s connection for %s: %w", s.name, label, acquireErr)
+		}
+		defer conn.Release()
+		tx, beginErr := conn.Begin(ctx)
+		if beginErr != nil {
+			return fmt.Errorf("beginning %s transaction for %s: %w", s.name, label, beginErr)
+		}
+		siblingTxs[i] = tx
+		defer func(name string, tx pgx.Tx) {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+				log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
+			}
+		}(s.name, tx)
+		// Sibling commits skip the WAL-flush wait. Durability is untouched:
+		// the coordinating transaction commits synchronously and strictly
+		// last, and its flush covers all earlier WAL — including these
+		// commit records — so a durable cursor implies durable siblings. A
+		// crash inside the window can only lose rows the cursor never
+		// acknowledged: startup reconciliation (DeleteRowsAboveLedger)
+		// removes the bulk families' anyway, and the balances sibling's
+		// idempotent upserts reapply on re-ingest.
+		if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
+			return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+		}
+	}
+
+	// Stream the sibling writes and stage the coordinated writes concurrently.
+	// No table is ever written by two transactions: every sibling owns a
+	// disjoint set of tables with no FKs among them or to any other
+	// transaction's tables, and the coordinating goroutine's one write outside
+	// its own set — protocol history, which is state_changes rows — goes to the
+	// state_changes sibling under stateChangesMu. The goroutines only read the
+	// quiescent buffers, so the transactions never contend. Within each
+	// transaction the batch's ledgers run in order.
+	var stateChangesTx pgx.Tx
+	for i, s := range siblings {
+		if s.name == "state_changes" {
+			stateChangesTx = siblingTxs[i]
+		}
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	for i, s := range siblings {
+		g.Go(func() error {
+			for j := range items {
+				if runErr := s.run(gctx, siblingTxs[i], &items[j]); runErr != nil {
+					return fmt.Errorf("streaming %s for ledger %d: %w", s.name, items[j].seq, runErr)
+				}
+			}
+			return nil
+		})
+	}
+	history := protocolHistorySink{dbTx: stateChangesTx, mu: &stateChangesMu}
+	g.Go(func() error {
+		for j := range items {
+			it := &items[j]
+			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, history, it.seq, it.closeTime, it.plan, it.contractData, it.buffer); stageErr != nil {
+				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
+			}
+		}
+		return nil
+	})
+	if err = g.Wait(); err != nil {
+		// Nothing has committed: the deferred rollbacks discard every
+		// transaction and the batch is cleanly retryable.
+		return fmt.Errorf("persisting ledger data for %s: %w", label, err)
+	}
+
+	// Commit barrier. Three properties, each load-bearing:
+	//
+	// 1. Retryable until the first commit lands. A failed FIRST commit
+	//    leaves nothing durable (its transaction aborts, the others roll
+	//    back). After any success the set cannot roll back atomically, so
+	//    every later failure is ErrPartialPersist. The one indeterminate
+	//    case — a first-commit error whose commit actually reached the
+	//    server — self-heals: the retry collides on primary keys (permanent)
+	//    and startup reconciliation repairs after restart.
+	//
+	// 2. Detached from the pipeline context (WithoutCancel). A cancellation
+	//    landing mid-barrier — SIGTERM on a rolling restart, or another
+	//    stage's failure — must not abort between commits, or a routine
+	//    shutdown would manufacture a fatal ErrPartialPersist. Detached, the
+	//    batch commits fully or not at all. Cancellation before the barrier
+	//    still rolls everything back.
+	//
+	// 3. Torn reads are a deliberate trade. Commits are sequential, so a
+	//    reader can briefly see a transactions row before its participant
+	//    links, or an operation before its state changes. The window is one
+	//    commit round-trip per sibling, the cursor still commits last, and
+	//    re-reads converge. Hiding it would mean bounding every read by the
+	//    committed cursor across the whole API surface.
+	commitCtx := context.WithoutCancel(ctx)
+	for i, s := range siblings {
+		if commitErr := siblingTxs[i].Commit(commitCtx); commitErr != nil {
+			if i > 0 {
+				return fmt.Errorf("committing %s for %s: %w: %w", s.name, label, ErrPartialPersist, commitErr)
+			}
+			return fmt.Errorf("committing %s for %s: %w", s.name, label, commitErr)
+		}
+	}
+	// The coordinating transaction commits strictly last: it carries the
+	// cursor, so its commit is the point at which the batch's ledgers exist.
+	if commitErr := coordTx.Commit(commitCtx); commitErr != nil {
+		return fmt.Errorf("committing coordinating transaction for %s: %w: %w", label, ErrPartialPersist, commitErr)
+	}
+	return nil
+}
+
+// stageCoordinatedWrites runs every per-ledger write the siblings don't own
+// on the coordinating transaction: SAC contract tokens, protocol
+// classification and wasm/contract rows, CAS-gated protocol state, the SAC
+// balance changes, and finally the guarded cursor.
+//
+// One exception: protocol history rows are state_changes rows, so they go
+// through history (the state_changes sibling), not this transaction. Their
+// CAS stays here, and that is still safe:
+//   - siblings commit strictly before this transaction, so a committed
+//     cursor implies committed history rows;
+//   - a crash in between leaves only rows above the cursor, which
+//     DeleteRowsAboveLedger removes at startup like any state_changes orphan.
+func (m *ingestService) stageCoordinatedWrites(
 	ctx context.Context,
+	dbTx pgx.Tx,
+	history protocolHistorySink,
 	ledgerSeq uint32,
-	ledgerMeta *xdr.LedgerCloseMeta,
+	ledgerCloseTime int64,
 	plan *ClassificationPlan,
 	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
-	cursorName string,
-) (int, int, error) {
-	var numTxs, numOps int
-
-	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		// 1. Insert unique trustline assets (FK prerequisite for trustline balances)
-		uniqueAssets := buffer.GetUniqueTrustlineAssets()
-		if len(uniqueAssets) > 0 {
-			if txErr := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); txErr != nil {
-				return fmt.Errorf("inserting trustline assets for ledger %d: %w", ledgerSeq, txErr)
-			}
+) error {
+	// 1. Insert new SAC contract tokens (filter existing, insert)
+	contracts, txErr := m.prepareNewSACContracts(ctx, dbTx, buffer.GetSACContracts())
+	if txErr != nil {
+		return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
+	}
+	if len(contracts) > 0 {
+		if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
+			return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
 		}
-
-		// 2. Insert new SAC contract tokens (filter existing, insert)
-		contracts, txErr := m.prepareNewSACContracts(ctx, dbTx, buffer.GetSACContracts())
-		if txErr != nil {
-			return fmt.Errorf("preparing contract tokens for ledger %d: %w", ledgerSeq, txErr)
-		}
-		if len(contracts) > 0 {
-			if txErr = m.models.Contract.BatchInsert(ctx, dbTx, contracts); txErr != nil {
-				return fmt.Errorf("inserting contracts for ledger %d: %w", ledgerSeq, txErr)
-			}
-			log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
-		}
-
-		// 2.5: Apply protocol classification (black-box per protocol). plan was
-		// computed by prepareClassificationPlan before this transaction opened,
-		// so any RPC calls (e.g. SEP-41 metadata) already happened;
-		// ApplyClassificationPlan only performs each validator's DB writes
-		// here, atomically with the classification verdict and wasm/contract
-		// rows below. Wasm rows are persisted next, then live protocol
-		// processors stage ledger state from the classification result, and
-		// the generic protocol_contracts rows are persisted after them so a
-		// processor's name-enriched row lands first (the generic insert's
-		// COALESCE preserves it).
-		bufferedWasms := buffer.GetProtocolWasms()
-		bufferedContracts := buffer.GetProtocolContracts()
-
-		contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
-		for _, c := range bufferedContracts {
-			contractSlice = append(contractSlice, c)
-		}
-
-		var classification map[types.HashBytea]string
-		if plan != nil {
-			classification = plan.Matches
-		}
-		if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
-			return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// Persist this ledger's wasm rows BEFORE processors run: a processor
-		// enriching protocol_contracts (e.g. contract names decoded from
-		// instance storage) inserts rows that are FK-filtered against
-		// protocol_wasms, so a contract deployed in the same ledger as its
-		// wasm upload would otherwise be silently dropped.
-		if len(bufferedWasms) > 0 {
-			wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
-			for hash, wasm := range bufferedWasms {
-				if pid, ok := classification[types.HashBytea(hash)]; ok {
-					stamped := pid
-					wasm.ProtocolID = &stamped
-				}
-				wasmSlice = append(wasmSlice, wasm)
-			}
-			if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
-
-		// 2.6: Per-protocol CAS-gated state production. The compare-and-swap on each
-		// protocol cursor is the authoritative gate — exactly one of live ingestion or
-		// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
-		// run only for cursors that win the swap, so a protocol still backfilling (its
-		// cursor behind tip) costs a single CAS and a continue.
-		if ledgerMeta != nil && ledgerSeq != 0 && len(m.protocolProcessors) > 0 {
-			ledgerCloseTime := ledgerMeta.LedgerCloseTime()
-			contractEvents := buffer.GetContractEvents()
-			expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
-			next := strconv.FormatUint(uint64(ledgerSeq), 10)
-
-			// Resolve protocol membership once for the contracts that emitted events
-			// this ledger. One bounded query serves every protocol; ledgers with no
-			// contract events skip it entirely. The buffered overlay (below) covers
-			// contracts deployed or upgraded this ledger, which are not yet committed.
-			var committedByProtocol map[string][]data.ProtocolContracts
-			if eventContractIDs := distinctEventContractIDs(contractEvents); len(eventContractIDs) > 0 {
-				var lookupErr error
-				committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
-				if lookupErr != nil {
-					return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
-				}
-			}
-
-			var contractDataChanges map[string][]ingest.Change
-
-			for protocolID, processor := range m.protocolProcessors {
-				// Only attempt the CAS for a cursor m.protocolCursors believes exists (see
-				// snapshotProtocolCursors/reprobeProtocolCursors): a cursor known not yet
-				// initialized is skipped entirely — no DB round trip, no metric — since
-				// there is nothing to CAS against. This also means casProtocolCursor only
-				// ever sees ErrCASCursorMissing for a cursor that existed as of the last
-				// snapshot/re-probe, i.e. a genuine incident, not the operationally normal
-				// not-yet-initialized case.
-				var historySwapped, currentStateSwapped bool
-				if m.protocolCursors.historyExists[protocolID] {
-					var casErr error
-					historyCursor := utils.ProtocolHistoryCursorName(protocolID)
-					historySwapped, casErr = m.casProtocolCursor(ctx, dbTx, historyCursor, expected, next)
-					if casErr != nil {
-						return casErr
-					}
-				}
-				if m.protocolCursors.currentStateExists[protocolID] {
-					var casErr error
-					currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
-					currentStateSwapped, casErr = m.casProtocolCursor(ctx, dbTx, currentStateCursor, expected, next)
-					if casErr != nil {
-						return casErr
-					}
-				}
-				if !historySwapped && !currentStateSwapped {
-					// Behind tip (value mismatch), not yet set up (both cursors known
-					// missing), or the value mismatch a live CAS returns when another
-					// process already owns this ledger: nothing to stage. Skipping is
-					// lossless: the migrate engine folds a ledger only after this
-					// cursor's transaction commits (its frontier gate), so a ledger
-					// lost here is folded later by a winner that sees every
-					// classification this transaction commits — including contracts
-					// classified this very ledger.
-					continue
-				}
-
-				committed := committedByProtocol[protocolID]
-				if processor.RequiresContractData() {
-					var cdErr error
-					contractDataChanges, cdErr = contractData.get()
-					if cdErr != nil {
-						return cdErr
-					}
-
-					// ContractData-driven processors need the protocol's FULL committed
-					// membership, not just this ledger's event emitters: entries can
-					// change on a contract that emitted no event this ledger, and event
-					// decoding may disambiguate against tracked contracts that appear
-					// only in another contract's topics. Protocols requiring contract
-					// data have bounded membership, so the per-ledger query stays cheap.
-					var fullErr error
-					committed, fullErr = m.models.ProtocolContracts.GetByProtocolID(ctx, dbTx, protocolID)
-					if fullErr != nil {
-						return fmt.Errorf("resolving full protocol contracts for ledger %d protocol %s: %w", ledgerSeq, protocolID, fullErr)
-					}
-				}
-
-				contracts := getEffectiveProtocolContracts(protocolID, committed, bufferedContracts, classification)
-				input := ProtocolProcessorInput{
-					LedgerSequence:      ledgerSeq,
-					LedgerCloseTime:     ledgerCloseTime,
-					ContractEvents:      contractEvents,
-					ProtocolContracts:   contracts,
-					StagingMode:         StagingModeBoth,
-					ContractDataChanges: contractDataChanges,
-				}
-				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
-				// re-stages cleanly; the processor is long-lived and accumulates across
-				// ProcessLedger calls.
-				processor.Reset()
-				start := time.Now()
-				processErr := processor.ProcessLedger(ctx, input)
-				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
-				if processErr != nil {
-					return fmt.Errorf("processing ledger %d for protocol %s: %w", ledgerSeq, protocolID, processErr)
-				}
-
-				if historySwapped {
-					persistStart := time.Now()
-					persistErr := processor.PersistHistory(ctx, dbTx)
-					m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_history").Observe(time.Since(persistStart).Seconds())
-					if persistErr != nil {
-						return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
-					}
-				}
-				if currentStateSwapped {
-					persistStart := time.Now()
-					persistErr := processor.PersistCurrentState(ctx, dbTx)
-					m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_current_state").Observe(time.Since(persistStart).Seconds())
-					if persistErr != nil {
-						return fmt.Errorf("persisting current state for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
-					}
-				}
-			}
-		}
-
-		if len(contractSlice) > 0 {
-			if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
-				return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
-			}
-		}
-
-		// 3. Insert transactions/operations/state_changes
-		numTxs, numOps, txErr = m.insertIntoDB(ctx, dbTx, buffer)
-		if txErr != nil {
-			return fmt.Errorf("inserting processed data into db for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 4. Process token changes (trustline add/remove/update, native balance, SAC balance)
-		if txErr = m.tokenIngestionService.ProcessTokenChanges(ctx, dbTx,
-			buffer.GetTrustlineChanges(),
-			buffer.GetAccountChanges(),
-			buffer.GetSACBalanceChanges(),
-			buffer.GetLiquidityPoolShareChanges(),
-			buffer.GetLiquidityPoolChanges(),
-		); txErr != nil {
-			return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		// 6. Update the specified cursor. The live latest-ledger cursor is guarded: a session
-		// that silently lost its advisory lock (server-side failover, see startLiveIngestion's
-		// checkLockSession) must not blindly overwrite a value a second instance already
-		// advanced, or the cursor could regress. All other cursors keep the plain blind
-		// upsert — only one process ever owns them by construction.
-		if cursorName == data.LatestLedgerCursorName {
-			if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
-				return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
-			}
-		} else if txErr = m.models.IngestStore.Update(ctx, dbTx, cursorName, ledgerSeq); txErr != nil {
-			return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return 0, 0, fmt.Errorf("persisting ledger data for ledger %d: %w", ledgerSeq, err)
+		log.Ctx(ctx).Infof("inserted %d SAC contract tokens", len(contracts))
 	}
 
-	return numTxs, numOps, nil
+	// 2. Apply protocol classification (black-box per protocol). plan was
+	// computed by prepareClassificationPlan before this transaction opened,
+	// so any RPC calls (e.g. SEP-41 metadata) already happened;
+	// ApplyClassificationPlan only performs each validator's DB writes
+	// here, atomically with the classification verdict and wasm/contract
+	// rows below. Wasm rows are persisted next, then live protocol
+	// processors stage ledger state from the classification result, and
+	// the generic protocol_contracts rows are persisted after them so a
+	// processor's name-enriched row lands first (the generic insert's
+	// COALESCE preserves it).
+	bufferedWasms := buffer.GetProtocolWasms()
+	bufferedContracts := buffer.GetProtocolContracts()
+
+	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
+	for _, c := range bufferedContracts {
+		contractSlice = append(contractSlice, c)
+	}
+
+	var classification map[types.HashBytea]string
+	if plan != nil {
+		classification = plan.Matches
+	}
+	if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
+		return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
+	}
+
+	// Persist this ledger's wasm rows BEFORE processors run: a processor
+	// enriching protocol_contracts (e.g. contract names decoded from
+	// instance storage) inserts rows that are FK-filtered against
+	// protocol_wasms, so a contract deployed in the same ledger as its
+	// wasm upload would otherwise be silently dropped.
+	if len(bufferedWasms) > 0 {
+		wasmSlice := make([]data.ProtocolWasms, 0, len(bufferedWasms))
+		for hash, wasm := range bufferedWasms {
+			if pid, ok := classification[types.HashBytea(hash)]; ok {
+				stamped := pid
+				wasm.ProtocolID = &stamped
+			}
+			wasmSlice = append(wasmSlice, wasm)
+		}
+		if txErr = m.models.ProtocolWasms.BatchInsert(ctx, dbTx, wasmSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol wasms for ledger %d: %w", ledgerSeq, txErr)
+		}
+	}
+
+	// 3. Per-protocol CAS-gated state production. The compare-and-swap on each
+	// protocol cursor is the authoritative gate — exactly one of live ingestion or
+	// protocol-migrate wins a given ledger. Staging (ProcessLedger) and persistence
+	// run only for cursors that win the swap, so a protocol still backfilling (its
+	// cursor behind tip) costs a single CAS and a continue.
+	if len(m.protocolProcessors) > 0 {
+		contractEvents := buffer.GetContractEvents()
+		expected := strconv.FormatUint(uint64(ledgerSeq-1), 10)
+		next := strconv.FormatUint(uint64(ledgerSeq), 10)
+
+		// Resolve protocol membership once for the contracts that emitted events
+		// this ledger. One bounded query serves every protocol; ledgers with no
+		// contract events skip it entirely. The buffered overlay (below) covers
+		// contracts deployed or upgraded this ledger, which are not yet committed.
+		// The lookup runs on the coordinating transaction, not the pool: in a
+		// batched persist, contracts classified at the batch head are staged on
+		// this still-uncommitted transaction, and a mid-batch ledger's membership
+		// must include them or its events would be silently dropped.
+		var committedByProtocol map[string][]data.ProtocolContracts
+		if eventContractIDs := distinctEventContractIDs(contractEvents); len(eventContractIDs) > 0 {
+			var lookupErr error
+			committedByProtocol, lookupErr = m.models.ProtocolContracts.BatchGetByContractIDs(ctx, dbTx, eventContractIDs)
+			if lookupErr != nil {
+				return fmt.Errorf("resolving protocol contracts for ledger %d: %w", ledgerSeq, lookupErr)
+			}
+		}
+
+		var contractDataChanges map[string][]ingest.Change
+
+		for protocolID, processor := range m.protocolProcessors {
+			// Only attempt the CAS for a cursor m.protocolCursors believes exists (see
+			// snapshotProtocolCursors/reprobeProtocolCursors): a cursor known not yet
+			// initialized is skipped entirely — no DB round trip, no metric — since
+			// there is nothing to CAS against. This also means casProtocolCursor only
+			// ever sees ErrCASCursorMissing for a cursor that existed as of the last
+			// snapshot/re-probe, i.e. a genuine incident, not the operationally normal
+			// not-yet-initialized case.
+			var historySwapped, currentStateSwapped bool
+			if m.protocolCursors.historyExists[protocolID] {
+				var casErr error
+				historyCursor := utils.ProtocolHistoryCursorName(protocolID)
+				historySwapped, casErr = m.casProtocolCursor(ctx, dbTx, historyCursor, expected, next)
+				if casErr != nil {
+					return casErr
+				}
+			}
+			if m.protocolCursors.currentStateExists[protocolID] {
+				var casErr error
+				currentStateCursor := utils.ProtocolCurrentStateCursorName(protocolID)
+				currentStateSwapped, casErr = m.casProtocolCursor(ctx, dbTx, currentStateCursor, expected, next)
+				if casErr != nil {
+					return casErr
+				}
+			}
+			if !historySwapped && !currentStateSwapped {
+				// Behind tip (value mismatch), not yet set up (both cursors known
+				// missing), or the value mismatch a live CAS returns when another
+				// process already owns this ledger: nothing to stage. Skipping is
+				// lossless: the migrate engine folds a ledger only after this
+				// cursor's transaction commits (its frontier gate), so a ledger
+				// lost here is folded later by a winner that sees every
+				// classification this transaction commits — including contracts
+				// classified this very ledger.
+				continue
+			}
+
+			committed := committedByProtocol[protocolID]
+			if processor.RequiresContractData() {
+				var cdErr error
+				contractDataChanges, cdErr = contractData.get()
+				if cdErr != nil {
+					return cdErr
+				}
+
+				// ContractData-driven processors need the protocol's FULL committed
+				// membership, not just this ledger's event emitters: entries can
+				// change on a contract that emitted no event this ledger, and event
+				// decoding may disambiguate against tracked contracts that appear
+				// only in another contract's topics. Protocols requiring contract
+				// data have bounded membership, so the per-ledger query stays cheap.
+				var fullErr error
+				committed, fullErr = m.models.ProtocolContracts.GetByProtocolID(ctx, dbTx, protocolID)
+				if fullErr != nil {
+					return fmt.Errorf("resolving full protocol contracts for ledger %d protocol %s: %w", ledgerSeq, protocolID, fullErr)
+				}
+			}
+
+			contracts := getEffectiveProtocolContracts(protocolID, committed, bufferedContracts, classification)
+			input := ProtocolProcessorInput{
+				LedgerSequence:      ledgerSeq,
+				LedgerCloseTime:     ledgerCloseTime,
+				ContractEvents:      contractEvents,
+				ProtocolContracts:   contracts,
+				StagingMode:         StagingModeBoth,
+				ContractDataChanges: contractDataChanges,
+			}
+			// Reset before staging so a retried transaction (persistLedgerDataWithRetry)
+			// re-stages cleanly; the processor is long-lived and accumulates across
+			// ProcessLedger calls.
+			processor.Reset()
+			start := time.Now()
+			processErr := processor.ProcessLedger(ctx, input)
+			m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "process_ledger").Observe(time.Since(start).Seconds())
+			if processErr != nil {
+				return fmt.Errorf("processing ledger %d for protocol %s: %w", ledgerSeq, protocolID, processErr)
+			}
+
+			if historySwapped {
+				persistStart := time.Now()
+				persistErr := history.persist(ctx, processor)
+				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_history").Observe(time.Since(persistStart).Seconds())
+				if persistErr != nil {
+					return fmt.Errorf("persisting history for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
+				}
+			}
+			if currentStateSwapped {
+				persistStart := time.Now()
+				persistErr := processor.PersistCurrentState(ctx, dbTx)
+				m.appMetrics.Ingestion.ProtocolStateProcessingDuration.WithLabelValues(protocolID, "persist_current_state").Observe(time.Since(persistStart).Seconds())
+				if persistErr != nil {
+					return fmt.Errorf("persisting current state for %s at ledger %d: %w", protocolID, ledgerSeq, persistErr)
+				}
+			}
+		}
+	}
+
+	if len(contractSlice) > 0 {
+		if txErr = m.models.ProtocolContracts.BatchInsert(ctx, dbTx, contractSlice); txErr != nil {
+			return fmt.Errorf("inserting protocol contracts for ledger %d: %w", ledgerSeq, txErr)
+		}
+	}
+
+	// 4. Apply the SAC balance changes. Their rows reference the
+	// contract_tokens rows staged in step 1 of this same transaction, so they
+	// cannot leave it; the other balance families run on the "balances" and
+	// "trustlines" siblings, each alongside its own foreign-key parents.
+	if txErr = m.tokenIngestionService.ProcessSACBalanceChanges(ctx, dbTx,
+		buffer.GetSACBalanceChanges(),
+	); txErr != nil {
+		return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
+	}
+
+	// 5. Advance the latest-ledger cursor. The update is guarded: a session that
+	// silently lost its advisory lock (server-side failover, see startLiveIngestion's
+	// checkLockSession) must not blindly overwrite a value a second instance already
+	// advanced, or the cursor could regress.
+	if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, data.LatestLedgerCursorName, ledgerSeq); txErr != nil {
+		return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
+	}
+
+	return nil
 }
+
+// livePersistConnections is the number of pool connections live ingestion
+// pins simultaneously: persistLedgerData's 7 sibling transactions and the
+// coordinating transaction at its commit barrier, plus the advisory-lock
+// session startLiveIngestion holds for the process lifetime.
+const livePersistConnections = 9
 
 // startLiveIngestion begins continuous ingestion from the last checkpoint ledger,
 // acquiring an advisory lock to prevent concurrent ingestion instances.
 func (m *ingestService) startLiveIngestion(ctx context.Context) error {
+	// Fail fast on a pool that cannot fit the persist barrier. All
+	// livePersistConnections are held by ingestion at once, and
+	// pgxpool.Acquire has no timeout: on a smaller pool the last Acquire
+	// waits forever on connections this same goroutine already holds — no
+	// error, no log, fetch and process parked on full channels while lag
+	// climbs.
+	if maxConns := m.models.DB.Config().MaxConns; maxConns < livePersistConnections {
+		return fmt.Errorf(
+			"live ingestion pins %d DB connections (7 persist siblings + coordinating transaction + advisory lock) but the pool allows only %d; raise --db-max-conns/DB_MAX_CONNS (default %d)",
+			livePersistConnections, maxConns, db.DefaultMaxConns)
+	}
+
 	conn, err := m.models.DB.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquiring a connection from the pool: %w", err)
@@ -436,6 +718,16 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.appMetrics.Ingestion.LatestLedger.Set(float64(startLedger))
 		m.appMetrics.Ingestion.OldestLedger.Set(float64(startLedger))
 	} else {
+		// Remove any bulk rows a crashed run left above the cursor before those
+		// ledgers are re-ingested: persistLedgerData commits the sibling COPY
+		// transactions before the coordinating transaction that carries the
+		// cursor, so a crash between those commits orphans (at most) the persist
+		// batch past the cursor. Fatal on failure — ingesting over the orphans
+		// would collide on the bulk tables' primary keys anyway.
+		if err := m.models.IngestStore.DeleteRowsAboveLedger(ctx, latestIngestedLedger); err != nil {
+			return fmt.Errorf("reconciling bulk rows above cursor ledger %d: %w", latestIngestedLedger, err)
+		}
+
 		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
 		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
 		if oldestErr != nil {
@@ -496,23 +788,50 @@ func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
 	return float64(backendTip - latestIngested), true
 }
 
-// ingestLiveLedgers continuously processes ledgers starting from startLedger,
-// updating cursors and metrics after each successful ledger. checkLockSession
-// is called once per ledger to verify the advisory-lock-holding Postgres
-// session is still alive (see startLiveIngestion): a CNPG failover can kill
-// that session server-side without this process observing the disconnect, so
-// the lock is silently released while this loop keeps writing through other
-// pool connections. Failing this probe is treated as fatal so the process
-// exits and can re-acquire the lock cleanly on restart, rather than racing a
-// second instance that acquired it in the meantime.
-func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32, checkLockSession func(ctx context.Context) error) error {
-	currentLedger := startLedger
-	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", currentLedger)
+// fetchedLedger is the fetch→process handoff: one ledger's raw close meta.
+type fetchedLedger struct {
+	seq  uint32
+	meta xdr.LedgerCloseMeta
+}
 
-	// Refresh the lag gauge off the consumer goroutine. GetLatestLedgerSequence contends on the
+// processedLedger is the process→persist handoff. The close time and the
+// ContractData memo over the staging pass's materialized transactions are
+// both derived at the end of that pass, so the decoded close meta itself
+// never rides the queue. processDuration rides along so the per-ledger
+// Duration metric can sum the ledger's stage times instead of counting the
+// time it sat queued between stages.
+type processedLedger struct {
+	seq             uint32
+	closeTime       int64
+	contractData    *contractDataMemo
+	buffer          *indexer.IndexerBuffer
+	processDuration time.Duration
+}
+
+// ingestLiveLedgers runs live ingestion as a three-stage pipeline — fetch ‖
+// process ‖ persist — over consecutive ledgers: while ledger N persists, N+1
+// processes and N+2 is fetched. The ledger time is therefore the slowest
+// stage, not the sum of stages. The processed channel's depth lets the
+// process stage run ahead when persist falls behind; the persist stage
+// coalesces that backlog into batched commits (see persistProcessedLedgers).
+// Persist is strictly sequential in ledger order (the guarded cursor and the
+// per-protocol CAS chain both advance N-1 → N), and any stage error cancels
+// the whole pipeline and returns: the process exits and re-acquires the
+// advisory lock cleanly on restart, resuming from the cursor.
+//
+// checkLockSession is probed before every persist to verify the
+// advisory-lock-holding Postgres session is still alive (see
+// startLiveIngestion): a CNPG failover can kill that session server-side
+// without this process observing the disconnect, silently releasing the lock
+// while writes keep flowing through other pool connections. Probing on the
+// persist stage — the only stage that writes — is what makes that safe.
+func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint32, checkLockSession func(ctx context.Context) error) error {
+	log.Ctx(ctx).Infof("Starting ingestion from ledger: %d", startLedger)
+
+	// Refresh the lag gauge off the pipeline goroutines. GetLatestLedgerSequence contends on the
 	// datastore buffer's internal lock, which a download worker can hold while blocked on a full
-	// queue; calling it on this goroutine — the only one that drains that queue — would deadlock.
-	// A dedicated goroutine keeps the consumer draining, so the lock is always released promptly.
+	// queue; calling it on the goroutine that drains that queue would deadlock. A dedicated
+	// goroutine keeps the consumer draining, so the lock is always released promptly.
 	var latestIngested atomic.Uint32
 	latestIngested.Store(startLedger - 1)
 	lagCtx, cancelLag := context.WithCancel(ctx)
@@ -534,91 +853,354 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		}
 	}()
 
-	// One buffer serves every ledger, cleared at the top of each iteration below. Reusing it keeps the
-	// asset-parse memo warm and the maps' backing arrays allocated across ledgers, the way backfill
-	// reuses its batch buffer. Nothing retains the buffer past an iteration — the persist retries run
-	// synchronously on this goroutine — so a single instance is safe.
-	buffer := indexer.NewIndexerBuffer()
+	g, gctx := errgroup.WithContext(ctx)
+	fetched := make(chan fetchedLedger, 1)
+	// NewIngestService clamps the batch cap to ≥1; the max here keeps the
+	// channel math valid for a zero-valued service constructed directly.
+	batchCap := max(1, m.livePersistMaxBatchSize)
+	// The processed channel is where a persist backlog queues, so its depth
+	// caps how large a persist batch can form: the batch cap minus the one
+	// ledger the persist stage blocks on.
+	processed := make(chan processedLedger, batchCap-1)
 
+	// Buffers rotate between the process and persist stages: process fills
+	// one while persist drains the others, and reuse keeps the asset-parse
+	// memo warm and the maps' backing arrays allocated across ledgers.
+	//
+	// A buffer stays checked out from the moment process takes it until the
+	// batch carrying it commits, so a full batch needs 2*batchCap buffers in
+	// circulation: batchCap held by the in-flight batch, batchCap-1 queued in
+	// processed, and one process is filling. The spare on top keeps handing a
+	// buffer back from ever blocking. Sizing the rotation any tighter caps
+	// the batch below batchCap no matter how deep the backlog — process runs
+	// out of buffers before the queue can refill, and the batch settles at
+	// the size where held and refillable buffers balance.
+	freeBuffers := make(chan *indexer.IndexerBuffer, 2*batchCap+1)
+	for range 2*batchCap + 1 {
+		freeBuffers <- indexer.NewIndexerBuffer()
+	}
+
+	g.Go(func() error { return m.fetchLedgers(gctx, startLedger, fetched) })
+	g.Go(func() error { return m.processFetchedLedgers(gctx, fetched, freeBuffers, processed) })
+	g.Go(func() error {
+		return m.persistProcessedLedgers(gctx, processed, freeBuffers, checkLockSession, &latestIngested)
+	})
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("live ingestion pipeline: %w", err)
+	}
+	return nil
+}
+
+// fetchLedgers is the pipeline's fetch stage: it pulls consecutive ledgers
+// from the backend (with the transient-fetch retry ladder) and hands them to
+// the process stage.
+func (m *ingestService) fetchLedgers(ctx context.Context, startLedger uint32, fetched chan<- fetchedLedger) error {
+	defer close(fetched)
+	for seq := startLedger; ; seq++ {
+		fetchStart := time.Now()
+		ledgerMeta, err := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
+			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
+				return m.ledgerBackend.GetLedger(ctx, seq)
+			},
+			func(attempt int, err error, backoff time.Duration) {
+				m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
+				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
+					seq, attempt+1, maxLedgerFetchRetries, err, backoff)
+			},
+			m.isPermanentFetchError,
+		)
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("fetching ledger %d: %w", seq, err)
+		}
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
+
+		select {
+		case fetched <- fetchedLedger{seq: seq, meta: ledgerMeta}:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+	}
+}
+
+// processFetchedLedgers is the pipeline's process stage: it stages each
+// fetched ledger into a rotating buffer and hands the result to the persist
+// stage.
+func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-chan fetchedLedger, freeBuffers <-chan *indexer.IndexerBuffer, processed chan<- processedLedger) error {
+	defer close(processed)
 	for {
+		var fl fetchedLedger
+		select {
+		case f, ok := <-fetched:
+			if !ok {
+				return nil
+			}
+			fl = f
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+
+		var buffer *indexer.IndexerBuffer
+		select {
+		case buffer = <-freeBuffers:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+		// Clear at take, not at hand-back: a buffer re-enters freeBuffers only
+		// once the persist stage is completely done with it, so clearing here
+		// can never tear a persist still reading the maps the buffer getters
+		// alias.
+		buffer.Clear()
+
+		processStart := time.Now()
+		transactions, err := m.processLedger(ctx, fl.meta, buffer)
+		if err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
+		}
+		processDuration := time.Since(processStart)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())
+
+		select {
+		case processed <- processedLedger{
+			seq:             fl.seq,
+			closeTime:       fl.meta.LedgerCloseTime(),
+			contractData:    newContractDataMemo(transactions, fl.seq),
+			buffer:          buffer,
+			processDuration: processDuration,
+		}:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
+	}
+}
+
+// hasUnclassifiedInputs reports whether the ledger staged classification
+// inputs this process has not yet seen COMMIT. Only such a ledger needs to
+// open its own persist batch: the classification plan's pool reads are sound
+// for anything a committed batch already classified, and re-observations of
+// known wasms/contracts are the overwhelmingly common case — synthetic
+// loadtest traffic re-observes the same token contracts every single ledger,
+// which would otherwise cut every batch to size one and disable batching
+// entirely.
+func (m *ingestService) hasUnclassifiedInputs(buffer *indexer.IndexerBuffer) bool {
+	for hash := range buffer.GetProtocolWasms() {
+		if _, seen := m.classifiedWasms[hash]; !seen {
+			return true
+		}
+	}
+	for hash := range buffer.GetProtocolWasmBytecodes() {
+		if _, seen := m.classifiedWasms[hash]; !seen {
+			return true
+		}
+	}
+	for contractID, contract := range buffer.GetProtocolContracts() {
+		// A binding change — even to an already-classified wasm — is an
+		// unclassified input: membership only moves under a classification
+		// plan, and mid-batch ledgers run without one.
+		if seenHash, seen := m.classifiedContracts[contractID]; !seen || seenHash != contract.WasmHash {
+			return true
+		}
+	}
+	return false
+}
+
+// maxClassificationSeenEntries bounds the combined seen-set size; at the cap
+// both maps are cleared. The sets otherwise grow by one entry per distinct
+// wasm/contract ever observed — unbounded over a long uptime. Clearing is
+// safe: a miss only makes the next batch cut conservative (the state at
+// process start), and the sets re-warm as batches commit.
+const maxClassificationSeenEntries = 100_000
+
+// markClassificationInputsSeen folds a successfully COMMITTED batch's
+// classification inputs into the seen-sets consulted by the batch cut.
+//
+//   - Only committed inputs count. A rolled-back batch must keep cutting
+//     until its classification actually lands.
+//   - Owned by the persist goroutine; starts empty each process. A restart
+//     just cuts conservatively until re-warmed.
+//   - Marking ignores the classification VERDICT, and that is sound: a
+//     verdict is either deterministic (matched, or spec extraction failed —
+//     re-running cannot change it) or the whole plan failed fail-fast before
+//     this function ran.
+//
+// One deliberate trade: a seen input can still be missing best-effort RPC
+// enrichment (SEP-41 token metadata) absorbed by a validator's Prefetch. Its
+// retry channel is the next classification pass over the contract, which
+// under a sustained persist backlog (batch > 1) pauses until the pipeline
+// catches back up to batch size 1, a restart, or a binding change. Gating
+// seen-ness on enrichment instead would cut a batch head per re-observation
+// of any permanently-unfetchable token — disabling batching wholesale on
+// RPC-less deployments (the loadtest rig).
+func (m *ingestService) markClassificationInputsSeen(batch []processedLedger) {
+	if len(m.classifiedWasms)+len(m.classifiedContracts) > maxClassificationSeenEntries {
+		clear(m.classifiedWasms)
+		clear(m.classifiedContracts)
+	}
+	for _, pl := range batch {
+		for hash := range pl.buffer.GetProtocolWasms() {
+			m.classifiedWasms[hash] = struct{}{}
+		}
+		for hash := range pl.buffer.GetProtocolWasmBytecodes() {
+			m.classifiedWasms[hash] = struct{}{}
+		}
+		for contractID, contract := range pl.buffer.GetProtocolContracts() {
+			m.classifiedContracts[contractID] = contract.WasmHash
+		}
+	}
+}
+
+// persistBatchCut returns how many leading pending ledgers form the next
+// persist batch: everything before the first non-head ledger carrying
+// UNSEEN classification inputs, which must instead open the following batch —
+// its plan's pool reads are only sound once this batch has committed.
+func (m *ingestService) persistBatchCut(pending []processedLedger) int {
+	for i := 1; i < len(pending); i++ {
+		if m.hasUnclassifiedInputs(pending[i].buffer) {
+			return i
+		}
+	}
+	return len(pending)
+}
+
+// persistProcessedLedgers is the pipeline's persist stage and the only stage
+// that writes to the database. It runs strictly sequentially in ledger
+// order. When the process stage has finished ledgers faster than persist
+// drains them, up to livePersistMaxBatchSize consecutive ledgers coalesce
+// into one persist commit, amortizing the COPY streams and the commit
+// barrier across the backlog; while the pipeline keeps pace every batch has
+// size 1 and behavior is exactly the unbatched persist. A ledger with
+// classification inputs always opens its own batch: its plan's pool reads
+// (prepareClassificationPlan) see exactly what the previous batch committed
+// — a contract deployed in ledger N+1 pointing at a wasm uploaded in N must
+// see N's row — so it can never ride behind N in the same commit. The
+// advisory-lock session is probed once per batch, and buffers return to the
+// rotation only after their batch is fully persisted.
+func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <-chan processedLedger, freeBuffers chan<- *indexer.IndexerBuffer, checkLockSession func(ctx context.Context) error, latestIngested *atomic.Uint32) error {
+	var pending []processedLedger
+	for {
+		if len(pending) == 0 {
+			select {
+			case p, ok := <-processed:
+				if !ok {
+					return nil
+				}
+				pending = append(pending, p)
+			case <-ctx.Done():
+				return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+			}
+		}
+		// Greedily take whatever the process stage has already finished, up
+		// to the batch cap — never wait for more.
+	drain:
+		for len(pending) < m.livePersistMaxBatchSize {
+			select {
+			case p, ok := <-processed:
+				if !ok {
+					break drain
+				}
+				pending = append(pending, p)
+			default:
+				break drain
+			}
+		}
+		cut := m.persistBatchCut(pending)
+		batch := pending[:cut]
+
 		if probeErr := checkLockSession(ctx); probeErr != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
 		}
 
-		fetchStart := time.Now()
-		ledgerMeta, ledgerErr := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
-			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
-				return m.ledgerBackend.GetLedger(ctx, currentLedger)
-			},
-			func(attempt int, err error, backoff time.Duration) {
-				m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("ledger_fetch").Inc()
-				log.Ctx(ctx).Warnf("Error fetching ledger %d (attempt %d/%d): %v, retrying in %v...",
-					currentLedger, attempt+1, maxLedgerFetchRetries, err, backoff)
-			},
-			m.isPermanentFetchError,
-		)
-		if ledgerErr != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("fetching ledger %d: %w", currentLedger, ledgerErr)
-		}
-		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
-
-		totalStart := time.Now()
-		processStart := time.Now()
-		// Clearing here rather than after the persist keeps the reset unconditional: processLedger
-		// always starts from an empty buffer regardless of how the previous iteration ended.
-		buffer.Clear()
-		transactions, err := m.processLedger(ctx, ledgerMeta, buffer)
-		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
-		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(time.Since(processStart).Seconds())
-
-		// Classification runs once here, entirely before any database
-		// transaction opens (RPC prefetch happens now, not while row locks are
-		// held), and the resulting plan is reused verbatim across every retry
-		// attempt below.
+		// Classification runs on this stage, not the process stage: its
+		// known-hash lookup is a non-transactional pool read of protocol_wasms
+		// whose correctness depends on the previous batch's persist having
+		// committed. Only the batch head can need a plan: the cut opens a new
+		// batch for any ledger with unseen inputs, while a ledger whose inputs
+		// were all classified by an earlier committed batch rides mid-batch —
+		// its re-observations were already applied then, so it needs no plan.
+		// RPC prefetch still happens before any transaction opens; the plan is
+		// reused verbatim across every retry attempt below.
 		classifyStart := time.Now()
-		plan, err := m.prepareClassificationPlan(ctx, buffer.GetProtocolWasms(), buffer.GetProtocolWasmBytecodes(), buffer.GetProtocolContracts())
+		head := batch[0]
+		plan, err := m.prepareClassificationPlan(ctx, head.buffer.GetProtocolWasms(), head.buffer.GetProtocolWasmBytecodes(), head.buffer.GetProtocolContracts())
 		if err != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("preparing classification plan for ledger %d: %w", currentLedger, err)
+			return fmt.Errorf("preparing classification plan for ledger %d: %w", head.seq, err)
 		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(time.Since(classifyStart).Seconds())
+		classifyDuration := time.Since(classifyStart)
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(classifyDuration.Seconds())
 
-		// All DB operations in a single atomic transaction with retry
-		dbStart := time.Now()
-		numTransactionProcessed, numOperationProcessed, err := m.ingestProcessedDataWithRetry(ctx, currentLedger, ledgerMeta, plan, transactions, buffer)
-		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("processing ledger %d: %w", currentLedger, err)
-		}
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(time.Since(dbStart).Seconds())
-		totalIngestionDuration := time.Since(totalStart).Seconds()
-		m.appMetrics.Ingestion.Duration.Observe(totalIngestionDuration)
-		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(numTransactionProcessed))
-		m.appMetrics.Ingestion.OperationsTotal.Add(float64(numOperationProcessed))
-		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
-		m.appMetrics.Ingestion.LatestLedger.Set(float64(currentLedger))
-
-		// Publish the just-ingested ledger for the lag updater goroutine started above.
-		latestIngested.Store(currentLedger)
-
-		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
-		// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
-		// up a protocol-setup/migrate run that has initialized one since — see
-		// reprobeProtocolCursors).
-		if currentLedger%oldestLedgerSyncInterval == 0 {
-			if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
-				m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
+		items := make([]persistItem, len(batch))
+		for i, pl := range batch {
+			items[i] = persistItem{
+				seq:          pl.seq,
+				closeTime:    pl.closeTime,
+				contractData: pl.contractData,
+				buffer:       pl.buffer,
 			}
-			m.reprobeProtocolCursors(ctx)
+		}
+		items[0].plan = plan
+
+		// All DB operations in a single atomic commit set with retry.
+		dbStart := time.Now()
+		if err := m.persistLedgerDataWithRetry(ctx, items); err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("persisting %s: %w", batchLabel(items), err)
+		}
+		persistDuration := time.Since(dbStart)
+		m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
+		// The seen-sets only feed persistBatchCut, and the cut can only ever
+		// exceed 1 when batching is enabled — at the default cap of 1 the
+		// fold would grow the maps forever for nothing.
+		if m.livePersistMaxBatchSize > 1 {
+			m.markClassificationInputsSeen(batch)
 		}
 
-		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", currentLedger, totalIngestionDuration)
-		currentLedger++
+		// insert_into_db records the true wall time of one persist commit —
+		// the value the histogram's ledger-close-time grading buckets
+		// measure. A batched commit is one observation, not len(batch)
+		// amortized shares: batching engages exactly when persist has fallen
+		// behind, which per-ledger dilution would report as healthy.
+		// persist_batch_size carries the batch size alongside.
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
+
+		// The per-ledger total keeps amortized shares so ledger durations
+		// stay comparable across batch sizes.
+		classifyShare := classifyDuration / time.Duration(len(batch))
+		persistShare := persistDuration / time.Duration(len(batch))
+		for _, pl := range batch {
+			ledgerDuration := pl.processDuration + classifyShare + persistShare
+			m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
+			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
+			m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
+			m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
+			m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
+
+			// Publish the just-ingested ledger for the lag updater goroutine.
+			latestIngested.Store(pl.seq)
+
+			// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
+			// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
+			// up a protocol-setup/migrate run that has initialized one since — see
+			// reprobeProtocolCursors).
+			if pl.seq%oldestLedgerSyncInterval == 0 {
+				if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
+					m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
+				}
+				m.reprobeProtocolCursors(ctx)
+			}
+
+			log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", pl.seq, ledgerDuration.Seconds())
+
+			freeBuffers <- pl.buffer
+		}
+
+		// Shift the uncommitted remainder (at most the next batch's head plus
+		// what drained behind it) to the front; the overlapping forward copy
+		// is safe.
+		n := copy(pending, pending[cut:])
+		pending = pending[:n]
 	}
 }
 
@@ -627,9 +1209,9 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 // entry from missing to existing (see reprobeProtocolCursors) — a row
 // vanishing after having existed is the genuine incident casProtocolCursor's
 // error path handles, not something this snapshot demotes on its own. It is
-// read and mutated only from the single live-ingestion goroutine — including
-// retried persistLedgerData attempts, which run synchronously on it — so it
-// needs no locking.
+// read and mutated only from the pipeline's persist stage goroutine
+// (persistProcessedLedgers) — including retried persistLedgerData attempts,
+// which run synchronously on it — so it needs no locking.
 type protocolCursorSnapshot struct {
 	historyExists      map[string]bool
 	currentStateExists map[string]bool
@@ -754,17 +1336,25 @@ func distinctEventContractIDs(events map[indexer.ContractEventKey][]xdr.Contract
 // getEffectiveProtocolContracts overlays this-ledger buffered contracts onto the
 // committed contracts resolved for this protocol. committed holds the protocol's
 // contracts among those that emitted events this ledger. bufferedContracts holds
-// contracts deployed or upgraded this ledger (keyed by hex contract id); classification
-// maps this-ledger wasm hashes to their protocol. A contract whose binding changed this
-// ledger is dropped from committed and re-added only if its new classification still
-// matches the protocol.
+// contracts observed (deployed, upgraded, or any instance change) this ledger,
+// keyed by hex contract id; classification maps this-ledger wasm hashes to their
+// protocol. A contract whose binding changed this ledger is dropped from
+// committed and re-added only if its new classification still matches the
+// protocol.
+//
+// A nil classification means no reclassification happened this ledger, not
+// that nothing is classified: mid-batch ledgers run without a plan because
+// the batch cut (hasUnclassifiedInputs) guarantees every input they buffer —
+// including each contract's wasm binding — was already seen committed, so
+// their buffered entries are pure re-observations and committed membership
+// stands as is.
 func getEffectiveProtocolContracts(
 	protocolID string,
 	committed []data.ProtocolContracts,
 	bufferedContracts map[string]data.ProtocolContracts,
 	classification map[types.HashBytea]string,
 ) []data.ProtocolContracts {
-	if len(bufferedContracts) == 0 {
+	if len(bufferedContracts) == 0 || classification == nil {
 		return committed
 	}
 
@@ -784,59 +1374,40 @@ func getEffectiveProtocolContracts(
 	return out
 }
 
-// ingestProcessedDataWithRetry wraps persistLedgerData with retry logic.
-// plan was computed once by the caller before this loop started and is reused
-// verbatim across every attempt, so a retried attempt never re-issues the
-// classification RPC calls plan already resolved. The ContractData extraction
-// memo is likewise shared across attempts, so a retry never re-runs the
-// extraction walk over the ledger's transactions.
-func (m *ingestService) ingestProcessedDataWithRetry(
-	ctx context.Context,
-	currentLedger uint32,
-	ledgerMeta xdr.LedgerCloseMeta,
-	plan *ClassificationPlan,
-	transactions []ingest.LedgerTransaction,
-	buffer *indexer.IndexerBuffer,
-) (int, int, error) {
-	contractData := newContractDataMemo(transactions, currentLedger)
-	var lastErr error
-	for attempt := 0; attempt < maxIngestProcessedDataRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return 0, 0, fmt.Errorf("context cancelled: %w", ctx.Err())
-		default:
-		}
-
-		numTxs, numOps, err := m.persistLedgerData(ctx, currentLedger, &ledgerMeta, plan, contractData, buffer, data.LatestLedgerCursorName)
-		if err == nil {
-			return numTxs, numOps, nil
-		}
-		lastErr = err
-		if isPermanentPersistError(err) {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-			return 0, 0, fmt.Errorf("ingesting processed data for ledger %d failed with a permanent error: %w", currentLedger, err)
-		}
-		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
-		if attempt == maxIngestProcessedDataRetries-1 {
-			break
-		}
-
-		backoff := time.Duration(1<<attempt) * time.Second
-		if backoff > maxIngestProcessedDataRetryBackoff {
-			backoff = maxIngestProcessedDataRetryBackoff
-		}
-		log.Ctx(ctx).Warnf("Error ingesting data for ledger %d (attempt %d/%d): %v, retrying in %v...",
-			currentLedger, attempt+1, maxIngestProcessedDataRetries, lastErr, backoff)
-
-		select {
-		case <-ctx.Done():
-			return 0, 0, fmt.Errorf("context cancelled during backoff: %w", ctx.Err())
-		case <-time.After(backoff):
-		}
+// persistLedgerDataWithRetry wraps persistLedgerData with retry logic. The
+// items' plans were computed once by the caller before this call and are
+// reused verbatim across every attempt, so a retried attempt never re-issues
+// the classification RPC calls a plan already resolved; the ContractData
+// extraction memos likewise ride along unchanged, so a retry never re-runs
+// the extraction walk over a ledger's transactions. A failed attempt rolled
+// everything back, so the retry replays the whole batch.
+func (m *ingestService) persistLedgerDataWithRetry(ctx context.Context, items []persistItem) error {
+	label := batchLabel(items)
+	_, err := utils.RetryWithBackoff(ctx, maxIngestProcessedDataRetries, maxIngestProcessedDataRetryBackoff,
+		func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, m.persistLedgerData(ctx, items)
+		},
+		func(attempt int, err error, backoff time.Duration) {
+			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
+			log.Ctx(ctx).Warnf("Error ingesting data for %s (attempt %d/%d): %v, retrying in %v...",
+				label, attempt+1, maxIngestProcessedDataRetries, err, backoff)
+		},
+		isPermanentPersistError,
+	)
+	if err == nil {
+		return nil
 	}
-	m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
-	m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
-	return 0, 0, fmt.Errorf("ingesting processed data failed after %d attempts: %w", maxIngestProcessedDataRetries, lastErr)
+	switch {
+	case errors.Is(err, utils.ErrRetriesExhausted):
+		m.appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("db_persist").Inc()
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
+	case isPermanentPersistError(err):
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("db_persist").Inc()
+		return fmt.Errorf("ingesting processed data for %s failed with a permanent error: %w", label, err)
+	}
+	// The remaining exit is context cancellation — a shutdown, not an ingestion fault, so it
+	// counts against neither counter.
+	return fmt.Errorf("ingesting processed data for %s: %w", label, err)
 }
 
 // isPermanentPersistError classifies a persistLedgerData failure using its PostgreSQL SQLSTATE,
@@ -852,8 +1423,11 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 // ErrCASCursorMissing (see IngestStoreModel.CompareAndSwap) is likewise permanent: the cursor row
 // this ledger's protocol CAS targets is gone, and no retry of the same transaction can recreate
 // it — failing fast surfaces the incident instead of burning the whole retry ladder.
+// ErrPartialPersist (see persistLedgerData) is permanent by definition: part of the ledger is
+// already durable, so re-running it collides on primary keys; the process must exit and let
+// startup reconciliation repair.
 func isPermanentPersistError(err error) bool {
-	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) {
+	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) || errors.Is(err, ErrPartialPersist) {
 		return true
 	}
 	var pgErr *pgconn.PgError

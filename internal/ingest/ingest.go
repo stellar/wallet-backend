@@ -88,6 +88,10 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// LivePersistMaxBatchSize caps how many consecutive ledgers live
+	// ingestion coalesces into one persist commit when persist falls behind.
+	// 1 persists every ledger in its own commit.
+	LivePersistMaxBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -135,12 +139,17 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 }
 
 func Ingest(cfg Configs) error {
-	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// loop and the in-flight ledger's transaction, so that ledger is rolled back
-	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
-	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
-	// state is ever persisted. Cleanup (deferred below) then drains the servers and
-	// tears down the remaining resources in order.
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the
+	// ingest pipeline. What happens to the in-flight batch:
+	//   - before its commit barrier: rolls back entirely;
+	//   - at the barrier: commits fully — the barrier runs detached
+	//     (context.WithoutCancel in persistLedgerData), so a batch never
+	//     half-commits on shutdown.
+	// Ingestion is idempotent and gap-driven: a rolled-back batch re-fetches
+	// and re-ingests on the next startup, and sibling rows a crash strands
+	// above the committed cursor are removed by startup reconciliation
+	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the
+	// servers and tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -330,7 +339,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		IngestionMode:          cfg.IngestionMode,
 		Models:                 models,
 		OldestLedgerCursorName: cfg.OldestLedgerCursorName,
-		AppTracker:             cfg.AppTracker,
 		RPCService:             rpcService,
 		LedgerBackend:          ledgerBackend,
 		LedgerBackendFactory:   ledgerBackendFactory,
@@ -340,17 +348,16 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
-		ContractMetadataService:   contractMetadataService,
 		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {

@@ -15,10 +15,26 @@ import (
 )
 
 // TokenIngestionService provides write access to account token storage during live ingestion.
+// The balance writes are split by where their foreign-key parents are staged: each balance
+// family runs on the transaction that carries its parent rows, so every FK check passes at
+// that transaction's own commit. Trustline balances ride the sibling that inserts
+// trustline_assets, pool-share balances ride the sibling that upserts liquidity_pools, and
+// SAC balances stay on the coordinating transaction because their parent (contract_tokens)
+// is also written by the classification path there — splitting those writers across
+// concurrent transactions could deadlock at the commit barrier on a same-key insert.
 type TokenIngestionService interface {
-	// ProcessTokenChanges applies trustline, native, SAC, and liquidity-pool balance changes to
-	// PostgreSQL. This is called by the indexer for each ledger's state changes during live ingestion.
-	ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error
+	// ProcessTrustlineChanges applies trustline balance changes. dbTx must be the
+	// transaction on which this ledger's trustline_assets rows are staged: the balance
+	// rows' foreign key is checked against committed state at commit, and a transaction
+	// committing before its parents would fail with SQLSTATE 23503.
+	ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error
+	// ProcessSACBalanceChanges applies SAC balance changes. dbTx must be the transaction
+	// on which this ledger's contract_tokens rows are staged.
+	ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error
+	// ProcessNativeAndPoolChanges applies native-balance and liquidity-pool changes.
+	// Pools are upserted before pool-share balances, so the share rows' foreign key is
+	// satisfied within this same transaction; native balances have no parent.
+	ProcessNativeAndPoolChanges(ctx context.Context, dbTx pgx.Tx, accountChangesByAccountID map[string]types.AccountChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error
 }
 
 // Verify interface compliance at compile time
@@ -56,20 +72,22 @@ func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionSe
 	}
 }
 
-// ProcessTokenChanges processes token changes and stores them in PostgreSQL.
-// This is called by the indexer for each ledger's state changes during live ingestion.
-func (s *tokenIngestionService) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
-	if len(trustlineChangesByTrustlineKey) == 0 && len(accountChangesByAccountID) == 0 && len(sacBalanceChangesByKey) == 0 && len(lpShareChangesByKey) == 0 && len(lpChangesByPoolID) == 0 {
-		return nil
-	}
+// ProcessTrustlineChanges applies trustline balance changes on the transaction
+// that stages their trustline_assets parent rows.
+func (s *tokenIngestionService) ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+	return s.processTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey)
+}
 
-	if err := s.processTrustlineChanges(ctx, dbTx, trustlineChangesByTrustlineKey); err != nil {
-		return err
-	}
+// ProcessSACBalanceChanges applies SAC balance changes on the transaction that
+// stages their contract_tokens parent rows.
+func (s *tokenIngestionService) ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	return s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey)
+}
+
+// ProcessNativeAndPoolChanges applies native-balance and liquidity-pool changes; the
+// target tables have no foreign keys, so any transaction may carry them.
+func (s *tokenIngestionService) ProcessNativeAndPoolChanges(ctx context.Context, dbTx pgx.Tx, accountChangesByAccountID map[string]types.AccountChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
 	if err := s.processNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
-		return err
-	}
-	if err := s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey); err != nil {
 		return err
 	}
 	if err := s.processLiquidityPoolChanges(ctx, dbTx, lpChangesByPoolID); err != nil {

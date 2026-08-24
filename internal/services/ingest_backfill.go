@@ -76,11 +76,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	backfillBatches := m.splitGapsIntoBatches(gaps)
 
 	// Recompress chunks as contiguous batches complete rather than waiting until the end.
-	tables := []string{
-		"transactions", "transactions_accounts", "operations",
-		"operations_accounts", "state_changes",
-	}
-	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
+	recompressor := newProgressiveRecompressor(ctx, m.models.DB, data.BulkCopyTableNames(), len(backfillBatches))
 
 	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches, recompressor)
@@ -275,7 +271,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
 				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
 			}
-			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
+			if err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
 			}
 			// Update cursor atomically with data insertion if requested
