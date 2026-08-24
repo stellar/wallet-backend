@@ -95,6 +95,10 @@ func batchCopyAccounts[T any](
 
 	// COPY the link table using pgx binary format with native pgtype types. Upstream
 	// participants handling ensures that account address is not NULL here.
+	// Participants are deduplicated per parent row upstream, so a busy account
+	// repeats once per transaction/operation here; the memo collapses that to
+	// one decode per unique address per batch.
+	memo := make(types.AddressByteaMemo)
 	var rows [][]any
 	for id, addresses := range addressesByID {
 		ledgerCreatedAt, ok := ledgerCreatedAtByID[id]
@@ -107,7 +111,7 @@ func batchCopyAccounts[T any](
 		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
 		idPgtype := pgtype.Int8{Int64: id, Valid: true}
 		for addr := range addresses {
-			addrBytes, addrErr := types.AddressBytea(addr).Value()
+			addrBytes, addrErr := memo.Bytes(types.AddressBytea(addr))
 			if addrErr != nil {
 				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
 			}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -172,7 +173,7 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 			tx := createTx(op, tc.changes, nil, false)
 			wrapper := &TransactionOperationWrapper{
 				Index:          0,
-				Transaction:    tx,
+				Transaction:    &tx,
 				Operation:      op,
 				LedgerSequence: 12345,
 				Network:        networkPassphrase,
@@ -223,7 +224,7 @@ func TestAccountsProcessor_ProcessOperation_PersistsNumSubEntries(t *testing.T) 
 	tx := createTx(op, changes, nil, false)
 	wrapper := &TransactionOperationWrapper{
 		Index:          0,
-		Transaction:    tx,
+		Transaction:    &tx,
 		Operation:      op,
 		LedgerSequence: 12345,
 		Network:        networkPassphrase,
@@ -354,4 +355,133 @@ func TestAccountSortKey(t *testing.T) {
 	maxOp := accountSortKey(phaseOperation, (1<<20)-1, 4095)
 	assert.Positive(t, maxOp)
 	assert.Less(t, maxOp, accountSortKey(phaseRefund, 0, 0))
+}
+
+// TestAccountChangedExceptSigners_MatchesSDK differentially validates the
+// field-comparison implementation against the SDK's marshal-and-compare
+// original across every transition class the semantics distinguish.
+func TestAccountChangedExceptSigners_MatchesSDK(t *testing.T) {
+	const seq = xdr.Uint32(12345)
+	baseAccountID := xdr.MustAddress("GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH")
+	otherAccountID := xdr.MustAddress("GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C")
+	signerKey := xdr.MustSigner("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON")
+
+	baseAccount := func() xdr.AccountEntry {
+		return xdr.AccountEntry{
+			AccountId:     baseAccountID,
+			Balance:       1000,
+			SeqNum:        42,
+			NumSubEntries: 2,
+			Flags:         1,
+			HomeDomain:    "example.org",
+			Thresholds:    xdr.Thresholds{1, 2, 3, 4},
+		}
+	}
+	entry := func(account xdr.AccountEntry, lastModified xdr.Uint32) *xdr.LedgerEntry {
+		return &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: lastModified,
+			Data: xdr.LedgerEntryData{
+				Type:    xdr.LedgerEntryTypeAccount,
+				Account: &account,
+			},
+		}
+	}
+	withV1 := func(account xdr.AccountEntry, buying, selling xdr.Int64) xdr.AccountEntry {
+		account.Ext = xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{
+			Liabilities: xdr.Liabilities{Buying: buying, Selling: selling},
+		}}
+		return account
+	}
+	withV2 := func(account xdr.AccountEntry, numSponsored, numSponsoring xdr.Uint32, ids []xdr.SponsorshipDescriptor) xdr.AccountEntry {
+		account = withV1(account, 0, 0)
+		account.Ext.V1.Ext = xdr.AccountEntryExtensionV1Ext{V: 2, V2: &xdr.AccountEntryExtensionV2{
+			NumSponsored:        numSponsored,
+			NumSponsoring:       numSponsoring,
+			SignerSponsoringIDs: ids,
+		}}
+		return account
+	}
+	withV3 := func(account xdr.AccountEntry, seqLedger xdr.Uint32, seqTime xdr.TimePoint) xdr.AccountEntry {
+		account = withV2(account, 0, 0, nil)
+		account.Ext.V1.Ext.V2.Ext = xdr.AccountEntryExtensionV2Ext{V: 3, V3: &xdr.AccountEntryExtensionV3{
+			SeqLedger: seqLedger,
+			SeqTime:   seqTime,
+		}}
+		return account
+	}
+	mutate := func(f func(*xdr.AccountEntry)) xdr.AccountEntry {
+		account := baseAccount()
+		f(&account)
+		return account
+	}
+
+	testCases := []struct {
+		name string
+		pre  *xdr.LedgerEntry
+		post *xdr.LedgerEntry
+	}{
+		{"created account", nil, entry(baseAccount(), seq)},
+		{"removed account", entry(baseAccount(), seq), nil},
+		{"identical", entry(baseAccount(), seq), entry(baseAccount(), seq)},
+		{"last modified differs", entry(baseAccount(), seq), entry(baseAccount(), seq+1)},
+		{"account id", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.AccountId = otherAccountID }), seq)},
+		{"balance", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.Balance = 2000 }), seq)},
+		{"seqnum", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.SeqNum = 43 }), seq)},
+		{"num sub entries", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.NumSubEntries = 3 }), seq)},
+		{"flags", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.Flags = 5 }), seq)},
+		{"home domain", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.HomeDomain = "other.org" }), seq)},
+		{"thresholds", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.Thresholds = xdr.Thresholds{4, 3, 2, 1} }), seq)},
+		{"inflation dest set", entry(baseAccount(), seq), entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &otherAccountID }), seq)},
+		{
+			"inflation dest changed",
+			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &baseAccountID }), seq),
+			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &otherAccountID }), seq),
+		},
+		{
+			"inflation dest cleared",
+			entry(mutate(func(a *xdr.AccountEntry) { a.InflationDest = &otherAccountID }), seq),
+			entry(baseAccount(), seq),
+		},
+		{
+			"signers only",
+			entry(baseAccount(), seq),
+			entry(mutate(func(a *xdr.AccountEntry) {
+				a.Signers = []xdr.Signer{{Key: signerKey, Weight: 1}}
+			}), seq),
+		},
+		{"v0 vs v1 zero liabilities", entry(baseAccount(), seq), entry(withV1(baseAccount(), 0, 0), seq)},
+		{"v0 vs v1 nonzero liabilities", entry(baseAccount(), seq), entry(withV1(baseAccount(), 10, 0), seq)},
+		{"liabilities changed", entry(withV1(baseAccount(), 10, 20), seq), entry(withV1(baseAccount(), 10, 30), seq)},
+		{"v2 present vs absent", entry(withV1(baseAccount(), 0, 0), seq), entry(withV2(baseAccount(), 0, 0, nil), seq)},
+		{"num sponsored changed", entry(withV2(baseAccount(), 0, 0, nil), seq), entry(withV2(baseAccount(), 1, 0, nil), seq)},
+		{"num sponsoring changed", entry(withV2(baseAccount(), 0, 0, nil), seq), entry(withV2(baseAccount(), 0, 1, nil), seq)},
+		{
+			"sponsoring ids changed",
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{nil}), seq),
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
+		},
+		{
+			"sponsoring ids length differs",
+			entry(withV2(baseAccount(), 0, 0, nil), seq),
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
+		},
+		{
+			"sponsoring ids equal",
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
+			entry(withV2(baseAccount(), 0, 0, []xdr.SponsorshipDescriptor{&otherAccountID}), seq),
+		},
+		{"v3 present vs absent", entry(withV2(baseAccount(), 0, 0, nil), seq), entry(withV3(baseAccount(), 0, 0), seq)},
+		{"v3 seq ledger changed", entry(withV3(baseAccount(), 7, 9), seq), entry(withV3(baseAccount(), 8, 9), seq)},
+		{"v3 seq time changed", entry(withV3(baseAccount(), 7, 9), seq), entry(withV3(baseAccount(), 7, 10), seq)},
+		{"v3 identical", entry(withV3(baseAccount(), 7, 9), seq), entry(withV3(baseAccount(), 7, 9), seq)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			change := ingest.Change{Type: xdr.LedgerEntryTypeAccount, Pre: tc.pre, Post: tc.post}
+			want, err := change.AccountChangedExceptSigners()
+			require.NoError(t, err)
+			assert.Equal(t, want, accountChangedExceptSigners(change), "disagrees with SDK oracle")
+		})
+	}
 }

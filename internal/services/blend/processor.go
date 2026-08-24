@@ -328,7 +328,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 		// tx walk would have produced (mirrors sep41's processor).
 		txID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), 0).ToInt64()
 		opID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), int32(key.OpIdx+1)).ToInt64()
-		opBuilder := processors.NewStateChangeBuilder(input.LedgerSequence, input.LedgerCloseTime, txID, nil).
+		opBuilder := processors.NewStateChangeBuilder(input.LedgerSequence, input.LedgerCloseTime, txID).
 			WithOperationID(opID)
 
 		for _, event := range events {
@@ -354,7 +354,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 // processEvent decodes one contract event and stages its Blend history
 // rows and/or cost-basis folds per mode. Events from contracts this run
 // doesn't track are silently skipped (not an error).
-func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder, mode services.StagingMode, blndToken string) error {
+func (p *processor) processEvent(event xdr.ContractEvent, opBuilder processors.StateChangeBuilder, mode services.StagingMode, blndToken string) error {
 	contractStr, ok := contractIDAddress(event)
 	if !ok {
 		return fmt.Errorf("event has no resolvable contract id")
@@ -429,8 +429,8 @@ func (p *processor) isTracked(addr string) bool {
 // stageHistoryRow appends one Blend state-change row built from row onto
 // the staged history set. row.Token == "" and row.Amount == "" leave their
 // respective columns NULL; row.PoolID == "" omits the poolId key_value entry.
-func (p *processor) stageHistoryRow(opBuilder *processors.StateChangeBuilder, row EventRow) {
-	b := opBuilder.Clone().
+func (p *processor) stageHistoryRow(opBuilder processors.StateChangeBuilder, row EventRow) {
+	b := opBuilder.
 		WithCategory(row.Category).
 		WithReason(row.Reason).
 		WithAccount(row.Account)

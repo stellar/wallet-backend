@@ -43,7 +43,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -112,7 +112,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -157,7 +157,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -202,7 +202,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -242,7 +242,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -285,7 +285,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -324,7 +324,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -367,7 +367,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -406,7 +406,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 			Index:          0,
 			Operation:      op,
 			Network:        network.TestNetworkPassphrase,
-			Transaction:    transaction,
+			Transaction:    &transaction,
 			LedgerSequence: 12345,
 		}
 		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
@@ -429,7 +429,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 func TestEffects_ParseThresholds_DeterministicOrder(t *testing.T) {
 	const address = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
 	processor := NewEffectsProcessor(networkPassphrase, nil)
-	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+	changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64()).
 		WithAccount(address).
 		WithCategory(types.StateChangeCategorySignatureThreshold)
 	effect := &EffectOutput{

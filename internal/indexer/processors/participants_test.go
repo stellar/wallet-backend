@@ -613,10 +613,20 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 				Index:          0,
 				Operation:      op,
 				Network:        network.TestNetworkPassphrase,
-				Transaction:    ingestTx,
+				Transaction:    &ingestTx,
 				LedgerSequence: 4873,
 				LedgerClosed:   ingestTx.Ledger.ClosedAt(),
 			}
+			// The change memo is derived state that participant extraction populates
+			// on the wrapper it builds, so resolve it on both sides to keep the
+			// comparison on the operation itself.
+			_, err = opWrapper.Changes()
+			require.NoError(t, err)
+			for _, got := range gotParticipants {
+				_, err = got.OpWrapper.Changes()
+				require.NoError(t, err)
+			}
+
 			assert.Equal(t, tc.wantParticipantsFn(t, opWrapper), gotParticipants)
 		})
 	}
