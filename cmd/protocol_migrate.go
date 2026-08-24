@@ -132,6 +132,10 @@ func buildMigrationCommand(
 				}
 			case string(ingest.LedgerBackendTypeDatastore):
 				// datastore-bucket-path is validated via Required:true in DatastoreOptions.
+			case string(ingest.LedgerBackendTypeStreamingLoadtest):
+				// Migrations replay arbitrary historical ranges; the streaming backend only
+				// ever yields the synthetic ledgers currently being written to its pipes.
+				return fmt.Errorf("--ledger-backend-type %q is not supported for protocol migration", opts.ledgerBackendType)
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}
