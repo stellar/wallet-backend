@@ -26,9 +26,10 @@ var hypertables = data.BulkCopyTableNames()
 // run history survive repeated calls (e.g. every process restart). When
 // retention is enabled, the reconciliation job keeps oldest_ingest_ledger in
 // sync with the actual minimum ledger remaining after chunk drops. Compression
-// schedule interval updates how frequently existing compression policy jobs
-// run (does not create new policies). Compress after updates how long after a
-// chunk closes before it becomes eligible for compression.
+// schedule interval puts the existing compression policy jobs on staggered
+// fixed schedules (does not create new policies) — see
+// staggerCompressionJob. Compress after updates how long after a chunk closes
+// before it becomes eligible for compression.
 func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string, maxChunksToCompress int) error {
 	for _, table := range hypertables {
 		if _, err := pool.Exec(ctx,
@@ -50,8 +51,8 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 		return fmt.Errorf("configuring reconciliation job: %w", err)
 	}
 
-	if compressionScheduleInterval != "" {
-		for _, table := range hypertables {
+	if compressionScheduleInterval != "" || compressAfter != "" || maxChunksToCompress > 0 {
+		for i, table := range hypertables {
 			var jobID int
 			err := pool.QueryRow(ctx,
 				`SELECT job_id FROM timescaledb_information.jobs
@@ -60,71 +61,93 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 				table,
 			).Scan(&jobID)
 			if err != nil {
-				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping schedule update", table)
+				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping compression settings", table)
 				continue
 			}
 
-			if _, err := pool.Exec(ctx,
-				"SELECT alter_job($1, schedule_interval => $2::interval)",
-				jobID, compressionScheduleInterval,
-			); err != nil {
-				return fmt.Errorf("updating compression schedule interval on %s (job %d): %w", table, jobID, err)
+			if compressionScheduleInterval != "" {
+				if err := staggerCompressionJob(ctx, pool, jobID, table, compressionScheduleInterval, i, len(hypertables)); err != nil {
+					return err
+				}
 			}
-			log.Ctx(ctx).Infof("Set compression schedule interval %q on %s (job %d)", compressionScheduleInterval, table, jobID)
+
+			if compressAfter != "" {
+				if _, err := pool.Exec(ctx,
+					`SELECT alter_job($1, config => jsonb_set(
+						(SELECT config FROM timescaledb_information.jobs WHERE job_id = $1),
+						'{compress_after}', to_jsonb($2::text)))`,
+					jobID, compressAfter,
+				); err != nil {
+					return fmt.Errorf("updating compress_after on %s (job %d): %w", table, jobID, err)
+				}
+				log.Ctx(ctx).Infof("Set compress_after %q on %s (job %d)", compressAfter, table, jobID)
+			}
+
+			if maxChunksToCompress > 0 {
+				if _, err := pool.Exec(ctx,
+					`SELECT alter_job($1, config => config || jsonb_build_object('maxchunks_to_compress', $2::int))
+					 FROM timescaledb_information.jobs WHERE job_id = $1`,
+					jobID, maxChunksToCompress,
+				); err != nil {
+					return fmt.Errorf("updating maxchunks_to_compress on %s (job %d): %w", table, jobID, err)
+				}
+				log.Ctx(ctx).Infof("Set maxchunks_to_compress %d on %s (job %d)", maxChunksToCompress, table, jobID)
+			}
 		}
 	}
 
-	if compressAfter != "" {
-		for _, table := range hypertables {
-			var jobID int
-			err := pool.QueryRow(ctx,
-				`SELECT job_id FROM timescaledb_information.jobs
-				 WHERE proc_name = 'policy_compression'
-				   AND hypertable_name = $1`,
-				table,
-			).Scan(&jobID)
-			if err != nil {
-				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping compress_after update", table)
-				continue
-			}
+	return nil
+}
 
-			if _, err := pool.Exec(ctx,
-				`SELECT alter_job($1, config => jsonb_set(
-					(SELECT config FROM timescaledb_information.jobs WHERE job_id = $1),
-					'{compress_after}', to_jsonb($2::text)))`,
-				jobID, compressAfter,
-			); err != nil {
-				return fmt.Errorf("updating compress_after on %s (job %d): %w", table, jobID, err)
-			}
-			log.Ctx(ctx).Infof("Set compress_after %q on %s (job %d)", compressAfter, table, jobID)
-		}
+// staggerCompressionJob converges a compression policy job onto a fixed
+// schedule whose origin sits index/total of the way into the schedule
+// interval. Each hypertable's policy is auto-created with an identical
+// schedule, so without staggering all of them fire at the same instant and
+// compress their just-closed chunks concurrently — an I/O storm that starves
+// live ingestion's persist stage. Staggered, at most one policy comes due at
+// a time (best effort: a job that overruns its slot still overlaps the next
+// one). The origin is anchored to the interval grid (date_bin against the
+// epoch), which makes the slot deterministic: a job already on its slot is
+// left untouched, so next_start and run history survive process restarts.
+// date_bin limits the schedule interval to month-free values (minutes,
+// hours, days).
+func staggerCompressionJob(ctx context.Context, pool *pgxpool.Pool, jobID int, table, scheduleInterval string, index, total int) error {
+	slotOffset := float64(index) / float64(total)
+
+	var onSlot bool
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(
+			j.schedule_interval = $2::interval
+			AND j.fixed_schedule
+			AND js.next_start - $2::interval * $3::float8
+				= date_bin($2::interval, js.next_start - $2::interval * $3::float8, 'epoch'::timestamptz),
+			false)
+		 FROM timescaledb_information.jobs j
+		 LEFT JOIN timescaledb_information.job_stats js USING (job_id)
+		 WHERE j.job_id = $1`,
+		jobID, scheduleInterval, slotOffset,
+	).Scan(&onSlot); err != nil {
+		return fmt.Errorf("checking compression schedule slot on %s (job %d): %w", table, jobID, err)
+	}
+	if onSlot {
+		return nil
 	}
 
-	if maxChunksToCompress > 0 {
-		for _, table := range hypertables {
-			var jobID int
-			err := pool.QueryRow(ctx,
-				`SELECT job_id FROM timescaledb_information.jobs
-				 WHERE proc_name = 'policy_compression'
-				   AND hypertable_name = $1`,
-				table,
-			).Scan(&jobID)
-			if err != nil {
-				log.Ctx(ctx).Warnf("No compression policy found for %s, skipping maxchunks_to_compress update", table)
-				continue
-			}
-
-			if _, err := pool.Exec(ctx,
-				`SELECT alter_job($1, config => config || jsonb_build_object('maxchunks_to_compress', $2::int))
-				 FROM timescaledb_information.jobs WHERE job_id = $1`,
-				jobID, maxChunksToCompress,
-			); err != nil {
-				return fmt.Errorf("updating maxchunks_to_compress on %s (job %d): %w", table, jobID, err)
-			}
-			log.Ctx(ctx).Infof("Set maxchunks_to_compress %d on %s (job %d)", maxChunksToCompress, table, jobID)
-		}
+	// The first run lands on the job's slot within the NEXT grid interval,
+	// which is always in the future; fixed_schedule keeps every later run on
+	// initial_start + n*interval, i.e. on the slot.
+	if _, err := pool.Exec(ctx,
+		`SELECT alter_job($1,
+			schedule_interval => $2::interval,
+			fixed_schedule    => true,
+			initial_start     => date_bin($2::interval, now(), 'epoch'::timestamptz)
+			                     + $2::interval
+			                     + $2::interval * $3::float8)`,
+		jobID, scheduleInterval, slotOffset,
+	); err != nil {
+		return fmt.Errorf("updating compression schedule on %s (job %d): %w", table, jobID, err)
 	}
-
+	log.Ctx(ctx).Infof("Set compression schedule interval %q (slot %d/%d) on %s (job %d)", scheduleInterval, index+1, total, table, jobID)
 	return nil
 }
 
@@ -214,7 +237,7 @@ func configureReconciliationJob(ctx context.Context, pool *pgxpool.Pool, retenti
 			stored    INTEGER;
 		BEGIN
 			SELECT ledger_number INTO actual_min FROM transactions
-				ORDER BY ledger_created_at ASC, to_id ASC LIMIT 1;
+				ORDER BY ledger_created_at ASC LIMIT 1;
 			IF actual_min IS NULL THEN RETURN; END IF;
 			SELECT value::integer INTO stored FROM ingest_store WHERE key = config->>'cursor_name';
 			IF stored IS NULL OR actual_min <= stored THEN RETURN; END IF;
@@ -231,9 +254,10 @@ func configureReconciliationJob(ctx context.Context, pool *pgxpool.Pool, retenti
 	).Scan(&jobID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// Runs every 1 hour: cheap enough (oldest chunk metadata + 1 row from
-		// ingest_store) to not need coordination with the retention job's own
-		// schedule, and idempotent — a no-op once the cursor is already correct.
+		// Runs every 1 hour: cheap enough (an ordered ChunkAppend LIMIT 1 backed by the
+		// hypertable's partition-column index, plus 1 row from ingest_store) to not need
+		// coordination with the retention job's own schedule, and idempotent — a no-op
+		// once the cursor is already correct.
 		if _, err = pool.Exec(ctx, `
 			SELECT add_job(
 				'reconcile_oldest_cursor',
