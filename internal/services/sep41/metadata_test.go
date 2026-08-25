@@ -99,6 +99,22 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		assert.Empty(t, out)
 	})
 
+	t.Run("skips contracts marked as fetched, even after a recorded failure", func(t *testing.T) {
+		rpc := services.NewContractMetadataServiceMock(t)
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+
+		// A contract in its failure-backoff window that markFetched then
+		// covers (its metadata landed in the DB, e.g. via seeding) must
+		// never re-enter the RPC path: no FetchSingleField expectations
+		// exist on the mock, so any call would fail the test.
+		f.recordFailure(testContractA)
+		f.markFetched([]string{testContractA})
+
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
 	t.Run("returns a populated Contract for a successful single-contract fetch", func(t *testing.T) {
 		rpc := services.NewContractMetadataServiceMock(t)
 		expectMetadataFetch(rpc, testContractA, "USD Coin", "USDC", 7)
@@ -199,6 +215,94 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		out, err := f.FetchMetadata(ctx, []string{testContractA})
 		require.NoError(t, err)
 		assert.Empty(t, out)
+	})
+
+	t.Run("skips a contract that is still inside its failure-backoff window", func(t *testing.T) {
+		rpc := services.NewContractMetadataServiceMock(t)
+		// One failing name() simulation is all the RPC is allowed to see: the
+		// backoff entry recorded by the first call must suppress the second.
+		rpc.On("FetchSingleField", mock.Anything, testContractA, "name", mock.Anything).
+			Return(xdr.ScVal{}, errors.New("simulate boom")).Once()
+
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+
+		out, err = f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+		rpc.AssertNumberOfCalls(t, "FetchSingleField", 1)
+	})
+
+	t.Run("refetches a contract once its failure-backoff window expires", func(t *testing.T) {
+		// The deadline in failedUntil is absolute, so the backoff has to be short
+		// before the failure is recorded — shortening it afterwards would leave the
+		// original five-minute deadline in place.
+		orig := metadataFailureBackoff
+		metadataFailureBackoff = 20 * time.Millisecond
+		t.Cleanup(func() { metadataFailureBackoff = orig })
+
+		rpc := services.NewContractMetadataServiceMock(t)
+		rpc.On("FetchSingleField", mock.Anything, testContractA, "name", mock.Anything).
+			Return(xdr.ScVal{}, errors.New("simulate boom")).Once()
+		expectMetadataFetch(rpc, testContractA, "USD Coin", "USDC", 7)
+
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+
+		// Calls inside the window are served from the failure cache and return
+		// nothing; the first call past the deadline reaches the (now healthy) RPC.
+		require.Eventually(t, func() bool {
+			out, err := f.FetchMetadata(ctx, []string{testContractA})
+			return err == nil && len(out) == 1
+		}, time.Second, 5*time.Millisecond)
+
+		// The successful fetch cleared the failure entry and marked the contract
+		// fetched, so it never reaches the RPC again.
+		out, err = f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+		rpc.AssertNumberOfCalls(t, "FetchSingleField", 4) // 1 failed name + name/symbol/decimals
+	})
+
+	t.Run("fetches a contract only once per process", func(t *testing.T) {
+		rpc := services.NewContractMetadataServiceMock(t)
+		expectMetadataFetch(rpc, testContractA, "USD Coin", "USDC", 7)
+
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+
+		// Already-fetched contracts are skipped entirely: Apply has persisted their
+		// metadata, so the second call returns nothing rather than refetching.
+		out, err = f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+		rpc.AssertNumberOfCalls(t, "FetchSingleField", 3)
+	})
+
+	t.Run("fetches only the uncached contract of a mixed batch", func(t *testing.T) {
+		rpc := services.NewContractMetadataServiceMock(t)
+		expectMetadataFetch(rpc, testContractA, "USD Coin", "USDC", 7)
+		expectMetadataFetch(rpc, testContractB, "Euro Coin", "EURC", 6)
+
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+
+		out, err = f.FetchMetadata(ctx, []string{testContractA, testContractB})
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+		assert.NotContains(t, out, testContractA)
+		require.NotNil(t, out[testContractB])
+		require.NotNil(t, out[testContractB].Symbol)
+		assert.Equal(t, "EURC", *out[testContractB].Symbol)
+		rpc.AssertNumberOfCalls(t, "FetchSingleField", 6)
 	})
 
 	t.Run("processes contracts in multiple batches when input exceeds the batch size", func(t *testing.T) {
