@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -61,12 +60,10 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:     IngestionModeLive,
 		Models:            models,
-		AppTracker:        &apptracker.MockAppTracker{},
 		RPCService:        &RPCServiceMock{},
 		LedgerBackend:     mockBackend,
 		CheckpointService: checkpointMock,
 		Metrics:           m,
-		GetLedgersLimit:   defaultGetLedgersLimit,
 		Network:           testNetwork,
 		NetworkPassphrase: network.TestNetworkPassphrase,
 		Archive:           &HistoryArchiveMock{},
@@ -135,6 +132,12 @@ func Test_isPermanentPersistError(t *testing.T) {
 			err:           fmt.Errorf("persisting ledger data for ledger 100: comparing and swapping protocol cursor blend: %w", data.ErrCASCursorMissing),
 			wantPermanent: true,
 		},
+		{name: "partial_persist_is_permanent", err: ErrPartialPersist, wantPermanent: true},
+		{
+			name:          "wrapped_partial_persist_is_permanent",
+			err:           fmt.Errorf("committing operations for ledger 100: %w: connection reset", ErrPartialPersist),
+			wantPermanent: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -142,4 +145,29 @@ func Test_isPermanentPersistError(t *testing.T) {
 			assert.Equal(t, tc.wantPermanent, isPermanentPersistError(tc.err))
 		})
 	}
+}
+
+// Test_contractDataMemo_get covers the memo's two guarantees. The result is
+// always non-nil: a RequiresContractData processor ranges over the map
+// unconditionally, so even a ledger with zero transactions has to yield an
+// empty map rather than nil. And the extraction walk runs at most once no
+// matter how often get() is called, which is what makes one memo safe to
+// share across every persistLedgerDataWithRetry attempt for a ledger.
+func Test_contractDataMemo_get(t *testing.T) {
+	memo := newContractDataMemo(nil, 100)
+
+	first, err := memo.get()
+	require.NoError(t, err)
+	require.NotNil(t, first, "a zero-transaction ledger still needs a rangeable map")
+	assert.Empty(t, first)
+
+	// Marking the first result is what makes the second call's map
+	// identifiable: a second extraction builds a fresh map and could not carry
+	// the marker, so finding it proves the walk did not run again.
+	const marker = "extracted-once"
+	first[marker] = nil
+
+	second, err := memo.get()
+	require.NoError(t, err)
+	assert.Contains(t, second, marker, "get should serve the memoized map instead of extracting again")
 }

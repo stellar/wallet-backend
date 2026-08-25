@@ -21,7 +21,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 	var sentryDSN string
 	var stellarEnvironment string
 	var ledgerBackendType string
-	var deprecatedLatestLedgerCursorName string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
@@ -44,14 +43,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.IngestionMode,
 			FlagDefault: services.IngestionModeLive,
 			Required:    true,
-		},
-		{
-			Name:        "latest-ledger-cursor-name",
-			Usage:       "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded and no longer configurable.",
-			OptType:     types.String,
-			ConfigKey:   &deprecatedLatestLedgerCursorName,
-			FlagDefault: "",
-			Required:    false,
 		},
 		{
 			Name:        "backfill-workers",
@@ -78,12 +69,20 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
+			Name:        "live-persist-max-batch-size",
+			Usage:       "Maximum consecutive ledgers coalesced into one persist commit when live ingestion falls behind. The default 1 persists every ledger in its own commit — right for networks whose close time comfortably exceeds the persist time; raise it on high-TPL/short-block deployments to amortize inserts across a backlog at the cost of coarser crash recovery and visibility latency under load.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.LivePersistMaxBatchSize,
+			FlagDefault: 1,
+			Required:    false,
+		},
+		{
 			Name:        "archive-url",
-			Usage:       "Archive URL for history archives",
+			Usage:       "Archive URL for history archives. Required for every backend except 'streaming-loadtest', which runs without a history archive.",
 			OptType:     types.String,
 			ConfigKey:   &cfg.ArchiveURL,
 			FlagDefault: "https://history.stellar.org/prd/core-testnet/core_testnet_001/",
-			Required:    true,
+			Required:    false,
 		},
 		{
 			Name:        "checkpoint-frequency",
@@ -95,11 +94,29 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
+			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc', 'datastore' (default), or 'streaming-loadtest' (dev-only; reads apply-load ledger meta from named pipes or TCP listeners)",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
 			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
 			Required:    false,
+		},
+		{
+			Name:           "loadtest-meta-sources",
+			Usage:          "Dev-only. Comma-separated sources carrying apply-load ledger meta, one per apply-load process: each a named pipe (FIFO) path or a tcp-listen://HOST:PORT address to accept one producer connection on. Order defines merge order. Required when ledger-backend-type is 'streaming-loadtest', ignored otherwise.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionStringList,
+			ConfigKey:      &cfg.LoadtestMetaSources,
+			FlagDefault:    "",
+			Required:       false,
+		},
+		{
+			Name:           "loadtest-ledger-close-duration",
+			Usage:          "Dev-only. Minimum interval between ledgers in streaming-loadtest mode (Go duration string, e.g. \"5s\"). \"0s\" leaves the stream uncapped.",
+			OptType:        types.String,
+			CustomSetValue: utils.SetConfigOptionDuration,
+			ConfigKey:      &cfg.LoadtestLedgerCloseDuration,
+			FlagDefault:    "0s",
+			Required:       false,
 		},
 		{
 			Name:        "chunk-interval",
@@ -157,18 +174,27 @@ func (c *ingestCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if deprecatedLatestLedgerCursorName != "" {
-				log.Warnf("--latest-ledger-cursor-name (LATEST_LEDGER_CURSOR_NAME) is deprecated and ignored; the cursor name is now hard-coded.")
-			}
-
 			// Convert ledger backend type string to typed value
 			switch ledgerBackendType {
 			case string(ingest.LedgerBackendTypeRPC):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+			case string(ingest.LedgerBackendTypeStreamingLoadtest):
+				cfg.LedgerBackendType = ingest.LedgerBackendTypeStreamingLoadtest
 			default:
-				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
+				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc', 'datastore', or 'streaming-loadtest'", ledgerBackendType)
+			}
+
+			// The streaming-loadtest backend needs its meta sources and runs without a
+			// history archive; every other backend reads a history archive to build
+			// initial state.
+			if cfg.LedgerBackendType == ingest.LedgerBackendTypeStreamingLoadtest {
+				if len(cfg.LoadtestMetaSources) == 0 {
+					return fmt.Errorf("loadtest-meta-sources is required when ledger-backend-type is 'streaming-loadtest'")
+				}
+			} else if cfg.ArchiveURL == "" {
+				return fmt.Errorf("archive-url is required when ledger-backend-type is '%s'", ledgerBackendType)
 			}
 
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)

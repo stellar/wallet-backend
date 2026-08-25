@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -22,7 +24,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -40,8 +41,6 @@ var (
 )
 
 const (
-	defaultGetLedgersLimit = 50
-
 	// Test hash constants for ingest tests (64-char hex strings for BYTEA storage)
 	flushTxHash1 = "f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f101"
 	flushTxHash2 = "f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f202"
@@ -361,7 +360,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				tc.setupDB(t)
 			}
 
-			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 			mockLedgerBackend := &LedgerBackendMock{}
@@ -370,11 +368,9 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &mockAppTracker,
 				RPCService:        &mockRPCService,
 				LedgerBackend:     mockLedgerBackend,
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           mockArchive,
@@ -467,7 +463,6 @@ func Test_startBackfilling_Validation(t *testing.T) {
 			models, err := data.NewModels(dbConnectionPool, m.DB)
 			require.NoError(t, err)
 
-			mockAppTracker := apptracker.MockAppTracker{}
 			mockRPCService := RPCServiceMock{}
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 			mockLedgerBackend := &LedgerBackendMock{}
@@ -482,12 +477,10 @@ func Test_startBackfilling_Validation(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &mockAppTracker,
 				RPCService:           &mockRPCService,
 				LedgerBackend:        mockLedgerBackend,
 				LedgerBackendFactory: mockBackendFactory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              mockArchive,
@@ -687,12 +680,10 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: tc.setupFactory(),
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -763,11 +754,9 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -830,11 +819,9 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeLive,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -891,11 +878,9 @@ func Test_ingestService_Run(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     tc.mode,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -1029,11 +1014,9 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			svc, err := NewIngestService(IngestServiceConfig{
 				IngestionMode:     IngestionModeBackfill,
 				Models:            models,
-				AppTracker:        &apptracker.MockAppTracker{},
 				RPCService:        mockRPCService,
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
-				GetLedgersLimit:   defaultGetLedgersLimit,
 				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
@@ -1185,12 +1168,10 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: factory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -1321,12 +1302,10 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			svc, svcErr := NewIngestService(IngestServiceConfig{
 				IngestionMode:        IngestionModeBackfill,
 				Models:               models,
-				AppTracker:           &apptracker.MockAppTracker{},
 				RPCService:           mockRPCService,
 				LedgerBackend:        &LedgerBackendMock{},
 				LedgerBackendFactory: factory,
 				Metrics:              m,
-				GetLedgersLimit:      defaultGetLedgersLimit,
 				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
@@ -1417,12 +1396,10 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
-		AppTracker:                &apptracker.MockAppTracker{},
 		RPCService:                mockRPCService,
 		LedgerBackend:             &LedgerBackendMock{},
 		LedgerBackendFactory:      factory,
 		Metrics:                   m,
-		GetLedgersLimit:           defaultGetLedgersLimit,
 		Network:                   network.TestNetworkPassphrase,
 		NetworkPassphrase:         network.TestNetworkPassphrase,
 		Archive:                   &HistoryArchiveMock{},
@@ -1499,12 +1476,10 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:        IngestionModeBackfill,
 		Models:               models,
-		AppTracker:           &apptracker.MockAppTracker{},
 		RPCService:           mockRPCService,
 		LedgerBackend:        &LedgerBackendMock{},
 		LedgerBackendFactory: factory,
 		Metrics:              m,
-		GetLedgersLimit:      defaultGetLedgersLimit,
 		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
@@ -1530,8 +1505,180 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		"latest cursor should remain unchanged when all batches fail")
 }
 
-// Test_ingestProcessedDataWithRetry tests the ingestProcessedDataWithRetry function covering success, failure, and retry scenarios.
-func Test_ingestProcessedDataWithRetry(t *testing.T) {
+// Test_persistLedgerDataWithRetry tests the persistLedgerDataWithRetry function covering success, failure, and retry scenarios.
+// Test_persistBatchCut verifies the classification-safety cut only isolates
+// ledgers carrying UNSEEN classification inputs: re-observations of contracts
+// a committed batch already classified ride mid-batch (synthetic loadtest
+// traffic re-observes the same contracts every ledger, which must not
+// degrade every batch to size one), while a genuinely new contract still
+// opens its own batch.
+func Test_persistBatchCut(t *testing.T) {
+	bufferWithContract := func(contractID string) *indexer.IndexerBuffer {
+		b := indexer.NewIndexerBuffer()
+		b.PushProtocolContracts(data.ProtocolContracts{ContractID: types.HashBytea(contractID)})
+		return b
+	}
+	plain := indexer.NewIndexerBuffer()
+
+	svc := &ingestService{
+		classifiedWasms:     map[string]struct{}{},
+		classifiedContracts: map[string]types.HashBytea{},
+	}
+
+	pending := []processedLedger{
+		{seq: 1, buffer: plain},
+		{seq: 2, buffer: bufferWithContract("cafe01")},
+		{seq: 3, buffer: plain},
+	}
+
+	// Unseen contract at index 1 opens its own batch.
+	assert.Equal(t, 1, svc.persistBatchCut(pending))
+
+	// Once its batch commits, the same contract rides mid-batch.
+	svc.markClassificationInputsSeen(pending[1:2])
+	assert.Equal(t, 3, svc.persistBatchCut(pending))
+
+	// A different, unseen contract still cuts.
+	pending[2] = processedLedger{seq: 3, buffer: bufferWithContract("cafe02")}
+	assert.Equal(t, 2, svc.persistBatchCut(pending))
+
+	// The same contract re-observed with a DIFFERENT wasm binding is an
+	// unclassified input again: membership only moves under a classification
+	// plan, so a binding change must open a batch head.
+	upgraded := indexer.NewIndexerBuffer()
+	upgraded.PushProtocolContracts(data.ProtocolContracts{ContractID: types.HashBytea("cafe01"), WasmHash: types.HashBytea("wasm02")})
+	pending[2] = processedLedger{seq: 3, buffer: upgraded}
+	assert.Equal(t, 2, svc.persistBatchCut(pending))
+}
+
+// Test_ingestLiveLedgers_batchReachesConfiguredCap pins the sizing of the
+// process↔persist buffer rotation. A buffer stays checked out until the batch
+// carrying it commits, so sustaining a full batch takes the cap's worth of
+// buffers for the batch in flight plus the cap's worth for the process stage to
+// refill behind it. Sized any tighter, process starves on freeBuffers before the
+// queue refills and the batch settles strictly below livePersistMaxBatchSize no
+// matter how deep the backlog — leaving the configured cap unreachable at every
+// load, which the batch-size histogram reports as a suspiciously constant value.
+func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
+	const batchCap = 3
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const startLedger = uint32(51) // not a multiple of oldestLedgerSyncInterval (100)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // trustlineChangesByTrustlineKey
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // sacBalanceChangesByKey
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // accountChangesByAccountID
+		mock.Anything, // lpShareChangesByKey
+		mock.Anything, // lpChangesByPoolID
+	).Return(nil).Maybe()
+
+	// Supply is unbounded and every ledger is empty, so fetch and process both
+	// outrun the persist stage's commit round-trip: a backlog is always present
+	// for the batch to coalesce.
+	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(dummyLedgerMeta(1), nil).Maybe()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).
+		Return(uint32(0), errors.New("lag gauge unused in this test")).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:           IngestionModeLive,
+		Models:                  models,
+		RPCService:              &RPCServiceMock{},
+		LedgerBackend:           mockBackend,
+		TokenIngestionService:   mockTokenIngestionService,
+		Metrics:                 m,
+		Network:                 network.TestNetworkPassphrase,
+		NetworkPassphrase:       network.TestNetworkPassphrase,
+		Archive:                 &HistoryArchiveMock{},
+		LivePersistMaxBatchSize: batchCap,
+	})
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger, func(context.Context) error { return nil }) }()
+
+	// Grade the mean over many commits, not a single observation: while the
+	// rotation is still filling at startup the process stage can hand off more
+	// than the steady state sustains, so one large batch proves nothing.
+	var h *dto.Histogram
+	require.Eventually(t, func() bool {
+		var mt dto.Metric
+		require.NoError(t, m.Ingestion.PersistBatchSize.Write(&mt))
+		h = mt.GetHistogram()
+		return h.GetSampleCount() >= 20
+	}, 30*time.Second, 50*time.Millisecond, "pipeline did not reach 20 persist commits")
+
+	mean := h.GetSampleSum() / float64(h.GetSampleCount())
+	assert.Greaterf(t, mean, float64(batchCap)-0.5,
+		"mean persist batch %.2f over %d commits fell short of the configured cap %d: the process↔persist buffer rotation cannot refill a full batch",
+		mean, h.GetSampleCount(), batchCap)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ingestLiveLedgers did not return after context cancellation")
+	}
+}
+
+// oneLedger wraps a single ledger's persist payload as the batch slice
+// persistLedgerData and persistLedgerDataWithRetry consume.
+func oneLedger(seq uint32, plan *ClassificationPlan, contractData *contractDataMemo, buffer *indexer.IndexerBuffer) []persistItem {
+	return []persistItem{{seq: seq, plan: plan, contractData: contractData, buffer: buffer}}
+}
+
+// Test_persistLedgerData_rejectsLedgerZero pins the batch entry guard. Ledger
+// 0 has no predecessor for the protocol CAS or the guarded cursor to expect,
+// and an unsigned zero would underflow into ledger 4294967295.
+func Test_persistLedgerData_rejectsLedgerZero(t *testing.T) {
+	items := []persistItem{{seq: 1, buffer: indexer.NewIndexerBuffer()}, {seq: 0, buffer: indexer.NewIndexerBuffer()}}
+	err := (&ingestService{}).persistLedgerData(context.Background(), items)
+	assert.ErrorContains(t, err, "ledger sequence 0 is not persistable")
+}
+
+// Test_persistSiblings_coversBulkCopyTables pins the persist path's sibling set
+// to data.BulkCopyTables, the list startup reconciliation deletes orphans
+// from. A bulk table streamed by a sibling but absent from that list keeps its
+// rows above the cursor after a crash, and re-ingesting those ledgers collides
+// on primary keys COPY cannot resolve.
+func Test_persistSiblings_coversBulkCopyTables(t *testing.T) {
+	var stateChangesMu sync.Mutex
+	siblings := (&ingestService{}).persistSiblings(&stateChangesMu)
+	streamed := make(map[string]bool, len(siblings))
+	for _, sibling := range siblings {
+		streamed[sibling.name] = true
+	}
+	for _, target := range data.BulkCopyTables {
+		assert.True(t, streamed[target.Table], "no persist sibling streams %s", target.Table)
+	}
+}
+
+func Test_persistLedgerDataWithRetry(t *testing.T) {
 	t.Run("success - processes data and updates cursor", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -1561,12 +1708,20 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
+		).Return(nil)
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil)
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
 		).Return(nil)
@@ -1574,12 +1729,10 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1595,14 +1748,14 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should succeed
+		// Call persistLedgerDataWithRetry - should succeed
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 
 		// Verify success
 		require.NoError(t, err)
-		assert.Equal(t, 0, numTx) // No transactions in buffer
-		assert.Equal(t, 0, numOps)
+		assert.Equal(t, 0, buffer.GetNumberOfTransactions()) // No transactions in buffer
+		assert.Equal(t, 0, buffer.GetNumberOfOperations())
 
 		// Verify DB cursor was updated
 		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
@@ -1641,25 +1794,31 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to return error (simulating DB failure)
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // sacBalanceChangesByKey
+		).Return(fmt.Errorf("db connection failed"))
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
 			mock.Anything, // accountChangesByAccountID
-			mock.Anything, // sacBalanceChangesByKey
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
-		).Return(fmt.Errorf("db connection failed"))
+		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1675,9 +1834,9 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should fail after retries due to DB error
+		// Call persistLedgerDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		_, _, err = svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -1721,34 +1880,36 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 
 		// Mock AccountTokenService to fail once then succeed
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
-			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // sacBalanceChangesByKey
-			mock.Anything, // lpShareChangesByKey
-			mock.Anything, // lpChangesByPoolID
 		).Return(fmt.Errorf("transient error")).Once()
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil).Once()
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
 			mock.Anything, // accountChangesByAccountID
-			mock.Anything, // sacBalanceChangesByKey
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
-		).Return(nil).Once()
+		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            mockRPCService,
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1764,14 +1925,14 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			OperationID: 1,
 		})
 
-		// Call ingestProcessedDataWithRetry - should succeed after retry
+		// Call persistLedgerDataWithRetry - should succeed after retry
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		numTx, numOps, err := svc.ingestProcessedDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 
 		// Verify success after retry
 		require.NoError(t, err)
-		assert.Equal(t, 0, numTx)
-		assert.Equal(t, 0, numOps)
+		assert.Equal(t, 0, buffer.GetNumberOfTransactions())
+		assert.Equal(t, 0, buffer.GetNumberOfOperations())
 
 		// Verify DB cursor was updated
 		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
@@ -1821,12 +1982,10 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:        IngestionModeBackfill,
 		Models:               models,
-		AppTracker:           &apptracker.MockAppTracker{},
 		RPCService:           mockRPCService,
 		LedgerBackend:        &LedgerBackendMock{},
 		LedgerBackendFactory: factory,
 		Metrics:              m,
-		GetLedgersLimit:      defaultGetLedgersLimit,
 		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
@@ -1931,12 +2090,20 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
 			mock.Anything, // ctx
 			mock.Anything, // dbTx
 			mock.Anything, // trustlineChangesByTrustlineKey
-			mock.Anything, // accountChangesByAccountID
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
 			mock.Anything, // sacBalanceChangesByKey
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, // ctx
+			mock.Anything, // dbTx
+			mock.Anything, // accountChangesByAccountID
 			mock.Anything, // lpShareChangesByKey
 			mock.Anything, // lpChangesByPoolID
 		).Return(nil).Maybe()
@@ -1944,12 +2111,10 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            &RPCServiceMock{},
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -1972,8 +2137,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// Both protocol cursors should advance to 100
@@ -2005,8 +2169,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// Cursors should stay at 100 (CAS expected 99 but found 100)
@@ -2038,8 +2201,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// Cursors should stay at 98 (behind, so entire block is skipped)
@@ -2075,13 +2237,12 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// No protocol cursors inserted.
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// Main cursor advances; protocol persist methods were not called and
 		// protocol cursor rows remain absent.
-		mainCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		mainCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), mainCursor)
 
@@ -2113,8 +2274,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
-		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// History CAS succeeded.
@@ -2153,8 +2313,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
-		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// Current-state CAS succeeded.
@@ -2182,12 +2341,11 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		setupDBCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// Main cursor should advance
-		mainCursor, err := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		mainCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, err)
 		assert.Equal(t, uint32(100), mainCursor)
 	})
@@ -2202,15 +2360,13 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		// First ledger succeeds and advances the current-state cursor to 100.
 		processor.processedLedger = 100
-		meta100 := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta100, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// Next ledger fails inside PersistCurrentState, rolling back the whole
 		// transaction — the current-state cursor must stay at 100.
 		processor.processedLedger = 101
-		meta101 := dummyLedgerMeta(101)
-		_, _, err = svc.persistLedgerData(ctx, 101, &meta101, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(101, nil, newContractDataMemo(nil, 101), indexer.NewIndexerBuffer()))
 		require.Error(t, err)
 
 		currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2220,7 +2376,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Retrying the same ledger succeeds and advances the cursor.
 		processor.failPersistCurrentStateAt = 0
 		processor.processedLedger = 101
-		_, _, err = svc.persistLedgerData(ctx, 101, &meta101, nil, nil, indexer.NewIndexerBuffer(), "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(101, nil, newContractDataMemo(nil, 101), indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		currentStateCursor, err = models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2251,16 +2407,15 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, delErr)
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, data.ErrCASCursorMissing)
 
-		// The transaction rolled back entirely: even the unrelated main cursor
-		// (a different cursorName, not gated by any snapshot) did not advance.
-		mainCursor, getErr := models.IngestStore.Get(ctx, "latest_ledger_cursor")
+		// The transaction rolled back entirely: even the main cursor, which no
+		// snapshot gates, stayed at its pre-ledger value.
+		mainCursor, getErr := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
 		require.NoError(t, getErr)
-		assert.Equal(t, uint32(0), mainCursor)
+		assert.Equal(t, uint32(99), mainCursor)
 
 		// The still-existing current-state cursor is untouched (whole tx rolled back).
 		csCursor, getErr := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2287,8 +2442,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Production is now enabled: a ledger processed after the re-probe actually CASes.
 		processor.processedLedger = 100
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		histCursor, getErr := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
@@ -2313,8 +2467,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 	})
 
@@ -2335,8 +2488,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 	})
 
@@ -2396,8 +2548,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 
 		buffer := indexer.NewIndexerBuffer()
-		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 	})
 
@@ -2412,7 +2563,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		// Inject a failing contract-id lookup over the otherwise-real models.
 		contractsMock := data.NewProtocolContractsModelMock(t)
-		contractsMock.On("BatchGetByContractIDs", mock.Anything, mock.Anything).
+		contractsMock.On("BatchGetByContractIDs", mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, fmt.Errorf("db boom")).Once()
 		models.ProtocolContracts = contractsMock
 
@@ -2424,8 +2575,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &contractID}},
 		)
 
-		meta := dummyLedgerMeta(100)
-		_, _, err := svc.persistLedgerData(ctx, 100, &meta, nil, nil, buffer, "latest_ledger_cursor")
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
 		require.ErrorContains(t, err, "resolving protocol contracts for ledger 100")
 
 		// The transaction rolled back: the protocol history cursor stayed at 99.
@@ -2482,9 +2632,31 @@ func Test_getEffectiveProtocolContracts_RemovesContractsUpgradedAwayFromProtocol
 	contracts := getEffectiveProtocolContracts("testproto",
 		[]data.ProtocolContracts{baseContract},
 		map[string]data.ProtocolContracts{string(upgradedContract.ContractID): upgradedContract},
-		nil,
+		map[types.HashBytea]string{upgradedContract.WasmHash: "otherproto"},
 	)
 	assert.Empty(t, contracts)
+}
+
+// Test_getEffectiveProtocolContracts_NilClassificationKeepsCommitted pins the
+// mid-batch semantics: ledgers riding behind a batch head run with no
+// classification plan (classification == nil), and their buffered contracts
+// are pure re-observations — every binding was already seen committed, the
+// batch cut guarantees it. Committed membership must stand untouched;
+// dropping a re-observed contract here silently discards that ledger's
+// events for it.
+func Test_getEffectiveProtocolContracts_NilClassificationKeepsCommitted(t *testing.T) {
+	t.Parallel()
+
+	trackedContract := data.ProtocolContracts{ContractID: types.HashBytea(txHash1), WasmHash: types.HashBytea(txHash2)}
+
+	// The tracked contract shows up in the buffer again (TTL bump, restore, or
+	// any instance change re-observes it) on a mid-batch ledger.
+	contracts := getEffectiveProtocolContracts("testproto",
+		[]data.ProtocolContracts{trackedContract},
+		map[string]data.ProtocolContracts{string(trackedContract.ContractID): trackedContract},
+		nil,
+	)
+	assert.Equal(t, []data.ProtocolContracts{trackedContract}, contracts)
 }
 
 func Test_distinctEventContractIDs(t *testing.T) {
@@ -2662,20 +2834,23 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 		require.NoError(t, err)
 
 		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-		mockTokenIngestionService.On("ProcessTokenChanges",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
 			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
 			IngestionMode:         IngestionModeLive,
 			Models:                models,
-			AppTracker:            &apptracker.MockAppTracker{},
 			RPCService:            &RPCServiceMock{},
 			LedgerBackend:         &LedgerBackendMock{},
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
-			GetLedgersLimit:       defaultGetLedgersLimit,
 			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
@@ -2717,8 +2892,7 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 			}},
 		}
 
-		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, plan, nil, buffer, "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(100, plan, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// The validator's Apply ran inside the transaction.
@@ -2782,8 +2956,7 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 
 		plan := &ClassificationPlan{Matches: map[types.HashBytea]string{w2: "otherproto"}}
 
-		meta := dummyLedgerMeta(100)
-		_, _, err = svc.persistLedgerData(ctx, 100, &meta, plan, nil, buffer, "latest_ledger_cursor")
+		err = svc.persistLedgerData(ctx, oneLedger(100, plan, newContractDataMemo(nil, 100), buffer))
 		require.NoError(t, err)
 
 		// The processor staged the ledger but saw no testproto contracts: the
@@ -2804,6 +2977,57 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 			`SELECT protocol_id FROM protocol_wasms WHERE wasm_hash = $1`, w2Raw[:]).Scan(&protocolID))
 		require.NotNil(t, protocolID)
 		assert.Equal(t, "otherproto", *protocolID)
+	})
+
+	t.Run("mid-batch re-observation of a committed contract keeps its membership", func(t *testing.T) {
+		var w3Raw, c3Raw [32]byte
+		w3Raw[0], c3Raw[0] = 0xA3, 0xC3
+		w3 := types.HashBytea(hex.EncodeToString(w3Raw[:]))
+		c3 := types.HashBytea(hex.EncodeToString(c3Raw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, models, pool := setupTest(t, []ProtocolProcessor{processor})
+		processor.ingestStore = models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto')`)
+		require.NoError(t, err)
+
+		// Committed state from earlier ledgers: c3 is a testproto contract via w3.
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_wasms (wasm_hash, protocol_id) VALUES ($1, 'testproto')`, w3Raw[:])
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx,
+			`INSERT INTO protocol_contracts (contract_id, wasm_hash) VALUES ($1, $2)`, c3Raw[:], w3Raw[:])
+		require.NoError(t, err)
+
+		// A two-ledger batch. The mid-batch ledger (101) re-observes c3 — any
+		// instance change (TTL bump, restore, storage write) buffers it again
+		// with its unchanged binding — and c3 emits an event. Mid-batch
+		// ledgers carry no classification plan; the re-observation must not
+		// evict c3's committed membership or its events are silently dropped.
+		headBuffer := indexer.NewIndexerBuffer()
+		midBuffer := indexer.NewIndexerBuffer()
+		midBuffer.PushProtocolContracts(data.ProtocolContracts{ContractID: c3, WasmHash: w3})
+		eventContractID := xdr.ContractId(c3Raw)
+		midBuffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &eventContractID}},
+		)
+
+		items := []persistItem{
+			{seq: 100, contractData: newContractDataMemo(nil, 100), buffer: headBuffer},
+			{seq: 101, contractData: newContractDataMemo(nil, 101), buffer: midBuffer},
+		}
+		require.NoError(t, svc.persistLedgerData(ctx, items))
+
+		// Both ledgers staged; the mid-batch ledger (the last ProcessLedger
+		// call) still saw c3 as a testproto contract.
+		require.Equal(t, 2, processor.processLedgerCalls)
+		require.Len(t, processor.lastContracts, 1)
+		assert.Equal(t, c3, processor.lastContracts[0].ContractID)
 	})
 }
 
@@ -2834,12 +3058,20 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	require.NoError(t, err)
 
 	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
-	mockTokenIngestionService.On("ProcessTokenChanges",
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
 		mock.Anything, // ctx
 		mock.Anything, // dbTx
 		mock.Anything, // trustlineChangesByTrustlineKey
-		mock.Anything, // accountChangesByAccountID
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
 		mock.Anything, // sacBalanceChangesByKey
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, // ctx
+		mock.Anything, // dbTx
+		mock.Anything, // accountChangesByAccountID
 		mock.Anything, // lpShareChangesByKey
 		mock.Anything, // lpChangesByPoolID
 	).Return(nil).Maybe()
@@ -2856,12 +3088,10 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:         IngestionModeLive,
 		Models:                models,
-		AppTracker:            &apptracker.MockAppTracker{},
 		RPCService:            &RPCServiceMock{},
 		LedgerBackend:         mockBackend,
 		TokenIngestionService: mockTokenIngestionService,
 		Metrics:               m,
-		GetLedgersLimit:       defaultGetLedgersLimit,
 		Network:               network.TestNetworkPassphrase,
 		NetworkPassphrase:     network.TestNetworkPassphrase,
 		Archive:               &HistoryArchiveMock{},
@@ -2895,10 +3125,10 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 // Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally is a regression test for
 // ING-05: a CNPG failover can kill the Postgres session holding the advisory lock without this
 // process observing the disconnect, silently releasing the lock while pgxpool never destroys the
-// (now server-dead) pooled connection. checkLockSession must be probed every ledger and, on
+// (now server-dead) pooled connection. checkLockSession is probed before every persist and, on
 // failure, ingestLiveLedgers must return immediately — not after exhausting the ledger-fetch
-// retry ladder (maxLedgerFetchRetries attempts, up to ~2.5 minutes) — so the process can exit and
-// re-acquire the lock cleanly on restart.
+// retry ladder (maxLedgerFetchRetries attempts, up to ~2.5 minutes) — and without having advanced
+// the cursor, so the process can exit and re-acquire the lock cleanly on restart.
 func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -2915,18 +3145,18 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	models, err := data.NewModels(pool, m.DB)
 	require.NoError(t, err)
 
-	// GetLedger must never be reached: the liveness probe is checked at the top of the loop,
-	// before any ledger fetch.
+	// The fetch stage legitimately runs ahead of the persist-stage probe, so ledgers may be
+	// fetched and processed; the probe must still stop the pipeline before anything is written.
 	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, mock.Anything).Return(dummyLedgerMeta(1), nil).Maybe()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).Return(uint32(0), context.Canceled).Maybe()
 
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:     IngestionModeLive,
 		Models:            models,
-		AppTracker:        &apptracker.MockAppTracker{},
 		RPCService:        &RPCServiceMock{},
 		LedgerBackend:     mockBackend,
 		Metrics:           m,
-		GetLedgersLimit:   defaultGetLedgersLimit,
 		Network:           network.TestNetworkPassphrase,
 		NetworkPassphrase: network.TestNetworkPassphrase,
 		Archive:           &HistoryArchiveMock{},
@@ -2943,5 +3173,315 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	require.Error(t, runErr)
 	assert.ErrorIs(t, runErr, sessionDeadErr)
 	assert.Less(t, elapsed, time.Second, "a dead lock session must fail fast, not after the ledger-fetch retry ladder")
-	mockBackend.AssertNotCalled(t, "GetLedger", mock.Anything, mock.Anything)
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(startLedger-1), 10), cursor,
+		"a failed lock probe must not let any ledger persist")
+}
+
+// Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline pins the pipeline's fail-fast
+// contract: a permanent fetch error cancels every stage and ingestLiveLedgers returns it, with
+// the cursor resting on the last fully persisted ledger so a restart resumes exactly there.
+func Test_ingestService_ingestLiveLedgers_StageErrorStopsPipeline(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const startLedger = uint32(51)
+	setupDBCursors(t, ctx, pool, startLedger-1, startLedger-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	cursorReached := func(target uint32) bool {
+		var s string
+		if qErr := pool.QueryRow(context.Background(),
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s); qErr != nil {
+			return false
+		}
+		v, parseErr := strconv.ParseUint(s, 10, 32)
+		return parseErr == nil && uint32(v) >= target
+	}
+
+	permanentFetchErr := fmt.Errorf("ledger source is permanently gone")
+	mockBackend := &LedgerBackendMock{}
+	mockBackend.On("GetLedger", mock.Anything, startLedger).Return(dummyLedgerMeta(1), nil).Once()
+	mockBackend.On("GetLedger", mock.Anything, startLedger+1).Return(dummyLedgerMeta(1), nil).Once()
+	// The failing fetch waits for ledger startLedger+1 to be fully persisted first, so the
+	// pipeline's final state is deterministic: without this, the cancellation could beat the
+	// in-flight persists and the cursor could rest on any of the earlier ledgers.
+	mockBackend.On("GetLedger", mock.Anything, startLedger+2).Run(func(mock.Arguments) {
+		for i := 0; i < 500 && !cursorReached(startLedger+1); i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}).Return(xdr.LedgerCloseMeta{}, permanentFetchErr).Once()
+	mockBackend.On("GetLatestLedgerSequence", mock.Anything).Return(uint32(0), context.Canceled).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         mockBackend,
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
+		IsPermanentFetchError: func(err error) bool { return errors.Is(err, permanentFetchErr) },
+	})
+	require.NoError(t, err)
+
+	noopCheckLockSession := func(context.Context) error { return nil }
+	runErr := svc.ingestLiveLedgers(ctx, startLedger, noopCheckLockSession)
+
+	require.Error(t, runErr)
+	assert.ErrorIs(t, runErr, permanentFetchErr)
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(startLedger+1), 10), cursor,
+		"the cursor must rest on the last fully persisted ledger")
+}
+
+// Test_persistLedgerData_SiblingFailureRollsBackEverything pins the commit barrier's pre-commit
+// contract: when one sibling COPY fails (here: a primary-key collision on transactions), no
+// sibling and no coordinated write may be durable — commits are held until every stream
+// succeeds, so a pre-commit failure leaves the database exactly as it was and the ledger fully
+// retryable.
+func Test_persistLedgerData_Batch(t *testing.T) {
+	setupTest := func(t *testing.T, processors ...ProtocolProcessor) (context.Context, *ingestService, *pgxpool.Pool) {
+		t.Helper()
+		dbt := dbtest.Open(t)
+		t.Cleanup(func() { dbt.Close() })
+		ctx := context.Background()
+		pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		t.Cleanup(func() { pool.Close() })
+
+		m := metrics.NewMetrics(prometheus.NewRegistry())
+		models, err := data.NewModels(pool, m.DB)
+		require.NoError(t, err)
+
+		mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+		mockTokenIngestionService.On("ProcessTrustlineChanges",
+			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessSACBalanceChanges",
+			mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+		mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil).Maybe()
+
+		svc, err := NewIngestService(IngestServiceConfig{
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			RPCService:            &RPCServiceMock{},
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
+			ProtocolProcessors:    processors,
+		})
+		require.NoError(t, err)
+		return ctx, svc, pool
+	}
+
+	// batchItem builds one ledger's persist payload carrying a transaction
+	// and an operation with ledger-derived TOIDs, so PKs never collide
+	// across the batch.
+	batchItem := func(seq uint32) persistItem {
+		toID := int64(seq) << 32
+		tx := createTestTransaction(fmt.Sprintf("%064x", seq), toID)
+		op := createTestOperation(toID + 1)
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushTransaction(testAddr1, &tx)
+		buffer.PushOperation(testAddr1, &op, &tx)
+		return persistItem{seq: seq, contractData: newContractDataMemo(nil, seq), buffer: buffer}
+	}
+
+	t.Run("one commit set persists every ledger and the cursor lands on the last", func(t *testing.T) {
+		ctx, svc, pool := setupTest(t)
+		setupDBCursors(t, ctx, pool, 99, 99)
+
+		err := svc.persistLedgerData(ctx, []persistItem{batchItem(100), batchItem(101), batchItem(102)})
+		require.NoError(t, err)
+
+		var txCount, opCount int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM operations`).Scan(&opCount))
+		assert.Equal(t, 3, txCount)
+		assert.Equal(t, 3, opCount)
+
+		var cursor string
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+		assert.Equal(t, "102", cursor, "the cursor must land on the batch's last ledger")
+	})
+
+	t.Run("a failure in any ledger rolls back the whole batch", func(t *testing.T) {
+		ctx, svc, pool := setupTest(t)
+		setupDBCursors(t, ctx, pool, 99, 99)
+
+		items := []persistItem{batchItem(100), batchItem(101), batchItem(102)}
+
+		// Pre-insert a row with ledger 102's transaction PK so the
+		// transactions sibling fails only on the batch's last ledger, after
+		// the earlier ledgers streamed successfully.
+		last := items[2].buffer.GetTransactions()[0]
+		_, err := pool.Exec(ctx,
+			`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+			 VALUES ($1, $2, 1, 'TransactionResultCodeTxSuccess', $3, $4)`,
+			[]byte("preexisting-hash"), last.ToID, 102, last.LedgerCreatedAt)
+		require.NoError(t, err)
+
+		err = svc.persistLedgerData(ctx, items)
+		require.Error(t, err)
+
+		var txCount, opCount int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM operations`).Scan(&opCount))
+		assert.Equal(t, 1, txCount, "only the pre-existing row may remain — no ledger of the batch may be durable")
+		assert.Equal(t, 0, opCount, "the operations sibling streamed successfully but must not have committed")
+
+		var cursor string
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+		assert.Equal(t, "99", cursor, "the cursor must stay below the whole batch")
+	})
+
+	t.Run("a mid-batch ledger's membership sees contracts classified at the batch head", func(t *testing.T) {
+		var wRaw, cRaw [32]byte
+		wRaw[0], cRaw[0] = 0xA7, 0xC7
+		wasmHash := types.HashBytea(hex.EncodeToString(wRaw[:]))
+		contractHex := types.HashBytea(hex.EncodeToString(cRaw[:]))
+
+		processor := &testProtocolProcessor{id: "testproto"}
+		ctx, svc, pool := setupTest(t, processor)
+		processor.ingestStore = svc.models.IngestStore
+		setupDBCursors(t, ctx, pool, 99, 99)
+		setupProtocolCursors(t, ctx, pool, 99, 99)
+		require.NoError(t, svc.snapshotProtocolCursors(ctx))
+
+		// protocol_wasms.protocol_id is an FK into protocols.
+		_, err := pool.Exec(ctx, `INSERT INTO protocols (id) VALUES ('testproto')`)
+		require.NoError(t, err)
+
+		// The batch head uploads the wasm and deploys contract C, classified to
+		// testproto by the head's plan.
+		head := batchItem(100)
+		head.buffer.PushProtocolWasm(data.ProtocolWasms{WasmHash: wasmHash})
+		head.buffer.PushProtocolContracts(data.ProtocolContracts{ContractID: contractHex, WasmHash: wasmHash})
+		head.plan = &ClassificationPlan{Matches: map[types.HashBytea]string{wasmHash: "testproto"}}
+
+		// The mid-batch ledger carries only an event from C: nothing re-buffers
+		// the contract, so its membership can come only from the rows the head
+		// staged on the still-uncommitted coordinating transaction.
+		mid := batchItem(101)
+		contractID := xdr.ContractId(cRaw)
+		mid.buffer.PushContractEvents(
+			indexer.ContractEventKey{TxIdx: 0, OpIdx: 0},
+			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &contractID}},
+		)
+
+		require.NoError(t, svc.persistLedgerData(ctx, []persistItem{head, mid}))
+
+		// ProcessLedger ran last for the mid-batch ledger; its membership must
+		// include the head-classified contract.
+		assert.Equal(t, uint32(101), processor.processedLedger)
+		require.Len(t, processor.lastContracts, 1)
+		assert.Equal(t, contractHex, processor.lastContracts[0].ContractID)
+	})
+}
+
+func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const ledgerSeq = uint32(100)
+	setupDBCursors(t, ctx, pool, ledgerSeq-1, ledgerSeq-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         &LedgerBackendMock{},
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+	ingestSvc := svc
+
+	tx := createTestTransaction("collision-hash", 100)
+	op := createTestOperation(101)
+	buffer := indexer.NewIndexerBuffer()
+	buffer.PushTransaction(testAddr1, &tx)
+	buffer.PushOperation(testAddr1, &op, &tx)
+
+	// Pre-insert a row with the transaction's exact primary key (to_id, ledger_created_at) so
+	// the transactions sibling's COPY fails after the other siblings have streamed their rows.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		 VALUES ($1, $2, 1, 'TransactionResultCodeTxSuccess', $3, $4)`,
+		[]byte("preexisting-hash"), tx.ToID, ledgerSeq, tx.LedgerCreatedAt)
+	require.NoError(t, err)
+
+	err = ingestSvc.persistLedgerData(ctx, oneLedger(ledgerSeq, nil, newContractDataMemo(nil, ledgerSeq), buffer))
+	require.Error(t, err)
+
+	var txCount, opCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txCount))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM operations`).Scan(&opCount))
+	assert.Equal(t, 1, txCount, "only the pre-existing row may remain — the failed COPY must not be durable")
+	assert.Equal(t, 0, opCount, "the operations sibling streamed successfully but must not have committed")
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(ledgerSeq-1), 10), cursor,
+		"the coordinating transaction (and its cursor update) must roll back with the siblings")
 }

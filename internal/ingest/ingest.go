@@ -45,6 +45,10 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
+	// LedgerBackendTypeStreamingLoadtest reads synthetic ledgers from named
+	// pipes written by stellar-core apply-load. Dev-only, for load testing
+	// the standard ingestion path.
+	LedgerBackendTypeStreamingLoadtest LedgerBackendType = "streaming-loadtest"
 )
 
 type Configs struct {
@@ -66,6 +70,14 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
 	Datastore DatastoreConfig
+	// LoadtestMetaSources are the streaming-loadtest backend's meta sources,
+	// one per apply-load process (their frames are merged per ledger). Each
+	// entry is a named-pipe (FIFO) path or a tcp-listen://HOST:PORT address
+	// to accept one producer connection on.
+	LoadtestMetaSources []string
+	// LoadtestLedgerCloseDuration is the minimum interval between ledgers in
+	// streaming-loadtest mode. 0 = uncapped.
+	LoadtestLedgerCloseDuration time.Duration
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
@@ -75,6 +87,10 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// LivePersistMaxBatchSize caps how many consecutive ledgers live
+	// ingestion coalesces into one persist commit when persist falls behind.
+	// 1 persists every ledger in its own commit.
+	LivePersistMaxBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -122,12 +138,17 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 }
 
 func Ingest(cfg Configs) error {
-	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// loop and the in-flight ledger's transaction, so that ledger is rolled back
-	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
-	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
-	// state is ever persisted. Cleanup (deferred below) then drains the servers and
-	// tears down the remaining resources in order.
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the
+	// ingest pipeline. What happens to the in-flight batch:
+	//   - before its commit barrier: rolls back entirely;
+	//   - at the barrier: commits fully — the barrier runs detached
+	//     (context.WithoutCancel in persistLedgerData), so a batch never
+	//     half-commits on shutdown.
+	// Ingestion is idempotent and gap-driven: a rolled-back batch re-fetches
+	// and re-ingests on the next startup, and sibling rows a crash strands
+	// above the committed cursor are removed by startup reconciliation
+	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the
+	// servers and tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -243,16 +264,24 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		MetricsService:          m,
 	}
 
-	// Initialize history archive once for use by both TokenIngestionService and IngestService
-	archive, err := historyarchive.Connect(
-		cfg.ArchiveURL,
-		historyarchive.ArchiveOptions{
-			NetworkPassphrase:   cfg.NetworkPassphrase,
-			CheckpointFrequency: uint32(cfg.CheckpointFrequency),
-		},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connecting to history archive: %w", err)
+	// Initialize history archive once for use by both TokenIngestionService and IngestService.
+	// The streaming-loadtest backend runs without one: apply-load's benchmark mode
+	// publishes no history archive, so ingestion starts from an empty database and
+	// balance state materializes from the ledger stream itself. archive must stay a
+	// nil interface (not a typed-nil *Archive) — downstream code branches on == nil.
+	var archive historyarchive.ArchiveInterface
+	if cfg.LedgerBackendType != LedgerBackendTypeStreamingLoadtest {
+		connectedArchive, err := historyarchive.Connect(
+			cfg.ArchiveURL,
+			historyarchive.ArchiveOptions{
+				NetworkPassphrase:   cfg.NetworkPassphrase,
+				CheckpointFrequency: uint32(cfg.CheckpointFrequency),
+			},
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("connecting to history archive: %w", err)
+		}
+		archive = connectedArchive
 	}
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
@@ -308,7 +337,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
 		IngestionMode:        cfg.IngestionMode,
 		Models:               models,
-		AppTracker:           cfg.AppTracker,
 		RPCService:           rpcService,
 		LedgerBackend:        ledgerBackend,
 		LedgerBackendFactory: ledgerBackendFactory,
@@ -318,17 +346,16 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		GetLedgersLimit:           cfg.GetLedgersLimit,
 		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
-		ContractMetadataService:   contractMetadataService,
 		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {

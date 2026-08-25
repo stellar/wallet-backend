@@ -905,7 +905,7 @@ func (p *processor) Reset() {
 	p.needsReset = false
 }
 
-// PersistHistory writes staged state changes inside the CAS transaction.
+// PersistHistory writes staged state changes on the provided transaction.
 func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	p.needsReset = true
 	if len(p.stagedStateChanges) == 0 {

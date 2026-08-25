@@ -373,8 +373,8 @@ func (m *ProtocolContractsModelMock) GetByProtocolID(ctx context.Context, q db.Q
 	return args.Get(0).([]ProtocolContracts), args.Error(1)
 }
 
-func (m *ProtocolContractsModelMock) BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
-	args := m.Called(ctx, contractIDs)
+func (m *ProtocolContractsModelMock) BatchGetByContractIDs(ctx context.Context, q db.Querier, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
+	args := m.Called(ctx, q, contractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
