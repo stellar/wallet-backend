@@ -114,13 +114,13 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 	}
 	defer release()
 
-	oldest, latest, err := s.retainedWindow(ctx)
+	oldest, err := s.oldestRetained(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, pid := range protocolIDs {
-		if wipeErr := s.wipe(ctx, pid, oldest, latest); wipeErr != nil {
+		if wipeErr := s.wipe(ctx, pid, oldest); wipeErr != nil {
 			return wipeErr
 		}
 	}
@@ -162,24 +162,17 @@ func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolID
 	return nil
 }
 
-// retainedWindow returns the wipe bounds: oldest retained ledger through
-// live ingestion's committed tip.
-func (s *protocolHistoryRebuildService) retainedWindow(ctx context.Context) (uint32, uint32, error) {
+// oldestRetained returns the wipe's lower bound: the oldest retained ledger.
+// The upper bound is read per protocol, inside wipe, after the cursor reset.
+func (s *protocolHistoryRebuildService) oldestRetained(ctx context.Context) (uint32, error) {
 	oldest, err := s.engine.ingestStore.Get(ctx, data.OldestLedgerCursorName)
 	if err != nil {
-		return 0, 0, fmt.Errorf("reading oldest ingest ledger: %w", err)
+		return 0, fmt.Errorf("reading oldest ingest ledger: %w", err)
 	}
 	if oldest == 0 {
-		return 0, 0, fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
+		return 0, fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
 	}
-	latest, err := s.engine.ingestStore.Get(ctx, data.LatestLedgerCursorName)
-	if err != nil {
-		return 0, 0, fmt.Errorf("reading latest ingest ledger: %w", err)
-	}
-	if latest == 0 {
-		return 0, 0, fmt.Errorf("ingestion has not started yet (latest_ingest_ledger is 0)")
-	}
-	return oldest, latest, nil
+	return oldest, nil
 }
 
 // wipe resets the cursor to oldest−1 and the status to not_started (one
@@ -189,7 +182,7 @@ func (s *protocolHistoryRebuildService) retainedWindow(ctx context.Context) (uin
 // CAS fail — live stops writing this protocol's history, so the deletes race
 // nothing. The cursor row is UPDATEd, never deleted: live treats a missing
 // cursor row as a fatal incident (ErrCASCursorMissing).
-func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID string, oldest, latest uint32) error {
+func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID string, oldest uint32) error {
 	cursorName := s.engine.strategy.CursorName(protocolID)
 	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {
 		if updErr := s.engine.ingestStore.Update(ctx, dbTx, cursorName, oldest-1); updErr != nil {
@@ -201,6 +194,24 @@ func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID str
 		return nil
 	}); txErr != nil {
 		return fmt.Errorf("resetting history migration state for %s: %w", protocolID, txErr)
+	}
+
+	// The delete's upper bound is read AFTER the reset commits, so it covers
+	// every row that can exist. A live writer that already passed its CAS holds
+	// the cursor row, so the reset above waited for it to commit — and live
+	// writes a ledger's history and bumps latest_ingest_ledger in one
+	// transaction, so that writer's rows are at or below this value. Live
+	// writers after the reset fail their CAS and write nothing. Reading this
+	// before the reset would instead leave rows above the bound undeleted, for
+	// the re-migration to re-derive at the same state_change_ids.
+	latest, latestErr := s.engine.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+	if latestErr != nil {
+		return fmt.Errorf("reading latest ingest ledger: %w", latestErr)
+	}
+	// Guard the slice loop below: uint32 arithmetic on an inverted window never
+	// reaches the upper bound, so it would run until the process is killed.
+	if latest < oldest {
+		return fmt.Errorf("latest ingest ledger %d is below the oldest retained ledger %d: refusing to wipe an inverted window", latest, oldest)
 	}
 
 	base := s.engine.processors[protocolID].StateChangeOrdinalBase()

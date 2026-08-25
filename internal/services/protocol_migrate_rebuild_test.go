@@ -323,28 +323,24 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 	}
 }
 
-// TestProtocolHistoryRebuildRetainedWindow pins the wipe bounds: the oldest
-// retained ledger through live ingestion's committed tip, with clear errors
-// before ingestion has produced either cursor.
-func TestProtocolHistoryRebuildRetainedWindow(t *testing.T) {
+// TestProtocolHistoryRebuildOldestRetained pins the wipe's lower bound: the
+// oldest retained ledger, with a clear error before ingestion has produced it.
+func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
 
 	testCases := []struct {
 		name            string
 		oldest          uint32
-		latest          uint32
 		wantErrContains string
 	}{
-		{name: "both cursors present", oldest: 500, latest: 900},
-		{name: "ingestion has not started", oldest: 0, latest: 900, wantErrContains: "oldest_ingest_ledger is 0"},
-		{name: "no ledger committed yet", oldest: 500, latest: 0, wantErrContains: "latest_ingest_ledger is 0"},
+		{name: "cursor present", oldest: 500},
+		{name: "ingestion has not started", oldest: 0, wantErrContains: "oldest_ingest_ledger is 0"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, tc.oldest)
-			setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, tc.latest)
 
 			svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
 				DB: dbPool, LedgerBackend: &multiLedgerBackend{},
@@ -355,7 +351,7 @@ func TestProtocolHistoryRebuildRetainedWindow(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			oldest, latest, err := svc.retainedWindow(ctx)
+			oldest, err := svc.oldestRetained(ctx)
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrContains)
@@ -363,9 +359,35 @@ func TestProtocolHistoryRebuildRetainedWindow(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.oldest, oldest)
-			assert.Equal(t, tc.latest, latest)
 		})
 	}
+}
+
+// TestProtocolHistoryRebuildWipeInvertedWindow pins the refusal that keeps the
+// slice loop finite: uint32 arithmetic on a latest below oldest never reaches
+// the upper bound, so the loop would run until the process is killed.
+func TestProtocolHistoryRebuildWipeInvertedWindow(t *testing.T) {
+	ctx := context.Background()
+	dbPool, ingestStore := setupTestDB(t)
+
+	setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, 400)
+	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 400)
+
+	protocolsModel := data.NewProtocolsModelMock(t)
+	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
+
+	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
+		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
+		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+		NetworkPassphrase: "Test SDF Network ; September 2015",
+		Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
+	})
+	require.NoError(t, err)
+
+	err = svc.wipe(ctx, "testproto", 900)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "inverted window")
 }
 
 // TestProtocolHistoryRebuildWipe pins the wipe: the cursor and status reset
@@ -384,6 +406,8 @@ func TestProtocolHistoryRebuildWipe(t *testing.T) {
 		oldest uint32 = 100
 		latest uint32 = 25_000
 	)
+	// wipe reads the upper bound itself, after its cursor reset commits.
+	setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, latest)
 	inRange := []uint32{100, 10_099, 10_100, 20_099, 20_100, 25_000}
 	outOfRange := []uint32{99, 25_001}
 	for _, ledger := range append(append([]uint32{}, inRange...), outOfRange...) {
@@ -408,7 +432,7 @@ func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, svc.wipe(ctx, "testproto", oldest, latest))
+	require.NoError(t, svc.wipe(ctx, "testproto", oldest))
 
 	assert.Equal(t, [][2]int64{
 		{types.StateChangeOrdinalBaseIndexer + 1, 100},
