@@ -317,7 +317,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			},
 		},
 		{
-			// After TimescaleDB retention drops old chunks, the stored oldest_ledger_cursor
+			// After TimescaleDB retention drops old chunks, the stored oldest_ingest_ledger
 			// may point to a ledger that no longer exists in the transactions table.
 			// calculateBackfillGaps should ignore the cursor and use the actual oldest
 			// ledger from the transactions table.
@@ -326,7 +326,7 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			endLedger:   150,
 			setupDB: func(t *testing.T) {
 				// Cursor claims oldest is 50 (stale — retention dropped ledgers 50-99)
-				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', 50)`)
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ingest_ledger', 50)`)
 				require.NoError(t, err)
 				// Actual transactions only exist from 100 onwards
 				for ledger := uint32(100); ledger <= 200; ledger++ {
@@ -368,17 +368,16 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 			mockArchive := &HistoryArchiveMock{}
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &mockAppTracker,
-				RPCService:             &mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                mockArchive,
+				IngestionMode:     IngestionModeBackfill,
+				Models:            models,
+				AppTracker:        &mockAppTracker,
+				RPCService:        &mockRPCService,
+				LedgerBackend:     mockLedgerBackend,
+				Metrics:           m,
+				GetLedgersLimit:   defaultGetLedgersLimit,
+				Network:           network.TestNetworkPassphrase,
+				NetworkPassphrase: network.TestNetworkPassphrase,
+				Archive:           mockArchive,
 			})
 			require.NoError(t, err)
 
@@ -459,7 +458,7 @@ func Test_startBackfilling_Validation(t *testing.T) {
 				data.LatestLedgerCursorName, fmt.Sprintf("%d", tc.latestIngested))
 			require.NoError(t, err)
 			_, err = dbConnectionPool.Exec(ctx,
-				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`,
+				`INSERT INTO ingest_store (key, value) VALUES ('oldest_ingest_ledger', $1)`,
 				fmt.Sprintf("%d", tc.latestIngested))
 			require.NoError(t, err)
 
@@ -481,19 +480,18 @@ func Test_startBackfilling_Validation(t *testing.T) {
 			}
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &mockAppTracker,
-				RPCService:             &mockRPCService,
-				LedgerBackend:          mockLedgerBackend,
-				LedgerBackendFactory:   mockBackendFactory,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                mockArchive,
-				BackfillBatchSize:      100,
+				IngestionMode:        IngestionModeBackfill,
+				Models:               models,
+				AppTracker:           &mockAppTracker,
+				RPCService:           &mockRPCService,
+				LedgerBackend:        mockLedgerBackend,
+				LedgerBackendFactory: mockBackendFactory,
+				Metrics:              m,
+				GetLedgersLimit:      defaultGetLedgersLimit,
+				Network:              network.TestNetworkPassphrase,
+				NetworkPassphrase:    network.TestNetworkPassphrase,
+				Archive:              mockArchive,
+				BackfillBatchSize:    100,
 			})
 			require.NoError(t, err)
 
@@ -521,7 +519,7 @@ func setupDBCursors(t *testing.T, ctx context.Context, pool *pgxpool.Pool, lates
 		require.NoError(t, err)
 	}
 	if oldestLedger > 0 {
-		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', $1)`, fmt.Sprintf("%d", oldestLedger))
+		_, err = pool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ('oldest_ingest_ledger', $1)`, fmt.Sprintf("%d", oldestLedger))
 		require.NoError(t, err)
 	}
 }
@@ -687,18 +685,17 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				LedgerBackendFactory:   tc.setupFactory(),
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:        IngestionModeBackfill,
+				Models:               models,
+				AppTracker:           &apptracker.MockAppTracker{},
+				RPCService:           mockRPCService,
+				LedgerBackend:        &LedgerBackendMock{},
+				LedgerBackendFactory: tc.setupFactory(),
+				Metrics:              m,
+				GetLedgersLimit:      defaultGetLedgersLimit,
+				Network:              network.TestNetworkPassphrase,
+				NetworkPassphrase:    network.TestNetworkPassphrase,
+				Archive:              &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -764,17 +761,16 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:     IngestionModeBackfill,
+				Models:            models,
+				AppTracker:        &apptracker.MockAppTracker{},
+				RPCService:        mockRPCService,
+				LedgerBackend:     &LedgerBackendMock{},
+				Metrics:           m,
+				GetLedgersLimit:   defaultGetLedgersLimit,
+				Network:           network.TestNetworkPassphrase,
+				NetworkPassphrase: network.TestNetworkPassphrase,
+				Archive:           &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -782,7 +778,7 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the cursor value
-			cursor, err := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
+			cursor, err := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantCursor, cursor)
 		})
@@ -832,17 +828,16 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeLive,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:     IngestionModeLive,
+				Models:            models,
+				AppTracker:        &apptracker.MockAppTracker{},
+				RPCService:        mockRPCService,
+				LedgerBackend:     &LedgerBackendMock{},
+				Metrics:           m,
+				GetLedgersLimit:   defaultGetLedgersLimit,
+				Network:           network.TestNetworkPassphrase,
+				NetworkPassphrase: network.TestNetworkPassphrase,
+				Archive:           &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -856,7 +851,7 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.startLedger, latestCursor)
 
-			oldestCursor, err := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
+			oldestCursor, err := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 			require.NoError(t, err)
 			assert.Equal(t, tc.startLedger, oldestCursor)
 		})
@@ -894,17 +889,16 @@ func Test_ingestService_Run(t *testing.T) {
 			mockRPCService.On("NetworkPassphrase").Return(network.TestNetworkPassphrase).Maybe()
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          tc.mode,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:     tc.mode,
+				Models:            models,
+				AppTracker:        &apptracker.MockAppTracker{},
+				RPCService:        mockRPCService,
+				LedgerBackend:     &LedgerBackendMock{},
+				Metrics:           m,
+				GetLedgersLimit:   defaultGetLedgersLimit,
+				Network:           network.TestNetworkPassphrase,
+				NetworkPassphrase: network.TestNetworkPassphrase,
+				Archive:           &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -1033,17 +1027,16 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			// Use variadic mock.Anything for any number of tx hashes
 
 			svc, err := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
+				IngestionMode:     IngestionModeBackfill,
+				Models:            models,
+				AppTracker:        &apptracker.MockAppTracker{},
+				RPCService:        mockRPCService,
+				LedgerBackend:     &LedgerBackendMock{},
+				Metrics:           m,
+				GetLedgersLimit:   defaultGetLedgersLimit,
+				Network:           network.TestNetworkPassphrase,
+				NetworkPassphrase: network.TestNetworkPassphrase,
+				Archive:           &HistoryArchiveMock{},
 			})
 			require.NoError(t, err)
 
@@ -1054,7 +1047,7 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the cursor value
-			cursor, err := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
+			cursor, err := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantCursor, cursor)
 
@@ -1190,19 +1183,18 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			}
 
 			svc, svcErr := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				LedgerBackendFactory:   factory,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-				BackfillBatchSize:      10,
+				IngestionMode:        IngestionModeBackfill,
+				Models:               models,
+				AppTracker:           &apptracker.MockAppTracker{},
+				RPCService:           mockRPCService,
+				LedgerBackend:        &LedgerBackendMock{},
+				LedgerBackendFactory: factory,
+				Metrics:              m,
+				GetLedgersLimit:      defaultGetLedgersLimit,
+				Network:              network.TestNetworkPassphrase,
+				NetworkPassphrase:    network.TestNetworkPassphrase,
+				Archive:              &HistoryArchiveMock{},
+				BackfillBatchSize:    10,
 			})
 			require.NoError(t, svcErr)
 
@@ -1327,19 +1319,18 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			}
 
 			svc, svcErr := NewIngestService(IngestServiceConfig{
-				IngestionMode:          IngestionModeBackfill,
-				Models:                 models,
-				OldestLedgerCursorName: "oldest_ledger_cursor",
-				AppTracker:             &apptracker.MockAppTracker{},
-				RPCService:             mockRPCService,
-				LedgerBackend:          &LedgerBackendMock{},
-				LedgerBackendFactory:   factory,
-				Metrics:                m,
-				GetLedgersLimit:        defaultGetLedgersLimit,
-				Network:                network.TestNetworkPassphrase,
-				NetworkPassphrase:      network.TestNetworkPassphrase,
-				Archive:                &HistoryArchiveMock{},
-				BackfillBatchSize:      int(tc.batchSize),
+				IngestionMode:        IngestionModeBackfill,
+				Models:               models,
+				AppTracker:           &apptracker.MockAppTracker{},
+				RPCService:           mockRPCService,
+				LedgerBackend:        &LedgerBackendMock{},
+				LedgerBackendFactory: factory,
+				Metrics:              m,
+				GetLedgersLimit:      defaultGetLedgersLimit,
+				Network:              network.TestNetworkPassphrase,
+				NetworkPassphrase:    network.TestNetworkPassphrase,
+				Archive:              &HistoryArchiveMock{},
+				BackfillBatchSize:    int(tc.batchSize),
 			})
 			require.NoError(t, svcErr)
 
@@ -1357,7 +1348,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			}
 
 			// Verify cursor was updated correctly using IngestStore.Get
-			finalOldest, getErr := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
+			finalOldest, getErr := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 			require.NoError(t, getErr)
 			assert.Equal(t, tc.wantFinalOldest, finalOldest,
 				"oldest cursor should be updated to minimum of successful batches")
@@ -1426,7 +1417,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	svc, svcErr := NewIngestService(IngestServiceConfig{
 		IngestionMode:             IngestionModeBackfill,
 		Models:                    models,
-		OldestLedgerCursorName:    "oldest_ledger_cursor",
 		AppTracker:                &apptracker.MockAppTracker{},
 		RPCService:                mockRPCService,
 		LedgerBackend:             &LedgerBackendMock{},
@@ -1507,19 +1497,18 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	}
 
 	svc, svcErr := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeBackfill,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		AppTracker:             &apptracker.MockAppTracker{},
-		RPCService:             mockRPCService,
-		LedgerBackend:          &LedgerBackendMock{},
-		LedgerBackendFactory:   factory,
-		Metrics:                m,
-		GetLedgersLimit:        defaultGetLedgersLimit,
-		Network:                network.TestNetworkPassphrase,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
-		BackfillBatchSize:      10,
+		IngestionMode:        IngestionModeBackfill,
+		Models:               models,
+		AppTracker:           &apptracker.MockAppTracker{},
+		RPCService:           mockRPCService,
+		LedgerBackend:        &LedgerBackendMock{},
+		LedgerBackendFactory: factory,
+		Metrics:              m,
+		GetLedgersLimit:      defaultGetLedgersLimit,
+		Network:              network.TestNetworkPassphrase,
+		NetworkPassphrase:    network.TestNetworkPassphrase,
+		Archive:              &HistoryArchiveMock{},
+		BackfillBatchSize:    10,
 	})
 	require.NoError(t, svcErr)
 
@@ -1530,7 +1519,7 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	require.NoError(t, backfillErr, "historical mode should not return error even when all batches fail")
 
 	// Verify cursor remains unchanged
-	finalOldest, getErr := models.IngestStore.Get(ctx, "oldest_ledger_cursor")
+	finalOldest, getErr := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 	require.NoError(t, getErr)
 	assert.Equal(t, initialOldest, finalOldest,
 		"oldest cursor should remain unchanged when all batches fail")
@@ -1583,18 +1572,17 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(nil)
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             mockRPCService,
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  mockTokenIngestionService,
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			AppTracker:            &apptracker.MockAppTracker{},
+			RPCService:            mockRPCService,
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			GetLedgersLimit:       defaultGetLedgersLimit,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -1664,18 +1652,17 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(fmt.Errorf("db connection failed"))
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             mockRPCService,
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  mockTokenIngestionService,
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			AppTracker:            &apptracker.MockAppTracker{},
+			RPCService:            mockRPCService,
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			GetLedgersLimit:       defaultGetLedgersLimit,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -1754,18 +1741,17 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 		).Return(nil).Once()
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             mockRPCService,
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  mockTokenIngestionService,
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			AppTracker:            &apptracker.MockAppTracker{},
+			RPCService:            mockRPCService,
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			GetLedgersLimit:       defaultGetLedgersLimit,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
 		})
 		require.NoError(t, err)
 
@@ -1833,19 +1819,18 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 	}
 
 	svc, svcErr := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeBackfill,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		AppTracker:             &apptracker.MockAppTracker{},
-		RPCService:             mockRPCService,
-		LedgerBackend:          &LedgerBackendMock{},
-		LedgerBackendFactory:   factory,
-		Metrics:                m,
-		GetLedgersLimit:        defaultGetLedgersLimit,
-		Network:                network.TestNetworkPassphrase,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
-		BackfillBatchSize:      10,
+		IngestionMode:        IngestionModeBackfill,
+		Models:               models,
+		AppTracker:           &apptracker.MockAppTracker{},
+		RPCService:           mockRPCService,
+		LedgerBackend:        &LedgerBackendMock{},
+		LedgerBackendFactory: factory,
+		Metrics:              m,
+		GetLedgersLimit:      defaultGetLedgersLimit,
+		Network:              network.TestNetworkPassphrase,
+		NetworkPassphrase:    network.TestNetworkPassphrase,
+		Archive:              &HistoryArchiveMock{},
+		BackfillBatchSize:    10,
 	})
 	require.NoError(t, svcErr)
 
@@ -1897,6 +1882,10 @@ func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolP
 
 func (p *testProtocolProcessor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	return p.ingestStore.Update(ctx, dbTx, fmt.Sprintf("test_%s_history_written", p.id), p.processedLedger)
+}
+
+func (p *testProtocolProcessor) WipeCurrentState(_ context.Context, _ pgx.Tx) error {
+	return nil
 }
 
 func (p *testProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
@@ -1953,19 +1942,18 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             &RPCServiceMock{},
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  mockTokenIngestionService,
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
-			ProtocolProcessors:     processors,
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			AppTracker:            &apptracker.MockAppTracker{},
+			RPCService:            &RPCServiceMock{},
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			GetLedgersLimit:       defaultGetLedgersLimit,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
+			ProtocolProcessors:    processors,
 		})
 		require.NoError(t, err)
 
@@ -2680,19 +2668,18 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 		).Return(nil).Maybe()
 
 		svc, err := NewIngestService(IngestServiceConfig{
-			IngestionMode:          IngestionModeLive,
-			Models:                 models,
-			OldestLedgerCursorName: "oldest_ledger_cursor",
-			AppTracker:             &apptracker.MockAppTracker{},
-			RPCService:             &RPCServiceMock{},
-			LedgerBackend:          &LedgerBackendMock{},
-			TokenIngestionService:  mockTokenIngestionService,
-			Metrics:                m,
-			GetLedgersLimit:        defaultGetLedgersLimit,
-			Network:                network.TestNetworkPassphrase,
-			NetworkPassphrase:      network.TestNetworkPassphrase,
-			Archive:                &HistoryArchiveMock{},
-			ProtocolProcessors:     processors,
+			IngestionMode:         IngestionModeLive,
+			Models:                models,
+			AppTracker:            &apptracker.MockAppTracker{},
+			RPCService:            &RPCServiceMock{},
+			LedgerBackend:         &LedgerBackendMock{},
+			TokenIngestionService: mockTokenIngestionService,
+			Metrics:               m,
+			GetLedgersLimit:       defaultGetLedgersLimit,
+			Network:               network.TestNetworkPassphrase,
+			NetworkPassphrase:     network.TestNetworkPassphrase,
+			Archive:               &HistoryArchiveMock{},
+			ProtocolProcessors:    processors,
 		})
 		require.NoError(t, err)
 
@@ -2867,18 +2854,17 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 		Return(uint32(0), context.Canceled).Maybe()
 
 	svc, err := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeLive,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		AppTracker:             &apptracker.MockAppTracker{},
-		RPCService:             &RPCServiceMock{},
-		LedgerBackend:          mockBackend,
-		TokenIngestionService:  mockTokenIngestionService,
-		Metrics:                m,
-		GetLedgersLimit:        defaultGetLedgersLimit,
-		Network:                network.TestNetworkPassphrase,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		AppTracker:            &apptracker.MockAppTracker{},
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         mockBackend,
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		GetLedgersLimit:       defaultGetLedgersLimit,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
 	})
 	require.NoError(t, err)
 
@@ -2934,17 +2920,16 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 	mockBackend := &LedgerBackendMock{}
 
 	svc, err := NewIngestService(IngestServiceConfig{
-		IngestionMode:          IngestionModeLive,
-		Models:                 models,
-		OldestLedgerCursorName: "oldest_ledger_cursor",
-		AppTracker:             &apptracker.MockAppTracker{},
-		RPCService:             &RPCServiceMock{},
-		LedgerBackend:          mockBackend,
-		Metrics:                m,
-		GetLedgersLimit:        defaultGetLedgersLimit,
-		Network:                network.TestNetworkPassphrase,
-		NetworkPassphrase:      network.TestNetworkPassphrase,
-		Archive:                &HistoryArchiveMock{},
+		IngestionMode:     IngestionModeLive,
+		Models:            models,
+		AppTracker:        &apptracker.MockAppTracker{},
+		RPCService:        &RPCServiceMock{},
+		LedgerBackend:     mockBackend,
+		Metrics:           m,
+		GetLedgersLimit:   defaultGetLedgersLimit,
+		Network:           network.TestNetworkPassphrase,
+		NetworkPassphrase: network.TestNetworkPassphrase,
+		Archive:           &HistoryArchiveMock{},
 	})
 	require.NoError(t, err)
 
