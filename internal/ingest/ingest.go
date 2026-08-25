@@ -46,21 +46,20 @@ const (
 )
 
 type Configs struct {
-	IngestionMode          string
-	OldestLedgerCursorName string
-	DatabaseURL            string
-	ServerPort             int
-	StartLedger            int
-	EndLedger              int
-	LogLevel               logrus.Level
-	AppTracker             apptracker.AppTracker
-	RPCURL                 string
-	Network                string
-	NetworkPassphrase      string
-	GetLedgersLimit        int
-	AdminPort              int
-	ArchiveURL             string
-	CheckpointFrequency    int
+	IngestionMode       string
+	DatabaseURL         string
+	ServerPort          int
+	StartLedger         int
+	EndLedger           int
+	LogLevel            logrus.Level
+	AppTracker          apptracker.AppTracker
+	RPCURL              string
+	Network             string
+	NetworkPassphrase   string
+	GetLedgersLimit     int
+	AdminPort           int
+	ArchiveURL          string
+	CheckpointFrequency int
 	// LedgerBackendType specifies which backend to use for fetching ledgers
 	LedgerBackendType LedgerBackendType
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
@@ -170,7 +169,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	// must not mutate or remove the policies the live pods rely on; and an active
 	// retention policy would drop the very history a backfill is writing.
 	if cfg.IngestionMode == services.IngestionModeLive {
-		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, data.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, nil, fmt.Errorf("configuring hypertable settings: %w", err)
 		}
 	}
@@ -274,13 +273,12 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	wasmExtractor := services.NewWasmSpecExtractor()
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:          cfg.IngestionMode,
-		Models:                 models,
-		OldestLedgerCursorName: cfg.OldestLedgerCursorName,
-		AppTracker:             cfg.AppTracker,
-		RPCService:             rpcService,
-		LedgerBackend:          ledgerBackend,
-		LedgerBackendFactory:   ledgerBackendFactory,
+		IngestionMode:        cfg.IngestionMode,
+		Models:               models,
+		AppTracker:           cfg.AppTracker,
+		RPCService:           rpcService,
+		LedgerBackend:        ledgerBackend,
+		LedgerBackendFactory: ledgerBackendFactory,
 		// Never matches for the RPC backend (it never wraps ErrBufferDead), so this is safe
 		// to wire unconditionally rather than branching on cfg.LedgerBackendType.
 		IsPermanentFetchError:     func(err error) bool { return errors.Is(err, ErrBufferDead) },

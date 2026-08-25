@@ -394,7 +394,7 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		m.appMetrics.Ingestion.OldestLedger.Set(float64(startLedger))
 	} else {
 		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
-		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName)
+		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName)
 		if oldestErr != nil {
 			return fmt.Errorf("getting oldest ledger cursor: %w", oldestErr)
 		}
@@ -427,7 +427,7 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	if err := m.models.IngestStore.Update(ctx, dbTx, data.LatestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing latest cursor: %w", err)
 	}
-	if err := m.models.IngestStore.Update(ctx, dbTx, m.oldestLedgerCursorName, ledger); err != nil {
+	if err := m.models.IngestStore.Update(ctx, dbTx, data.OldestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing oldest cursor: %w", err)
 	}
 	return nil
@@ -559,7 +559,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 		// up a protocol-setup/migrate run that has initialized one since — see
 		// reprobeProtocolCursors).
 		if currentLedger%oldestLedgerSyncInterval == 0 {
-			if oldest, syncErr := m.models.IngestStore.Get(ctx, m.oldestLedgerCursorName); syncErr == nil {
+			if oldest, syncErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName); syncErr == nil {
 				m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
 			}
 			m.reprobeProtocolCursors(ctx)

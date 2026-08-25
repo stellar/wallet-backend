@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1193,4 +1194,107 @@ func TestStateChangeModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, byOpID, 1)
 	assert.True(t, now.Equal(byOpID[0].StateChange.LedgerCreatedAt), "BatchGetByOperationID with minimal projection must hydrate ledger_created_at")
+}
+
+// TestStateChangeModel_DeleteNamespaceLedgerRange pins the history-rebuild
+// delete to the intersection of one protocol's state_change_id namespace and an
+// inclusive ledger range: rows of other protocols in the same ledgers, and rows
+// of the same protocol in neighbouring ledgers, must survive.
+func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	address := types.AddressBytea(keypair.MustRandom().Address())
+
+	// seed inserts one row in the given namespace at the given ledger, placed at
+	// the given transaction/operation index within it.
+	seed := func(base int64, ledger, txIndex, opIndex int32) {
+		t.Helper()
+		toID := toid.New(ledger, txIndex, opIndex).ToInt64()
+		_, execErr := dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category,
+				state_change_reason, ledger_created_at, ledger_number, account_id)
+			VALUES ($1, $2, $3, 'BALANCE', 'CREDIT', $4, $5, $6)
+		`, toID, toID, base+1, now, ledger, address)
+		require.NoError(t, execErr)
+	}
+
+	// remaining lists the surviving rows as (namespace base, ledger).
+	remaining := func() [][2]int64 {
+		t.Helper()
+		rows, queryErr := dbConnectionPool.Query(ctx,
+			`SELECT state_change_id - 1, ledger_number FROM state_changes ORDER BY state_change_id, to_id`)
+		require.NoError(t, queryErr)
+		defer rows.Close()
+		var out [][2]int64
+		for rows.Next() {
+			var base, ledger int64
+			require.NoError(t, rows.Scan(&base, &ledger))
+			out = append(out, [2]int64{base, ledger})
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+
+	const (
+		indexerBase = types.StateChangeOrdinalBaseIndexer
+		sep41Base   = types.StateChangeOrdinalBaseSEP41
+		blendBase   = types.StateChangeOrdinalBaseBlend
+	)
+
+	seed(indexerBase, 10, 1, 0)
+	seed(indexerBase, 20, 1, 0)
+	seed(indexerBase, 30, 1, 0)
+	seed(sep41Base, 10, 1, 0)
+	seed(sep41Base, 20, 1, 0)
+	// A late operation in ledger 20 — the ledger bound must cover the whole
+	// ledger, not just its first transaction.
+	seed(sep41Base, 20, 2000, 100)
+	seed(sep41Base, 30, 1, 0)
+	seed(blendBase, 20, 1, 0)
+	require.Len(t, remaining(), 8)
+
+	// A single-ledger range takes both SEP-41 rows in ledger 20 and nothing else.
+	deleted, err := m.DeleteNamespaceLedgerRange(ctx, sep41Base, 20, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+	assert.Equal(t, [][2]int64{
+		{indexerBase, 10},
+		{indexerBase, 20},
+		{indexerBase, 30},
+		{sep41Base, 10},
+		{sep41Base, 30},
+		{blendBase, 20},
+	}, remaining())
+
+	// A range spanning the surviving SEP-41 ledgers takes them, still leaving the
+	// other namespaces untouched in the very same ledgers.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, 10, 30)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+	assert.Equal(t, [][2]int64{
+		{indexerBase, 10},
+		{indexerBase, 20},
+		{indexerBase, 30},
+		{blendBase, 20},
+	}, remaining())
+
+	// A range disjoint from every row deletes nothing.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, blendBase, 1, 9)
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.Len(t, remaining(), 4)
+
+	// Re-running a completed delete is a no-op, which is what makes a failed
+	// rebuild safe to retry.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, 10, 30)
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.Len(t, remaining(), 4)
 }
