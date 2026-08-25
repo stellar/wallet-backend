@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/toid"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -585,4 +586,49 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
 	}
 	return stateChanges, nil
+}
+
+// DeleteNamespaceLedgerRange deletes one protocol's state-change rows for the
+// inclusive ledger range [fromLedger, toLedger] and returns how many went.
+// base is the protocol's state_change_id namespace base
+// (ProtocolProcessor.StateChangeOrdinalBase).
+//
+// Both predicates prune compressed batches without decompressing them: to_id
+// carries the ledger in its high 32 bits, and both columns are compression
+// orderby columns with per-batch min/max metadata. Runs in its own
+// transaction with the DML decompression cap lifted — callers bound the
+// per-statement work by slicing the ledger range (see
+// historyRebuildDeleteSlice), not via the cap.
+func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base int64, fromLedger, toLedger uint32) (int64, error) {
+	const query = `
+		DELETE FROM state_changes
+		WHERE state_change_id >= $1 AND state_change_id < $2
+		  AND to_id >= $3 AND to_id <= $4
+	`
+	fromToID := toid.New(int32(fromLedger), 0, 0).ToInt64()
+	// AfterLedger is the MAXIMUM to_id within toLedger (not the first of
+	// toLedger+1), hence the inclusive upper bound above.
+	maxToID := toid.AfterLedger(int32(toLedger)).ToInt64()
+
+	var deleted int64
+	start := time.Now()
+	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
+			return fmt.Errorf("lifting DML decompression cap: %w", execErr)
+		}
+		tag, execErr := dbTx.Exec(ctx, query, base, base+types.StateChangeOrdinalNamespaceWidth, fromToID, maxToID)
+		if execErr != nil {
+			return fmt.Errorf("executing namespace-range delete: %w", execErr)
+		}
+		deleted = tag.RowsAffected()
+		return nil
+	})
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes", utils.GetDBErrorType(err)).Inc()
+		return 0, fmt.Errorf("deleting state changes in namespace %d for ledgers [%d,%d]: %w", base, fromLedger, toLedger, err)
+	}
+	return deleted, nil
 }

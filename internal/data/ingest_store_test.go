@@ -435,21 +435,21 @@ func Test_IngestStoreModel_UpdateMin(t *testing.T) {
 	}{
 		{
 			name:           "updates_to_smaller_value",
-			key:            "oldest_ledger_cursor",
+			key:            "oldest_ingest_ledger",
 			initialValue:   1000,
 			newValue:       500,
 			expectedResult: 500,
 		},
 		{
 			name:           "keeps_existing_smaller_value",
-			key:            "oldest_ledger_cursor",
+			key:            "oldest_ingest_ledger",
 			initialValue:   500,
 			newValue:       1000,
 			expectedResult: 500,
 		},
 		{
 			name:           "keeps_same_value",
-			key:            "oldest_ledger_cursor",
+			key:            "oldest_ingest_ledger",
 			initialValue:   500,
 			newValue:       500,
 			expectedResult: 500,

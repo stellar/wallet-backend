@@ -282,17 +282,43 @@ func runMigration(
 }
 
 func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
-	var oldestLedgerCursorName string
+	var rebuild bool
 
 	return buildMigrationCommand(
 		"history",
 		"Backfill protocol history state from oldest to latest ingested ledger",
-		"Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors.",
+		"Processes historical ledgers from oldest_ingest_ledger to the tip, producing protocol state changes and converging with live ingestion via CAS-gated cursors. "+
+			"Takes the protocol's advisory lock, so only one history migration or rebuild can run per protocol at a time. "+
+			"--rebuild re-runs an already-migrated protocol from scratch and is destructive: it deletes the protocol's history rows before folding.",
 		func(cmd *cobra.Command, opts *migrationCommandOpts) {
-			cmd.Flags().StringVar(&oldestLedgerCursorName, "oldest-ledger-cursor-name", data.OldestLedgerCursorName, "Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service.")
+			cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Delete the protocol's history rows and rebuild them from the oldest retained ledger. Destructive: the protocol's history serves empty/partial data until the rebuild reaches the live frontier.")
 		},
 		nil,
 		func(opts *migrationCommandOpts) error {
+			if rebuild {
+				return runMigration("history rebuild", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
+					service, err := services.NewProtocolHistoryRebuildService(services.ProtocolHistoryRebuildConfig{
+						DB:                     dbPool,
+						LedgerBackend:          ledgerBackend,
+						ProtocolsModel:         models.Protocols,
+						ProtocolContractsModel: models.ProtocolContracts,
+						IngestStore:            models.IngestStore,
+						StateChanges:           models.StateChanges,
+						NetworkPassphrase:      opts.networkPassphrase,
+						Processors:             processors,
+						WindowSize:             opts.windowSize,
+						Metrics:                migrationMetrics,
+						TipProvider:            tipProvider,
+					})
+					if err != nil {
+						return fmt.Errorf("creating protocol history rebuild service: %w", err)
+					}
+					if err := service.Run(ctx, opts.protocolIDs); err != nil {
+						return fmt.Errorf("running protocol history rebuild: %w", err)
+					}
+					return nil
+				})
+			}
 			return runMigration("history", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
 				service, err := services.NewProtocolMigrateHistoryService(services.ProtocolMigrateHistoryConfig{
 					DB:                     dbPool,
@@ -302,7 +328,6 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 					IngestStore:            models.IngestStore,
 					NetworkPassphrase:      opts.networkPassphrase,
 					Processors:             processors,
-					OldestLedgerCursorName: oldestLedgerCursorName,
 					WindowSize:             opts.windowSize,
 					Metrics:                migrationMetrics,
 					TipProvider:            tipProvider,
@@ -320,14 +345,20 @@ func (c *protocolMigrateCmd) historyCommand() *cobra.Command {
 }
 
 func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
-	var startLedger uint32
+	var (
+		startLedger uint32
+		rebuild     bool
+	)
 
 	return buildMigrationCommand(
 		"current-state",
 		"Build protocol current state from a start ledger forward",
-		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors.",
+		"Processes ledgers from --start-ledger to the tip, building protocol current state and converging with live ingestion via CAS-gated cursors. "+
+			"Takes the protocol's advisory lock, so only one migration or rebuild can run per protocol at a time. "+
+			"--rebuild re-runs an already-migrated protocol from scratch and is destructive: it deletes the protocol's current-state rows before folding.",
 		func(cmd *cobra.Command, opts *migrationCommandOpts) {
 			cmd.Flags().Uint32Var(&startLedger, "start-ledger", 0, "Ledger sequence to begin current-state migration from (required)")
+			cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Delete the protocol's current-state rows and rebuild them from --start-ledger. Destructive: the protocol's tables serve empty/partial data until the rebuild reaches the live frontier.")
 		},
 		func() error {
 			if startLedger == 0 {
@@ -336,8 +367,12 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 			return nil
 		},
 		func(opts *migrationCommandOpts) error {
-			return runMigration("current-state", opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
-				service, err := services.NewProtocolMigrateCurrentStateService(services.ProtocolMigrateCurrentStateConfig{
+			label := "current-state"
+			if rebuild {
+				label = "current-state rebuild"
+			}
+			return runMigration(label, opts, func(ctx context.Context, dbPool *pgxpool.Pool, ledgerBackend ledgerbackend.LedgerBackend, models *data.Models, processors []services.ProtocolProcessor, migrationMetrics *metrics.MigrationMetrics, tipProvider func() (uint32, error)) error {
+				cfg := services.ProtocolMigrateCurrentStateConfig{
 					DB:                     dbPool,
 					LedgerBackend:          ledgerBackend,
 					ProtocolsModel:         models.Protocols,
@@ -349,7 +384,18 @@ func (c *protocolMigrateCmd) currentStateCommand() *cobra.Command {
 					WindowSize:             opts.windowSize,
 					Metrics:                migrationMetrics,
 					TipProvider:            tipProvider,
-				})
+				}
+				if rebuild {
+					service, err := services.NewProtocolCurrentStateRebuildService(cfg)
+					if err != nil {
+						return fmt.Errorf("creating protocol current-state rebuild service: %w", err)
+					}
+					if err := service.Run(ctx, opts.protocolIDs); err != nil {
+						return fmt.Errorf("running protocol current-state rebuild: %w", err)
+					}
+					return nil
+				}
+				service, err := services.NewProtocolMigrateCurrentStateService(cfg)
 				if err != nil {
 					return fmt.Errorf("creating protocol migrate current-state service: %w", err)
 				}

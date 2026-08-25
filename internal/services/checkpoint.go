@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,6 +60,35 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 	return reader, nil
 }
 
+// hotArchiveIterFactory yields a checkpoint's archived entries: persistent Soroban
+// entries evicted from the live bucket list under protocol-23 state archival.
+// The live checkpoint reader never sees them.
+type hotArchiveIterFactory func(ctx context.Context, archive historyarchive.ArchiveInterface, checkpointLedger uint32) iter.Seq2[xdr.LedgerEntry, error]
+
+// defaultHotArchiveIterFactory streams the checkpoint's hot-archive bucket list via
+// ingest.NewHotArchiveIterator.
+//
+// Checkpoints older than protocol 23 (HAS version < 2) have no hot-archive bucket
+// list and the SDK iterator fails on the absent bucket hashes, so they yield
+// nothing here instead.
+//
+// The SDK iterator is returned unwrapped on purpose: a pass-through yield loop
+// would break out of the SDK sequence whenever the consumer stops, and that
+// deadlocks (see processHotArchive).
+func defaultHotArchiveIterFactory(ctx context.Context, archive historyarchive.ArchiveInterface, checkpointLedger uint32) iter.Seq2[xdr.LedgerEntry, error] {
+	has, err := archive.GetCheckpointHAS(checkpointLedger)
+	if err != nil {
+		return func(yield func(xdr.LedgerEntry, error) bool) {
+			yield(xdr.LedgerEntry{}, fmt.Errorf("getting checkpoint HAS for hot archive at ledger %d: %w", checkpointLedger, err))
+		}
+	}
+	if has.Version < historyarchive.HistoryArchiveStateVersionForProtocol23 {
+		log.Ctx(ctx).Infof("Checkpoint ledger %d predates protocol 23 (HAS version %d); no hot archive to read", checkpointLedger, has.Version)
+		return func(yield func(xdr.LedgerEntry, error) bool) {}
+	}
+	return ingest.NewHotArchiveIterator(ctx, archive, checkpointLedger)
+}
+
 // CheckpointServiceConfig holds configuration for creating a CheckpointService.
 type CheckpointServiceConfig struct {
 	DB                        *pgxpool.Pool
@@ -91,6 +121,7 @@ type checkpointService struct {
 	protocolContractsModel    wbdata.ProtocolContractsModelInterface
 	networkPassphrase         string
 	readerFactory             readerFactory
+	hotArchiveIterFactory     hotArchiveIterFactory
 	// sacEnrichmentRetries / sacEnrichmentBackoff bound the SAC metadata enrichment
 	// retry. Defaulted in NewCheckpointService; overridable in tests to keep the
 	// retry path fast.
@@ -115,6 +146,7 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		protocolContractsModel:    cfg.ProtocolContractsModel,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		readerFactory:             defaultReaderFactory,
+		hotArchiveIterFactory:     defaultHotArchiveIterFactory,
 		sacEnrichmentRetries:      maxSACEnrichmentRetries,
 		sacEnrichmentBackoff:      maxRetryBackoff,
 	}
@@ -285,8 +317,8 @@ type pendingPoolShare struct {
 }
 
 // PopulateFromCheckpoint performs initial cache population from Stellar history archive.
-// It creates a checkpoint reader, iterates all entries in a single pass, then finalizes
-// all data within a single DB transaction.
+// It streams all live-bucket-list entries, then the hot-archive (archived) entries, and
+// finalizes all data within a single DB transaction.
 func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
 	if s.archive == nil {
 		return fmt.Errorf("history archive not configured - PopulateFromCheckpoint requires archive connection")
@@ -360,6 +392,14 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 
 		if txErr := proc.flushRemainingBatch(ctx); txErr != nil {
 			return fmt.Errorf("flushing remaining token batch: %w", txErr)
+		}
+
+		// Must run before finalize: archived wasm hashes have to be in
+		// wasmClassifications before persistProtocolWasms/persistProtocolContracts
+		// write their rows. Safe after the final flush: this pass only fills
+		// in-memory maps, never batch rows.
+		if txErr := proc.processHotArchive(ctx); txErr != nil {
+			return fmt.Errorf("processing hot archive entries: %w", txErr)
 		}
 
 		if txErr := proc.finalize(ctx, dbTx); txErr != nil {
@@ -573,6 +613,73 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 // processContractCode tracks WASM hashes for protocol_wasms persistence.
 func (p *checkpointProcessor) processContractCode(_ context.Context, wasmHash xdr.Hash, _ []byte) {
 	p.wasmClassifications[wasmHash] = types.ContractTypeUnknown
+}
+
+// processHotArchive streams the checkpoint's archived entries so evicted contract
+// code and contract instances still reach protocol_wasms, protocol_contracts, and
+// contract_tokens.
+//
+// Skipped on purpose: archived balance entries and archived SAC instances. Live
+// ingestion recreates their rows when the entries are restored.
+func (p *checkpointProcessor) processHotArchive(ctx context.Context) error {
+	var codeCount, instanceCount int
+	for entry, iterErr := range p.service.hotArchiveIterFactory(ctx, p.service.archive, p.checkpointLedger) {
+		if iterErr != nil {
+			// This error return must stay the loop's ONLY early exit. Any other break
+			// blocks forever: the SDK iterator's producer goroutine only stops via its
+			// context, and the iterator's internal WaitGroup unwinds before any
+			// deferred cancel here could fire.
+			return fmt.Errorf("reading hot archive entries: %w", iterErr)
+		}
+		//exhaustive:ignore
+		switch entry.Data.Type {
+		case xdr.LedgerEntryTypeContractCode:
+			contractCodeEntry := entry.Data.MustContractCode()
+			p.processContractCode(ctx, contractCodeEntry.Hash, contractCodeEntry.Code)
+			codeCount++
+		case xdr.LedgerEntryTypeContractData:
+			if p.processArchivedContractData(entry) {
+				instanceCount++
+			}
+		}
+	}
+	log.Ctx(ctx).Infof("Hot archive pass: %d archived contract code entries, %d archived contract instances", codeCount, instanceCount)
+	return nil
+}
+
+// processArchivedContractData ingests an archived contract-instance entry so its
+// wasm mapping and contract_tokens row survive eviction. Balance entries and SAC
+// instances are skipped. Reports whether the entry was ingested.
+func (p *checkpointProcessor) processArchivedContractData(entry xdr.LedgerEntry) bool {
+	contractDataEntry := entry.Data.MustContractData()
+	if contractDataEntry.Key.Type != xdr.ScValTypeScvLedgerKeyContractInstance {
+		return false
+	}
+
+	contractAddress, ok := contractDataEntry.Contract.GetContractId()
+	if !ok {
+		return false
+	}
+	contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
+
+	// Post-side wrapping mirrors the shape the live checkpoint reader produces, so
+	// processContractInstanceChange works identically on archived entries.
+	change := ingest.Change{
+		Type:       entry.Data.Type,
+		ChangeType: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Post:       &entry,
+	}
+	result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
+	if result.Skip || result.IsSAC {
+		return false
+	}
+
+	p.data.uniqueContractTokens[result.Contract.ID] = result.Contract
+	if result.WasmHash != nil {
+		p.contractAddressesByWasmHash[*result.WasmHash] = append(
+			p.contractAddressesByWasmHash[*result.WasmHash], xdr.Hash(contractAddress))
+	}
+	return true
 }
 
 // flushBatchIfNeeded flushes the batch to DB if it has reached the flush size.

@@ -335,6 +335,15 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
+// WipeCurrentState deletes every SEP-41 current-state row (balances and
+// allowances) in the caller's transaction. See ProtocolProcessor.
+func (p *processor) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	if err := sep41data.WipeCurrentState(ctx, dbTx); err != nil {
+		return fmt.Errorf("wiping SEP-41 current state: %w", err)
+	}
+	return nil
+}
+
 // PersistCurrentState applies staged balance deltas server-side (balance := existing + delta)
 // and writes allowance values directly (approve semantics are a set, not an add). Runs inside
 // the CAS-guarded transaction so each window's accumulated deltas are applied exactly once.

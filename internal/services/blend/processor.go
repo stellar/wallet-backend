@@ -921,6 +921,16 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
+// WipeCurrentState deletes every Blend current-state row (pools, positions,
+// reserves, backstop, emissions, claimed totals, oracle prices, auctions) in
+// the caller's transaction. See ProtocolProcessor.
+func (p *processor) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	if err := blenddata.WipeCurrentState(ctx, dbTx); err != nil {
+		return fmt.Errorf("wiping Blend current state: %w", err)
+	}
+	return nil
+}
+
 // PersistCurrentState writes every staged current-state set in the order
 // required by cross-table dependencies:
 //  1. pools, then reserves — net-delta/auction-adjustment SQL resolves an
