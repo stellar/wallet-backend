@@ -1,10 +1,12 @@
 package sep41
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -116,7 +119,8 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 		return nil
 	}
 
-	for key, events := range input.ContractEvents {
+	for _, key := range sortedEventKeys(input.ContractEvents) {
+		events := input.ContractEvents[key]
 		// tx.ID() in stellar/go is toid.New(ledgerSeq, txIdx, 0); recompute it
 		// here so PersistHistory's state-change rows carry the same txID a full
 		// tx walk would have produced.
@@ -136,6 +140,37 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 	}
 
 	return nil
+}
+
+// sortedEventKeys returns the contract-event keys in canonical apply order —
+// ascending (TxIdx, OpIdx), which is the order Stellar Core executed them in.
+//
+// Iterating the map directly would visit keys in Go's randomized order. Balance
+// deltas are commutative and so are unaffected, but approve() is a last-write-wins
+// *replacement*: when two approves for the same (owner, spender, contract) land in
+// one ledger — e.g. a grant at TxIdx=1 followed by a revoke at TxIdx=2 — random
+// order lets the superseded grant overwrite the revoke, leaving the allowance row
+// disagreeing with the chain until the row expires or is next touched. Folding in
+// apply order makes the surviving value the chronologically last one, and makes
+// re-ingesting a ledger reproduce the same result.
+//
+// OpIdx is always 0 today — events are keyed only for InvokeHostFunction operations and
+// Soroban transactions carry exactly one operation — so TxIdx alone would order the keys
+// we actually see. It stays in the comparison to keep it a total order over the key type:
+// slices.SortFunc is not stable, so any two keys comparing equal would sort in unspecified
+// order, reintroducing exactly this bug.
+func sortedEventKeys(events map[indexer.ContractEventKey][]xdr.ContractEvent) []indexer.ContractEventKey {
+	keys := make([]indexer.ContractEventKey, 0, len(events))
+	for key := range events {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b indexer.ContractEventKey) int {
+		return cmp.Or(
+			cmp.Compare(a.TxIdx, b.TxIdx),
+			cmp.Compare(a.OpIdx, b.OpIdx),
+		)
+	})
+	return keys
 }
 
 func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder, mode services.StagingMode) error {

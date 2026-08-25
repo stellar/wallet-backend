@@ -13,6 +13,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
+	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/services"
@@ -401,6 +402,78 @@ func TestProcessor_StampsPerRowLastModifiedLedgerAcrossWindow(t *testing.T) {
 		"B was last touched at ledger 100, not the window end 199")
 	assert.Equal(t, uint32(100), p.stagedAllowances[allowanceKey{Owner: testAccountA, Spender: testAccountB, ContractID: contractID}].LedgerNumber,
 		"the allowance was last modified at ledger 100, not the window end 199")
+}
+
+func TestProcessor_SameLedgerApprovesFoldInApplyOrder(t *testing.T) {
+	// Regression test: ProcessLedger must fold contract events in canonical apply order
+	// (ascending TxIdx, OpIdx), not Go's randomized map order. approve() is a last-write-wins
+	// replacement, so when a grant and a revoke for the same (owner, spender, contract) land
+	// in the same ledger, map order let the superseded grant win at random — leaving the
+	// allowance row disagreeing with the chain. The surviving value must always be the
+	// chronologically last approve, on every run.
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	// Hex of the strkey above; indexContracts decodes it and re-encodes to the same address.
+	contractHex := types.HashBytea("25b4fcd859aec2fa6348438c489b3c3c10c98b6d21be4fd3cb30cb68953ef977")
+
+	newApprove := func(amount int64, liveUntil uint32) xdr.ContractEvent {
+		return buildEventForContract(t, contractID, []xdr.ScVal{
+			symScVal(EventApprove),
+			mustAddressScVal(t, testAccountA),
+			mustAddressScVal(t, testAccountB),
+		}, vecScVal(i128ScVal(amount), u32ScVal(liveUntil)))
+	}
+
+	input := services.ProtocolProcessorInput{
+		LedgerSequence: 42,
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			// Grant 1000 at TxIdx=1, then revoke to 0 at TxIdx=2. On-chain, the revoke wins.
+			{TxIdx: 1, OpIdx: 0}: {newApprove(1000, 9000)},
+			{TxIdx: 2, OpIdx: 0}: {newApprove(0, 0)},
+		},
+		ProtocolContracts: []data.ProtocolContracts{{ContractID: contractHex}},
+		StagingMode:       services.StagingModeCurrentState,
+	}
+	key := allowanceKey{Owner: testAccountA, Spender: testAccountB, ContractID: contractID}
+
+	// Go randomizes map iteration per range, so a single pass can pass by luck. Repeat
+	// enough that an unordered fold would almost surely surface the superseded grant.
+	for i := range 200 {
+		p := newTestProcessor()
+		p.Reset()
+		require.NoError(t, p.ProcessLedger(context.Background(), input))
+
+		staged, ok := p.stagedAllowances[key]
+		require.True(t, ok, "iteration %d: expected a staged allowance", i)
+		assert.Equal(t, "0", staged.Amount.String(),
+			"iteration %d: the revoke at TxIdx=2 is chronologically last and must win", i)
+		assert.Equal(t, uint32(0), staged.ExpirationLedger,
+			"iteration %d: the revoke's live_until_ledger must win too", i)
+	}
+}
+
+func TestSortedEventKeys_OrdersByTxThenOp(t *testing.T) {
+	// Unit test of the comparator itself, not a reachable ledger shape: contract events are
+	// only keyed for InvokeHostFunction operations, and Soroban transactions carry exactly one
+	// operation, so OpIdx is always 0 in practice. The tiebreak exists so the comparator is a
+	// total order over the key type — slices.SortFunc is not stable, so keys comparing equal
+	// would land in unspecified order, which is the bug class this fix is closing.
+	events := map[indexer.ContractEventKey][]xdr.ContractEvent{
+		{TxIdx: 2, OpIdx: 1}:  nil,
+		{TxIdx: 1, OpIdx: 3}:  nil,
+		{TxIdx: 2, OpIdx: 0}:  nil,
+		{TxIdx: 1, OpIdx: 0}:  nil,
+		{TxIdx: 10, OpIdx: 0}: nil,
+	}
+	assert.Equal(t, []indexer.ContractEventKey{
+		{TxIdx: 1, OpIdx: 0},
+		{TxIdx: 1, OpIdx: 3},
+		{TxIdx: 2, OpIdx: 0},
+		{TxIdx: 2, OpIdx: 1},
+		{TxIdx: 10, OpIdx: 0},
+	}, sortedEventKeys(events))
+
+	assert.Empty(t, sortedEventKeys(map[indexer.ContractEventKey][]xdr.ContractEvent{}))
+	assert.Empty(t, sortedEventKeys(nil))
 }
 
 // ---- helpers ----
