@@ -34,7 +34,6 @@ type ProtocolMigrateHistoryConfig struct {
 	IngestStore            *data.IngestStoreModel
 	NetworkPassphrase      string
 	Processors             []ProtocolProcessor
-	OldestLedgerCursorName string
 	WindowSize             uint32
 	Metrics                *metrics.MigrationMetrics
 	TipProvider            func() (uint32, error)
@@ -52,11 +51,6 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 	})
 	if err != nil {
 		return nil, fmt.Errorf("building protocol processor map: %w", err)
-	}
-
-	oldestCursor := cfg.OldestLedgerCursorName
-	if oldestCursor == "" {
-		oldestCursor = data.OldestLedgerCursorName
 	}
 
 	ingestStore := cfg.IngestStore
@@ -88,7 +82,7 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 					return proc.PersistHistory(ctx, dbTx)
 				},
 				ResolveStartLedger: func(ctx context.Context) (uint32, error) {
-					v, err := ingestStore.Get(ctx, oldestCursor)
+					v, err := ingestStore.Get(ctx, data.OldestLedgerCursorName)
 					if err != nil {
 						return 0, fmt.Errorf("reading oldest ingest ledger: %w", err)
 					}
@@ -102,7 +96,13 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 	}, nil
 }
 
-// Run performs history migration for the given protocol IDs.
+// Run performs history migration for the given protocol IDs, holding each
+// protocol's history advisory lock for the duration.
 func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []string) error {
+	release, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeHistory, dedupePreservingOrder(protocolIDs))
+	if err != nil {
+		return fmt.Errorf("locking protocols for history migration: %w", err)
+	}
+	defer release()
 	return s.engine.Run(ctx, protocolIDs)
 }
