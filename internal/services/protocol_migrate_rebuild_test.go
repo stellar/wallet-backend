@@ -323,8 +323,9 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 	}
 }
 
-// TestProtocolHistoryRebuildOldestRetained pins the wipe's lower bound: the
-// oldest retained ledger, with a clear error before ingestion has produced it.
+// TestProtocolHistoryRebuildOldestRetained pins the wipe's lower bound and the
+// refusals that must happen before anything is reset: a run that cannot wipe a
+// usable window must fail while the cursors are still untouched.
 func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
@@ -332,15 +333,19 @@ func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 	testCases := []struct {
 		name            string
 		oldest          uint32
+		latest          uint32
 		wantErrContains string
 	}{
-		{name: "cursor present", oldest: 500},
-		{name: "ingestion has not started", oldest: 0, wantErrContains: "oldest_ingest_ledger is 0"},
+		{name: "cursors present", oldest: 500, latest: 900},
+		{name: "ingestion has not started", oldest: 0, latest: 900, wantErrContains: "oldest_ingest_ledger is 0"},
+		{name: "no ledger committed yet", oldest: 500, latest: 0, wantErrContains: "latest_ingest_ledger is 0"},
+		{name: "inverted window", oldest: 900, latest: 500, wantErrContains: "inverted window"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, tc.oldest)
+			setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, tc.latest)
 
 			svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
 				DB: dbPool, LedgerBackend: &multiLedgerBackend{},
@@ -361,33 +366,6 @@ func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 			assert.Equal(t, tc.oldest, oldest)
 		})
 	}
-}
-
-// TestProtocolHistoryRebuildWipeInvertedWindow pins the refusal that keeps the
-// slice loop finite: uint32 arithmetic on a latest below oldest never reaches
-// the upper bound, so the loop would run until the process is killed.
-func TestProtocolHistoryRebuildWipeInvertedWindow(t *testing.T) {
-	ctx := context.Background()
-	dbPool, ingestStore := setupTestDB(t)
-
-	setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, 400)
-	setIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto"), 400)
-
-	protocolsModel := data.NewProtocolsModelMock(t)
-	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
-
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
-		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
-		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
-		NetworkPassphrase: "Test SDF Network ; September 2015",
-		Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-	})
-	require.NoError(t, err)
-
-	err = svc.wipe(ctx, "testproto", 900)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "inverted window")
 }
 
 // TestProtocolHistoryRebuildWipe pins the wipe: the cursor and status reset

@@ -163,7 +163,11 @@ func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolID
 }
 
 // oldestRetained returns the wipe's lower bound: the oldest retained ledger.
-// The upper bound is read per protocol, inside wipe, after the cursor reset.
+//
+// It validates the upper bound too, without returning it. Every wipe reads its
+// own upper bound after its cursor reset, because only then is it authoritative
+// — but the first reset is a mutation, and a window this run can never wipe
+// should fail before anything is reset, not after.
 func (s *protocolHistoryRebuildService) oldestRetained(ctx context.Context) (uint32, error) {
 	oldest, err := s.engine.ingestStore.Get(ctx, data.OldestLedgerCursorName)
 	if err != nil {
@@ -171,6 +175,16 @@ func (s *protocolHistoryRebuildService) oldestRetained(ctx context.Context) (uin
 	}
 	if oldest == 0 {
 		return 0, fmt.Errorf("ingestion has not started yet (oldest_ingest_ledger is 0)")
+	}
+	latest, err := s.engine.ingestStore.Get(ctx, data.LatestLedgerCursorName)
+	if err != nil {
+		return 0, fmt.Errorf("reading latest ingest ledger: %w", err)
+	}
+	if latest == 0 {
+		return 0, fmt.Errorf("ingestion has not started yet (latest_ingest_ledger is 0)")
+	}
+	if latest < oldest {
+		return 0, fmt.Errorf("latest ingest ledger %d is below the oldest retained ledger %d: refusing to rebuild an inverted window", latest, oldest)
 	}
 	return oldest, nil
 }
@@ -208,15 +222,10 @@ func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID str
 	if latestErr != nil {
 		return fmt.Errorf("reading latest ingest ledger: %w", latestErr)
 	}
-	// Guard the slice loop below: uint32 arithmetic on an inverted window never
-	// reaches the upper bound, so it would run until the process is killed.
-	if latest < oldest {
-		return fmt.Errorf("latest ingest ledger %d is below the oldest retained ledger %d: refusing to wipe an inverted window", latest, oldest)
-	}
 
 	base := s.engine.processors[protocolID].StateChangeOrdinalBase()
 	var total int64
-	for start := oldest; ; {
+	for start := oldest; start <= latest; {
 		end := latest
 		if latest-start >= historyRebuildDeleteSlice {
 			end = start + historyRebuildDeleteSlice - 1
@@ -226,9 +235,6 @@ func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID str
 			return fmt.Errorf("deleting history rows for %s: %w", protocolID, err)
 		}
 		total += deleted
-		if end == latest {
-			break
-		}
 		start = end + 1
 	}
 	log.Ctx(ctx).Infof("Protocol %s: deleted %d history rows over ledgers [%d, %d], cursor %s reset to %d", protocolID, total, oldest, latest, cursorName, oldest-1)
