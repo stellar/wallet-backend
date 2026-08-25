@@ -126,6 +126,7 @@ func (v *Validator) Apply(ctx context.Context, dbTx pgx.Tx, matched map[types.Ha
 		// matching failures when surfacing logs.
 		return fmt.Errorf("sep41 enrichment: %w", err)
 	}
+	v.markPersistedMetadataFetched(ctx, dbTx, models, v.decodeClaimedAddrs(ctx, contractsForUs))
 	return nil
 }
 
@@ -238,6 +239,25 @@ func (v *Validator) applyContractTokens(ctx context.Context, dbTx pgx.Tx, models
 	}
 	log.Ctx(ctx).Debugf("sep41 validator: enriched %d contract_tokens rows", len(updates))
 	return nil
+}
+
+// markPersistedMetadataFetched teaches the fetcher's in-process cache what
+// the database already holds: any claimed contract whose row carries
+// metadata needs no RPC fetch on later encounters — whether this batch's
+// prefetch resolved it, a previous process fetched it, or it was seeded
+// externally. Without this, a token whose fetch fails re-enters the RPC
+// retry path on every classification pass for the life of the process.
+// Best-effort: a read error only costs a redundant future fetch.
+func (v *Validator) markPersistedMetadataFetched(ctx context.Context, dbTx pgx.Tx, models *data.Models, addrs []string) {
+	if v.fetcher == nil {
+		return
+	}
+	withMetadata, err := models.Contract.GetWithMetadata(ctx, dbTx, addrs)
+	if err != nil {
+		log.Ctx(ctx).Warnf("sep41: checking persisted metadata: %v", err)
+		return
+	}
+	v.fetcher.markFetched(withMetadata)
 }
 
 // decodeContractAddr converts a hex-encoded HashBytea (32 bytes) into the

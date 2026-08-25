@@ -99,6 +99,22 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		assert.Empty(t, out)
 	})
 
+	t.Run("skips contracts marked as fetched, even after a recorded failure", func(t *testing.T) {
+		rpc := services.NewContractMetadataServiceMock(t)
+		f := newMetadataFetcher(rpc, pond.NewPool(2))
+
+		// A contract in its failure-backoff window that markFetched then
+		// covers (its metadata landed in the DB, e.g. via seeding) must
+		// never re-enter the RPC path: no FetchSingleField expectations
+		// exist on the mock, so any call would fail the test.
+		f.recordFailure(testContractA)
+		f.markFetched([]string{testContractA})
+
+		out, err := f.FetchMetadata(ctx, []string{testContractA})
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+
 	t.Run("returns a populated Contract for a successful single-contract fetch", func(t *testing.T) {
 		rpc := services.NewContractMetadataServiceMock(t)
 		expectMetadataFetch(rpc, testContractA, "USD Coin", "USDC", 7)

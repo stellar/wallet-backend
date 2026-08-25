@@ -137,6 +137,24 @@ func (f *metadataFetcher) filterCached(contractIDs []string) []string {
 	return kept
 }
 
+// markFetched records contracts whose metadata is already persisted, so
+// later FetchMetadata calls skip them without an RPC attempt. Apply calls it
+// with what the database holds — the durable complement to the in-process
+// fetched set, which alone would re-fetch every known token once per process
+// lifetime, and forever on a deployment whose RPC can never resolve metadata
+// (the loadtest rig's dead endpoint with externally seeded rows).
+func (f *metadataFetcher) markFetched(contractIDs []string) {
+	if f == nil || len(contractIDs) == 0 {
+		return
+	}
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	for _, id := range contractIDs {
+		f.fetched[id] = struct{}{}
+		delete(f.failedUntil, id)
+	}
+}
+
 func (f *metadataFetcher) recordFailure(contractID string) {
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
