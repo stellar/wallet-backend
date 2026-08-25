@@ -11,6 +11,16 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 )
 
+// wipeLockTimeout caps how long the wipe transaction waits for a lock.
+//
+// TRUNCATE needs ACCESS EXCLUSIVE, so a long-running API read on one of these
+// tables makes it wait — and Postgres queues later lock requests behind the
+// waiting TRUNCATE, so readers pile up too. All of that happens while the
+// transaction holds the ingest cursor row, which stalls live ingestion for
+// every protocol. Failing fast and letting the operator rerun beats an
+// open-ended stall.
+const wipeLockTimeout = "'5s'"
+
 // ProtocolCurrentStateRebuildService wipes a protocol's current-state rows
 // and rebuilds them from the protocol's first ledger. Current-state columns
 // are running totals, so a correct rebuild must replay the full event
@@ -106,12 +116,16 @@ func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, proto
 //
 // Live ingestion writes every protocol in one transaction per ledger, so
 // holding that row lock stalls ingestion for all protocols, not just this one.
-// The stall is bounded because WipeCurrentState truncates: its cost does not
-// grow with the number of rows being discarded.
+// Two things bound that stall: WipeCurrentState truncates, so its cost does not
+// grow with the number of rows discarded, and wipeLockTimeout caps how long the
+// transaction can sit waiting for a lock it cannot get.
 func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string) error {
 	processor := s.engine.processors[protocolID]
 	cursorName := s.engine.strategy.CursorName(protocolID)
 	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {
+		if _, toErr := dbTx.Exec(ctx, "SET LOCAL lock_timeout = "+wipeLockTimeout); toErr != nil {
+			return fmt.Errorf("setting lock timeout: %w", toErr)
+		}
 		if updErr := s.engine.ingestStore.Update(ctx, dbTx, cursorName, s.startLedger-1); updErr != nil {
 			return fmt.Errorf("resetting cursor %s: %w", cursorName, updErr)
 		}
