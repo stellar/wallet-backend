@@ -1114,13 +1114,16 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			m.markClassificationInputsSeen(batch)
 		}
 
-		// insert_into_db records the true wall time of one persist commit —
-		// the value the histogram's ledger-close-time grading buckets
-		// measure. A batched commit is one observation, not len(batch)
-		// amortized shares: batching engages exactly when persist has fallen
-		// behind, which per-ledger dilution would report as healthy.
-		// persist_batch_size carries the batch size alongside.
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
+		// insert_into_db records, once per ledger, the FULL wall time of the
+		// commit that carried it — never the duration divided by batch size.
+		// Per-ledger counts keep the series comparable with process_ledger
+		// and gradeable against the ledger close time, while the undivided
+		// value keeps slow commits visible: batching engages exactly when
+		// persist has fallen behind, which amortized shares would report as
+		// healthy. persist_batch_size carries the batch size alongside.
+		for range batch {
+			m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
+		}
 
 		// The per-ledger total keeps amortized shares so ledger durations
 		// stay comparable across batch sizes.

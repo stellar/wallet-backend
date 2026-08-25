@@ -17,12 +17,14 @@ type IngestionMetrics struct {
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_duration_seconds_bucket[5m]))
 	Duration prometheus.Histogram
 	// PhaseDuration observes per-phase ingestion time, labeled by phase.
-	// process_ledger is one observation per ledger; prepare_classification
-	// and insert_into_db are one observation per persist batch recording the
-	// batch's true wall time — never divided by batch size, so the
-	// ledger-close-time grading buckets read the real commit latency even
-	// (especially) while persist is behind. PersistBatchSize carries how
-	// many ledgers each commit coalesced.
+	// process_ledger is one observation per ledger. insert_into_db is also
+	// one observation per ledger, recording the FULL wall time of the commit
+	// that carried the ledger — never divided by batch size — so per-ledger
+	// counts stay comparable across phases while the ledger-close-time
+	// grading buckets still read the real commit latency even (especially)
+	// while persist is behind. prepare_classification is one observation per
+	// persist batch. PersistBatchSize carries how many ledgers each commit
+	// coalesced.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_phase_duration_seconds_bucket{phase="process_ledger"}[5m]))
 	PhaseDuration *prometheus.HistogramVec
 	// LedgersProcessed counts total ledgers ingested.
