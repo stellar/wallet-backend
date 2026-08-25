@@ -110,10 +110,12 @@ Both commands are **destructive** and run the same sequence: validate, take the 
 
 ### What each wipe clears
 
-| Command | Wipes | Cursor reset to |
-|---------|-------|-----------------|
-| `current-state --rebuild` | every `sep41_*` / `blend_*` current-state table | `--start-ledger` − 1 |
-| `history --rebuild` | the protocol's `state_changes` rows across the retained window | oldest retained ledger − 1 |
+Each wipe covers only the protocol named by `--protocol-id`. Rebuilding SEP41 clears the `sep41_*` tables and leaves every `blend_*` table alone, and the reverse.
+
+| Command | Wipes, for that protocol only | Cursor reset to |
+|---------|-------------------------------|-----------------|
+| `current-state --rebuild` | its own current-state tables — `sep41_*` for SEP41, `blend_*` for BLEND | `--start-ledger` − 1 |
+| `history --rebuild` | its `state_changes` rows across the retained window | oldest retained ledger − 1 |
 
 `contract_tokens`, `protocol_wasms` and `protocol_contracts` are never touched. Nothing rebuilds classification, and the re-migration needs it to know which contracts belong to the protocol. Re-run `protocol-setup` if classification itself is wrong.
 
