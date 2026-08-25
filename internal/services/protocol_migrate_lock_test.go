@@ -12,8 +12,12 @@ import (
 )
 
 func TestMigrateAdvisoryLockID(t *testing.T) {
-	assert.Equal(t, migrateAdvisoryLockID(lockScopeCurrentState, "SEP41"), migrateAdvisoryLockID(lockScopeCurrentState, "SEP41"),
-		"the lock ID must be deterministic — every writer must derive the same key for a protocol")
+	// Golden values, not a self-comparison: the lock ID is a wire-level key.
+	// Changing the prefix, the hash, or the cast lets a rolling deployment run
+	// old and new binaries that take different locks for the same protocol and
+	// wipe under each other. A failure here means the change is a breaking one.
+	assert.Equal(t, 8825155305645790671, migrateAdvisoryLockID(lockScopeCurrentState, "SEP41"))
+	assert.Equal(t, 3765383363378513446, migrateAdvisoryLockID(lockScopeHistory, "SEP41"))
 	assert.NotEqual(t, migrateAdvisoryLockID(lockScopeCurrentState, "SEP41"), migrateAdvisoryLockID(lockScopeCurrentState, "BLEND"),
 		"different protocols must map to different locks so their runs don't contend")
 	assert.NotEqual(t, migrateAdvisoryLockID(lockScopeCurrentState, "SEP41"), migrateAdvisoryLockID(lockScopeHistory, "SEP41"),
