@@ -103,6 +103,11 @@ func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, proto
 // can never fold onto a half-wiped table. The cursor row is UPDATEd, never
 // deleted: live treats a missing cursor row as a fatal incident
 // (ErrCASCursorMissing).
+//
+// Live ingestion writes every protocol in one transaction per ledger, so
+// holding that row lock stalls ingestion for all protocols, not just this one.
+// The stall is bounded because WipeCurrentState truncates: its cost does not
+// grow with the number of rows being discarded.
 func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string) error {
 	processor := s.engine.processors[protocolID]
 	cursorName := s.engine.strategy.CursorName(protocolID)
