@@ -36,6 +36,7 @@ const (
 type SACEventsProcessor struct {
 	networkPassphrase string
 	metricsService    *metrics.IngestionMetrics
+	assetContractIDs  processors.AssetContractIDMemo
 }
 
 func NewSACEventsProcessor(networkPassphrase string, metricsService *metrics.IngestionMetrics) *SACEventsProcessor {
@@ -55,6 +56,10 @@ func (p *SACEventsProcessor) StateChangeSubBase() int64 {
 
 // ProcessOperation processes contract events and converts them into state changes.
 func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *processors.TransactionOperationWrapper) ([]types.StateChange, error) {
+	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
+		return nil, processors.ErrInvalidOpType
+	}
+
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -63,13 +68,8 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 		}
 	}()
 
-	if opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return nil, processors.ErrInvalidOpType
-	}
-
 	ledgerCloseTime := opWrapper.Transaction.Ledger.LedgerCloseTime()
 	ledgerNumber := opWrapper.Transaction.Ledger.LedgerSequence()
-	txHash := opWrapper.Transaction.Result.TransactionHash.HexString()
 	txID := opWrapper.Transaction.ID()
 
 	tx := opWrapper.Transaction
@@ -85,13 +85,13 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 	}
 
 	// Get operation changes to access previous trustline flag state
-	changes, err := tx.GetOperationChanges(opWrapper.Index)
+	changes, err := opWrapper.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes for operation %d: %w", opWrapper.ID(), err)
 	}
 
 	stateChanges := make([]types.StateChange, 0)
-	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID).WithOperationID(opWrapper.ID())
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
@@ -115,26 +115,26 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 			asset, err := p.extractAsset(topics, tx.UnsafeMeta.V)
 			if err != nil {
 				log.Debugf("processor: %s: extracting asset from tx meta: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 
 			isSAC, err := p.isSACContract(asset, contractID)
 			if err != nil {
 				log.Debugf("processor: %s: validating SAC contract: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 			if !isSAC {
 				log.Debugf("processor: %s: skipping event due to non-SAC contract: txHash=%s opID=%d contractId=%s",
-					p.Name(), txHash, opWrapper.ID(), contractID)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID)
 				continue
 			}
 
 			accountToAuthorize, err := p.extractAccount(topics, tx.UnsafeMeta.V)
 			if err != nil {
 				log.Debugf("processor: %s: extracting account from tx meta: txHash=%s opID=%d contractId=%s error=%v",
-					p.Name(), txHash, opWrapper.ID(), contractID, err)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, err)
 				continue
 			}
 
@@ -142,7 +142,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 			isAuthorized, ok := value.GetB()
 			if !ok {
 				log.Debugf("processor: %s: extracting authorization value from event data: txHash=%s opID=%d contractId=%s",
-					p.Name(), txHash, opWrapper.ID(), contractID)
+					p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID)
 				continue
 			}
 
@@ -171,7 +171,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 					// We dont want to log errors for no contract data change found. We can simply skip processing.
 					if !errors.Is(err, errNoContractDataChangeFound) {
 						log.Debugf("processor: %s: extracting contract authorization changes: txHash=%s opID=%d contractId=%s contractAddress=%s error=%v",
-							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+							p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, accountToAuthorize, err)
 					}
 					continue
 				}
@@ -182,7 +182,7 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 					// We dont want to log errors for no trustline change found. We can simply skip processing.
 					if !errors.Is(err, errNoTrustlineChangeFound) {
 						log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
-							p.Name(), txHash, opWrapper.ID(), contractID, accountToAuthorize, err)
+							p.Name(), opWrapper.Transaction.Result.TransactionHash.HexString(), opWrapper.ID(), contractID, accountToAuthorize, err)
 					}
 					continue
 				}
@@ -202,11 +202,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				// Contract authorization: handle AUTHORIZED state
 				if isAuthorized != wasAuthorized {
 					if isAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							Build())
 					} else {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							Build())
 					}
@@ -215,14 +215,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				if isAuthorized {
 					// Authorizing: should set AUTHORIZED_FLAG if it wasn't already set
 					if !wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should clear AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it was previously set
 					if wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())
@@ -230,14 +230,14 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 				} else {
 					// Deauthorizing: should clear AUTHORIZED_FLAG if it was previously set
 					if wasAuthorized {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonClear).
 							WithFlags([]string{AuthorizedFlagName}).
 							Build())
 					}
 					// Should set AUTHORIZED_TO_MAINTAIN_LIABILITIES_FLAG if it wasn't already set
 					if !wasMaintainLiabilities {
-						flagChanges = append(flagChanges, scBuilder.Clone().
+						flagChanges = append(flagChanges, scBuilder.
 							WithReason(types.StateChangeReasonSet).
 							WithFlags([]string{AuthorizedToMaintainLiabilitesFlagName}).
 							Build())
@@ -301,30 +301,23 @@ func (p *SACEventsProcessor) extractAccount(topics []xdr.ScVal, txMetaVersion in
 
 // isSACContract checks if a contract is an SAC contract
 func (p *SACEventsProcessor) isSACContract(asset xdr.Asset, contractID string) (bool, error) {
-	assetContractID, err := asset.ContractID(p.networkPassphrase)
+	assetContractID, err := p.assetContractIDs.FromAsset(p.networkPassphrase, asset)
 	if err != nil {
 		return false, fmt.Errorf("invalid asset contract ID: %w", err)
 	}
-	return strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]) == contractID, nil
+	return assetContractID == contractID, nil
 }
 
 // extractTrustlineFlagChanges extracts the previous trustline flags for the given account.
-// The change scan now verifies the trustline belongs to the same SAC contract referenced by the event so
+// The change scan verifies the trustline belongs to the same SAC contract referenced by the event so
 // unrelated trustlines updated in the same operation are ignored.
 func (p *SACEventsProcessor) extractTrustlineFlagChanges(changes []ingest.Change, accountToAuthorize string, contractID string) (wasAuthorized bool, wasMaintainLiabilities bool, err error) {
-	contractIDBytes, err := strkey.Decode(strkey.VersionByteContract, contractID)
-	if err != nil {
-		return false, false, fmt.Errorf("invalid contract id %s: %w", contractID, err)
-	}
-	var expectedContract xdr.ContractId
-	copy(expectedContract[:], contractIDBytes)
-
 	for _, change := range changes {
 		if change.Type != xdr.LedgerEntryTypeTrustline {
 			continue
 		}
 
-		if !p.trustlineEntryMatches(change, accountToAuthorize, expectedContract) {
+		if !p.trustlineEntryMatches(change, accountToAuthorize, contractID) {
 			continue
 		}
 
@@ -438,7 +431,9 @@ func (p *SACEventsProcessor) extractAuthorizedFromBalanceMap(balanceVal xdr.ScVa
 }
 
 // trustlineEntryMatches verifies the ledger entry represents the SAC trustline for the target account.
-func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account string, expectedContract xdr.ContractId) bool {
+// Both contract IDs are compared strkey-encoded, which is equivalent to comparing the raw 32 bytes
+// because the encoding is injective, and it lets the derivation come from the memo.
+func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account string, expectedContractID string) bool {
 	var entry *xdr.LedgerEntry
 	if change.Pre != nil {
 		entry = change.Pre
@@ -460,12 +455,12 @@ func (p *SACEventsProcessor) trustlineEntryMatches(change ingest.Change, account
 		return false
 	}
 
-	contractID, err := asset.ContractID(p.networkPassphrase)
+	contractID, err := p.assetContractIDs.FromAsset(p.networkPassphrase, asset)
 	if err != nil {
 		return false
 	}
 
-	return xdr.ContractId(contractID) == expectedContract
+	return contractID == expectedContractID
 }
 
 // contractDataChangeMatches ensures the contract-data change belongs to the SAC token and target balance key.

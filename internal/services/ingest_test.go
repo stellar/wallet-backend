@@ -1648,8 +1648,8 @@ func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
 
 // oneLedger wraps a single ledger's persist payload as the batch slice
 // persistLedgerData and persistLedgerDataWithRetry consume.
-func oneLedger(seq uint32, plan *ClassificationPlan, contractData *contractDataMemo, buffer *indexer.IndexerBuffer) []persistItem {
-	return []persistItem{{seq: seq, plan: plan, contractData: contractData, buffer: buffer}}
+func oneLedger(seq uint32, plan *ClassificationPlan, buffer *indexer.IndexerBuffer) []persistItem {
+	return []persistItem{{seq: seq, plan: plan, buffer: buffer}}
 }
 
 // Test_persistLedgerData_rejectsLedgerZero pins the batch entry guard. Ledger
@@ -1750,7 +1750,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should succeed
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, buffer))
 
 		// Verify success
 		require.NoError(t, err)
@@ -1836,7 +1836,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, buffer))
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -1927,7 +1927,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should succeed after retry
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerDataWithRetry(ctx, oneLedger(100, nil, buffer))
 
 		// Verify success after retry
 		require.NoError(t, err)
@@ -2137,7 +2137,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		// Both protocol cursors should advance to 100
@@ -2169,7 +2169,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		// Cursors should stay at 100 (CAS expected 99 but found 100)
@@ -2201,7 +2201,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		// Cursors should stay at 98 (behind, so entire block is skipped)
@@ -2237,7 +2237,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// No protocol cursors inserted.
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		// Main cursor advances; protocol persist methods were not called and
@@ -2274,7 +2274,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
-		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// History CAS succeeded.
@@ -2313,7 +2313,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
-		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// Current-state CAS succeeded.
@@ -2341,7 +2341,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		setupDBCursors(t, ctx, pool, 99, 99)
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		// Main cursor should advance
@@ -2360,13 +2360,13 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 
 		// First ledger succeeds and advances the current-state cursor to 100.
 		processor.processedLedger = 100
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), indexer.NewIndexerBuffer()))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		// Next ledger fails inside PersistCurrentState, rolling back the whole
 		// transaction — the current-state cursor must stay at 100.
 		processor.processedLedger = 101
-		err = svc.persistLedgerData(ctx, oneLedger(101, nil, newContractDataMemo(nil, 101), indexer.NewIndexerBuffer()))
+		err = svc.persistLedgerData(ctx, oneLedger(101, nil, indexer.NewIndexerBuffer()))
 		require.Error(t, err)
 
 		currentStateCursor, err := models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2376,7 +2376,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Retrying the same ledger succeeds and advances the cursor.
 		processor.failPersistCurrentStateAt = 0
 		processor.processedLedger = 101
-		err = svc.persistLedgerData(ctx, oneLedger(101, nil, newContractDataMemo(nil, 101), indexer.NewIndexerBuffer()))
+		err = svc.persistLedgerData(ctx, oneLedger(101, nil, indexer.NewIndexerBuffer()))
 		require.NoError(t, err)
 
 		currentStateCursor, err = models.IngestStore.Get(ctx, "protocol_testproto_current_state_cursor")
@@ -2407,7 +2407,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, delErr)
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, data.ErrCASCursorMissing)
 
@@ -2442,7 +2442,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		// Production is now enabled: a ledger processed after the re-probe actually CASes.
 		processor.processedLedger = 100
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 
 		histCursor, getErr := models.IngestStore.Get(ctx, "protocol_testproto_history_cursor")
@@ -2467,7 +2467,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 	})
 
@@ -2488,7 +2488,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, svc.snapshotProtocolCursors(ctx))
 
 		buffer := indexer.NewIndexerBuffer()
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 	})
 
@@ -2548,7 +2548,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 		require.NoError(t, err)
 
 		buffer := indexer.NewIndexerBuffer()
-		err = svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.NoError(t, err)
 	})
 
@@ -2575,7 +2575,7 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 			[]xdr.ContractEvent{{Type: xdr.ContractEventTypeContract, ContractId: &contractID}},
 		)
 
-		err := svc.persistLedgerData(ctx, oneLedger(100, nil, newContractDataMemo(nil, 100), buffer))
+		err := svc.persistLedgerData(ctx, oneLedger(100, nil, buffer))
 		require.ErrorContains(t, err, "resolving protocol contracts for ledger 100")
 
 		// The transaction rolled back: the protocol history cursor stayed at 99.
@@ -2892,7 +2892,7 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 			}},
 		}
 
-		err = svc.persistLedgerData(ctx, oneLedger(100, plan, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerData(ctx, oneLedger(100, plan, buffer))
 		require.NoError(t, err)
 
 		// The validator's Apply ran inside the transaction.
@@ -2956,7 +2956,7 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 
 		plan := &ClassificationPlan{Matches: map[types.HashBytea]string{w2: "otherproto"}}
 
-		err = svc.persistLedgerData(ctx, oneLedger(100, plan, newContractDataMemo(nil, 100), buffer))
+		err = svc.persistLedgerData(ctx, oneLedger(100, plan, buffer))
 		require.NoError(t, err)
 
 		// The processor staged the ledger but saw no testproto contracts: the
@@ -3018,8 +3018,8 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 		)
 
 		items := []persistItem{
-			{seq: 100, contractData: newContractDataMemo(nil, 100), buffer: headBuffer},
-			{seq: 101, contractData: newContractDataMemo(nil, 101), buffer: midBuffer},
+			{seq: 100, buffer: headBuffer},
+			{seq: 101, buffer: midBuffer},
 		}
 		require.NoError(t, svc.persistLedgerData(ctx, items))
 
@@ -3318,7 +3318,7 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		buffer := indexer.NewIndexerBuffer()
 		buffer.PushTransaction(testAddr1, &tx)
 		buffer.PushOperation(testAddr1, &op, &tx)
-		return persistItem{seq: seq, contractData: newContractDataMemo(nil, seq), buffer: buffer}
+		return persistItem{seq: seq, buffer: buffer}
 	}
 
 	t.Run("one commit set persists every ledger and the cursor lands on the last", func(t *testing.T) {
@@ -3470,7 +3470,7 @@ func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 		[]byte("preexisting-hash"), tx.ToID, ledgerSeq, tx.LedgerCreatedAt)
 	require.NoError(t, err)
 
-	err = ingestSvc.persistLedgerData(ctx, oneLedger(ledgerSeq, nil, newContractDataMemo(nil, ledgerSeq), buffer))
+	err = ingestSvc.persistLedgerData(ctx, oneLedger(ledgerSeq, nil, buffer))
 	require.Error(t, err)
 
 	var txCount, opCount int
