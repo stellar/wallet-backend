@@ -30,6 +30,11 @@ func DeterministicContractID(contractID string) uuid.UUID {
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
 	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
+	// GetWithMetadata returns the subset of the given contract_ids whose row
+	// already carries metadata (name is set) — the durable complement to any
+	// in-process fetched cache, letting enrichment skip RPC for tokens a
+	// previous fetch (or manual seeding) already resolved.
+	GetWithMetadata(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
 	// GetSACContractsMissingMetadata returns the contract_id of every SAC-typed row
 	// whose name is still NULL — a balance-derived SAC row created with ledger-derived
 	// defaults whose RPC enrichment has not yet succeeded. Enrichment populates name
@@ -90,6 +95,27 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetExisting", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
+	}
+	return ids, nil
+}
+
+// GetWithMetadata returns the subset of contractIDs whose contract_tokens row
+// already has metadata. See the interface godoc.
+func (m *ContractModel) GetWithMetadata(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
+	if len(contractIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `SELECT contract_id FROM contract_tokens WHERE contract_id = ANY($1) AND name IS NOT NULL`
+
+	start := time.Now()
+	ids, err := db.QueryMany[string](ctx, dbTx, query, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetWithMetadata", "contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetWithMetadata", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetWithMetadata", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying contract IDs with metadata: %w", err)
 	}
 	return ids, nil
 }
