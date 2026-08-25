@@ -54,14 +54,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "oldest-ledger-cursor-name",
-			Usage:       "Name of the oldest ledger cursor, used to track the earliest ledger ingested by the service. Used for backfill operations to know where historical data begins.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.OldestLedgerCursorName,
-			FlagDefault: "oldest_ingest_ledger",
-			Required:    true,
-		},
-		{
 			Name:        "backfill-workers",
 			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Lower values reduce RAM usage at cost of throughput.",
 			OptType:     types.Int,
