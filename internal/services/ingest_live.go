@@ -245,7 +245,7 @@ func (m *ingestService) persistLedgerData(
 					StagingMode:         StagingModeBoth,
 					ContractDataChanges: contractDataChanges,
 				}
-				// Reset before staging so a retried transaction (ingestProcessedDataWithRetry)
+				// Reset before staging so a retried transaction (persistLedgerDataWithRetry)
 				// re-stages cleanly; the processor is long-lived and accumulates across
 				// ProcessLedger calls.
 				processor.Reset()
@@ -458,14 +458,16 @@ type processedLedger struct {
 // is strictly sequential in ledger order (the guarded cursor and the
 // per-protocol CAS chain both advance N-1 → N).
 //
-// A stage error stops the pipeline: it cancels the other stages and closes
-// its output channel. A downstream stage sees both at once and Go's select
-// picks either, so a ledger already handed off may still be persisted before
-// the error surfaces. That is deliberate — every ledger that lands advances
-// the cursor, so draining in-flight work leaves a restart further ahead than
-// discarding it. The cursor always rests on the last fully persisted ledger,
-// and the process exits and re-acquires the advisory lock cleanly on restart,
-// resuming from there.
+// Channel depth is bounded by ledger count, not bytes. At full depth the
+// pipeline holds 4 ledger metas, 2 buffers, and 2 transaction slices — a few
+// times the old sequential loop's peak. Oversized ledgers are the axis to
+// watch under a memory limit.
+//
+// A stage error cancels the whole pipeline. Ledgers already handed off are
+// dropped, not persisted: the cancelled context fails both the lock probe and
+// the persist transaction. So the cursor rests on the last ledger that fully
+// committed, and a restart resumes from there — the process exits and
+// re-acquires the advisory lock cleanly.
 //
 // checkLockSession is probed before every persist to verify the
 // advisory-lock-holding Postgres session is still alive (see
@@ -512,10 +514,14 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	fetched := make(chan fetchedLedger, 1)
 	processed := make(chan processedLedger, 1)
 
-	// Two buffers rotate between the process and persist stages: process fills
-	// one while persist drains the other, and reuse keeps the asset-parse memo
-	// warm and the maps' backing arrays allocated across ledgers. Capacity 2
-	// means handing a buffer back never blocks.
+	// Two buffers rotate between process and persist: process fills one while
+	// persist drains the other. Reuse keeps the asset-parse memo warm and the
+	// maps' backing arrays allocated across ledgers.
+	//
+	// Invariant: cap(freeBuffers) >= cap(processed) + 1. Persist hands its
+	// buffer back with a blocking send, and process can't start a ledger
+	// without a free buffer. Raising `processed` on its own deadlocks the
+	// pipeline — raise both.
 	freeBuffers := make(chan *indexer.IndexerBuffer, 2)
 	freeBuffers <- indexer.NewIndexerBuffer()
 	freeBuffers <- indexer.NewIndexerBuffer()
@@ -661,6 +667,9 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		persistDuration := time.Since(dbStart)
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
 
+		// Duration is the WORK one ledger costs, not wall-clock. Stages overlap
+		// across ledgers, so the pipeline finishes a ledger every max(stage),
+		// not sum(stage). Use LagLedgers to judge whether ingestion keeps up.
 		ledgerDuration := pl.processDuration + classifyDuration + persistDuration
 		m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
