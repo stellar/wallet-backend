@@ -813,33 +813,32 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	address := keypair.MustRandom().Address()
 
-	// Create test transactions first (hash is BYTEA)
+	// Create test transactions first (hash is BYTEA). TOID encoding puts a transaction's to_id
+	// on a 4096 boundary and its operations in (to_id, to_id+4096); the state changes below
+	// honor that, as production data always does.
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
-			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
-			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
-	`, now, testHash1, testHash2, testHash3)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
-	// Create test state changes
+	// Create test state changes: operation 4097 emits two, operation 8193 emits one.
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $2, 123)
+			(4096, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(4096, 2, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(8192, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 8193)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Test BatchGetByOperationID
 	limit := int32(10)
 	ledgerCreatedAts := []time.Time{now, now}
-	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, ledgerCreatedAts, "", &limit, ASC)
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193}, ledgerCreatedAts, "", &limit, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
@@ -848,18 +847,30 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	for _, sc := range stateChanges {
 		operationIDsFound[sc.StateChange.OperationID]++
 	}
-	assert.Equal(t, 2, operationIDsFound[123])
-	assert.Equal(t, 1, operationIDsFound[456])
+	assert.Equal(t, 2, operationIDsFound[4097])
+	assert.Equal(t, 1, operationIDsFound[8193])
+
+	// The single-key path is a different query (no UNNEST/LATERAL) that derives the same to_id
+	// pin from the operation ID, and must return the same rows.
+	t.Run("single operation ID returns the same rows as the batch path", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByOperationID(ctx, 4097, now, "", &limit, nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, int64(4097), sc.StateChange.OperationID)
+			assert.Equal(t, int64(4096), sc.StateChange.ToID)
+		}
+	})
 
 	t.Run("wrong ledger_created_at for a key excludes it (time pin enforced)", func(t *testing.T) {
 		wrongTime := now.Add(-24 * time.Hour)
-		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{wrongTime}, "", &limit, ASC)
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{wrongTime}, "", &limit, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
 
 	t.Run("mismatched array lengths error", func(t *testing.T) {
-		_, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, []time.Time{now}, "", &limit, ASC)
+		_, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193}, []time.Time{now}, "", &limit, ASC)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parallel arrays of equal length")
 	})
@@ -867,7 +878,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	// Regression: the cursor's ledger_created_at must not be read off the LATERAL's own
 	// projection (which only carries the caller-requested columns).
 	t.Run("narrow column selection excluding ledger_created_at still resolves the cursor", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{now}, "state_change_category", &limit, ASC)
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{now}, "state_change_category", &limit, ASC)
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
