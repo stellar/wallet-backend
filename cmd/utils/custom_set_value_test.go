@@ -104,12 +104,12 @@ func TestSetConfigOptionStellarPublicKeyList(t *testing.T) {
 		{
 			name:            "🔴returns_an_error_if_the_public_key_is_invalid",
 			args:            []string{"--client-auth-public-keys", "invalid_public_key"},
-			wantErrContains: `validating public key "invalid_public_key" in client-auth-public-keys: base32 decode failed: illegal base32 data at input byte 18`,
+			wantErrContains: `validating public key "invalid_public_key" in client-auth-public-keys: invalid key: base32 decode failed: illegal base32 data at input byte 18`,
 		},
 		{
 			name:            "🔴returns_an_error_if_the_public_key_is_invalid_(private_key_instead)",
 			args:            []string{"--client-auth-public-keys", "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276"},
-			wantErrContains: `validating public key "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276" in client-auth-public-keys: invalid version byte`,
+			wantErrContains: `validating public key "SDISQRUPIHAO5WIIGY4QRDCINZSA44TX3OIIUK3C63NUKN5DABKEQ276" in client-auth-public-keys: invalid key: invalid version byte`,
 		},
 		{
 			name:       "🟢handles_Stellar_public_key_through_the_CLI_flag/one_key",

@@ -518,3 +518,54 @@ func TestAssignStateChangeOrdinals_GroupsByToIDAndOperationID(t *testing.T) {
 		changes[2].StateChangeID, changes[3].StateChangeID,
 	})
 }
+
+// AddressBytea stores a version byte plus exactly 32 payload bytes, so it can
+// only round-trip strkeys whose payload is that length. SEP-23 payload-length
+// enforcement in strkey.Decode/DecodeAny makes a truncated write fail on the
+// way back out rather than silently returning a different address, so this
+// pins which version bytes the format actually supports.
+func TestAddressBytea_RoundtripByVersionByte(t *testing.T) {
+	payload32 := make([]byte, 32)
+	for i := range payload32 {
+		payload32[i] = byte(i + 1)
+	}
+
+	tests := []struct {
+		name        string
+		versionByte strkey.VersionByte
+	}{
+		{name: "account id (G)", versionByte: strkey.VersionByteAccountID},
+		{name: "contract (C)", versionByte: strkey.VersionByteContract},
+		{name: "liquidity pool (L)", versionByte: strkey.VersionByteLiquidityPool},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := strkey.Encode(tc.versionByte, payload32)
+			require.NoError(t, err)
+
+			original := AddressBytea(encoded)
+			value, err := original.Value()
+			require.NoError(t, err)
+			require.Len(t, value, 33, "one version byte plus a 32-byte payload")
+
+			var restored AddressBytea
+			require.NoError(t, restored.Scan(value))
+			assert.Equal(t, original, restored)
+		})
+	}
+}
+
+// A muxed account carries a 40-byte payload, so it does not fit and must never
+// be written through this type. Muxed addresses are held separately (see the
+// address_muxed columns) precisely because of this. Asserting the failure keeps
+// the constraint from being held by convention alone.
+func TestAddressBytea_RejectsOversizedPayload(t *testing.T) {
+	muxed := "MA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVAAAAAAAAAAAAAJLK"
+
+	// Without the length guard this returns no error, truncates the muxed ID,
+	// and reads back as a different valid address.
+	_, err := AddressBytea(muxed).Value()
+	require.Error(t, err, "a 40-byte payload must not be silently truncated to 32")
+	assert.Contains(t, err.Error(), "want 32")
+}
