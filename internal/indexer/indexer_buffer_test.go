@@ -53,11 +53,10 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 	})
 
 	t.Run("🟢 same hash at two ToIDs keeps both transactions", func(t *testing.T) {
-		// The streaming-loadtest backend's merged bootstrap ledgers can carry
-		// the same envelope at several tx-set positions: distinct ToIDs, one
-		// hash. Every ToID with a participant entry must have its canonical
-		// transaction row, or the participant link is COPYed with a zero
-		// ledger_created_at and the transaction row is silently dropped.
+		// The same envelope can occupy several tx-set positions: distinct
+		// ToIDs, one hash. Every ToID with a participant entry must have its
+		// canonical transaction row, or the participant link is COPYed with a
+		// zero ledger_created_at and the transaction row is silently dropped.
 		indexerBuffer := NewIndexerBuffer()
 
 		const sharedHash = "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"

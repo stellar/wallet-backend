@@ -32,9 +32,10 @@ import (
 //
 // Both layers of each pair share one key domain (ToID for transactions, ID for
 // operations), so a participant entry can never exist without its canonical
-// row. Keying transactions by hash instead would break that invariant on the
-// streaming-loadtest backend, whose merged bootstrap ledgers can carry the
-// same envelope at several tx-set positions — distinct ToIDs, one hash.
+// row. ToID is the only key that holds that invariant: a hash identifies an
+// envelope, not a position, so keying by hash collapses two tx-set positions
+// carrying the same envelope into one canonical row while both ToIDs keep
+// their participant entries.
 //
 // MEMORY OPTIMIZATION:
 // When multiple participants interact with the same transaction or operation, they all point

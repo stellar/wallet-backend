@@ -108,27 +108,6 @@ func SetConfigOptionAssets(co *config.ConfigOption) error {
 	return nil
 }
 
-// SetConfigOptionStringList parses a comma-separated list from the CLI flag or environment
-// variable and stores the result in a *[]string ConfigKey. Surrounding whitespace is trimmed
-// from each element and empty elements are dropped, so "a, b," yields ["a", "b"]. An empty
-// input yields an empty slice.
-func SetConfigOptionStringList(co *config.ConfigOption) error {
-	key, ok := co.ConfigKey.(*[]string)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-
-	values := []string{}
-	for _, value := range strings.Split(viper.GetString(co.Name), ",") {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			values = append(values, trimmed)
-		}
-	}
-	*key = values
-
-	return nil
-}
-
 // SetConfigOptionDuration parses a Go duration string (e.g. "5m", "10s") from the CLI flag
 // or environment variable and stores the result in a *time.Duration ConfigKey.
 func SetConfigOptionDuration(co *config.ConfigOption) error {

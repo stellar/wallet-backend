@@ -45,10 +45,6 @@ const (
 	LedgerBackendTypeRPC LedgerBackendType = "rpc"
 	// LedgerBackendTypeDatastore uses cloud storage (S3/GCS) to fetch ledgers
 	LedgerBackendTypeDatastore LedgerBackendType = "datastore"
-	// LedgerBackendTypeStreamingLoadtest reads synthetic ledgers from named
-	// pipes written by stellar-core apply-load. Dev-only, for load testing
-	// the standard ingestion path.
-	LedgerBackendTypeStreamingLoadtest LedgerBackendType = "streaming-loadtest"
 )
 
 type Configs struct {
@@ -70,14 +66,6 @@ type Configs struct {
 	LedgerBackendType LedgerBackendType
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
 	Datastore DatastoreConfig
-	// LoadtestMetaSources are the streaming-loadtest backend's meta sources,
-	// one per apply-load process (their frames are merged per ledger). Each
-	// entry is a named-pipe (FIFO) path or a tcp-listen://HOST:PORT address
-	// to accept one producer connection on.
-	LoadtestMetaSources []string
-	// LoadtestLedgerCloseDuration is the minimum interval between ledgers in
-	// streaming-loadtest mode. 0 = uncapped.
-	LoadtestLedgerCloseDuration time.Duration
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
 	BackfillWorkers int
@@ -264,24 +252,16 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		MetricsService:          m,
 	}
 
-	// Initialize history archive once for use by both TokenIngestionService and IngestService.
-	// The streaming-loadtest backend runs without one: apply-load's benchmark mode
-	// publishes no history archive, so ingestion starts from an empty database and
-	// balance state materializes from the ledger stream itself. archive must stay a
-	// nil interface (not a typed-nil *Archive) — downstream code branches on == nil.
-	var archive historyarchive.ArchiveInterface
-	if cfg.LedgerBackendType != LedgerBackendTypeStreamingLoadtest {
-		connectedArchive, err := historyarchive.Connect(
-			cfg.ArchiveURL,
-			historyarchive.ArchiveOptions{
-				NetworkPassphrase:   cfg.NetworkPassphrase,
-				CheckpointFrequency: uint32(cfg.CheckpointFrequency),
-			},
-		)
-		if err != nil {
-			return nil, nil, fmt.Errorf("connecting to history archive: %w", err)
-		}
-		archive = connectedArchive
+	// Initialize history archive once for use by both TokenIngestionService and IngestService
+	archive, err := historyarchive.Connect(
+		cfg.ArchiveURL,
+		historyarchive.ArchiveOptions{
+			NetworkPassphrase:   cfg.NetworkPassphrase,
+			CheckpointFrequency: uint32(cfg.CheckpointFrequency),
+		},
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connecting to history archive: %w", err)
 	}
 
 	tokenIngestionService := services.NewTokenIngestionService(services.TokenIngestionServiceConfig{
