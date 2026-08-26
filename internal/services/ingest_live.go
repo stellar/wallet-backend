@@ -456,9 +456,16 @@ type processedLedger struct {
 // channels: while ledger N persists, N+1 processes and N+2 is fetched. The
 // ledger time is therefore the slowest stage, not the sum of stages. Persist
 // is strictly sequential in ledger order (the guarded cursor and the
-// per-protocol CAS chain both advance N-1 → N), and any stage error cancels
-// the whole pipeline and returns: the process exits and re-acquires the
-// advisory lock cleanly on restart, resuming from the cursor.
+// per-protocol CAS chain both advance N-1 → N).
+//
+// A stage error stops the pipeline: it cancels the other stages and closes
+// its output channel. A downstream stage sees both at once and Go's select
+// picks either, so a ledger already handed off may still be persisted before
+// the error surfaces. That is deliberate — every ledger that lands advances
+// the cursor, so draining in-flight work leaves a restart further ahead than
+// discarding it. The cursor always rests on the last fully persisted ledger,
+// and the process exits and re-acquires the advisory lock cleanly on restart,
+// resuming from there.
 //
 // checkLockSession is probed before every persist to verify the
 // advisory-lock-holding Postgres session is still alive (see
@@ -495,6 +502,13 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	}()
 
 	g, gctx := errgroup.WithContext(ctx)
+	// The fetch hand-off carries a slot. The depth is not what creates the
+	// overlap — the process stage receives its ledger before it claims a
+	// buffer, so fetch is free to work ahead even at depth 0. The slot buys
+	// jitter absorption: a backend refills its own prefetch in bursts (the
+	// datastore backend's is only a couple of ledgers deep), so one ready
+	// ledger in hand keeps process fed across a refill that would otherwise
+	// stall it.
 	fetched := make(chan fetchedLedger, 1)
 	processed := make(chan processedLedger, 1)
 
