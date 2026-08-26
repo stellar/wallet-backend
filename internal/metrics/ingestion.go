@@ -92,9 +92,14 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Buckets: []float64{0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7, 10},
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_ingestion_phase_duration_seconds",
-			Help:    "Duration of each ingestion phase.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60},
+			Name: "wallet_ingestion_phase_duration_seconds",
+			Help: "Duration of each ingestion phase.",
+			// The 0.6 and 1 boundaries are the grading bars: the pipeline's
+			// contract is that the slowest stage's p99 stays under the ledger
+			// close time, and those two bracket the close times this service
+			// ingests at. 0.5 and 0.75 sit just below them so movement between
+			// runs is visible rather than rounded away.
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10},
 		}, []string{"phase"}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
