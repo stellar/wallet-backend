@@ -3,11 +3,13 @@ package sep41
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -473,6 +475,97 @@ func TestValidator_Apply_KnownContractEnrichmentRunsWithoutCandidate(t *testing.
 	require.NoError(t, err)
 
 	require.NoError(t, v.Apply(ctx, nil, matched, contracts, plan, models))
+}
+
+// claimedCandidate builds a ContractCandidate for a C-address already
+// classified as SEP-41, which is what makes Prefetch consider it.
+func claimedCandidate(t *testing.T, addr string) services.ContractCandidate {
+	t.Helper()
+	raw, err := strkey.Decode(strkey.VersionByteContract, addr)
+	require.NoError(t, err)
+	return services.ContractCandidate{
+		ContractID:      indexerTypes.HashBytea(hex.EncodeToString(raw)),
+		WasmHash:        indexerTypes.HashBytea("aabb"),
+		KnownProtocolID: ProtocolID,
+	}
+}
+
+func TestValidator_Prefetch_SkipsContractsWithStoredMetadata(t *testing.T) {
+	rpc := services.NewContractMetadataServiceMock(t)
+	// Only the contract the database has no metadata for may be fetched.
+	expectMetadataFetch(rpc, testContractB, "Euro Coin", "EURC", 6)
+
+	// If the stored-metadata check stops filtering testContractA, this
+	// expectation absorbs the stray call so the test reports a clean count
+	// mismatch instead of deadlocking on an unexpected mock call raised from
+	// inside a pool worker.
+	rpc.On("FetchSingleField", mock.Anything, testContractA, "name", mock.Anything).
+		Return(xdr.ScVal{}, errors.New("testContractA must not be fetched")).Maybe()
+
+	contractsMock := data.NewContractModelMock(t)
+	contractsMock.On("GetWithMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(addrs []string) bool {
+		return len(addrs) == 2
+	})).Return([]string{testContractA}, nil).Once()
+
+	v := &Validator{
+		fetcher: newMetadataFetcher(rpc, pond.NewPool(2)),
+		models:  &data.Models{Contract: contractsMock},
+	}
+	contracts := []services.ContractCandidate{
+		claimedCandidate(t, testContractA),
+		claimedCandidate(t, testContractB),
+	}
+
+	plan, err := v.Prefetch(context.Background(), nil, nil, map[indexerTypes.HashBytea]struct{}{}, contracts)
+	require.NoError(t, err)
+
+	prefetch, ok := plan.(sep41Prefetch)
+	require.True(t, ok)
+	require.Len(t, prefetch.metaByAddr, 1)
+	assert.NotContains(t, prefetch.metaByAddr, testContractA)
+	require.NotNil(t, prefetch.metaByAddr[testContractB])
+	rpc.AssertNumberOfCalls(t, "FetchSingleField", 3)
+}
+
+func TestValidator_Prefetch_StopsQueryingOnceEveryContractIsKnown(t *testing.T) {
+	rpc := services.NewContractMetadataServiceMock(t)
+	expectMetadataFetch(rpc, testContractB, "Euro Coin", "EURC", 6)
+
+	// If the stored-metadata check stops filtering testContractA, this
+	// expectation absorbs the stray call so the test reports a clean count
+	// mismatch instead of deadlocking on an unexpected mock call raised from
+	// inside a pool worker.
+	rpc.On("FetchSingleField", mock.Anything, testContractA, "name", mock.Anything).
+		Return(xdr.ScVal{}, errors.New("testContractA must not be fetched")).Maybe()
+
+	// One expectation for two passes. After the first pass testContractA is
+	// known from the database and testContractB from its own fetch, so the
+	// second pass has nothing left to ask about — a second query would match no
+	// expectation and fail the test.
+	contractsMock := data.NewContractModelMock(t)
+	contractsMock.On("GetWithMetadata", mock.Anything, mock.Anything, mock.Anything).
+		Return([]string{testContractA}, nil).Once()
+
+	v := &Validator{
+		fetcher: newMetadataFetcher(rpc, pond.NewPool(2)),
+		models:  &data.Models{Contract: contractsMock},
+	}
+	contracts := []services.ContractCandidate{
+		claimedCandidate(t, testContractA),
+		claimedCandidate(t, testContractB),
+	}
+
+	ctx := context.Background()
+	matched := map[indexerTypes.HashBytea]struct{}{}
+	_, err := v.Prefetch(ctx, nil, nil, matched, contracts)
+	require.NoError(t, err)
+
+	plan, err := v.Prefetch(ctx, nil, nil, matched, contracts)
+	require.NoError(t, err)
+	prefetch, ok := plan.(sep41Prefetch)
+	require.True(t, ok)
+	assert.Empty(t, prefetch.metaByAddr)
+	rpc.AssertNumberOfCalls(t, "FetchSingleField", 3)
 }
 
 func createScSpecFunctionEntry(name string, inputs []xdr.ScSpecFunctionInputV0, outputs []xdr.ScSpecTypeDef) xdr.ScSpecEntry {

@@ -103,10 +103,8 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		rpc := services.NewContractMetadataServiceMock(t)
 		f := newMetadataFetcher(rpc, pond.NewPool(2))
 
-		// A contract in its failure-backoff window that markFetched then
-		// covers (its metadata landed in the DB, e.g. via seeding) must
-		// never re-enter the RPC path: no FetchSingleField expectations
-		// exist on the mock, so any call would fail the test.
+		// A contract in its back-off window whose metadata then shows up in the
+		// database must not reach RPC. The mock has no expectations, so it would.
 		f.recordFailure(testContractA)
 		f.markFetched([]string{testContractA})
 
@@ -236,9 +234,8 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 	})
 
 	t.Run("refetches a contract once its failure-backoff window expires", func(t *testing.T) {
-		// The deadline in failedUntil is absolute, so the backoff has to be short
-		// before the failure is recorded — shortening it afterwards would leave the
-		// original five-minute deadline in place.
+		// The back-off deadline is absolute, so shorten it before recording the
+		// failure. Shortening it afterwards leaves the original five minutes.
 		orig := metadataFailureBackoff
 		metadataFailureBackoff = 20 * time.Millisecond
 		t.Cleanup(func() { metadataFailureBackoff = orig })
@@ -253,15 +250,15 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, out)
 
-		// Calls inside the window are served from the failure cache and return
-		// nothing; the first call past the deadline reaches the (now healthy) RPC.
+		// Calls inside the window return nothing. The first call past the deadline
+		// reaches the now-healthy RPC.
 		require.Eventually(t, func() bool {
 			out, err := f.FetchMetadata(ctx, []string{testContractA})
 			return err == nil && len(out) == 1
 		}, time.Second, 5*time.Millisecond)
 
-		// The successful fetch cleared the failure entry and marked the contract
-		// fetched, so it never reaches the RPC again.
+		// The successful fetch replaced the back-off entry, so it never reaches
+		// RPC again.
 		out, err = f.FetchMetadata(ctx, []string{testContractA})
 		require.NoError(t, err)
 		assert.Empty(t, out)
@@ -277,8 +274,8 @@ func TestMetadataFetcher_FetchMetadata(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, out, 1)
 
-		// Already-fetched contracts are skipped entirely: Apply has persisted their
-		// metadata, so the second call returns nothing rather than refetching.
+		// We already have this contract's metadata, so the second call returns
+		// nothing rather than refetching.
 		out, err = f.FetchMetadata(ctx, []string{testContractA})
 		require.NoError(t, err)
 		assert.Empty(t, out)
