@@ -114,8 +114,10 @@ func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWra
 // still worth reporting, so the raw type stands in rather than dropping the
 // whole message.
 func DescribeExternalRef(executable xdr.ContractExecutable) string {
-	ref, ok := executable.GetExternalRef()
-	if !ok {
+	// The generated GetExternalRef dereferences the arm pointer once the
+	// discriminant matches, so it is not a nil guard. Check the pointer.
+	ref := executable.ExternalRef
+	if ref == nil {
 		return "external ref missing"
 	}
 	owner, err := ref.ExecutableOwner.String()

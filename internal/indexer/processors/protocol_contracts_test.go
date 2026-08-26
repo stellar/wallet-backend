@@ -5,11 +5,14 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 func TestProtocolContractsProcessor_Name(t *testing.T) {
@@ -107,6 +110,41 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 		}
 	}
 
+	// Helper for a CAP-0085 external-ref instance: the executable names an
+	// (owner, tag) entry in another contract's storage, so there is no WASM
+	// hash to record.
+	externalRefInstanceEntry := func(contractID [32]byte) *xdr.LedgerEntry {
+		contractIDVal := xdr.ContractId(contractID)
+		ownerVal := xdr.ContractId(testHolderContractBytes)
+		return &xdr.LedgerEntry{
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &contractIDVal,
+					},
+					Key: xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+					Val: xdr.ScVal{
+						Type: xdr.ScValTypeScvContractInstance,
+						Instance: &xdr.ScContractInstance{
+							Executable: xdr.ContractExecutable{
+								Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+								ExternalRef: &xdr.ContractExecutableExternalRef{
+									ExecutableOwner: xdr.ScAddress{
+										Type:       xdr.ScAddressTypeScAddressTypeContract,
+										ContractId: &ownerVal,
+									},
+									Tag: xdr.ScString("fleet-v1"),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
 	tests := []struct {
 		name               string
 		changes            xdr.LedgerEntryChanges
@@ -132,6 +170,30 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 				{
 					Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
 					Created: sacInstanceEntry(testContractIDBytes),
+				},
+			},
+			expectedCount: 0,
+		},
+		{
+			name: "external-ref instance (CAP-0085) skipped without panicking",
+			changes: xdr.LedgerEntryChanges{
+				{
+					Type:    xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+					Created: externalRefInstanceEntry(testContractIDBytes),
+				},
+			},
+			expectedCount: 0,
+		},
+		{
+			name: "external-ref instance with nil ExternalRef pointer skipped without panicking",
+			changes: xdr.LedgerEntryChanges{
+				{
+					Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+					Created: func() *xdr.LedgerEntry {
+						e := externalRefInstanceEntry(testContractIDBytes)
+						e.Data.ContractData.Val.Instance.Executable.ExternalRef = nil
+						return e
+					}(),
 				},
 			},
 			expectedCount: 0,
@@ -215,6 +277,109 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 				assert.Equal(t, tc.expectedContractID, contracts[0].ContractID)
 				assert.Equal(t, tc.expectedWasmHash, contracts[0].WasmHash)
 			}
+		})
+	}
+}
+
+// A CAP-0085 external-ref contract records nothing, so the counter is the only
+// signal that one appeared. Assert it moves, otherwise the gap is invisible.
+func TestProtocolContractsProcessor_ExternalRefIncrementsMetric(t *testing.T) {
+	ingestionMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion
+	processor := NewProtocolContractsProcessor(ingestionMetrics)
+
+	contractIDBytes := [32]byte{0x01, 0x02, 0x03}
+	contractIDVal := xdr.ContractId(contractIDBytes)
+	ownerVal := xdr.ContractId([32]byte{0x09, 0x08, 0x07})
+
+	entry := &xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.ContractDataEntry{
+				Contract: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: &contractIDVal,
+				},
+				Key: xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+				Val: xdr.ScVal{
+					Type: xdr.ScValTypeScvContractInstance,
+					Instance: &xdr.ScContractInstance{
+						Executable: xdr.ContractExecutable{
+							Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+							ExternalRef: &xdr.ContractExecutableExternalRef{
+								ExecutableOwner: xdr.ScAddress{
+									Type:       xdr.ScAddressTypeScAddressTypeContract,
+									ContractId: &ownerVal,
+								},
+								Tag: xdr.ScString("fleet-v1"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	op := xdr.Operation{
+		SourceAccount: &accountA,
+		Body: xdr.OperationBody{
+			Type:                 xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+		},
+	}
+	changes := xdr.LedgerEntryChanges{
+		{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: entry},
+	}
+	wrapper := &TransactionOperationWrapper{
+		Index:          0,
+		Transaction:    createTx(op, changes, nil, false),
+		Operation:      op,
+		LedgerSequence: 12345,
+		Network:        networkPassphrase,
+	}
+
+	require.Zero(t, testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal))
+
+	contracts, err := processor.ProcessOperation(context.Background(), wrapper)
+	require.NoError(t, err)
+	assert.Empty(t, contracts, "an external-ref contract has no WASM hash to record")
+	assert.Equal(t, float64(1), testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal))
+}
+
+func TestDescribeExternalRef(t *testing.T) {
+	owner := xdr.ContractId([32]byte{0xab, 0xcd})
+	tests := []struct {
+		name       string
+		executable xdr.ContractExecutable
+		contains   string
+	}{
+		{
+			name: "renders owner and tag",
+			executable: xdr.ContractExecutable{
+				Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+				ExternalRef: &xdr.ContractExecutableExternalRef{
+					ExecutableOwner: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &owner,
+					},
+					Tag: xdr.ScString("fleet-v1"),
+				},
+			},
+			contains: `tag="fleet-v1"`,
+		},
+		{
+			// GetExternalRef dereferences the arm pointer once the discriminant
+			// matches, so a nil pointer here must not reach it.
+			name: "nil ExternalRef pointer does not panic",
+			executable: xdr.ContractExecutable{
+				Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+			},
+			contains: "external ref missing",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Contains(t, DescribeExternalRef(tc.executable), tc.contains)
 		})
 	}
 }
