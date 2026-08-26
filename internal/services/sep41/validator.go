@@ -42,6 +42,9 @@ const contractTokenType = "sep41"
 type Validator struct {
 	fetcher *metadataFetcher
 	pool    pond.Pool
+	// models is read in Prefetch to find token metadata we already store.
+	// Nil for validators built by NewValidator, which skip that lookup.
+	models *data.Models
 }
 
 var _ services.ProtocolValidator = (*Validator)(nil)
@@ -58,7 +61,7 @@ func NewValidator() *Validator {
 // enrichment becomes a no-op — the validator still claims matched wasms and
 // inserts contract_tokens rows with default values.
 func newValidator(deps services.ProtocolDeps) *Validator {
-	v := &Validator{}
+	v := &Validator{models: deps.Models}
 	if deps.ContractMetadataService != nil {
 		// Owned worker pool, bounded to services.SimulateTransactionBatchSize to match
 		// the batch size the metadata fetcher itself submits per RPC round-trip
@@ -98,6 +101,7 @@ func (v *Validator) Prefetch(ctx context.Context, _ services.RPCService, _ []ser
 	if len(addrs) == 0 {
 		return sep41Prefetch{}, nil
 	}
+	v.markStoredMetadata(ctx, addrs)
 
 	metaByAddr, err := v.fetcher.FetchMetadata(ctx, addrs)
 	if err != nil {
@@ -126,7 +130,6 @@ func (v *Validator) Apply(ctx context.Context, dbTx pgx.Tx, matched map[types.Ha
 		// matching failures when surfacing logs.
 		return fmt.Errorf("sep41 enrichment: %w", err)
 	}
-	v.markPersistedMetadataFetched(ctx, dbTx, models, v.decodeClaimedAddrs(ctx, contractsForUs))
 	return nil
 }
 
@@ -241,23 +244,33 @@ func (v *Validator) applyContractTokens(ctx context.Context, dbTx pgx.Tx, models
 	return nil
 }
 
-// markPersistedMetadataFetched teaches the fetcher's in-process cache what
-// the database already holds: any claimed contract whose row carries
-// metadata needs no RPC fetch on later encounters — whether this batch's
-// prefetch resolved it, a previous process fetched it, or it was seeded
-// externally. Without this, a token whose fetch fails re-enters the RPC
-// retry path on every classification pass for the life of the process.
-// Best-effort: a read error only costs a redundant future fetch.
-func (v *Validator) markPersistedMetadataFetched(ctx context.Context, dbTx pgx.Tx, models *data.Models, addrs []string) {
-	if v.fetcher == nil {
+// markStoredMetadata asks contract_tokens which of these contracts already
+// have a name, and tells the fetcher so it skips the RPC fetch for them. That
+// covers tokens an earlier run resolved and tokens written directly over SQL,
+// neither of which any in-process cache can see.
+//
+// This reads the connection pool, not a transaction: Prefetch runs before the
+// persist transaction opens, so the read never waits on its row locks — the
+// same reasoning behind the classification lookup ingest already does there.
+// Only contracts the fetcher does not already account for are queried, so the
+// query stops being issued once every claimed contract is known.
+//
+// Best effort: on a read error we fetch over RPC, which is what would have
+// happened anyway.
+func (v *Validator) markStoredMetadata(ctx context.Context, addrs []string) {
+	if v.models == nil || v.models.Contract == nil {
 		return
 	}
-	withMetadata, err := models.Contract.GetWithMetadata(ctx, dbTx, addrs)
+	unknown := v.fetcher.unknownAddrs(addrs)
+	if len(unknown) == 0 {
+		return
+	}
+	stored, err := v.models.Contract.GetWithMetadata(ctx, v.models.DB, unknown)
 	if err != nil {
-		log.Ctx(ctx).Warnf("sep41: checking persisted metadata: %v", err)
+		log.Ctx(ctx).Warnf("sep41: reading stored token metadata: %v", err)
 		return
 	}
-	v.fetcher.markFetched(withMetadata)
+	v.fetcher.markFetched(stored)
 }
 
 // decodeContractAddr converts a hex-encoded HashBytea (32 bytes) into the
