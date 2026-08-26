@@ -354,6 +354,21 @@ func makeLpEntryChange(poolID xdr.PoolId, assetA, assetB xdr.Asset, reserveA, re
 	}
 }
 
+// makeUnsupportedLpEntryChange builds a checkpoint change for a LiquidityPoolEntry whose
+// body is not constant product, the shape liquidity_pools cannot represent.
+func makeUnsupportedLpEntryChange(poolID xdr.PoolId) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeLiquidityPool,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LiquidityPoolEntry{
+				LiquidityPoolId: poolID,
+				Body:            xdr.LiquidityPoolEntryBody{Type: xdr.LiquidityPoolTypeLiquidityPoolConstantProduct + 1},
+			},
+		}},
+	}
+}
+
 func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -393,6 +408,57 @@ func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testin
 		return len(bals) == 1 && bals[0].PoolID == expectedPoolID &&
 			bals[0].Shares == 5000 && bals[0].AccountID == types.AddressBytea(issuer)
 	})).Return(nil).Once()
+
+	svc := &checkpointService{
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		trustlineBalanceModel:     trustlineBalanceModel,
+		nativeBalanceModel:        nativeBalanceModel,
+		sacBalanceModel:           sacBalanceModel,
+		liquidityPoolModel:        lpModel,
+		liquidityPoolBalanceModel: lpBalanceModel,
+		networkPassphrase:         network.TestNetworkPassphrase,
+		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
+			return readerMock, nil
+		},
+		hotArchiveIterFactory: hotArchiveIterFromEntries(),
+	}
+
+	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_UnsupportedLiquidityPoolBodySkipsShares(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
+	require.NoError(t, err)
+	defer dbPool.Close()
+
+	account := xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
+	poolID := xdr.PoolId{1, 2, 3}
+
+	// The share is read before the pool entry that turns out to be skipped, the order
+	// the bucket list produces.
+	readerMock := NewChangeReaderMock(t)
+	readerMock.On("Read").Return(makeAccountChange(), nil).Once()
+	readerMock.On("Read").Return(makePoolShareChange(account, poolID, 5000), nil).Once()
+	readerMock.On("Read").Return(makeUnsupportedLpEntryChange(poolID), nil).Once()
+	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	readerMock.On("Close").Return(nil).Once()
+
+	trustlineBalanceModel := wbdata.NewTrustlineBalanceModelMock(t)
+	nativeBalanceModel := wbdata.NewNativeBalanceModelMock(t)
+	sacBalanceModel := wbdata.NewSACBalanceModelMock(t)
+	lpModel := wbdata.NewLiquidityPoolModelMock(t)
+	lpBalanceModel := wbdata.NewLiquidityPoolBalanceModelMock(t)
+
+	// The account entry makes the batch flush; neither the pool nor its shares are captured.
+	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 1 })).Return(nil).Once()
+	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
+	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool { return len(pools) == 0 })).Return(nil).Once()
+	lpBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(bals []wbdata.LiquidityPoolBalance) bool { return len(bals) == 0 })).Return(nil).Once()
 
 	svc := &checkpointService{
 		db:                        dbPool,
@@ -1114,6 +1180,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 			data:                        newCheckpointData(),
 			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
 			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
+			skippedPoolIDs:              make(map[string]struct{}),
 			batch: &batch{
 				nativeBalances:    make([]wbdata.NativeBalance, 0),
 				trustlineBalances: make([]wbdata.TrustlineBalance, 0),
@@ -1155,19 +1222,21 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assert.Equal(t, 1, proc.trustlineCount)
 	})
 
-	t.Run("trustline_pool_share_routed_to_liquidity_pool_balances", func(t *testing.T) {
+	t.Run("trustline_pool_share_held_for_liquidity_pool_balances", func(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		change := makePoolShareTrustlineChange(address)
 		proc.processEntry(change)
 
-		// Pool-share trustlines are shares, not asset balances: they go to liquidity_pool_balances.
+		// Pool-share trustlines are shares, not asset balances: they are held until
+		// every pool entry has been read, then joined to liquidity_pool_balances.
 		assert.Empty(t, proc.batch.trustlineBalances)
-		require.Len(t, proc.batch.liquidityPoolBalances, 1)
-		lpb := proc.batch.liquidityPoolBalances[0]
-		assert.Equal(t, address, string(lpb.AccountID))
-		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), lpb.PoolID)
-		assert.Equal(t, int64(1000), lpb.Shares)
+		assert.Empty(t, proc.batch.liquidityPoolBalances)
+		require.Len(t, proc.pendingPoolShares, 1)
+		share := proc.pendingPoolShares[0]
+		assert.Equal(t, address, share.accountAddress)
+		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), share.poolID)
+		assert.Equal(t, int64(1000), share.shares)
 		assert.Equal(t, 1, proc.entries)
 	})
 
