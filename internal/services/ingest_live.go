@@ -626,6 +626,11 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
 		}
 
+		// A cancelled pipeline fails this probe too, so check cancellation
+		// first: a shutdown must not be reported as a lost lock.
+		if ctx.Err() != nil {
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
 		if probeErr := checkLockSession(ctx); probeErr != nil {
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
