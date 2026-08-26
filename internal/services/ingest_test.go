@@ -1568,7 +1568,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should succeed
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, dummyLedgerMeta(100), nil, nil, buffer)
 
 		// Verify success
 		require.NoError(t, err)
@@ -1646,7 +1646,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should fail after retries due to DB error
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, dummyLedgerMeta(100), nil, nil, buffer)
 
 		// Verify error propagates with retry failure message
 		require.Error(t, err)
@@ -1733,7 +1733,7 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Call persistLedgerDataWithRetry - should succeed after retry
 		// Note: assetIDMap and contractIDMap are no longer passed - operations use direct DB queries
-		err = svc.persistLedgerDataWithRetry(ctx, 100, xdr.LedgerCloseMeta{}, nil, nil, buffer)
+		err = svc.persistLedgerDataWithRetry(ctx, 100, dummyLedgerMeta(100), nil, nil, buffer)
 
 		// Verify success after retry
 		require.NoError(t, err)
