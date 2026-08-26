@@ -35,12 +35,10 @@ var (
 	metadataBatchSleep = 2 * time.Second
 )
 
-// metadataFailureBackoff is how long a contract whose metadata fetch failed
-// is skipped before being tried again. Claimed contracts re-enter the fetch
-// path on every ledger they are active in, so without this a contract whose
-// name()/symbol() simulation persistently fails (unreachable RPC, reverting
-// token) costs its full retry-with-backoff on every single ledger. A var so
-// tests can shorten it.
+// metadataFailureBackoff is how long we skip a contract after its metadata
+// fetch fails. Every ledger that touches a known SEP-41 contract asks for its
+// metadata again, so without this a contract we cannot reach costs 600ms of
+// retry sleeps per ledger, forever. A var so tests can shorten it.
 var metadataFailureBackoff = 5 * time.Minute
 
 const (
@@ -76,27 +74,34 @@ func validateTokenString(fieldName, value string, maxLen int) error {
 	return nil
 }
 
-// metadataFetcher resolves token metadata for newly classified SEP-41
-// contracts via RPC simulation. Holds an internal worker pool for parallel
-// fetches inside a single batch, plus two caches that bound repeat work:
-// claimed contracts re-enter the fetch path on every ledger whose changes
-// touch them, and Prefetch deliberately has no database access to check what
-// is already persisted.
-//   - fetched: contracts resolved once in this process are never fetched
-//     again; their metadata is already persisted by Apply. A restart refetches
-//     each contract once, which doubles as the refresh path for tokens whose
-//     on-chain metadata changed.
-//   - failedUntil: contracts whose fetch failed are skipped until the
-//     metadataFailureBackoff deadline, so a persistently failing name()
-//     simulation (unreachable RPC, reverting token) does not cost its full
-//     retry-with-backoff on every single ledger.
+// fetchState is what the fetcher remembers about one contract.
+type fetchState struct {
+	// haveIt means the metadata is already stored, so never fetch this
+	// contract again in this process.
+	haveIt bool
+	// retryAfter is when a failed fetch may be tried again. Ignored when
+	// haveIt is set.
+	retryAfter time.Time
+}
+
+// metadataFetcher resolves token metadata for SEP-41 contracts via RPC
+// simulation, with a worker pool for parallel fetches inside one batch.
+//
+// Every ledger that touches a known SEP-41 contract asks for its metadata
+// again, so the fetcher remembers what it has already settled: contracts whose
+// metadata we hold are never fetched again in this process, and contracts whose
+// fetch failed are skipped until their back-off passes. Prefetch seeds the
+// first group from contract_tokens before any fetch runs, so a restart does not
+// refetch what is already stored.
+//
+// A restart clears all of it, which is also how metadata that changed on chain
+// gets picked up.
 type metadataFetcher struct {
 	rpc  services.ContractMetadataService
 	pool pond.Pool
 
-	cacheMu     sync.Mutex
-	fetched     map[string]struct{}
-	failedUntil map[string]time.Time
+	cacheMu sync.Mutex
+	state   map[string]fetchState
 }
 
 // newMetadataFetcher returns a fetcher backed by the supplied
@@ -107,42 +112,58 @@ func newMetadataFetcher(rpc services.ContractMetadataService, pool pond.Pool) *m
 		return nil
 	}
 	return &metadataFetcher{
-		rpc:         rpc,
-		pool:        pool,
-		fetched:     map[string]struct{}{},
-		failedUntil: map[string]time.Time{},
+		rpc:   rpc,
+		pool:  pool,
+		state: map[string]fetchState{},
 	}
 }
 
-// filterCached drops contracts already fetched in this process and contracts
-// still inside their failure-backoff window, pruning expired failure entries.
+// filterCached drops contracts whose metadata we already have and contracts
+// still inside their failure back-off, clearing back-off entries that have
+// expired.
 func (f *metadataFetcher) filterCached(contractIDs []string) []string {
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
 	now := time.Now()
 	kept := make([]string, 0, len(contractIDs))
 	for _, id := range contractIDs {
-		if _, done := f.fetched[id]; done {
+		st, known := f.state[id]
+		switch {
+		case known && st.haveIt:
 			continue
-		}
-		until, failed := f.failedUntil[id]
-		if failed && now.Before(until) {
+		case known && now.Before(st.retryAfter):
 			continue
-		}
-		if failed {
-			delete(f.failedUntil, id)
+		case known:
+			delete(f.state, id)
 		}
 		kept = append(kept, id)
 	}
 	return kept
 }
 
-// markFetched records contracts whose metadata is already persisted, so
-// later FetchMetadata calls skip them without an RPC attempt. Apply calls it
-// with what the database holds — the durable complement to the in-process
-// fetched set, which alone would re-fetch every known token once per process
-// lifetime, and forever on a deployment whose RPC can never resolve metadata
-// (the loadtest rig's dead endpoint with externally seeded rows).
+// unknownAddrs returns the contracts whose metadata we do not already have.
+// Prefetch asks contract_tokens about exactly these, so once every claimed
+// contract is accounted for the query stops being issued at all.
+func (f *metadataFetcher) unknownAddrs(contractIDs []string) []string {
+	if f == nil {
+		return nil
+	}
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	out := make([]string, 0, len(contractIDs))
+	for _, id := range contractIDs {
+		if st, known := f.state[id]; known && st.haveIt {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// markFetched records contracts whose metadata is already stored, so later
+// FetchMetadata calls skip them without calling RPC. Prefetch passes in what it
+// found in contract_tokens. Rows written by anything other than this process —
+// an earlier run, or a direct SQL update — are only visible this way.
 func (f *metadataFetcher) markFetched(contractIDs []string) {
 	if f == nil || len(contractIDs) == 0 {
 		return
@@ -150,22 +171,17 @@ func (f *metadataFetcher) markFetched(contractIDs []string) {
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
 	for _, id := range contractIDs {
-		f.fetched[id] = struct{}{}
-		delete(f.failedUntil, id)
+		f.state[id] = fetchState{haveIt: true}
 	}
 }
 
+// recordFailure holds a contract back until the back-off passes. Only reached
+// for a contract filterCached let through, which is never one we already have
+// the metadata for.
 func (f *metadataFetcher) recordFailure(contractID string) {
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
-	f.failedUntil[contractID] = time.Now().Add(metadataFailureBackoff)
-}
-
-func (f *metadataFetcher) recordSuccess(contractID string) {
-	f.cacheMu.Lock()
-	defer f.cacheMu.Unlock()
-	f.fetched[contractID] = struct{}{}
-	delete(f.failedUntil, contractID)
+	f.state[contractID] = fetchState{retryAfter: time.Now().Add(metadataFailureBackoff)}
 }
 
 // FetchMetadata returns name/symbol/decimals for each contract, keyed by
@@ -202,7 +218,7 @@ func (f *metadataFetcher) FetchMetadata(ctx context.Context, contractIDs []strin
 					log.Ctx(ctx).Warnf("sep41 metadata fetch failed for %s (next attempt in %s): %v", contractID, metadataFailureBackoff, err)
 					return
 				}
-				f.recordSuccess(contractID)
+				f.markFetched([]string{contractID})
 				mu.Lock()
 				out[contractID] = contract
 				mu.Unlock()

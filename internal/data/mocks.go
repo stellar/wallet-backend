@@ -42,8 +42,8 @@ func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *ContractModelMock) GetWithMetadata(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error) {
-	args := m.Called(ctx, dbTx, contractIDs)
+func (m *ContractModelMock) GetWithMetadata(ctx context.Context, q db.Querier, contractIDs []string) ([]string, error) {
+	args := m.Called(ctx, q, contractIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
