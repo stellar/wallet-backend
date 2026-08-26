@@ -1101,7 +1101,7 @@ The integration tests spin up a complete Stellar environment using Docker contai
 | Container | Image | Purpose | Exposed Port |
 |-----------|-------|---------|--------------|
 | **Core DB** | `postgres:9.6.17-alpine` | Stellar Core database | 5432 |
-| **Stellar Core** | `stellar/stellar-core:28.0.0` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
+| **Stellar Core** | `stellar/stellar-core:28` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
 | **Stellar RPC** | `stellar/stellar-rpc:28.0.0` | RPC server with captive core | 8000 |
 | **Wallet DB** | `postgres:14-alpine` | Wallet-backend database | 5432 |
 | **Wallet Ingest** | `wallet-backend:integration-test` | Ingest service processing ledgers | 8003 |
