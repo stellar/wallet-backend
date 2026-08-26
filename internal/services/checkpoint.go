@@ -696,8 +696,18 @@ func (s *checkpointService) processContractInstanceChange(
 		}
 	}
 
-	contractInstance := contractDataEntry.Val.MustInstance()
-	if contractInstance.Executable.Type == xdr.ContractExecutableTypeContractExecutableWasm {
+	// Key.Type and Val.Type are independent XDR unions — a malformed entry with
+	// a contract-instance Key but a non-instance Val must not panic the ingest
+	// goroutine. Use GetInstance + ok rather than MustInstance.
+	contractInstance, ok := contractDataEntry.Val.GetInstance()
+	if !ok {
+		return contractInstanceResult{Skip: true}
+	}
+
+	// Switched rather than compared so that a protocol adding a fourth
+	// executable kind fails the exhaustive linter instead of being skipped.
+	switch contractInstance.Executable.Type {
+	case xdr.ContractExecutableTypeContractExecutableWasm:
 		if contractInstance.Executable.WasmHash != nil {
 			hash := *contractInstance.Executable.WasmHash
 			return contractInstanceResult{
@@ -709,6 +719,17 @@ func (s *checkpointService) processContractInstanceChange(
 				WasmHash: &hash,
 			}
 		}
+
+	case xdr.ContractExecutableTypeContractExecutableStellarAsset:
+		// Handled by the SAC branch above; reaching here means Extract failed.
+
+	case xdr.ContractExecutableTypeContractExecutableExternalRef:
+		// CAP-0085: an (owner, tag) pair naming an entry in another contract's
+		// storage, so there is no WASM hash and no classification. Live
+		// ingestion counts these; the checkpoint pass only logs, because
+		// checkpointService carries no metrics registry.
+		log.Warnf("contract %s has an external-ref executable (%s); leaving it unclassified",
+			contractAddress, processors.DescribeExternalRef(contractInstance.Executable))
 	}
 
 	return contractInstanceResult{Skip: true}

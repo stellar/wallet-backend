@@ -212,6 +212,7 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
 		m.WasmClassificationFailuresTotal,
+		m.ExternalRefContractsTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)
