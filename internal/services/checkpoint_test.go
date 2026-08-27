@@ -421,46 +421,32 @@ func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testin
 	require.NoError(t, err)
 }
 
-func TestCheckpointService_PopulateFromCheckpoint_UnsupportedLiquidityPoolBodySkipsShares(t *testing.T) {
+func TestCheckpointService_PopulateFromCheckpoint_UnsupportedLiquidityPoolBodyFails(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	dbPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	defer dbPool.Close()
 
-	account := xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N")
 	poolID := xdr.PoolId{1, 2, 3}
 
-	// The share is read before the pool entry that turns out to be skipped, the order
-	// the bucket list produces.
+	// LiquidityPoolType admits only constant product, so the decoder rejects any
+	// other discriminant and this shape cannot come off an archive. Constructed
+	// here to pin the behaviour if that ever changes: liquidity_pool_balances
+	// references liquidity_pools, so a pool the load cannot represent must abort
+	// it rather than silently drop every holder's shares.
 	readerMock := NewChangeReaderMock(t)
-	readerMock.On("Read").Return(makeAccountChange(), nil).Once()
-	readerMock.On("Read").Return(makePoolShareChange(account, poolID, 5000), nil).Once()
 	readerMock.On("Read").Return(makeUnsupportedLpEntryChange(poolID), nil).Once()
-	readerMock.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	readerMock.On("Close").Return(nil).Once()
-
-	trustlineBalanceModel := wbdata.NewTrustlineBalanceModelMock(t)
-	nativeBalanceModel := wbdata.NewNativeBalanceModelMock(t)
-	sacBalanceModel := wbdata.NewSACBalanceModelMock(t)
-	lpModel := wbdata.NewLiquidityPoolModelMock(t)
-	lpBalanceModel := wbdata.NewLiquidityPoolBalanceModelMock(t)
-
-	// The account entry makes the batch flush; neither the pool nor its shares are captured.
-	nativeBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.NativeBalance) bool { return len(b) == 1 })).Return(nil).Once()
-	trustlineBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.TrustlineBalance) bool { return len(b) == 0 })).Return(nil).Once()
-	sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool { return len(b) == 0 })).Return(nil).Once()
-	lpModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(pools []wbdata.LiquidityPool) bool { return len(pools) == 0 })).Return(nil).Once()
-	lpBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(bals []wbdata.LiquidityPoolBalance) bool { return len(bals) == 0 })).Return(nil).Once()
 
 	svc := &checkpointService{
 		db:                        dbPool,
 		archive:                   &HistoryArchiveMock{},
-		trustlineBalanceModel:     trustlineBalanceModel,
-		nativeBalanceModel:        nativeBalanceModel,
-		sacBalanceModel:           sacBalanceModel,
-		liquidityPoolModel:        lpModel,
-		liquidityPoolBalanceModel: lpBalanceModel,
+		trustlineBalanceModel:     wbdata.NewTrustlineBalanceModelMock(t),
+		nativeBalanceModel:        wbdata.NewNativeBalanceModelMock(t),
+		sacBalanceModel:           wbdata.NewSACBalanceModelMock(t),
+		liquidityPoolModel:        wbdata.NewLiquidityPoolModelMock(t),
+		liquidityPoolBalanceModel: wbdata.NewLiquidityPoolBalanceModelMock(t),
 		networkPassphrase:         network.TestNetworkPassphrase,
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
@@ -469,7 +455,9 @@ func TestCheckpointService_PopulateFromCheckpoint_UnsupportedLiquidityPoolBodySk
 	}
 
 	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "liquidity_pools cannot represent")
+	assert.Contains(t, err.Error(), xdr.Hash(poolID).HexString())
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T) {
@@ -1059,7 +1047,6 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 			data:                        newCheckpointData(),
 			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
 			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
-			skippedPoolIDs:              make(map[string]struct{}),
 			batch: &batch{
 				nativeBalances:    make([]wbdata.NativeBalance, 0),
 				trustlineBalances: make([]wbdata.TrustlineBalance, 0),
@@ -1072,7 +1059,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		change := makeAccountChangeWithBalance(address, 100_000_000, 3, 5_000_000, 2_000_000)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.nativeBalances, 1)
 		nb := proc.batch.nativeBalances[0]
@@ -1090,7 +1077,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assetCode := "USDC"
 
 		change := makeTrustlineChange(address, assetCode, issuer, 5_000_000, 100_000_000)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.trustlineBalances, 1)
 		tb := proc.batch.trustlineBalances[0]
@@ -1100,21 +1087,20 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assert.Equal(t, 1, proc.trustlineCount)
 	})
 
-	t.Run("trustline_pool_share_held_for_liquidity_pool_balances", func(t *testing.T) {
+	t.Run("trustline_pool_share_routed_to_liquidity_pool_balances", func(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		change := makePoolShareTrustlineChange(address)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
-		// Pool-share trustlines are shares, not asset balances: they are held until
-		// every pool entry has been read, then joined to liquidity_pool_balances.
+		// Pool-share trustlines are shares, not asset balances.
 		assert.Empty(t, proc.batch.trustlineBalances)
-		assert.Empty(t, proc.batch.liquidityPoolBalances)
-		require.Len(t, proc.pendingPoolShares, 1)
-		share := proc.pendingPoolShares[0]
-		assert.Equal(t, address, share.accountAddress)
-		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), share.poolID)
-		assert.Equal(t, int64(1000), share.shares)
+		require.Len(t, proc.batch.liquidityPoolBalances, 1)
+		share := proc.batch.liquidityPoolBalances[0]
+		assert.Equal(t, address, string(share.AccountID))
+		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), share.PoolID)
+		assert.Equal(t, int64(1000), share.Shares)
+		assert.Equal(t, uint32(100), share.LedgerNumber)
 		assert.Equal(t, 1, proc.entries)
 	})
 
@@ -1122,7 +1108,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 		change := makeLpEntryChange(xdr.PoolId{4, 5, 6}, xdr.MustNewNativeAsset(), xdr.MustNewCreditAsset("USDC", issuer), 100, 200)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.liquidityPools, 1)
 		lp := proc.batch.liquidityPools[0]
@@ -1140,7 +1126,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		wasmHash := xdr.Hash{0x11, 0x22, 0x33}
 
 		change := makeContractInstanceChange(contractHash, wasmHash)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
 		contractUUID := wbdata.DeterministicContractID(contractAddr)
@@ -1162,7 +1148,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		holderAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		change := makeContractBalanceChange(contractHash, holderAddress)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		// Non-SAC balance entries are no longer tracked (SEP-41 tracking removed)
 		assert.Equal(t, 0, proc.entries)
@@ -1184,7 +1170,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 				},
 			},
 		}
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		assert.Equal(t, 0, proc.entries)
 	})

@@ -268,25 +268,6 @@ type checkpointProcessor struct {
 	// type=SAC), then copies them in — before the deferred fk_contract_token is checked
 	// at COMMIT.
 	pendingSACBalances []wbdata.SACBalance
-	// pendingPoolShares holds the pool-share trustlines read so far, and
-	// skippedPoolIDs the pools processEntry did not capture. A share's pool
-	// entry can arrive in any bucket, so whether its pool was captured is
-	// unknown when the trustline is read: the shares join the batch in
-	// flushRemainingBatch, once every pool entry has been seen, minus those
-	// whose pool was skipped. liquidity_pool_balances references
-	// liquidity_pools, so capturing a skipped pool's shares would abort the
-	// load's transaction at commit. Pool-share trustlines are a small
-	// fraction of a checkpoint, so holding them costs far less than a batch.
-	pendingPoolShares []pendingPoolShare
-	skippedPoolIDs    map[string]struct{}
-}
-
-// pendingPoolShare is one account's shares in a pool, held until every pool
-// entry in the checkpoint has been read.
-type pendingPoolShare struct {
-	accountAddress string
-	poolID         string
-	shares         int64
 }
 
 // PopulateFromCheckpoint performs initial cache population from Stellar history archive.
@@ -332,7 +313,6 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.liquidityPoolModel, s.liquidityPoolBalanceModel),
 			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
 			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
-			skippedPoolIDs:              make(map[string]struct{}),
 			startTime:                   time.Now(),
 		}
 
@@ -354,8 +334,8 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			if change.Type == xdr.LedgerEntryTypeContractCode {
 				contractCodeEntry := change.Post.Data.MustContractCode()
 				proc.processContractCode(ctx, contractCodeEntry.Hash, contractCodeEntry.Code)
-			} else {
-				proc.processEntry(change)
+			} else if entryErr := proc.processEntry(change); entryErr != nil {
+				return fmt.Errorf("processing checkpoint entry: %w", entryErr)
 			}
 
 			if txErr := proc.flushBatchIfNeeded(ctx); txErr != nil {
@@ -392,7 +372,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 }
 
 // processEntry handles Account, Trustline, and ContractData entries from a checkpoint.
-func (p *checkpointProcessor) processEntry(change ingest.Change) {
+func (p *checkpointProcessor) processEntry(change ingest.Change) error {
 	//exhaustive:ignore
 	switch change.Type {
 	case xdr.LedgerEntryTypeAccount:
@@ -408,18 +388,15 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		// balance; route them to liquidity_pool_balances instead of trustline_balances.
 		trustlineEntry := change.Post.Data.MustTrustLine()
 		if trustlineEntry.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
-			p.pendingPoolShares = append(p.pendingPoolShares, pendingPoolShare{
-				accountAddress: trustlineEntry.AccountId.Address(),
-				poolID:         processors.PoolIDToString(*trustlineEntry.Asset.LiquidityPoolId),
-				shares:         int64(trustlineEntry.Balance),
-			})
+			poolID := processors.PoolIDToString(*trustlineEntry.Asset.LiquidityPoolId)
+			p.batch.addLiquidityPoolShare(trustlineEntry.AccountId.Address(), poolID, int64(trustlineEntry.Balance), p.checkpointLedger)
 			p.entries++
-			return
+			return nil
 		}
 
 		accountAddress, asset, xdrFields, skip := p.service.processTrustlineChange(change)
 		if skip {
-			return
+			return nil
 		}
 		p.entries++
 		p.trustlineCount++
@@ -432,11 +409,13 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		pool := change.Post.Data.MustLiquidityPool()
 		cp, ok := pool.Body.GetConstantProduct()
 		if !ok {
-			// liquidity_pools holds constant-product reserves; a pool body it
-			// cannot represent is skipped here, and flushRemainingBatch drops
-			// that pool's shares with it.
-			p.skippedPoolIDs[processors.PoolIDToString(pool.LiquidityPoolId)] = struct{}{}
-			return
+			// Unreachable from a decoded archive: LiquidityPoolType admits only
+			// constant-product, so the decoder rejects any other discriminant.
+			// Fail loudly rather than skip, because liquidity_pool_balances
+			// references liquidity_pools: silently dropping a pool would drop
+			// every holder's shares with it.
+			return fmt.Errorf("liquidity pool %s has body type %d, which liquidity_pools cannot represent",
+				processors.PoolIDToString(pool.LiquidityPoolId), pool.Body.Type)
 		}
 		p.batch.addLiquidityPool(wbdata.LiquidityPool{
 			PoolID:       processors.PoolIDToString(pool.LiquidityPoolId),
@@ -453,7 +432,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 
 		contractAddress, ok := contractDataEntry.Contract.GetContractId()
 		if !ok {
-			return
+			return nil
 		}
 		contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
 
@@ -461,7 +440,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		if contractDataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
 			result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
 			if result.Skip {
-				return
+				return nil
 			}
 			p.data.uniqueContractTokens[result.Contract.ID] = result.Contract
 			p.entries++
@@ -473,12 +452,12 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			}
 
 			if result.IsSAC {
-				return
+				return nil
 			}
 		} else {
 			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
 			if skip {
-				return
+				return nil
 			}
 
 			_, _, ok := sac.ContractBalanceFromContractData(*change.Post, p.service.networkPassphrase)
@@ -502,6 +481,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			}
 		}
 	}
+	return nil
 }
 
 // processContractCode tracks WASM hashes for protocol_wasms persistence.
@@ -589,16 +569,8 @@ func (p *checkpointProcessor) flushBatchIfNeeded(ctx context.Context) error {
 	return nil
 }
 
-// flushRemainingBatch adds the pool shares whose pool was captured — every pool
-// entry has been read by now — and flushes any remaining data in the batch.
+// flushRemainingBatch flushes any remaining data in the batch.
 func (p *checkpointProcessor) flushRemainingBatch(ctx context.Context) error {
-	for _, share := range p.pendingPoolShares {
-		if _, skipped := p.skippedPoolIDs[share.poolID]; skipped {
-			continue
-		}
-		p.batch.addLiquidityPoolShare(share.accountAddress, share.poolID, share.shares, p.checkpointLedger)
-	}
-
 	if p.batch.count() > 0 {
 		if err := p.batch.flush(ctx, p.dbTx); err != nil {
 			return fmt.Errorf("flushing final batch: %w", err)
