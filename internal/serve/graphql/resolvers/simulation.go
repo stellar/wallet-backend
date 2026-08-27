@@ -125,16 +125,24 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 		sc.StateChangeCategory, sc.StateChangeReason)
 }
 
-// keyValueUint32 reads a uint32 from a KeyValue JSONB payload, where JSON
-// unmarshal exposes numbers as float64.
+// keyValueUint32 reads a uint32 from a KeyValue payload. The value can arrive in
+// two representations: a real uint32 when the state change is built in memory
+// (the simulation path, e.g. sep41.Processor writes live_until_ledger directly),
+// or a float64 when it has been round-tripped through JSONB from the database.
 func keyValueUint32(kv types.NullableJSONB, key string) (uint32, bool) {
 	raw, ok := kv[key]
 	if !ok {
 		return 0, false
 	}
-	f, ok := raw.(float64)
-	if !ok || f < 0 || f > math.MaxUint32 {
+	switch v := raw.(type) {
+	case uint32:
+		return v, true
+	case float64:
+		if v < 0 || v > math.MaxUint32 {
+			return 0, false
+		}
+		return uint32(v), true
+	default:
 		return 0, false
 	}
-	return uint32(f), true
 }

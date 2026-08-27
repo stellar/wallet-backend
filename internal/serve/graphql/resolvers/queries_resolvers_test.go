@@ -1,7 +1,9 @@
 package resolvers
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -13,7 +15,18 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services"
 )
+
+// stubSimulationService is a minimal TransactionSimulationService for resolver tests.
+type stubSimulationService struct {
+	result *services.SimulatedStateChanges
+	err    error
+}
+
+func (s stubSimulationService) SimulateStateChanges(_ context.Context, _ string) (*services.SimulatedStateChanges, error) {
+	return s.result, s.err
+}
 
 // testOpXDR returns the expected base64-encoded XDR for test operation N
 func testOpXDR(n int) string {
@@ -95,6 +108,46 @@ func TestQueryResolver_Account(t *testing.T) {
 		acc, err := resolver.AccountByAddress(testCtx, "")
 		require.Error(t, err)
 		assert.Nil(t, acc)
+	})
+}
+
+func TestQueryResolver_SimulateStateChanges_errorCodes(t *testing.T) {
+	// The service wraps its sentinels (fmt.Errorf("...: %w", ...)), so wrap here too
+	// to prove the resolver's errors.Is matching survives the wrap.
+	tests := []struct {
+		name     string
+		svcErr   error
+		wantCode string
+	}{
+		{"invalid XDR maps to INVALID_TRANSACTION_XDR", services.ErrInvalidTransactionXDR, "INVALID_TRANSACTION_XDR"},
+		{"unsupported maps to UNSUPPORTED_TRANSACTION", services.ErrUnsupportedTransaction, "UNSUPPORTED_TRANSACTION"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := &queryResolver{&Resolver{
+				simulationService: stubSimulationService{err: fmt.Errorf("simulating: %w", tt.svcErr)},
+			}}
+
+			_, err := resolver.SimulateStateChanges(context.Background(), "any-xdr")
+			require.Error(t, err)
+
+			var gqlErr *gqlerror.Error
+			require.ErrorAs(t, err, &gqlErr)
+			assert.Equal(t, tt.wantCode, gqlErr.Extensions["code"])
+		})
+	}
+
+	t.Run("unexpected error carries no client-safe code (presenter will mask it)", func(t *testing.T) {
+		resolver := &queryResolver{&Resolver{
+			simulationService: stubSimulationService{err: errors.New("rpc unreachable")},
+		}}
+
+		_, err := resolver.SimulateStateChanges(context.Background(), "any-xdr")
+		require.Error(t, err)
+
+		// Falls to the default branch: a plain wrapped error, not a coded gqlerror.
+		var gqlErr *gqlerror.Error
+		assert.False(t, errors.As(err, &gqlErr), "unexpected errors must not be given a client-facing code")
 	})
 }
 

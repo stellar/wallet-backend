@@ -36,6 +36,8 @@ var clientSafeErrorCodes = map[string]bool{
 	"UNAUTHENTICATED":           true,
 	"FORBIDDEN":                 true,
 	"PERSISTED_QUERY_NOT_FOUND": true, // gqlgen extension.AutomaticPersistedQuery: hash-only cache miss; the client must receive it verbatim to retry with the full query
+	"INVALID_TRANSACTION_XDR":   true, // resolvers/queries.resolvers.go: simulateStateChanges
+	"UNSUPPORTED_TRANSACTION":   true, // resolvers/queries.resolvers.go: simulateStateChanges
 }
 
 // CustomErrorPresenter provides more detailed error messages for GraphQL validation errors, and
