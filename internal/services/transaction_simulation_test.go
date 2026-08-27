@@ -301,3 +301,82 @@ func strkeyContractID(contractID [32]byte) (string, error) {
 	addr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: (*xdr.ContractId)(&contractID)}
 	return addr.String()
 }
+
+func TestLedgerEntryChangesFromSimulation(t *testing.T) {
+	accountEntry := xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeAccount,
+			Account: &xdr.AccountEntry{
+				AccountId: xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
+				Balance:   100,
+			},
+		},
+	}
+	entryB64, err := xdr.MarshalBase64(accountEntry)
+	require.NoError(t, err)
+
+	accountKey := xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeAccount,
+		Account: &xdr.LedgerKeyAccount{
+			AccountId: xdr.MustAddress("GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"),
+		},
+	}
+	keyB64, err := xdr.MarshalBase64(accountKey)
+	require.NoError(t, err)
+
+	t.Run("created (after only) becomes a Created change", func(t *testing.T) {
+		changes, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "created", After: &entryB64},
+		})
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+		assert.Equal(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, changes[0].Type)
+		require.NotNil(t, changes[0].Created)
+		assert.Equal(t, accountEntry, *changes[0].Created)
+	})
+
+	t.Run("updated (before+after) becomes State + Updated", func(t *testing.T) {
+		changes, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "updated", Before: &entryB64, After: &entryB64},
+		})
+		require.NoError(t, err)
+		require.Len(t, changes, 2)
+		assert.Equal(t, xdr.LedgerEntryChangeTypeLedgerEntryState, changes[0].Type)
+		assert.Equal(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, changes[1].Type)
+	})
+
+	t.Run("removed (before only) becomes State + Removed with the decoded key", func(t *testing.T) {
+		changes, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "deleted", Before: &entryB64, Key: keyB64},
+		})
+		require.NoError(t, err)
+		require.Len(t, changes, 2)
+		assert.Equal(t, xdr.LedgerEntryChangeTypeLedgerEntryState, changes[0].Type)
+		assert.Equal(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, changes[1].Type)
+		require.NotNil(t, changes[1].Removed)
+		assert.Equal(t, accountKey, *changes[1].Removed)
+	})
+
+	t.Run("invalid before XDR is an error", func(t *testing.T) {
+		bad := "not-valid-xdr"
+		_, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "updated", Before: &bad, After: &entryB64},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("invalid after XDR is an error", func(t *testing.T) {
+		bad := "not-valid-xdr"
+		_, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "created", After: &bad},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("invalid removed key XDR is an error", func(t *testing.T) {
+		_, err := ledgerEntryChangesFromSimulation([]entities.RPCSimulateStateChange{
+			{Type: "deleted", Before: &entryB64, Key: "not-valid-xdr"},
+		})
+		require.Error(t, err)
+	})
+}

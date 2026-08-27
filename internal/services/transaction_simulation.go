@@ -130,6 +130,8 @@ func (s *transactionSimulationService) ledgerTransactionFromContract(transaction
 // changes ourselves: work out which ledger entries the operation touches, fetch
 // their current state with GetLedgerEntries, then compute what they would become.
 // Not implemented yet.
+//
+//nolint:unparam // stub: returns a nil LedgerTransaction until classic derivation is implemented.
 func (s *transactionSimulationService) ledgerTransactionFromClassic(_ context.Context, _ xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
 	return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: classic transactions are not supported yet", ErrUnsupportedTransaction)
 }
@@ -155,12 +157,20 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 		return ingest.LedgerTransaction{}, err
 	}
 
-	// minResourceFee should be a decimal integer; if it is missing or malformed,
-	// fall back to 0 (the fee row is only an estimate anyway).
-	feeCharged, parseErr := strconv.ParseInt(result.MinResourceFee, 10, 64)
-	if parseErr != nil {
-		feeCharged = 0
+	// The fee row should reflect what the network would charge: the transaction's
+	// inclusion fee plus the resource fee. tx.Fee already bundles the inclusion fee
+	// with the resource-fee bid, so subtract the declared bid to isolate the inclusion
+	// portion, then add the freshly simulated resource fee. A missing or malformed
+	// minResourceFee is a synthesis error rather than a silent zero-fee preview.
+	minResourceFee, err := strconv.ParseInt(result.MinResourceFee, 10, 64)
+	if err != nil {
+		return ingest.LedgerTransaction{}, fmt.Errorf("parsing minResourceFee %q: %w", result.MinResourceFee, err)
 	}
+	inclusionFee := int64(envelope.Fee()) - envelopeResourceFee(envelope)
+	if inclusionFee < 0 {
+		inclusionFee = 0
+	}
+	feeCharged := inclusionFee + minResourceFee
 
 	return ingest.LedgerTransaction{
 		Index:    1,
@@ -190,6 +200,29 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 			},
 		},
 	}, nil
+}
+
+// envelopeResourceFee returns the Soroban resource fee the transaction declares in
+// its SorobanData, or 0 if it declares none. tx.Fee already includes this bid, so
+// subtracting it leaves the inclusion fee.
+func envelopeResourceFee(envelope xdr.TransactionEnvelope) int64 {
+	var ext xdr.TransactionExt
+	switch envelope.Type {
+	case xdr.EnvelopeTypeEnvelopeTypeTx:
+		if envelope.V1 != nil {
+			ext = envelope.V1.Tx.Ext
+		}
+	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+		if envelope.FeeBump != nil && envelope.FeeBump.Tx.InnerTx.V1 != nil {
+			ext = envelope.FeeBump.Tx.InnerTx.V1.Tx.Ext
+		}
+	default:
+		// TxV0 and non-transaction envelope types carry no SorobanData.
+	}
+	if ext.SorobanData != nil {
+		return int64(ext.SorobanData.ResourceFee)
+	}
+	return 0
 }
 
 // ledgerEntryChangesFromSimulation turns the simulation's before/after entries
@@ -248,9 +281,15 @@ func decodeLedgerEntry(encoded *string) (*xdr.LedgerEntry, error) {
 
 // contractEventsFromSimulation pulls the contract events out of the simulation's
 // diagnostic events. In real ingestion the token-transfer processor only sees
-// the contract's own emitted events (SorobanMeta.Events). The diagnostic stream
-// also carries bookkeeping events like fn_call and logs, which never reach that
-// processor, so we drop them to keep the preview matching history.
+// the contract's own emitted events (SorobanMeta.Events), so we keep only the
+// events that would land there and drop the rest:
+//   - diagnostic-type bookkeeping events (fn_call, logs, …), which never reach
+//     that processor; and
+//   - events from a failed nested call the outer invocation caught
+//     (InSuccessfulContractCall=false), which are absent from committed
+//     SorobanMeta.Events.
+//
+// Including either would produce state changes history never shows.
 func contractEventsFromSimulation(encoded []string) ([]xdr.ContractEvent, error) {
 	events := make([]xdr.ContractEvent, 0, len(encoded))
 	for _, e := range encoded {
@@ -258,7 +297,7 @@ func contractEventsFromSimulation(encoded []string) ([]xdr.ContractEvent, error)
 		if err := xdr.SafeUnmarshalBase64(e, &diagnostic); err != nil {
 			return nil, fmt.Errorf("decoding diagnostic event: %w", err)
 		}
-		if diagnostic.Event.Type == xdr.ContractEventTypeDiagnostic {
+		if !diagnostic.InSuccessfulContractCall || diagnostic.Event.Type == xdr.ContractEventTypeDiagnostic {
 			continue
 		}
 		events = append(events, diagnostic.Event)
