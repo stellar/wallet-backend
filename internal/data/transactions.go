@@ -23,10 +23,13 @@ type TransactionModel struct {
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
-	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
+	var queryBuilder strings.Builder
+	fmt.Fprintf(&queryBuilder, `SELECT %s FROM transactions WHERE hash = $1`, columns)
+	appendIngestCursorBound(&queryBuilder, "to_id")
+
+	query := queryBuilder.String()
 	start := time.Now()
-	hashBytea := types.HashBytea(hash)
-	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, hashBytea)
+	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, types.HashBytea(hash))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByHash", "transactions").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
@@ -58,6 +61,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 			SELECT tx_to_id, ledger_created_at
 			FROM transactions_accounts
 			WHERE account_id = $1`)
+
+	// Hide rows above the committed cursor. Applied inside the CTE so the bound reaches
+	// the transactions_accounts scan, where it prunes chunks, rather than filtering after
+	// the LATERAL probe.
+	appendIngestCursorBound(&queryBuilder, "tx_to_id")
 
 	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
