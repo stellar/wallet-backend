@@ -67,12 +67,8 @@ SELECT enable_chunk_skipping('state_changes', 'operation_id');
 -- is now a superset of it (ledger_created_at is its leading column), so it's redundant.
 DROP INDEX IF EXISTS state_changes_ledger_created_at_idx;
 
--- Serves StateChangeModel.BatchGetByAccountAddress and BatchGetAccountStateChangesByToIDs: the
--- trailing columns repeat the PK's sort key, so one account's page is a prefix scan with no
--- heapsort. The category- and reason-filtered variants of those queries share it: those two
--- columns are left out because an account's rows are few enough to scan and filter on the
--- active chunk, and compressed chunks prune on the bloom sparse indexes declared above.
-CREATE INDEX idx_state_changes_account_id ON state_changes(account_id, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC);
+CREATE INDEX idx_state_changes_operation_id ON state_changes(operation_id);
+CREATE INDEX idx_state_changes_account_category ON state_changes(account_id, state_change_category, state_change_reason, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC);
 
 -- +migrate Down
 
