@@ -50,6 +50,10 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		WHERE account_id = $1
 	`, columns)
 
+	// Hide rows above the committed cursor. state_changes is the one bulk table an account
+	// query reads directly, with no parent join that would drop an orphan on its own.
+	appendIngestCursorBound(&queryBuilder, "to_id")
+
 	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 

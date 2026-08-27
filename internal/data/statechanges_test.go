@@ -1309,3 +1309,66 @@ func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
 	assert.Zero(t, deleted)
 	assert.Len(t, remaining(), 4)
 }
+
+// TestStateChangeModel_BatchGetByAccountAddress_IngestCursorBound pins that an account
+// read never returns rows belonging to a ledger past the committed cursor. Live
+// ingestion's sibling COPY transactions commit before the coordinating transaction that
+// carries the cursor, so those rows genuinely exist in the table between the two commits
+// and, after a crash, until startup reconciliation runs.
+func TestStateChangeModel_BatchGetByAccountAddress_IngestCursorBound(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	address := keypair.MustRandom().Address()
+
+	// Two ledgers, one state change each, at real TOIDs so the ledger occupies the high
+	// 32 bits the bound shifts on.
+	cursorLedger, aheadLedger := int32(10), int32(11)
+	atCursor := toid.New(cursorLedger, 1, 1).ToInt64()
+	aboveCursor := toid.New(aheadLedger, 1, 1).ToInt64()
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES ($1, 1, 'BALANCE', 'CREDIT', $3, $5, $4, $1),
+		       ($2, 1, 'BALANCE', 'CREDIT', $3, $6, $4, $2)
+	`, atCursor, aboveCursor, now, types.AddressBytea(address), cursorLedger, aheadLedger)
+	require.NoError(t, err)
+
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	setCursor := func(t *testing.T, ledger int32) {
+		t.Helper()
+		_, execErr := dbConnectionPool.Exec(ctx,
+			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+			LatestLedgerCursorName, fmt.Sprintf("%d", ledger))
+		require.NoError(t, execErr)
+	}
+
+	t.Run("no cursor row leaves the read unbounded", func(t *testing.T) {
+		// A NULL bound must not silently filter everything out.
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		assert.Len(t, stateChanges, 2)
+	})
+
+	t.Run("a ledger past the cursor is hidden", func(t *testing.T) {
+		setCursor(t, cursorLedger)
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		require.Len(t, stateChanges, 1)
+		assert.Equal(t, atCursor, stateChanges[0].StateChange.ToID)
+	})
+
+	t.Run("the cursor ledger itself is visible", func(t *testing.T) {
+		setCursor(t, aheadLedger)
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		assert.Len(t, stateChanges, 2)
+	})
+}
