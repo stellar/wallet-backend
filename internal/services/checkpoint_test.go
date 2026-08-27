@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -22,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // Test helpers
@@ -1039,7 +1042,11 @@ func TestCheckpointService_ExtractHolderAddress(t *testing.T) {
 // goroutine. Protocol 28 also adds an external-ref executable that carries no
 // WASM hash and so cannot be classified.
 func TestCheckpointService_ProcessContractInstanceChange(t *testing.T) {
-	svc := &checkpointService{networkPassphrase: network.TestNetworkPassphrase}
+	ingestionMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion
+	svc := &checkpointService{
+		networkPassphrase: network.TestNetworkPassphrase,
+		metricsService:    ingestionMetrics,
+	}
 
 	contractID := xdr.ContractId{0x01, 0x02, 0x03}
 	ownerID := xdr.ContractId{0x09, 0x08, 0x07}
@@ -1065,10 +1072,11 @@ func TestCheckpointService_ProcessContractInstanceChange(t *testing.T) {
 	u32 := xdr.Uint32(7)
 
 	tests := []struct {
-		name         string
-		val          xdr.ScVal
-		expectSkip   bool
-		expectedWasm *xdr.Hash
+		name           string
+		val            xdr.ScVal
+		expectSkip     bool
+		expectedWasm   *xdr.Hash
+		expectExternal bool
 	}{
 		{
 			name: "wasm executable is recorded",
@@ -1091,14 +1099,16 @@ func TestCheckpointService_ProcessContractInstanceChange(t *testing.T) {
 					Tag: xdr.ScString("fleet-v1"),
 				},
 			}),
-			expectSkip: true,
+			expectSkip:     true,
+			expectExternal: true,
 		},
 		{
 			name: "external-ref executable with nil pointer is skipped without panicking",
 			val: instanceVal(xdr.ContractExecutable{
 				Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
 			}),
-			expectSkip: true,
+			expectSkip:     true,
+			expectExternal: true,
 		},
 		{
 			name: "wasm executable with nil hash is skipped",
@@ -1127,10 +1137,19 @@ func TestCheckpointService_ProcessContractInstanceChange(t *testing.T) {
 				},
 			}
 
+			before := testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal)
+
 			var result contractInstanceResult
 			require.NotPanics(t, func() {
 				result = svc.processContractInstanceChange(change, contractAddress, entry)
 			})
+
+			delta := testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal) - before
+			if tc.expectExternal {
+				assert.Equal(t, float64(1), delta, "an external-ref executable must be counted, not silently skipped")
+			} else {
+				assert.Zero(t, delta)
+			}
 
 			assert.Equal(t, tc.expectSkip, result.Skip)
 			if tc.expectedWasm != nil {

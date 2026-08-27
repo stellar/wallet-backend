@@ -23,6 +23,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -74,6 +75,7 @@ type CheckpointServiceConfig struct {
 	ProtocolWasmsModel        wbdata.ProtocolWasmsModelInterface
 	ProtocolContractsModel    wbdata.ProtocolContractsModelInterface
 	NetworkPassphrase         string
+	MetricsService            *metrics.IngestionMetrics
 }
 
 type checkpointService struct {
@@ -90,6 +92,7 @@ type checkpointService struct {
 	protocolWasmModel         wbdata.ProtocolWasmsModelInterface
 	protocolContractsModel    wbdata.ProtocolContractsModelInterface
 	networkPassphrase         string
+	metricsService            *metrics.IngestionMetrics
 	readerFactory             readerFactory
 	// sacEnrichmentRetries / sacEnrichmentBackoff bound the SAC metadata enrichment
 	// retry. Defaulted in NewCheckpointService; overridable in tests to keep the
@@ -114,6 +117,7 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		protocolWasmModel:         cfg.ProtocolWasmsModel,
 		protocolContractsModel:    cfg.ProtocolContractsModel,
 		networkPassphrase:         cfg.NetworkPassphrase,
+		metricsService:            cfg.MetricsService,
 		readerFactory:             defaultReaderFactory,
 		sacEnrichmentRetries:      maxSACEnrichmentRetries,
 		sacEnrichmentBackoff:      maxRetryBackoff,
@@ -725,9 +729,10 @@ func (s *checkpointService) processContractInstanceChange(
 
 	case xdr.ContractExecutableTypeContractExecutableExternalRef:
 		// CAP-0085: an (owner, tag) pair naming an entry in another contract's
-		// storage, so there is no WASM hash and no classification. Live
-		// ingestion counts these; the checkpoint pass only logs, because
-		// checkpointService carries no metrics registry.
+		// storage, so there is no WASM hash and no classification.
+		if s.metricsService != nil {
+			s.metricsService.ExternalRefContractsTotal.Inc()
+		}
 		log.Warnf("contract %s has an external-ref executable (%s); leaving it unclassified",
 			contractAddress, processors.DescribeExternalRef(contractInstance.Executable))
 	}
