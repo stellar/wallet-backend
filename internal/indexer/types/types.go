@@ -81,14 +81,6 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
-	// The column holds one version byte plus exactly 32 payload bytes. A longer
-	// payload (a muxed account carries 40) would be truncated by the copy below
-	// and would then re-encode as a different, still-valid address, losing the
-	// muxed ID with no error anywhere. Muxed addresses belong in the separate
-	// address_muxed columns; refuse anything that does not fit.
-	if len(rawBytes) != 32 {
-		return nil, fmt.Errorf("stellar address %s has a %d-byte payload, want 32", a, len(rawBytes))
-	}
 	result := make([]byte, 33)
 	result[0] = byte(versionByte)
 	copy(result[1:], rawBytes)
