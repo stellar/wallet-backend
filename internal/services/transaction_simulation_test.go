@@ -12,8 +12,10 @@ import (
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -36,20 +38,100 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
 
-	t.Run("🔴 soroban transaction not implemented yet", func(t *testing.T) {
-		nativeContractID, err := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+	t.Run("🔴 RPC simulation error surfaced", func(t *testing.T) {
+		rpcMock := &RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
+			Return(entities.RPCSimulateTransactionResult{Error: "contract trapped"}, nil).Once()
+		errSvc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
 		require.NoError(t, err)
-		contractID := xdr.ContractId(nativeContractID)
-		_, err = svc.SimulateStateChanges(ctx, buildTxXDR(t, &txnbuild.InvokeHostFunction{
-			HostFunction: xdr.HostFunction{
-				Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
-				InvokeContract: &xdr.InvokeContractArgs{
-					ContractAddress: xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
-					FunctionName:    "transfer",
-				},
+
+		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+		rpcMock.AssertExpectations(t)
+	})
+}
+
+// TestTransactionSimulationService_SimulateStateChanges_soroban drives the full
+// Phase 1 path: a canned RPC simulateTransaction result (a native-SAC transfer
+// event) is synthesized into a ledger transaction and run through the real
+// processors, which must emit a DEBIT for the sender and a CREDIT for the
+// receiver, the same state changes history would show.
+func TestTransactionSimulationService_SimulateStateChanges_soroban(t *testing.T) {
+	from := keypair.MustRandom().Address()
+	to := keypair.MustRandom().Address()
+	amount := big.NewInt(10_000_000)
+	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
+
+	transferEvent := contractevents.GenerateEvent(
+		contractevents.EventTypeTransfer,
+		from, to, "",
+		nativeAsset,
+		amount,
+		network.TestNetworkPassphrase,
+	)
+
+	diagnosticB64, err := xdr.MarshalBase64(xdr.DiagnosticEvent{InSuccessfulContractCall: true, Event: transferEvent})
+	require.NoError(t, err)
+
+	txXDR := nativeSACTransferXDR(t, from)
+
+	rpcMock := &RPCServiceMock{}
+	rpcMock.On("SimulateTransaction", txXDR, entities.RPCResourceConfig{}).
+		Return(entities.RPCSimulateTransactionResult{
+			LatestLedger:   2900148,
+			MinResourceFee: "100",
+			Events:         []string{diagnosticB64},
+		}, nil).Once()
+
+	svc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	result, err := svc.SimulateStateChanges(context.Background(), txXDR)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(2900148), result.LatestLedger)
+
+	nativeContractID, err := nativeAsset.ContractID(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+	nativeContractAddress, err := strkeyContractID(nativeContractID)
+	require.NoError(t, err)
+
+	byReason := map[types.StateChangeReason]types.StateChange{}
+	for _, sc := range result.StateChanges {
+		if sc.StateChangeCategory == types.StateChangeCategoryBalance {
+			byReason[sc.StateChangeReason] = sc
+		}
+	}
+
+	debit, ok := byReason[types.StateChangeReasonDebit]
+	require.True(t, ok, "expected a DEBIT balance change for the sender")
+	assert.Equal(t, from, string(debit.AccountID))
+	assert.Equal(t, "10000000", debit.Amount.String)
+	assert.Equal(t, nativeContractAddress, debit.TokenID.String())
+
+	credit, ok := byReason[types.StateChangeReasonCredit]
+	require.True(t, ok, "expected a CREDIT balance change for the receiver")
+	assert.Equal(t, to, string(credit.AccountID))
+	assert.Equal(t, "10000000", credit.Amount.String)
+	assert.Equal(t, nativeContractAddress, credit.TokenID.String())
+
+	rpcMock.AssertExpectations(t)
+}
+
+// nativeSACTransferXDR builds an unsigned InvokeHostFunction envelope invoking
+// the native SAC's transfer: a minimal, fully-encodable Soroban transaction.
+func nativeSACTransferXDR(t *testing.T, sourceAccount string) string {
+	t.Helper()
+	nativeContractID, err := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}.ContractID(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+	contractID := xdr.ContractId(nativeContractID)
+	return buildTxXDRFrom(t, sourceAccount, &txnbuild.InvokeHostFunction{
+		HostFunction: xdr.HostFunction{
+			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+			InvokeContract: &xdr.InvokeContractArgs{
+				ContractAddress: xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
+				FunctionName:    "transfer",
 			},
-		}))
-		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+		},
 	})
 }
 
@@ -191,10 +273,16 @@ func synthesizeSorobanTransaction(t *testing.T, sourceAccount string, events ...
 	}
 }
 
-// buildTxXDR builds an unsigned single-op transaction envelope.
+// buildTxXDR builds an unsigned single-op transaction envelope from a random source.
 func buildTxXDR(t *testing.T, op txnbuild.Operation) string {
 	t.Helper()
-	src := txnbuild.SimpleAccount{AccountID: keypair.MustRandom().Address(), Sequence: 1}
+	return buildTxXDRFrom(t, keypair.MustRandom().Address(), op)
+}
+
+// buildTxXDRFrom builds an unsigned single-op transaction envelope from the given source.
+func buildTxXDRFrom(t *testing.T, sourceAccount string, op txnbuild.Operation) string {
+	t.Helper()
+	src := txnbuild.SimpleAccount{AccountID: sourceAccount, Sequence: 1}
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &src,
 		Operations:           []txnbuild.Operation{op},
