@@ -294,3 +294,45 @@ func TestContractIDString(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+// mustMuxedAddressScVal builds an ScVal holding a muxed ScAddress over baseG with the
+// given sub-id, as it appears in a transfer to/from topic.
+func mustMuxedAddressScVal(t *testing.T, baseG string, id uint64) xdr.ScVal {
+	t.Helper()
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, baseG))
+	scAddr := xdr.ScAddress{
+		Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+		MuxedAccount: &xdr.MuxedEd25519Account{Id: xdr.Uint64(id), Ed25519: ed},
+	}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+// TestParseTransferEvent_MuxedTopicNormalizedToBase verifies that a muxed address in a
+// transfer topic is decoded to its base account rather than its full M-strkey.
+func TestParseTransferEvent_MuxedTopicNormalizedToBase(t *testing.T) {
+	base := testAccountA
+	muxed := muxedStrkey(t, base, 9)
+	require.Equal(t, byte('M'), muxed[0])
+
+	event := contractEvent(
+		[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustMuxedAddressScVal(t, base, 9)},
+		i128ScVal(500),
+	)
+
+	got, err := ParseTransferEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, base, got.To, "muxed `to` topic must decode to its base account")
+	assert.NotEqual(t, muxed, got.To, "the full M-strkey must not survive into the key")
+}
+
+// muxedStrkey returns the M... strkey for a muxed account over baseG with the given sub-id.
+func muxedStrkey(t *testing.T, baseG string, id uint64) string {
+	t.Helper()
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, baseG))
+	m := xdr.MuxedAccount{Type: xdr.CryptoKeyTypeKeyTypeMuxedEd25519, Med25519: &xdr.MuxedAccountMed25519{Id: xdr.Uint64(id), Ed25519: ed}}
+	addr, err := m.GetAddress()
+	require.NoError(t, err)
+	return addr
+}

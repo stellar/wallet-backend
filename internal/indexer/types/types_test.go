@@ -7,6 +7,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -517,4 +518,77 @@ func TestAssignStateChangeOrdinals_GroupsByToIDAndOperationID(t *testing.T) {
 		changes[0].StateChangeID, changes[1].StateChangeID,
 		changes[2].StateChangeID, changes[3].StateChangeID,
 	})
+}
+
+// muxedOver builds the M... strkey for a muxed account over baseG with the given sub-id.
+func muxedOver(t *testing.T, baseG string, id uint64) string {
+	t.Helper()
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, baseG))
+	m := xdr.MuxedAccount{
+		Type:     xdr.CryptoKeyTypeKeyTypeMuxedEd25519,
+		Med25519: &xdr.MuxedAccountMed25519{Id: xdr.Uint64(id), Ed25519: ed},
+	}
+	addr, err := m.GetAddress()
+	require.NoError(t, err)
+	return addr
+}
+
+// TestMuxedAddressBytea_NormalizesToBaseAccount verifies that a muxed address and its base
+// account, and two muxed addresses over the same base, all encode to the same 33-byte
+// base-account key — the 8-byte multiplexing id is not part of the stored key.
+func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
+	base := keypair.MustRandom().Address() // one base G... account
+
+	mA := muxedOver(t, base, 1) // customer #1
+	mB := muxedOver(t, base, 2) // customer #2
+	require.NotEqual(t, mA, mB, "the two muxed strkeys must differ as strings")
+	require.Equal(t, byte('M'), mA[0], "sanity: these are M-addresses")
+
+	baseBytes, err := AddressBytea(base).Value()
+	require.NoError(t, err)
+	vA, err := AddressBytea(mA).Value()
+	require.NoError(t, err)
+	vB, err := AddressBytea(mB).Value()
+	require.NoError(t, err)
+
+	require.Len(t, baseBytes.([]byte), 33)
+	assert.Equal(t, baseBytes, vA, "muxed #1 must store as its base account")
+	assert.Equal(t, baseBytes, vB, "muxed #2 must store as its base account")
+	assert.Equal(t, byte(strkey.VersionByteAccountID), vA.([]byte)[0],
+		"stored version byte must be the base-account (G) byte, not the muxed (M) byte")
+
+	// Distinct base accounts still stay distinct — normalization only strips the id.
+	gOther := keypair.MustRandom().Address()
+	vOther, err := AddressBytea(gOther).Value()
+	require.NoError(t, err)
+	assert.NotEqual(t, baseBytes, vOther)
+}
+
+// TestAddressBytea_RejectsMalformedPayload verifies that Value rejects a well-formed
+// strkey whose payload is neither 32 bytes (account/contract) nor a muxed account,
+// rather than truncating it. (Contract C... and account G... still pass.)
+func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
+	// A 5-byte-payload strkey encoded under the account version byte: not a real key.
+	bogus, err := strkey.Encode(strkey.VersionByteAccountID, []byte{1, 2, 3, 4, 5})
+	require.NoError(t, err)
+
+	_, err = AddressBytea(bogus).Value()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "5-byte")
+
+	// A checksum-valid muxed strkey with a short (<32-byte) payload must be rejected,
+	// not panic: strkey.DecodeAny does not enforce the version-specific payload length,
+	// so Value must guard before slicing the ed25519 key out of it.
+	shortMuxed, err := strkey.Encode(strkey.VersionByteMuxedAccount, []byte{1, 2, 3, 4, 5})
+	require.NoError(t, err)
+	require.NotPanics(t, func() {
+		_, err = AddressBytea(shortMuxed).Value()
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected 40 bytes")
+
+	// Control: a normal contract address still encodes fine.
+	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
+	require.NoError(t, err)
 }

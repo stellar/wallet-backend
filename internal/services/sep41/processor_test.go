@@ -421,3 +421,35 @@ func buildEventForContract(t *testing.T, contractAddr string, topics []xdr.ScVal
 		},
 	}
 }
+
+// TestProcessor_MuxedTransfersOverSameBaseDoNotCollide verifies that two transfers
+// crediting two different muxed addresses over the same base account stage a single
+// balance key (the base account) holding the summed amount.
+func TestProcessor_MuxedTransfersOverSameBaseDoNotCollide(t *testing.T) {
+	p := newTestProcessor()
+	p.Reset()
+
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	p.sep41Contracts[contractID] = struct{}{}
+
+	base := testAccountA // both muxed destinations share this base account
+
+	// Two transfers: to = muxed(base, 1) and to = muxed(base, 2).
+	ev1 := buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustMuxedAddressScVal(t, base, 1),
+	}, i128ScVal(1000))
+	ev2 := buildEventForContract(t, contractID, []xdr.ScVal{
+		symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustMuxedAddressScVal(t, base, 2),
+	}, i128ScVal(2000))
+
+	require.NoError(t, p.processEvent(ev1, newTestOpBuilder(), services.StagingModeCurrentState))
+	require.NoError(t, p.processEvent(ev2, newTestOpBuilder(), services.StagingModeCurrentState))
+
+	// The base account must be a single staged key holding 1000+2000 credit.
+	credit := p.stagedBalanceDelta[balanceKey{Account: types.AddressBytea(base), ContractID: contractID}]
+	require.NotNil(t, credit, "both muxed credits must fold into the base-account key")
+	assert.Equal(t, big.NewInt(3000), credit)
+
+	// Exactly two keys total: the shared base-account credit and testAccountB's debit.
+	assert.Len(t, p.stagedBalanceDelta, 2, "no per-id fragmentation of the base account")
+}

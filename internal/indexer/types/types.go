@@ -72,7 +72,15 @@ func (a *AddressBytea) Scan(value any) error {
 	return nil
 }
 
-// Value implements driver.Valuer - converts StrKey string to 33-byte []byte
+// Value implements driver.Valuer - converts StrKey string to 33-byte []byte.
+//
+// Muxed addresses (M...) carry a 40-byte payload — a 32-byte ed25519 key followed by an
+// 8-byte multiplexing id (SEP-23). They are reduced to their base account here: the id is
+// off-chain routing metadata, not part of the stored key. This is a storage-layer backstop;
+// ingestion is expected to normalize muxed addresses to their base account before this point
+// (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()). Any other
+// payload length is rejected rather than silently truncated, so a malformed address surfaces
+// as an error instead of corrupt data.
 func (a AddressBytea) Value() (driver.Value, error) {
 	if a == "" {
 		return nil, nil
@@ -80,6 +88,19 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	versionByte, rawBytes, err := strkey.DecodeAny(string(a))
 	if err != nil {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
+	}
+	if versionByte == strkey.VersionByteMuxedAccount {
+		// strkey.DecodeAny validates the checksum and version byte but not the
+		// version-specific payload length, so guard it before slicing: a muxed payload
+		// must be exactly 40 bytes (32-byte ed25519 key + 8-byte id).
+		if len(rawBytes) != 40 {
+			return nil, fmt.Errorf("stellar muxed address %s has a %d-byte payload; expected 40 bytes", a, len(rawBytes))
+		}
+		versionByte = strkey.VersionByteAccountID
+		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the trailing 8-byte id
+	}
+	if len(rawBytes) != 32 {
+		return nil, fmt.Errorf("stellar address %s has a %d-byte key payload; the account_id column stores only 32-byte account/contract keys", a, len(rawBytes))
 	}
 	result := make([]byte, 33)
 	result[0] = byte(versionByte)

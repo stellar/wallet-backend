@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -188,4 +190,53 @@ func TestBalanceModel_BatchApplyDeltas(t *testing.T) {
 		// Must not fail when no deltas are staged.
 		require.NoError(t, m.BatchApplyDeltas(ctx, nil, nil))
 	})
+}
+
+// muxedOver builds the M... strkey for a muxed account over baseG with the given sub-id.
+func muxedOver(t *testing.T, baseG string, id uint64) string {
+	t.Helper()
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, baseG))
+	m := xdr.MuxedAccount{
+		Type:     xdr.CryptoKeyTypeKeyTypeMuxedEd25519,
+		Med25519: &xdr.MuxedAccountMed25519{Id: xdr.Uint64(id), Ed25519: ed},
+	}
+	addr, err := m.GetAddress()
+	require.NoError(t, err)
+	return addr
+}
+
+// TestBatchApplyDeltas_MuxedWritesLandOnBaseAccount checks that two credits to different
+// muxed addresses over the same base account accumulate on one base-account row
+// (1000 + 2000 = 3000). Applied in separate calls, since the processor dedups a window to
+// one delta per account before this layer sees it.
+func TestBatchApplyDeltas_MuxedWritesLandOnBaseAccount(t *testing.T) {
+	ctx, pool, m, cleanup := newBalancesFixture(t)
+	defer cleanup()
+
+	contract := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	cid := insertContractToken(t, ctx, pool, contract)
+
+	base := keypair.MustRandom().Address()
+	mA := muxedOver(t, base, 1)
+	mB := muxedOver(t, base, 2)
+	require.NotEqual(t, mA, mB)
+
+	// A credit under muxed #1, then a credit under muxed #2 (separate ledgers/windows).
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+			{AccountID: types.AddressBytea(mA), ContractID: cid, Balance: "1000", LedgerNumber: 42},
+		}))
+	})
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, m.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+			{AccountID: types.AddressBytea(mB), ContractID: cid, Balance: "2000", LedgerNumber: 43},
+		}))
+	})
+
+	// Both credits accumulated onto the single base-account row, readable by the base G address.
+	balances, err := m.GetByAccount(ctx, base, nil, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, balances, 1, "muxed credits must not fragment into per-id rows")
+	assert.Equal(t, "3000", balances[0].Balance)
 }
