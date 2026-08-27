@@ -39,9 +39,9 @@ type SimulatedStateChanges struct {
 // TransactionSimulationService previews the state changes an unsubmitted
 // transaction would produce. It rebuilds the transaction's ledger-entry changes
 // (Soroban transactions via RPC simulateTransaction) and runs them through the
-// very same processors that build the history API's state changes — all in
-// memory, nothing written to the database. The point is for a preview to look
-// exactly like history.
+// very same processors that build the history API's state changes, all in
+// memory, with nothing written to the database. The point is for a preview to
+// look exactly like history.
 type TransactionSimulationService interface {
 	SimulateStateChanges(ctx context.Context, transactionXDR string) (*SimulatedStateChanges, error)
 }
@@ -116,12 +116,54 @@ func (s *transactionSimulationService) ledgerTransactionFromContract(transaction
 	if result.Error != "" {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: %s", ErrSimulationFailed, result.Error)
 	}
+	// A non-empty RestorePreamble means the transaction reads archived entries and
+	// would fail unless they are restored first. The recorded results/changes are
+	// not what the network would produce for the transaction as submitted, so we
+	// treat this as a simulation failure rather than returning a misleading preview.
+	if result.RestorePreamble.TransactionData.Resources.Footprint.ReadOnly != nil ||
+		result.RestorePreamble.TransactionData.Resources.Footprint.ReadWrite != nil {
+		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: transaction requires restoring archived entries before it can succeed", ErrSimulationFailed)
+	}
+
+	// RPC records the auth entries an unsigned InvokeHostFunction would need to
+	// execute. The indexer reads operation auth to detect nested contract
+	// deployments and to collect participants, so we copy the recorded auth onto
+	// the operation before synthesizing. Without it, those changes are missed.
+	injectSimulatedAuth(&envelope, result)
 
 	tx, err := buildSimulatedLedgerTransaction(envelope, result)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("synthesizing ledger transaction: %w", err)
 	}
 	return tx, uint32(result.LatestLedger), nil
+}
+
+// injectSimulatedAuth copies the auth entries RPC recorded for the (unsigned)
+// invocation onto the InvokeHostFunction operation, so the synthesized
+// transaction carries the same auth a real submission would. Soroban
+// transactions have a single operation, so at most one result applies.
+func injectSimulatedAuth(envelope *xdr.TransactionEnvelope, result entities.RPCSimulateTransactionResult) {
+	if len(result.Results) == 0 {
+		return
+	}
+	var ops []xdr.Operation
+	switch envelope.Type {
+	case xdr.EnvelopeTypeEnvelopeTypeTx:
+		if envelope.V1 != nil {
+			ops = envelope.V1.Tx.Operations
+		}
+	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+		if envelope.FeeBump != nil && envelope.FeeBump.Tx.InnerTx.V1 != nil {
+			ops = envelope.FeeBump.Tx.InnerTx.V1.Tx.Operations
+		}
+	default:
+		return
+	}
+	for i := range ops {
+		if ops[i].Body.Type == xdr.OperationTypeInvokeHostFunction && ops[i].Body.InvokeHostFunctionOp != nil {
+			ops[i].Body.InvokeHostFunctionOp.Auth = result.Results[0].Auth
+		}
+	}
 }
 
 // ledgerTransactionFromClassic will build the simulated ledger transaction for a
@@ -191,11 +233,12 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 				},
 			},
 		},
+		// Protocol 23+ networks emit TransactionMetaV4, and processors branch on
+		// UnsafeMeta.V.
 		UnsafeMeta: xdr.TransactionMeta{
-			V: 3,
-			V3: &xdr.TransactionMetaV3{
-				Operations:  []xdr.OperationMeta{{Changes: changes}},
-				SorobanMeta: &xdr.SorobanTransactionMeta{Events: events},
+			V: 4,
+			V4: &xdr.TransactionMetaV4{
+				Operations: []xdr.OperationMetaV2{{Changes: changes, Events: events}},
 			},
 		},
 	}, nil
@@ -348,8 +391,14 @@ func isSorobanTransaction(envelope xdr.TransactionEnvelope) bool {
 }
 
 // stateChangesForTransaction runs a synthesized ledger transaction through the
-// ingestion pipeline into an in-memory buffer — the same processors real
-// ingestion uses, with no persistence — and returns the resulting state changes.
+// ingestion pipeline into an in-memory buffer. It uses the same processors real
+// ingestion uses, with no persistence, and returns the resulting state changes.
+//
+// Known limitation: this only runs the core Indexer processors, not the separate
+// protocol processors. SEP-41 custom tokens are handled by internal/services/sep41,
+// which the Indexer's token_transfer processor skips, and that processor is not
+// wired in here yet. So previews for SEP-41 tokens miss their balance changes.
+// Native and SAC token changes are covered.
 func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	buffer := indexer.NewIndexerBuffer()
 	if _, err := s.ledgerIndexer.ProcessLedgerTransactions(ctx, []ingest.LedgerTransaction{tx}, buffer); err != nil {
