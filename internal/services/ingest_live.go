@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -86,7 +87,6 @@ var ErrPartialPersist = errors.New("ledger persist partially committed")
 type persistItem struct {
 	seq          uint32
 	meta         xdr.LedgerCloseMeta
-	plan         *ClassificationPlan
 	contractData *contractDataMemo
 	buffer       *indexer.IndexerBuffer
 }
@@ -120,7 +120,7 @@ func batchLabel(items []persistItem) string {
 // Only the first ledger of a batch may carry a classification plan: a
 // plan's pool reads see exactly the state the previous batch committed (see
 // the batch cut in persistProcessedLedgers).
-func (m *ingestService) persistLedgerData(ctx context.Context, items []persistItem) error {
+func (m *ingestService) persistLedgerData(ctx context.Context, items []persistItem, plan *ClassificationPlan) error {
 	label := batchLabel(items)
 
 	// The sibling transactions and the coordinating transaction are all opened
@@ -196,9 +196,21 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		})
 	}
 	g.Go(func() error {
+		// The plan covers the whole batch, so its validator side writes are
+		// applied once here rather than per ledger. This is the same point in
+		// the write order as before: Apply always ran before any of the
+		// batch's wasm rows landed, and its writes (e.g. contract_tokens) hold
+		// no foreign key into protocol_wasms.
+		if applyErr := ApplyClassificationPlan(gctx, coordTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); applyErr != nil {
+			return fmt.Errorf("applying classification for %s: %w", label, applyErr)
+		}
+		var matches map[types.HashBytea]string
+		if plan != nil {
+			matches = plan.Matches
+		}
 		for j := range items {
 			it := &items[j]
-			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, it.seq, it.meta, it.plan, it.contractData, it.buffer); stageErr != nil {
+			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, it.seq, it.meta, matches, it.contractData, it.buffer); stageErr != nil {
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
 		}
@@ -242,7 +254,7 @@ func (m *ingestService) stageCoordinatedWrites(
 	dbTx pgx.Tx,
 	ledgerSeq uint32,
 	ledgerMeta xdr.LedgerCloseMeta,
-	plan *ClassificationPlan,
+	classification map[types.HashBytea]string,
 	contractData *contractDataMemo,
 	buffer *indexer.IndexerBuffer,
 ) error {
@@ -282,14 +294,6 @@ func (m *ingestService) stageCoordinatedWrites(
 	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
 	for _, c := range bufferedContracts {
 		contractSlice = append(contractSlice, c)
-	}
-
-	var classification map[types.HashBytea]string
-	if plan != nil {
-		classification = plan.Matches
-	}
-	if txErr = ApplyClassificationPlan(ctx, dbTx, m.models, plan, m.appMetrics.Ingestion.WasmClassificationFailuresTotal); txErr != nil {
-		return fmt.Errorf("applying classification for ledger %d: %w", ledgerSeq, txErr)
 	}
 
 	// Persist this ledger's wasm rows BEFORE processors run: a processor
@@ -785,72 +789,56 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 	}
 }
 
-// hasClassificationInputs reports whether the ledger staged anything the
-// classification plan would act on. A ledger for which this is false gets a
-// nil plan from prepareClassificationPlan, so it can ride behind other
-// ledgers in a persist batch.
-func hasClassificationInputs(buffer *indexer.IndexerBuffer) bool {
-	return len(buffer.GetProtocolWasms()) > 0 ||
-		len(buffer.GetProtocolWasmBytecodes()) > 0 ||
-		len(buffer.GetProtocolContracts()) > 0
-}
-
-// persistBatchCut returns how many leading pending ledgers form the next
-// persist batch: everything before the first non-head ledger carrying
-// classification inputs, which must instead open the following batch — its
-// plan's pool reads are only sound once this batch has committed.
-func persistBatchCut(pending []processedLedger) int {
-	for i := 1; i < len(pending); i++ {
-		if hasClassificationInputs(pending[i].buffer) {
-			return i
-		}
+// prepareBatchClassificationPlan builds ONE classification plan covering every
+// ledger in a persist batch, from the union of their buffered wasms,
+// bytecodes and contracts.
+//
+// Merging the inputs is what makes a batch safe to form whatever its ledgers
+// carry. A contract bound to a wasm uploaded by an earlier ledger of the same
+// batch would, per ledger, have to resolve that wasm's verdict from
+// protocol_wasms — a pool read that cannot see rows the batch has not
+// committed. Supplied together, prepareClassificationPlan classifies the wasm
+// from its buffered bytecode instead (see thisBatch there) and never consults
+// the database for it.
+//
+// Later ledgers win the merge, which is the correct end state for the batch:
+// a contract rebound mid-batch ends up bound to its final wasm. Each ledger
+// still writes its own protocol_contracts row from its own buffer, in order.
+func (m *ingestService) prepareBatchClassificationPlan(ctx context.Context, batch []processedLedger) (*ClassificationPlan, error) {
+	wasms := make(map[string]data.ProtocolWasms)
+	bytecodes := make(map[string][]byte)
+	contracts := make(map[string]data.ProtocolContracts)
+	for _, pl := range batch {
+		maps.Copy(wasms, pl.buffer.GetProtocolWasms())
+		maps.Copy(bytecodes, pl.buffer.GetProtocolWasmBytecodes())
+		maps.Copy(contracts, pl.buffer.GetProtocolContracts())
 	}
-	return len(pending)
+	return m.prepareClassificationPlan(ctx, wasms, bytecodes, contracts)
 }
 
 // persistProcessedLedgers is the pipeline's persist stage and the only stage
-// that writes to the database. It runs strictly sequentially in ledger
-// order. When the process stage has finished ledgers faster than persist
-// drains them, up to livePersistMaxBatchSize consecutive ledgers coalesce
-// into one persist commit, amortizing the COPY streams and the commit
-// barrier across the backlog; while the pipeline keeps pace every batch has
-// size 1 and behavior is exactly the unbatched persist. A ledger with
-// classification inputs always opens its own batch: its plan's pool reads
-// (prepareClassificationPlan) see exactly what the previous batch committed
-// — a contract deployed in ledger N+1 pointing at a wasm uploaded in N must
-// see N's row — so it can never ride behind N in the same commit. The
+// that writes to the database. It runs strictly sequentially in ledger order.
+// When the process stage has finished ledgers faster than persist drains
+// them, up to livePersistMaxBatchSize consecutive ledgers coalesce into one
+// persist commit, amortizing the COPY streams and the commit barrier across
+// the backlog; while the pipeline keeps pace every batch has size 1 and
+// behavior is exactly the unbatched persist.
+//
+// Every batch is safe to form, whatever its ledgers carry: one classification
+// plan covers the whole batch (prepareBatchClassificationPlan), so a contract
+// bound to a wasm uploaded earlier in the same batch is classified from that
+// wasm's buffered bytecode rather than from an uncommitted row. The
 // advisory-lock session is probed once per batch, and buffers return to the
 // rotation only after their batch is fully persisted.
 func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <-chan processedLedger, freeBuffers chan<- *indexer.IndexerBuffer, checkLockSession func(ctx context.Context) error, latestIngested *atomic.Uint32) error {
-	var pending []processedLedger
 	for {
-		if len(pending) == 0 {
-			select {
-			case p, ok := <-processed:
-				if !ok {
-					return nil
-				}
-				pending = append(pending, p)
-			case <-ctx.Done():
-				return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
-			}
+		batch, err := m.nextPersistBatch(ctx, processed)
+		if err != nil {
+			return err
 		}
-		// Greedily take whatever the process stage has already finished, up
-		// to the batch cap — never wait for more.
-	drain:
-		for len(pending) < m.livePersistMaxBatchSize {
-			select {
-			case p, ok := <-processed:
-				if !ok {
-					break drain
-				}
-				pending = append(pending, p)
-			default:
-				break drain
-			}
+		if len(batch) == 0 {
+			return nil
 		}
-		cut := persistBatchCut(pending)
-		batch := pending[:cut]
 
 		// A cancelled pipeline fails this probe too, so check cancellation
 		// first: a shutdown must not be reported as a lost lock.
@@ -862,84 +850,128 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
 		}
 
-		// Classification runs on this stage, not the process stage: its
-		// known-hash lookup is a non-transactional pool read of protocol_wasms
-		// whose correctness depends on the previous batch's persist having
-		// committed. Only the batch head can need a plan (the cut above), and
-		// RPC prefetch still happens before any transaction opens; the plan is
-		// reused verbatim across every retry attempt below.
-		classifyStart := time.Now()
-		head := batch[0]
-		plan, err := m.prepareClassificationPlan(ctx, head.buffer.GetProtocolWasms(), head.buffer.GetProtocolWasmBytecodes(), head.buffer.GetProtocolContracts())
+		plan, classifyDuration, err := m.classifyBatch(ctx, batch)
 		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("preparing classification plan for ledger %d: %w", head.seq, err)
+			return err
 		}
-		classifyDuration := time.Since(classifyStart)
-		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(classifyDuration.Seconds())
+		persistDuration, err := m.persistBatch(ctx, batch, plan)
+		if err != nil {
+			return err
+		}
+		m.recordBatchPersisted(ctx, batch, classifyDuration, persistDuration, freeBuffers, latestIngested)
+	}
+}
 
-		items := make([]persistItem, len(batch))
-		for i, pl := range batch {
-			items[i] = persistItem{
-				seq:          pl.seq,
-				meta:         pl.meta,
-				contractData: newContractDataMemo(pl.transactions, pl.seq),
-				buffer:       pl.buffer,
+// nextPersistBatch blocks for one processed ledger, then greedily takes
+// whatever the process stage has already finished, up to the batch cap —
+// never waiting for more. An empty batch means the processed channel closed
+// and the persist stage is done.
+func (m *ingestService) nextPersistBatch(ctx context.Context, processed <-chan processedLedger) ([]processedLedger, error) {
+	var batch []processedLedger
+	select {
+	case p, ok := <-processed:
+		if !ok {
+			return nil, nil
+		}
+		batch = append(batch, p)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+	}
+	for len(batch) < m.livePersistMaxBatchSize {
+		select {
+		case p, ok := <-processed:
+			if !ok {
+				return batch, nil
 			}
+			batch = append(batch, p)
+		default:
+			return batch, nil
 		}
-		items[0].plan = plan
+	}
+	return batch, nil
+}
 
-		// All DB operations in a single atomic commit set with retry.
-		dbStart := time.Now()
-		if err := m.persistLedgerDataWithRetry(ctx, items); err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
-			return fmt.Errorf("persisting %s: %w", batchLabel(items), err)
+// classifyBatch runs Phase A of protocol classification for the whole batch.
+// It runs on this stage, not the process stage, because its known-hash lookup
+// is a non-transactional pool read of protocol_wasms whose correctness
+// depends on the previous batch's persist having committed. RPC prefetch
+// happens here, before any transaction opens; the plan is reused verbatim
+// across every retry attempt in persistBatch.
+func (m *ingestService) classifyBatch(ctx context.Context, batch []processedLedger) (*ClassificationPlan, time.Duration, error) {
+	start := time.Now()
+	plan, err := m.prepareBatchClassificationPlan(ctx, batch)
+	duration := time.Since(start)
+	if err != nil {
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+		return nil, duration, fmt.Errorf("preparing classification plan for ledgers %d-%d: %w",
+			batch[0].seq, batch[len(batch)-1].seq, err)
+	}
+	m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("prepare_classification").Observe(duration.Seconds())
+	return plan, duration, nil
+}
+
+// persistBatch commits the batch's ledgers in one atomic commit set, with the
+// persist retry ladder, and returns the wall time the commit set took.
+func (m *ingestService) persistBatch(ctx context.Context, batch []processedLedger, plan *ClassificationPlan) (time.Duration, error) {
+	items := make([]persistItem, len(batch))
+	for i, pl := range batch {
+		items[i] = persistItem{
+			seq:          pl.seq,
+			meta:         pl.meta,
+			contractData: newContractDataMemo(pl.transactions, pl.seq),
+			buffer:       pl.buffer,
 		}
-		persistDuration := time.Since(dbStart)
-		m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
+	}
 
-		// Per-ledger phase observations record each ledger's amortized share
-		// of the batch, so the histograms keep per-ledger semantics and stay
-		// comparable across batch sizes. Duration is the WORK one ledger
-		// costs, not wall-clock: stages overlap across ledgers, so the
-		// pipeline finishes a ledger every max(stage), not sum(stage). Use
-		// LagLedgers to judge whether ingestion keeps up.
-		classifyShare := classifyDuration / time.Duration(len(batch))
-		persistShare := persistDuration / time.Duration(len(batch))
-		for _, pl := range batch {
-			m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
+	start := time.Now()
+	if err := m.persistLedgerDataWithRetry(ctx, items, plan); err != nil {
+		m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+		return 0, fmt.Errorf("persisting %s: %w", batchLabel(items), err)
+	}
+	duration := time.Since(start)
+	m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
+	return duration, nil
+}
 
-			ledgerDuration := pl.processDuration + classifyShare + persistShare
-			m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
-			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
-			m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
-			m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
-			m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
+// recordBatchPersisted publishes the batch's per-ledger metrics and returns
+// its buffers to the rotation.
+//
+// Per-ledger phase observations record each ledger's amortized share of the
+// batch, so the histograms keep per-ledger semantics and stay comparable
+// across batch sizes. Duration is the WORK one ledger costs, not wall-clock:
+// stages overlap across ledgers, so the pipeline finishes a ledger every
+// max(stage), not sum(stage). Use LagLedgers to judge whether ingestion keeps
+// up.
+func (m *ingestService) recordBatchPersisted(ctx context.Context, batch []processedLedger, classifyDuration, persistDuration time.Duration, freeBuffers chan<- *indexer.IndexerBuffer, latestIngested *atomic.Uint32) {
+	classifyShare := classifyDuration / time.Duration(len(batch))
+	persistShare := persistDuration / time.Duration(len(batch))
+	for _, pl := range batch {
+		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
 
-			// Publish the just-ingested ledger for the lag updater goroutine.
-			latestIngested.Store(pl.seq)
+		ledgerDuration := pl.processDuration + classifyShare + persistShare
+		m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
+		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
+		m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
+		m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
+		m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
 
-			// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
-			// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
-			// up a protocol-setup/migrate run that has initialized one since — see
-			// reprobeProtocolCursors).
-			if pl.seq%oldestLedgerSyncInterval == 0 {
-				if oldest, syncErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName); syncErr == nil {
-					m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
-				}
-				m.reprobeProtocolCursors(ctx)
+		// Publish the just-ingested ledger for the lag updater goroutine.
+		latestIngested.Store(pl.seq)
+
+		// Periodically sync oldest ledger metric from DB (picks up changes from backfill jobs),
+		// and re-probe protocol cursors that were missing at the last snapshot/re-probe (picks
+		// up a protocol-setup/migrate run that has initialized one since — see
+		// reprobeProtocolCursors).
+		if pl.seq%oldestLedgerSyncInterval == 0 {
+			if oldest, syncErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName); syncErr == nil {
+				m.appMetrics.Ingestion.OldestLedger.Set(float64(oldest))
 			}
-
-			log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", pl.seq, ledgerDuration.Seconds())
-
-			freeBuffers <- pl.buffer
+			m.reprobeProtocolCursors(ctx)
 		}
 
-		// Shift the uncommitted remainder (at most the next batch's head plus
-		// what drained behind it) to the front; the overlapping forward copy
-		// is safe.
-		n := copy(pending, pending[cut:])
-		pending = pending[:n]
+		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", pl.seq, ledgerDuration.Seconds())
+
+		freeBuffers <- pl.buffer
 	}
 }
 
@@ -1112,11 +1144,11 @@ func getEffectiveProtocolContracts(
 // extraction memos likewise ride along unchanged, so a retry never re-runs
 // the extraction walk over a ledger's transactions. A failed attempt rolled
 // everything back, so the retry replays the whole batch.
-func (m *ingestService) persistLedgerDataWithRetry(ctx context.Context, items []persistItem) error {
+func (m *ingestService) persistLedgerDataWithRetry(ctx context.Context, items []persistItem, plan *ClassificationPlan) error {
 	label := batchLabel(items)
 	_, err := utils.RetryWithBackoff(ctx, maxIngestProcessedDataRetries, maxIngestProcessedDataRetryBackoff,
 		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, m.persistLedgerData(ctx, items)
+			return struct{}{}, m.persistLedgerData(ctx, items, plan)
 		},
 		func(attempt int, err error, backoff time.Duration) {
 			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("db_persist").Inc()
