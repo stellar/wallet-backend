@@ -78,10 +78,9 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 		return nil, fmt.Errorf("%w: transaction has no operations", ErrInvalidTransactionXDR)
 	}
 
-	// Where the ledger-entry changes come from depends on the transaction type:
-	// Soroban transactions get them from RPC simulation, classic transactions by
-	// deriving them ourselves. From here both paths share the same synthesis and
-	// processors below.
+	// Soroban transactions get ledger-entry changes from RPC simulation. Classic
+	// derivation is not implemented yet and returns ErrUnsupportedTransaction.
+	// Successful simulation paths then share the synthesis and processing below.
 	var (
 		tx           ingest.LedgerTransaction
 		latestLedger uint32
