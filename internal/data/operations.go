@@ -23,7 +23,11 @@ type OperationModel struct {
 
 func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
-	query := fmt.Sprintf(`SELECT %s FROM operations WHERE id = $1`, columns)
+	var queryBuilder strings.Builder
+	fmt.Fprintf(&queryBuilder, `SELECT %s FROM operations WHERE id = $1`, columns)
+	appendIngestCursorBound(&queryBuilder, "id")
+
+	query := queryBuilder.String()
 	start := time.Now()
 	operation, err := db.QueryOne[types.Operation](ctx, m.DB, query, id)
 	duration := time.Since(start).Seconds()
@@ -246,6 +250,11 @@ func (m *OperationModel) BatchGetByAccountAddress(ctx context.Context, accountAd
 			SELECT operation_id, ledger_created_at
 			FROM operations_accounts
 			WHERE account_id = $1`)
+
+	// Hide rows above the committed cursor. Applied inside the CTE so the bound reaches
+	// the operations_accounts scan, where it prunes chunks, rather than filtering after
+	// the LATERAL probe.
+	appendIngestCursorBound(&queryBuilder, "operation_id")
 
 	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
