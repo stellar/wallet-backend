@@ -64,6 +64,14 @@ type IngestionMetrics struct {
 	// by re-running the protocol-setup CLI.
 	// PromQL: rate(wallet_ingestion_wasm_classification_failures_total[5m]) > 0
 	WasmClassificationFailuresTotal *prometheus.CounterVec
+	// ExternalRefContractsTotal counts contract instances whose executable is a
+	// CAP-0085 external reference: an (owner, tag) pair naming an entry in
+	// another contract's storage rather than a WASM hash. Such a contract is
+	// recorded nowhere and stays unclassified, so a SEP-41 token or Blend pool
+	// deployed this way is absent from contract_tokens and blend_pools.
+	// Any non-zero value means that gap is real and resolution needs building.
+	// PromQL: increase(wallet_ingestion_external_ref_contracts_total[1h]) > 0
+	ExternalRefContractsTotal prometheus.Counter
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -142,6 +150,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_wasm_classification_failures_total",
 			Help: "WASM classification failures by attempted validator (protocol_id label; \"unknown\" if spec extraction failed) and reason. The corresponding protocol_wasms.protocol_id column is left NULL; recover via the protocol-setup CLI.",
 		}, []string{"protocol_id", "reason"}),
+		ExternalRefContractsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "wallet_ingestion_external_ref_contracts_total",
+			Help: "Contract instances skipped because their executable is a CAP-0085 external reference, which carries no WASM hash. These contracts are left unclassified.",
+		}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -161,6 +173,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.StateChangesTotal,
 		m.ProtocolStateProcessingDuration,
 		m.WasmClassificationFailuresTotal,
+		m.ExternalRefContractsTotal,
 	)
 	return m
 }

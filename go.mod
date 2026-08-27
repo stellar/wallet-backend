@@ -24,8 +24,8 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stellar/go-stellar-sdk v0.6.1-0.20260625225930-6181cdf8bda5
-	github.com/stellar/go-xdr v0.0.0-20260529210834-0bf8f4956364
+	github.com/stellar/go-stellar-sdk v0.7.3
+	github.com/stellar/go-xdr v0.0.0-20260806060815-dc590f17552a
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/tetratelabs/wazero v1.10.1

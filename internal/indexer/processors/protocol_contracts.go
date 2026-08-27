@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -71,20 +72,57 @@ func (p *ProtocolContractsProcessor) ProcessOperation(ctx context.Context, opWra
 		if !ok {
 			continue
 		}
-		if instance.Executable.Type != xdr.ContractExecutableTypeContractExecutableWasm {
-			continue
-		}
-		if instance.Executable.WasmHash == nil {
-			continue
-		}
+		// Switched rather than compared so that a protocol adding a fourth
+		// executable kind fails the exhaustive linter instead of being skipped.
+		switch instance.Executable.Type {
+		case xdr.ContractExecutableTypeContractExecutableWasm:
+			if instance.Executable.WasmHash == nil {
+				continue
+			}
 
-		hash := *instance.Executable.WasmHash
+			hash := *instance.Executable.WasmHash
 
-		contracts = append(contracts, data.ProtocolContracts{
-			ContractID: types.HashBytea(hex.EncodeToString(contractIDBytes[:])),
-			WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
-		})
+			contracts = append(contracts, data.ProtocolContracts{
+				ContractID: types.HashBytea(hex.EncodeToString(contractIDBytes[:])),
+				WasmHash:   types.HashBytea(hex.EncodeToString(hash[:])),
+			})
+
+		case xdr.ContractExecutableTypeContractExecutableStellarAsset:
+			// SACs carry no WASM and are tracked by the SAC processors.
+
+		case xdr.ContractExecutableTypeContractExecutableExternalRef:
+			// CAP-0085: the executable is an (owner, tag) pair naming an entry in
+			// another contract's storage, so there is no WASM hash to record and
+			// the contract cannot be classified. Count and log it rather than
+			// dropping it silently, so the gap is visible if one ever appears.
+			if p.metricsService != nil {
+				p.metricsService.ExternalRefContractsTotal.Inc()
+			}
+			log.Ctx(ctx).Warnf(
+				"contract %s has an external-ref executable (%s); leaving it unclassified",
+				hex.EncodeToString(contractIDBytes[:]),
+				DescribeExternalRef(instance.Executable),
+			)
+		}
 	}
 
 	return contracts, nil
+}
+
+// DescribeExternalRef renders a CAP-0085 external reference for a log line.
+// The owner address is best-effort: a reference whose owner will not encode is
+// still worth reporting, so the raw type stands in rather than dropping the
+// whole message.
+func DescribeExternalRef(executable xdr.ContractExecutable) string {
+	// The generated GetExternalRef dereferences the arm pointer once the
+	// discriminant matches, so it is not a nil guard. Check the pointer.
+	ref := executable.ExternalRef
+	if ref == nil {
+		return "external ref missing"
+	}
+	owner, err := ref.ExecutableOwner.String()
+	if err != nil {
+		owner = fmt.Sprintf("unencodable owner of type %s", ref.ExecutableOwner.Type)
+	}
+	return fmt.Sprintf("owner=%s tag=%q", owner, string(ref.Tag))
 }

@@ -52,7 +52,7 @@ const (
 	LedgerValidityBuffer = 100 // Buffer for auth entry validity (ledgers)
 
 	// Protocol configuration
-	DefaultProtocolVersion = 24
+	DefaultProtocolVersion = 28
 
 	// Transaction timeouts (in seconds)
 	DefaultTransactionTimeout  = 300

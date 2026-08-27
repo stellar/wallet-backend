@@ -1101,15 +1101,15 @@ The integration tests spin up a complete Stellar environment using Docker contai
 | Container | Image | Purpose | Exposed Port |
 |-----------|-------|---------|--------------|
 | **Core DB** | `postgres:9.6.17-alpine` | Stellar Core database | 5432 |
-| **Stellar Core** | `stellar/stellar-core:24` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
-| **Stellar RPC** | `stellar/stellar-rpc:24.0.0` | RPC server with captive core | 8000 |
+| **Stellar Core** | `stellar/stellar-core:28` | Standalone network with 8-ledger checkpoints | 11626 (HTTP), 1570 (History) |
+| **Stellar RPC** | `stellar/stellar-rpc:28.0.0` | RPC server with captive core | 8000 |
 | **Wallet DB** | `postgres:14-alpine` | Wallet-backend database | 5432 |
 | **Wallet Ingest** | `wallet-backend:integration-test` | Ingest service processing ledgers | 8003 |
 | **Wallet API** | `wallet-backend:integration-test` | API service serving GraphQL queries | 8002 |
 
 **Network Configuration:**
 - Network: Standalone (`Standalone Network ; February 2017`)
-- Protocol Version: 24 (upgrades automatically on startup)
+- Protocol Version: 28 (upgrades automatically on startup)
 - Checkpoint Frequency: 8 ledgers
 - All containers run on a shared Docker network for inter-service communication
 

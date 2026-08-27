@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -22,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // Test helpers
@@ -1028,6 +1031,134 @@ func TestCheckpointService_ExtractHolderAddress(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+// processContractInstanceChange reads Val as a contract instance, but the
+// caller constrains only Key.Type. Key.Type and Val.Type are independent XDR
+// unions, so a mismatched Val must skip rather than panic the ingest
+// goroutine. Protocol 28 also adds an external-ref executable that carries no
+// WASM hash and so cannot be classified.
+func TestCheckpointService_ProcessContractInstanceChange(t *testing.T) {
+	ingestionMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion
+	svc := &checkpointService{
+		networkPassphrase: network.TestNetworkPassphrase,
+		metricsService:    ingestionMetrics,
+	}
+
+	contractID := xdr.ContractId{0x01, 0x02, 0x03}
+	ownerID := xdr.ContractId{0x09, 0x08, 0x07}
+	contractAddress := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	wasmHash := xdr.Hash{0xaa, 0xbb, 0xcc}
+
+	entryFor := func(val xdr.ScVal) xdr.ContractDataEntry {
+		return xdr.ContractDataEntry{
+			Contract: xdr.ScAddress{
+				Type:       xdr.ScAddressTypeScAddressTypeContract,
+				ContractId: &contractID,
+			},
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+			Val: val,
+		}
+	}
+	instanceVal := func(executable xdr.ContractExecutable) xdr.ScVal {
+		return xdr.ScVal{
+			Type:     xdr.ScValTypeScvContractInstance,
+			Instance: &xdr.ScContractInstance{Executable: executable},
+		}
+	}
+	u32 := xdr.Uint32(7)
+
+	tests := []struct {
+		name           string
+		val            xdr.ScVal
+		expectSkip     bool
+		expectedWasm   *xdr.Hash
+		expectExternal bool
+	}{
+		{
+			name: "wasm executable is recorded",
+			val: instanceVal(xdr.ContractExecutable{
+				Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+				WasmHash: &wasmHash,
+			}),
+			expectSkip:   false,
+			expectedWasm: &wasmHash,
+		},
+		{
+			name: "external-ref executable is skipped without panicking",
+			val: instanceVal(xdr.ContractExecutable{
+				Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+				ExternalRef: &xdr.ContractExecutableExternalRef{
+					ExecutableOwner: xdr.ScAddress{
+						Type:       xdr.ScAddressTypeScAddressTypeContract,
+						ContractId: &ownerID,
+					},
+					Tag: xdr.ScString("fleet-v1"),
+				},
+			}),
+			expectSkip:     true,
+			expectExternal: true,
+		},
+		{
+			name: "external-ref executable with nil pointer is skipped without panicking",
+			val: instanceVal(xdr.ContractExecutable{
+				Type: xdr.ContractExecutableTypeContractExecutableExternalRef,
+			}),
+			expectSkip:     true,
+			expectExternal: true,
+		},
+		{
+			name: "wasm executable with nil hash is skipped",
+			val: instanceVal(xdr.ContractExecutable{
+				Type: xdr.ContractExecutableTypeContractExecutableWasm,
+			}),
+			expectSkip: true,
+		},
+		{
+			name:       "instance Key with non-instance Val is skipped without panicking",
+			val:        xdr.ScVal{Type: xdr.ScValTypeScvU32, U32: &u32},
+			expectSkip: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := entryFor(tc.val)
+			change := ingest.Change{
+				Type: xdr.LedgerEntryTypeContractData,
+				Post: &xdr.LedgerEntry{
+					Data: xdr.LedgerEntryData{
+						Type:         xdr.LedgerEntryTypeContractData,
+						ContractData: &entry,
+					},
+				},
+			}
+
+			before := testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal)
+
+			var result contractInstanceResult
+			require.NotPanics(t, func() {
+				result = svc.processContractInstanceChange(change, contractAddress, entry)
+			})
+
+			delta := testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal) - before
+			if tc.expectExternal {
+				assert.Equal(t, float64(1), delta, "an external-ref executable must be counted, not silently skipped")
+			} else {
+				assert.Zero(t, delta)
+			}
+
+			assert.Equal(t, tc.expectSkip, result.Skip)
+			if tc.expectedWasm != nil {
+				require.NotNil(t, result.WasmHash)
+				assert.Equal(t, *tc.expectedWasm, *result.WasmHash)
+				require.NotNil(t, result.Contract)
+				assert.Equal(t, contractAddress, result.Contract.ContractID)
+			} else {
+				assert.Nil(t, result.WasmHash)
 			}
 		})
 	}

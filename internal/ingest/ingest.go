@@ -252,6 +252,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolWasmsModel:        models.ProtocolWasms,
 		ProtocolContractsModel:    models.ProtocolContracts,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
+		MetricsService:            m.Ingestion,
 	})
 
 	// Create a factory function for parallel backfill (each batch needs its own backend)
