@@ -570,23 +570,24 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 // rather than truncating it. (Contract C... and account G... still pass.)
 func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
 	// A 5-byte-payload strkey encoded under the account version byte: not a real key.
+	// The rejection may come from the decoder or from Value's own length guard, so
+	// assert only that it errors and names the offending address.
 	bogus, err := strkey.Encode(strkey.VersionByteAccountID, []byte{1, 2, 3, 4, 5})
 	require.NoError(t, err)
 
 	_, err = AddressBytea(bogus).Value()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "5-byte")
+	assert.Contains(t, err.Error(), bogus)
 
 	// A checksum-valid muxed strkey with a short (<32-byte) payload must be rejected,
-	// not panic: strkey.DecodeAny does not enforce the version-specific payload length,
-	// so Value must guard before slicing the ed25519 key out of it.
+	// not panic, even when the decoder does not enforce the payload length itself.
 	shortMuxed, err := strkey.Encode(strkey.VersionByteMuxedAccount, []byte{1, 2, 3, 4, 5})
 	require.NoError(t, err)
 	require.NotPanics(t, func() {
 		_, err = AddressBytea(shortMuxed).Value()
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expected 40 bytes")
+	assert.Contains(t, err.Error(), shortMuxed)
 
 	// Control: a normal contract address still encodes fine.
 	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
