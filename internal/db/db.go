@@ -17,11 +17,12 @@ import (
 
 const (
 	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
-	// Live persist alone holds 8 connections at its commit barrier (5 COPY
-	// siblings + the balances and trustlines siblings + the coordinator),
-	// plus the advisory-lock session and up to 2 transient pool-side
-	// classification reads; 12 leaves headroom so no persist-path Acquire
-	// queues behind an unrelated consumer.
+	// MinIngestMaxConns is the smallest pool live persist can run in: 8 connections
+	// held at its commit barrier (the coordinator plus 7 siblings), plus the
+	// advisory-lock session, which is held until the process exits. Below this, a
+	// sibling waits forever for a connection nothing releases.
+	MinIngestMaxConns int32 = 9
+	// DefaultMaxConns leaves headroom for the transient classification reads.
 	DefaultMaxConns        int32         = 12
 	DefaultMinConns        int32         = 5
 	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
