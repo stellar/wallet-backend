@@ -166,9 +166,6 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 			ledgerNumbers[i] = int64(row.tl.LedgerNumber)
 		}
 
-		// The WHERE clause turns updates that would rewrite an identical row
-		// into no-ops: no new tuple version, no dead tuple, no WAL, no index
-		// churn — the update fires only when some column actually differs.
 		const upsertQuery = `
 			INSERT INTO trustline_balances (
 				account_id, asset_id, balance, trust_limit,
@@ -181,12 +178,7 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 				buying_liabilities = EXCLUDED.buying_liabilities,
 				selling_liabilities = EXCLUDED.selling_liabilities,
 				flags = EXCLUDED.flags,
-				last_modified_ledger = EXCLUDED.last_modified_ledger
-			WHERE (trustline_balances.balance, trustline_balances.trust_limit, trustline_balances.buying_liabilities,
-			       trustline_balances.selling_liabilities, trustline_balances.flags, trustline_balances.last_modified_ledger)
-			      IS DISTINCT FROM
-			      (EXCLUDED.balance, EXCLUDED.trust_limit, EXCLUDED.buying_liabilities,
-			       EXCLUDED.selling_liabilities, EXCLUDED.flags, EXCLUDED.last_modified_ledger)`
+				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, assetIDs, balances, limits, buyingLiabilities, sellingLiabilities, flags, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "trustline_balances").Observe(time.Since(start).Seconds())
