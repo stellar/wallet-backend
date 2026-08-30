@@ -144,12 +144,10 @@ func newCheckpointData() checkpointData {
 type batch struct {
 	trustlineBalances         []wbdata.TrustlineBalance
 	nativeBalances            []wbdata.NativeBalance
-	sacBalances               []wbdata.SACBalance
 	liquidityPools            []wbdata.LiquidityPool
 	liquidityPoolBalances     []wbdata.LiquidityPoolBalance
 	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
 	nativeBalanceModel        wbdata.NativeBalanceModelInterface
-	sacBalanceModel           wbdata.SACBalanceModelInterface
 	liquidityPoolModel        wbdata.LiquidityPoolModelInterface
 	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
 }
@@ -157,19 +155,16 @@ type batch struct {
 func newBatch(
 	trustlineBalanceModel wbdata.TrustlineBalanceModelInterface,
 	nativeBalanceModel wbdata.NativeBalanceModelInterface,
-	sacBalanceModel wbdata.SACBalanceModelInterface,
 	liquidityPoolModel wbdata.LiquidityPoolModelInterface,
 	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface,
 ) *batch {
 	return &batch{
 		trustlineBalances:         make([]wbdata.TrustlineBalance, 0, flushBatchSize),
 		nativeBalances:            make([]wbdata.NativeBalance, 0, flushBatchSize),
-		sacBalances:               make([]wbdata.SACBalance, 0, flushBatchSize),
 		liquidityPools:            make([]wbdata.LiquidityPool, 0, flushBatchSize),
 		liquidityPoolBalances:     make([]wbdata.LiquidityPoolBalance, 0, flushBatchSize),
 		trustlineBalanceModel:     trustlineBalanceModel,
 		nativeBalanceModel:        nativeBalanceModel,
-		sacBalanceModel:           sacBalanceModel,
 		liquidityPoolModel:        liquidityPoolModel,
 		liquidityPoolBalanceModel: liquidityPoolBalanceModel,
 	}
@@ -200,10 +195,6 @@ func (b *batch) addNativeBalance(accountAddress string, balance, minimumBalance,
 	})
 }
 
-func (b *batch) addSACBalance(sacBalance wbdata.SACBalance) {
-	b.sacBalances = append(b.sacBalances, sacBalance)
-}
-
 func (b *batch) addLiquidityPool(pool wbdata.LiquidityPool) {
 	b.liquidityPools = append(b.liquidityPools, pool)
 }
@@ -225,13 +216,6 @@ func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
 	if err := b.nativeBalanceModel.BatchCopy(ctx, dbTx, b.nativeBalances); err != nil {
 		return fmt.Errorf("batch inserting native balances: %w", err)
 	}
-	// SAC balances are inserted here from their shape, but only kept if their contract
-	// is confirmed as a SAC. finalize deletes any that lack a verified contract_tokens
-	// parent before COMMIT, so the deferred fk_contract_token holds. Because the FK is
-	// DEFERRABLE INITIALLY DEFERRED, inserting an as-yet-unparented row here is safe.
-	if err := b.sacBalanceModel.BatchCopy(ctx, dbTx, b.sacBalances); err != nil {
-		return fmt.Errorf("batch inserting SAC balances: %w", err)
-	}
 	if err := b.liquidityPoolModel.BatchCopy(ctx, dbTx, b.liquidityPools); err != nil {
 		return fmt.Errorf("batch inserting liquidity pools: %w", err)
 	}
@@ -242,14 +226,13 @@ func (b *batch) flush(ctx context.Context, dbTx pgx.Tx) error {
 }
 
 func (b *batch) count() int {
-	return len(b.trustlineBalances) + len(b.nativeBalances) + len(b.sacBalances) +
+	return len(b.trustlineBalances) + len(b.nativeBalances) +
 		len(b.liquidityPools) + len(b.liquidityPoolBalances)
 }
 
 func (b *batch) reset() {
 	b.trustlineBalances = b.trustlineBalances[:0]
 	b.nativeBalances = b.nativeBalances[:0]
-	b.sacBalances = b.sacBalances[:0]
 	b.liquidityPools = b.liquidityPools[:0]
 	b.liquidityPoolBalances = b.liquidityPoolBalances[:0]
 }
@@ -271,11 +254,13 @@ type checkpointProcessor struct {
 	// call; PopulateFromCheckpoint fetches metadata for these IDs in a short
 	// follow-up transaction after the load commits.
 	pendingSACMetadata []string
-	// sawSACBalance records whether any SAC-shaped balance entry was streamed to the
-	// batch during the scan. Such entries are inserted from their shape alone, so if any
-	// were seen, finalize runs a cleanup that deletes the rows whose contract is not a
-	// confirmed SAC before COMMIT (see deleteUnverifiedSACBalances).
-	sawSACBalance bool
+	// pendingSACBalances holds SAC-shaped balance entries seen during the scan. They
+	// are not written to the batch during the pass because a balance entry's shape does
+	// not by itself identify its contract as a SAC. finalize keeps only those whose
+	// contract was confirmed as a SAC via its instance entry (uniqueContractTokens with
+	// type=SAC), then copies them in — before the deferred fk_contract_token is checked
+	// at COMMIT.
+	pendingSACBalances []wbdata.SACBalance
 }
 
 // PopulateFromCheckpoint performs initial cache population from Stellar history archive.
@@ -318,7 +303,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			dbTx:                        dbTx,
 			checkpointLedger:            checkpointLedger,
 			data:                        newCheckpointData(),
-			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.sacBalanceModel, s.liquidityPoolModel, s.liquidityPoolBalanceModel),
+			batch:                       newBatch(s.trustlineBalanceModel, s.nativeBalanceModel, s.liquidityPoolModel, s.liquidityPoolBalanceModel),
 			wasmClassifications:         make(map[xdr.Hash]types.ContractType),
 			contractAddressesByWasmHash: make(map[xdr.Hash][]xdr.Hash),
 			startTime:                   time.Now(),
@@ -532,13 +517,14 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 
 			_, _, ok := sac.ContractBalanceFromContractData(*change.Post, p.service.networkPassphrase)
 			if ok {
-				// Shape matches a SAC balance. Stream it to the batch, but do NOT create
-				// a contract_tokens row from the balance shape: the instance entry is the
-				// authoritative source of a contract's type and metadata. finalize deletes
-				// any balance whose contract is not a confirmed SAC before COMMIT.
+				// Shape matches a SAC balance, but that alone does not identify the
+				// contract as a SAC. Defer the balance to finalize, which keeps it
+				// only if the contract was confirmed via its instance entry. Do NOT
+				// create a contract_tokens row from the balance shape: the instance
+				// entry is the authoritative source of a contract's type and metadata.
 				contractUUID := wbdata.DeterministicContractID(contractAddressStr)
 				balanceStr, authorized, clawback := p.service.extractSACBalanceFields(contractDataEntry.Val)
-				p.batch.addSACBalance(wbdata.SACBalance{
+				p.pendingSACBalances = append(p.pendingSACBalances, wbdata.SACBalance{
 					AccountID:         types.AddressBytea(holderAddress),
 					ContractID:        contractUUID,
 					Balance:           balanceStr,
@@ -546,7 +532,6 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 					IsClawbackEnabled: clawback,
 					LedgerNumber:      p.checkpointLedger,
 				})
-				p.sawSACBalance = true
 				p.entries++
 			}
 		}
@@ -604,17 +589,32 @@ func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
 		return fmt.Errorf("storing tokens in postgres: %w", err)
 	}
 
-	// SAC balances were streamed in from their shape alone. Now that contract_tokens is
-	// fully populated (above), delete any SAC balance whose contract is not a confirmed
-	// SAC. This runs before COMMIT, so every remaining balance has a verified
-	// contract_tokens parent and the deferred fk_contract_token holds.
-	if p.sawSACBalance {
-		deleted, err := p.service.sacBalanceModel.DeleteUnverified(ctx, dbTx)
-		if err != nil {
-			return fmt.Errorf("deleting unverified SAC balances: %w", err)
+	// Persist SAC balances, but only for contracts confirmed as SAC via their
+	// instance entry. The scan populated uniqueContractTokens; a balance whose
+	// contract is not among them is not a SAC balance and is dropped. This also
+	// guarantees every retained balance has a contract_tokens parent, so the
+	// deferred fk_contract_token holds at COMMIT.
+	verifiedSAC := make(map[uuid.UUID]struct{}, len(p.data.uniqueContractTokens))
+	for id, contract := range p.data.uniqueContractTokens {
+		if contract.Type == string(types.ContractTypeSAC) {
+			verifiedSAC[id] = struct{}{}
 		}
-		if deleted > 0 {
-			log.Ctx(ctx).Warnf("checkpoint: deleted %d SAC balance(s) for contracts not verified as SAC", deleted)
+	}
+	keptSACBalances := p.pendingSACBalances[:0]
+	skippedSACBalances := 0
+	for _, bal := range p.pendingSACBalances {
+		if _, ok := verifiedSAC[bal.ContractID]; ok {
+			keptSACBalances = append(keptSACBalances, bal)
+		} else {
+			skippedSACBalances++
+		}
+	}
+	if skippedSACBalances > 0 {
+		log.Ctx(ctx).Warnf("checkpoint: skipped %d SAC balance(s) for contracts not verified as SAC", skippedSACBalances)
+	}
+	if len(keptSACBalances) > 0 {
+		if err := p.service.sacBalanceModel.BatchCopy(ctx, dbTx, keptSACBalances); err != nil {
+			return fmt.Errorf("copying verified SAC balances: %w", err)
 		}
 	}
 

@@ -235,11 +235,6 @@ func (m *SACBalanceModelMock) BatchCopy(ctx context.Context, dbTx pgx.Tx, balanc
 	return args.Error(0)
 }
 
-func (m *SACBalanceModelMock) DeleteUnverified(ctx context.Context, dbTx pgx.Tx) (int64, error) {
-	args := m.Called(ctx, dbTx)
-	return args.Get(0).(int64), args.Error(1)
-}
-
 // ProtocolWasmsModelMock is a mock implementation of ProtocolWasmsModelInterface.
 type ProtocolWasmsModelMock struct {
 	mock.Mock

@@ -47,13 +47,6 @@ type SACBalanceModelInterface interface {
 
 	// Batch operations (for initial population)
 	BatchCopy(ctx context.Context, dbTx pgx.Tx, balances []SACBalance) error
-
-	// DeleteUnverified removes every sac_balances row whose contract is not present in
-	// contract_tokens as a SAC (type='SAC'), returning the number deleted. Checkpoint
-	// population streams balances in from their shape and calls this in finalize, once
-	// contract_tokens is fully populated, to drop rows for contracts not confirmed as
-	// SACs — before the deferred fk_contract_token is checked at COMMIT.
-	DeleteUnverified(ctx context.Context, dbTx pgx.Tx) (int64, error)
 }
 
 // SACBalanceModel implements SACBalanceModelInterface.
@@ -207,26 +200,6 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 	return nil
-}
-
-// DeleteUnverified removes sac_balances rows whose contract is not a SAC in contract_tokens.
-func (m *SACBalanceModel) DeleteUnverified(ctx context.Context, dbTx pgx.Tx) (int64, error) {
-	const query = `
-		DELETE FROM sac_balances sb
-		WHERE NOT EXISTS (
-			SELECT 1 FROM contract_tokens ct
-			WHERE ct.id = sb.contract_id AND ct.type = $1
-		)`
-
-	start := time.Now()
-	tag, err := dbTx.Exec(ctx, query, string(types.ContractTypeSAC))
-	m.Metrics.QueryDuration.WithLabelValues("DeleteUnverified", "sac_balances").Observe(time.Since(start).Seconds())
-	m.Metrics.QueriesTotal.WithLabelValues("DeleteUnverified", "sac_balances").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("DeleteUnverified", "sac_balances", utils.GetDBErrorType(err)).Inc()
-		return 0, fmt.Errorf("deleting unverified SAC balances: %w", err)
-	}
-	return tag.RowsAffected(), nil
 }
 
 // BatchCopy performs bulk insert using COPY protocol for speed during checkpoint population.
