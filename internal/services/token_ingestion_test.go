@@ -395,7 +395,6 @@ func TestProcessSACBalanceChanges_GatesOnVerifiedSAC(t *testing.T) {
 
 	service := NewTokenIngestionService(TokenIngestionServiceConfig{
 		SACBalanceModel:   sacBalanceModel,
-		ContractModel:     contractModel,
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 	})
 

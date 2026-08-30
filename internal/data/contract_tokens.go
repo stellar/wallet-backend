@@ -30,17 +30,12 @@ func DeterministicContractID(contractID string) uuid.UUID {
 // ContractModelInterface defines the interface for contract token operations.
 type ContractModelInterface interface {
 	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
-	// GetExistingSACByID returns which of the given deterministic contract UUIDs
-	// exist in contract_tokens as a SAC (type='SAC'). Used to associate SAC balances
-	// only with contracts confirmed to be SACs via their instance entry (see
-	// sac.AssetFromContractData in the sac_instances processor), since a balance
-	// entry's shape alone does not identify the contract as a SAC.
-	GetExistingSACByID(ctx context.Context, dbTx pgx.Tx, ids []uuid.UUID) ([]uuid.UUID, error)
 	// GetSACContractsMissingMetadata returns the contract_id of every SAC-typed row
-	// whose name is still NULL — a balance-derived SAC row created with ledger-derived
-	// defaults whose RPC enrichment has not yet succeeded. Enrichment populates name
-	// (see BatchUpdateMetadata), so an enriched row drops out of the result and the set
-	// converges to empty. Reads through any db.Querier (pool or transaction).
+	// whose name is still NULL, i.e. whose RPC enrichment has not yet succeeded.
+	// Enrichment populates name (see BatchUpdateMetadata), so an enriched row drops
+	// out of the result and the set converges to empty. Instance-derived SAC rows are
+	// created with full metadata, so only rows from pre-existing data can match.
+	// Reads through any db.Querier (pool or transaction).
 	GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
@@ -93,27 +88,6 @@ func (m *ContractModel) GetExisting(ctx context.Context, dbTx pgx.Tx, contractID
 		return nil, fmt.Errorf("querying existing contract IDs: %w", err)
 	}
 	return ids, nil
-}
-
-// GetExistingSACByID returns which of the given deterministic contract UUIDs
-// exist in contract_tokens verified as SAC (type='SAC').
-func (m *ContractModel) GetExistingSACByID(ctx context.Context, dbTx pgx.Tx, ids []uuid.UUID) ([]uuid.UUID, error) {
-	if len(ids) == 0 {
-		return nil, nil
-	}
-
-	const query = `SELECT id FROM contract_tokens WHERE id = ANY($1) AND type = $2`
-
-	start := time.Now()
-	found, err := db.QueryMany[uuid.UUID](ctx, dbTx, query, ids, string(types.ContractTypeSAC))
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetExistingSACByID", "contract_tokens").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetExistingSACByID", "contract_tokens").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("GetExistingSACByID", "contract_tokens", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("querying existing SAC contract IDs: %w", err)
-	}
-	return found, nil
 }
 
 // GetSACContractsMissingMetadata returns the contract_id of every SAC-typed

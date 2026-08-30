@@ -111,7 +111,11 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 }
 
 // BatchUpsert performs upserts and deletes for SAC balances using UNNEST for efficiency.
-// For upserts (ADD/UPDATE): inserts or updates balance with authorization flags.
+// For upserts (ADD/UPDATE): inserts or updates balance with authorization flags. The
+// insert arm joins contract_tokens on type='SAC', so a balance is written only when its
+// contract is confirmed as a SAC via its instance entry; balance-shaped entries from
+// arbitrary contracts are silently dropped. This also keeps every sac_balances row
+// backed by a contract_tokens parent, so the deferred fk_contract_token holds at COMMIT.
 // For deletes (REMOVE): removes the balance row.
 func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []SACBalance, deletes []SACBalance) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
@@ -152,13 +156,14 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 			SELECT u.account_id, u.contract_id, u.balance::numeric, u.is_authorized, u.is_clawback_enabled, u.last_modified_ledger
 			FROM UNNEST($1::bytea[], $2::uuid[], $3::text[], $4::boolean[], $5::boolean[], $6::int[])
 				AS u(account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger)
+			JOIN contract_tokens ct ON ct.id = u.contract_id AND ct.type = $7
 			ON CONFLICT (account_id, contract_id) DO UPDATE SET
 				balance = EXCLUDED.balance,
 				is_authorized = EXCLUDED.is_authorized,
 				is_clawback_enabled = EXCLUDED.is_clawback_enabled,
 				last_modified_ledger = EXCLUDED.last_modified_ledger`
 
-		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, isAuthorized, isClawbackEnabled, ledgerNumbers); err != nil {
+		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, isAuthorized, isClawbackEnabled, ledgerNumbers, string(types.ContractTypeSAC)); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())
 			m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", "sac_balances").Inc()
 			m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", "sac_balances", utils.GetDBErrorType(err)).Inc()

@@ -248,11 +248,11 @@ type checkpointProcessor struct {
 	contractAddressesByWasmHash                       map[xdr.Hash][]xdr.Hash
 	entries, trustlineCount, accountCount, batchCount int
 	startTime                                         time.Time
-	// pendingSACMetadata holds contract IDs for SAC contracts discovered
-	// during the load whose name/symbol/decimals weren't available from
-	// ledger data alone. finalize populates this without making any RPC
-	// call; PopulateFromCheckpoint fetches metadata for these IDs in a short
-	// follow-up transaction after the load commits.
+	// pendingSACMetadata holds contract IDs of SAC rows still missing
+	// name/symbol/decimals after the load. Instance-derived SAC rows carry
+	// full metadata, so this is normally empty. finalize populates this
+	// without making any RPC call; PopulateFromCheckpoint fetches metadata
+	// for these IDs in a short follow-up transaction after the load commits.
 	pendingSACMetadata []string
 	// pendingSACBalances holds SAC-shaped balance entries seen during the scan. They
 	// are not written to the batch during the pass because a balance entry's shape does
@@ -572,12 +572,12 @@ func (p *checkpointProcessor) flushRemainingBatch(ctx context.Context) error {
 // finalize identifies SEP-41 contracts, fetches metadata, stores tokens in DB,
 // and persists protocol WASMs and contracts.
 func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
-	// Identify SAC contracts missing code/issuer. Their rows are stored below
-	// with ledger-derived defaults (Code/Name/Symbol/Decimals unset); metadata
-	// is fetched via RPC and applied afterward, in a short follow-up
-	// transaction once this load has committed (see PopulateFromCheckpoint /
-	// enrichSACMetadata) so RPC round-trips never extend this transaction's
-	// row locks.
+	// Identify SAC contracts missing code/issuer. SAC rows are created from
+	// their instance entry with full metadata, so this is normally empty; any
+	// row still missing metadata gets it fetched via RPC afterward, in a short
+	// follow-up transaction once this load has committed (see
+	// PopulateFromCheckpoint / enrichSACMetadata) so RPC round-trips never
+	// extend this transaction's row locks.
 	for _, contract := range p.data.uniqueContractTokens {
 		if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
 			p.pendingSACMetadata = append(p.pendingSACMetadata, contract.ContractID)

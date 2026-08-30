@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
@@ -30,7 +29,6 @@ type TokenIngestionServiceConfig struct {
 	TrustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
 	NativeBalanceModel        wbdata.NativeBalanceModelInterface
 	SACBalanceModel           wbdata.SACBalanceModelInterface
-	ContractModel             wbdata.ContractModelInterface
 	LiquidityPoolModel        wbdata.LiquidityPoolModelInterface
 	LiquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
 	NetworkPassphrase         string
@@ -41,7 +39,6 @@ type tokenIngestionService struct {
 	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
 	nativeBalanceModel        wbdata.NativeBalanceModelInterface
 	sacBalanceModel           wbdata.SACBalanceModelInterface
-	contractModel             wbdata.ContractModelInterface
 	liquidityPoolModel        wbdata.LiquidityPoolModelInterface
 	liquidityPoolBalanceModel wbdata.LiquidityPoolBalanceModelInterface
 	networkPassphrase         string
@@ -53,7 +50,6 @@ func NewTokenIngestionService(cfg TokenIngestionServiceConfig) *tokenIngestionSe
 		trustlineBalanceModel:     cfg.TrustlineBalanceModel,
 		nativeBalanceModel:        cfg.NativeBalanceModel,
 		sacBalanceModel:           cfg.SACBalanceModel,
-		contractModel:             cfg.ContractModel,
 		liquidityPoolModel:        cfg.LiquidityPoolModel,
 		liquidityPoolBalanceModel: cfg.LiquidityPoolBalanceModel,
 		networkPassphrase:         cfg.NetworkPassphrase,
@@ -160,41 +156,18 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 	}
 
 	// A SAC balance entry's shape (key ["Balance", holder], value {amount, authorized,
-	// clawback}) does not by itself identify the contract as a SAC — any contract can
-	// write an entry of that shape into its own storage. Record a balance only for a
-	// contract confirmed to be a SAC via its instance entry (present in contract_tokens
-	// with type='SAC', inserted earlier in this same transaction by prepareNewSACContracts
-	// or in a prior ledger). This also keeps every sac_balances row backed by a
-	// contract_tokens parent, so the fk_contract_token constraint holds at COMMIT.
-	contractIDSet := make(map[uuid.UUID]struct{}, len(changesByKey))
-	for _, change := range changesByKey {
-		contractIDSet[wbdata.DeterministicContractID(change.ContractID)] = struct{}{}
-	}
-	contractIDs := make([]uuid.UUID, 0, len(contractIDSet))
-	for id := range contractIDSet {
-		contractIDs = append(contractIDs, id)
-	}
-	verifiedIDs, err := s.contractModel.GetExistingSACByID(ctx, dbTx, contractIDs)
-	if err != nil {
-		return fmt.Errorf("checking verified SAC contracts: %w", err)
-	}
-	verified := make(map[uuid.UUID]struct{}, len(verifiedIDs))
-	for _, id := range verifiedIDs {
-		verified[id] = struct{}{}
-	}
-
+	// clawback}) does not by itself identify the contract as a SAC: any contract can
+	// write an entry of that shape into its own storage. BatchUpsert's insert arm joins
+	// contract_tokens on type='SAC', so a balance is recorded only for a contract
+	// confirmed as a SAC via its instance entry (inserted earlier in this same
+	// transaction by prepareNewSACContracts or in a prior ledger); the rest are dropped.
+	// A REMOVE for an unverified contract matches no row, so deletes need no gating.
 	var upserts []wbdata.SACBalance
 	var deletes []wbdata.SACBalance
-	var skipped int
 	for _, change := range changesByKey {
-		contractID := wbdata.DeterministicContractID(change.ContractID)
-		if _, ok := verified[contractID]; !ok {
-			skipped++
-			continue
-		}
 		sacBal := wbdata.SACBalance{
 			AccountID:         types.AddressBytea(change.AccountID),
-			ContractID:        contractID,
+			ContractID:        wbdata.DeterministicContractID(change.ContractID),
 			Balance:           change.Balance,
 			IsAuthorized:      change.IsAuthorized,
 			IsClawbackEnabled: change.IsClawbackEnabled,
@@ -205,9 +178,6 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		} else {
 			upserts = append(upserts, sacBal)
 		}
-	}
-	if skipped > 0 {
-		log.Ctx(ctx).Warnf("skipped %d SAC balance change(s) for contracts not verified as SAC", skipped)
 	}
 
 	if len(upserts) > 0 || len(deletes) > 0 {
