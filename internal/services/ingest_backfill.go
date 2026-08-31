@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -17,6 +18,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
+
+// errBackfillBatchNotStarted prevents a task closure skipped by Pond from
+// leaving an untouched result that looks successful.
+var errBackfillBatchNotStarted = errors.New("backfill batch was cancelled before starting")
 
 // BackfillBatch represents a contiguous range of ledgers to process as a unit.
 type BackfillBatch struct {
@@ -83,7 +88,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
 
 	startTime := time.Now()
-	results := m.processBackfillBatchesParallel(ctx, backfillBatches, recompressor)
+	results, groupErr := m.processBackfillBatchesParallel(ctx, backfillBatches, recompressor)
 	duration := time.Since(startTime)
 
 	analyzeBatchResults(ctx, results)
@@ -92,6 +97,10 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	// batches failed — already-compressed chunks contain valid data and compress_chunk
 	// is idempotent.
 	recompressor.Wait()
+
+	if groupErr != nil {
+		return fmt.Errorf("processing backfill batches: %w", groupErr)
+	}
 
 	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches", duration, len(backfillBatches))
 	return nil
@@ -184,8 +193,15 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 // processBackfillBatchesParallel processes backfill batches in parallel using a worker pool.
 // Data is inserted uncompressed; the progressive recompressor compresses chunks via
 // compress_chunk() as contiguous batches complete.
-func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch, recompressor *progressiveRecompressor) []BackfillResult {
+func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batches []BackfillBatch, recompressor *progressiveRecompressor) ([]BackfillResult, error) {
 	results := make([]BackfillResult, len(batches))
+	for i, batch := range batches {
+		results[i] = BackfillResult{
+			Batch: batch,
+			Error: errBackfillBatchNotStarted,
+		}
+	}
+
 	group := m.backfillPool.NewGroupContext(ctx)
 
 	for i, batch := range batches {
@@ -197,11 +213,17 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batc
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		log.Ctx(ctx).Warnf("Backfill batch group wait returned error: %v", err)
+	groupErr := group.Wait()
+	if groupErr != nil {
+		groupErr = fmt.Errorf("waiting for backfill task group: %w", groupErr)
+		for i := range results {
+			if errors.Is(results[i].Error, errBackfillBatchNotStarted) {
+				results[i].Error = fmt.Errorf("%w: %w", errBackfillBatchNotStarted, groupErr)
+			}
+		}
 	}
 
-	return results
+	return results, groupErr
 }
 
 // processSingleBatch processes a single backfill batch with its own ledger backend.

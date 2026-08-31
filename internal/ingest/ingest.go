@@ -133,7 +133,7 @@ func Ingest(cfg Configs) error {
 
 	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger))
 	if runErr != nil {
-		if isShutdownRequested(ctx, runErr) {
+		if isCleanShutdown(ctx, runErr, cfg.IngestionMode) {
 			log.Ctx(ctx).Infof("shutdown requested; exiting cleanly: %v", runErr)
 			return nil
 		}
@@ -143,12 +143,16 @@ func Ingest(cfg Configs) error {
 	return nil
 }
 
-// isShutdownRequested classifies a Run error as a clean-exit shutdown (root
-// ctx cancelled by SIGINT/SIGTERM) versus a genuine failure. ctx is checked
-// directly rather than just err, since a cancellation can surface through
-// several different wrapped errors depending on where in the ingest loop it
-// was observed.
-func isShutdownRequested(ctx context.Context, err error) bool {
+// isCleanShutdown classifies a live-ingest Run error as a clean-exit shutdown
+// (root ctx cancelled by SIGINT/SIGTERM) versus a genuine failure. Bounded
+// backfills must report cancellation as incomplete rather than successful.
+// ctx is checked directly rather than just err, since a cancellation can
+// surface through several different wrapped errors depending on where in the
+// ingest loop it was observed.
+func isCleanShutdown(ctx context.Context, err error, ingestionMode string) bool {
+	if ingestionMode != services.IngestionModeLive {
+		return false
+	}
 	if ctx.Err() != nil {
 		return true
 	}

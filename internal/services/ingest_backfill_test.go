@@ -2,12 +2,81 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/alitto/pond/v2"
+	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func Test_ingestService_processBackfillBatchesParallel_queuedCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := pond.NewPool(1)
+	defer pool.StopAndWait()
+
+	firstBatchStarted := make(chan struct{})
+	releaseFirstBatch := make(chan struct{})
+	firstBatchErr := errors.New("first batch released")
+
+	svc := &ingestService{
+		backfillPool: pool,
+		ledgerBackendFactory: func(context.Context) (ledgerbackend.LedgerBackend, error) {
+			close(firstBatchStarted)
+			<-releaseFirstBatch
+			return nil, firstBatchErr
+		},
+	}
+	batches := []BackfillBatch{
+		{StartLedger: 100, EndLedger: 109},
+		{StartLedger: 110, EndLedger: 119},
+		{StartLedger: 120, EndLedger: 129},
+	}
+
+	type batchRunResult struct {
+		results []BackfillResult
+		err     error
+	}
+	resultsCh := make(chan batchRunResult, 1)
+	go func() {
+		results, err := svc.processBackfillBatchesParallel(ctx, batches, nil)
+		resultsCh <- batchRunResult{results: results, err: err}
+	}()
+
+	select {
+	case <-firstBatchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first backfill batch did not start")
+	}
+	cancel()
+	close(releaseFirstBatch)
+
+	var runResult batchRunResult
+	select {
+	case runResult = <-resultsCh:
+	case <-time.After(time.Second):
+		t.Fatal("backfill batches did not settle after cancellation")
+	}
+
+	require.ErrorIs(t, runResult.err, context.Canceled,
+		"a cancelled task group must make the bounded backfill incomplete")
+	results := runResult.results
+	require.Len(t, results, len(batches))
+	for i, result := range results {
+		assert.Equal(t, batches[i], result.Batch)
+	}
+	require.ErrorIs(t, results[0].Error, firstBatchErr)
+	for _, result := range results[1:] {
+		require.ErrorIs(t, result.Error, errBackfillBatchNotStarted,
+			"queued batch must be explicitly marked not started")
+		require.ErrorIs(t, result.Error, context.Canceled)
+	}
+	assert.Equal(t, len(batches), analyzeBatchResults(ctx, results),
+		"cancelled queued batches must prevent the backfill from reporting success")
+}
 
 // newTestRecompressor creates a progressiveRecompressor for testing watermark logic.
 // No background goroutine is started; triggerCh is buffered for direct inspection.
