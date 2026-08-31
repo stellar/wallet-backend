@@ -16,6 +16,14 @@ on:
           - dev
           - stg
           - prd
+      deploy_to_dev:
+        description: >-
+          Also deploy this image to the SHARED wallet-eng-dev environment.
+          Only has an effect when environment is dev. Leave unchecked for
+          sandbox/preview builds — the sandbox pins the plain <sha> tag
+          either way and does not need this.
+        type: boolean
+        default: false
 
 permissions:
   id-token: write
@@ -46,9 +54,41 @@ jobs:
           echo "Target namespace: $namespace"
           echo "namespace=$namespace" >> "$GITHUB_OUTPUT"
 
+      # The plain <sha> tag is what per-engineer sandboxes pin, and is always
+      # pushed. The `dev-` prefixed tag is what the shared wallet-eng-dev
+      # ArgoCD ImageUpdater watches (allowTags: regexp:^dev-), so it is pushed
+      # only when a dev build explicitly opts in.
+      #
+      # Before this split the updater followed the plain <sha> tags with
+      # newest-build and no filter, so ANY branch build captured shared dev.
+      # That is not hypothetical: as of 2026-08-31 shared dev is running
+      # 4711f6ca, built from the still-open PR #699.
       - name: Build and push image
         env:
-          TAG: ${{ steps.ecr-login.outputs.ecr-registry }}/${{ steps.target.outputs.namespace }}/wallet-backend:${{ github.sha }}
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.ecr-registry }}
+          NAMESPACE: ${{ steps.target.outputs.namespace }}
+          SHA: ${{ github.sha }}
+          DEPLOY_TO_DEV: ${{ inputs.deploy_to_dev }}
         run: |
+          set -eu
+          export TAG="${ECR_REGISTRY}/${NAMESPACE}/wallet-backend:${SHA}"
           make docker-build
           ecr-push "$TAG"
+
+          # Only the dev namespace has an opt-in shared environment. Say so
+          # out loud rather than ignoring the checkbox silently, so a stg or
+          # prd build with the box ticked does not look like it deployed.
+          if [ "${DEPLOY_TO_DEV}" != "true" ]; then
+            echo "Pushed ${TAG}. No dev- tag was published."
+            echo "Pin this tag in your sandbox."
+          elif [ "${NAMESPACE}" != "dev" ]; then
+            echo "Pushed ${TAG}."
+            echo "deploy_to_dev was checked but environment is '${NAMESPACE}', not 'dev'."
+            echo "No dev- tag was published and shared wallet-eng-dev is unchanged."
+          else
+            DEV_TAG="${ECR_REGISTRY}/dev/wallet-backend:dev-${SHA}"
+            docker tag "$TAG" "$DEV_TAG"
+            ecr-push "$DEV_TAG"
+            echo "Pushed ${TAG} and ${DEV_TAG}."
+            echo "The dev- tag is the one shared wallet-eng-dev follows."
+          fi
