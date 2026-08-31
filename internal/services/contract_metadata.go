@@ -1,5 +1,6 @@
 // Package services provides business logic for the wallet-backend.
-// This file implements ContractMetadataService for fetching SAC token metadata via RPC.
+// This file implements ContractMetadataService, an RPC-simulation helper for
+// reading single contract fields (name, symbol, decimals, balance, ...).
 package services
 
 import (
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -24,13 +24,9 @@ import (
 const (
 	// SimulateTransactionBatchSize is the number of contracts to process in parallel
 	// when fetching metadata via RPC simulation. Exported so callers that size a
-	// worker pool to serve this batch size (cmd/ingest's contract-metadata pool,
-	// the SEP-41 validator's private pool) reference the same value instead of a
-	// hardcoded copy that can drift out of sync.
+	// worker pool to serve this batch size (the SEP-41 validator's private pool)
+	// reference the same value instead of a hardcoded copy that can drift out of sync.
 	SimulateTransactionBatchSize = 20
-
-	// batchSleepDuration is the delay between batches to avoid overwhelming the RPC.
-	batchSleepDuration = 2 * time.Second
 )
 
 // simulateMaxAttempts is the upper bound on retries for transient RPC failures
@@ -77,10 +73,9 @@ func isTransientSimulateErr(err error) bool {
 	return false
 }
 
-// ContractMetadataService handles fetching metadata for Stellar Asset Contract
-// (SAC) tokens via RPC simulation. Protocol-specific metadata (e.g. SEP-41
-// name/symbol/decimals) lives inside the per-protocol package — this surface
-// is intentionally limited to SAC (a Stellar primitive) plus the
+// ContractMetadataService fetches contract state via RPC simulation.
+// Protocol-specific metadata (e.g. SEP-41 name/symbol/decimals) lives inside
+// the per-protocol package; this surface is intentionally limited to the
 // FetchSingleField primitive that any per-protocol validator can compose on.
 type ContractMetadataService interface {
 	// FetchSingleField fetches a single contract method (name, symbol, decimals, balance, etc...) via RPC simulation.
@@ -92,25 +87,17 @@ var _ ContractMetadataService = (*contractMetadataService)(nil)
 
 type contractMetadataService struct {
 	rpcService   RPCService
-	pool         pond.Pool
 	dummyAccount *keypair.Full
 }
 
 // NewContractMetadataService creates a new ContractMetadataService instance.
-func NewContractMetadataService(
-	rpcService RPCService,
-	pool pond.Pool,
-) (ContractMetadataService, error) {
+func NewContractMetadataService(rpcService RPCService) (ContractMetadataService, error) {
 	if rpcService == nil {
 		return nil, fmt.Errorf("rpcService cannot be nil")
-	}
-	if pool == nil {
-		return nil, fmt.Errorf("pool cannot be nil")
 	}
 
 	return &contractMetadataService{
 		rpcService:   rpcService,
-		pool:         pool,
 		dummyAccount: keypair.MustRandom(),
 	}, nil
 }

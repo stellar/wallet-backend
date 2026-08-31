@@ -7,7 +7,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -32,24 +31,15 @@ func ptrToScString(s string) *xdr.ScString {
 
 func TestNewContractMetadataService(t *testing.T) {
 	t.Run("returns error when rpcService is nil", func(t *testing.T) {
-		_, err := NewContractMetadataService(nil, pond.NewPool(0))
+		_, err := NewContractMetadataService(nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "rpcService cannot be nil")
 	})
 
-	t.Run("returns error when pool is nil", func(t *testing.T) {
-		mockRPCService := NewRPCServiceMock(t)
-		_, err := NewContractMetadataService(mockRPCService, nil)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "pool cannot be nil")
-	})
-
 	t.Run("creates service successfully", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(0)
-		defer pool.Stop()
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		assert.NoError(t, err)
 		assert.NotNil(t, service)
 	})
@@ -60,10 +50,7 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns error for invalid contract address", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -75,16 +62,13 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns error when RPC simulation fails", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
 			entities.RPCSimulateTransactionResult{}, errors.New("network error"),
 		)
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -97,9 +81,6 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns error when simulation result has error", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
@@ -107,7 +88,7 @@ func TestFetchSingleField(t *testing.T) {
 			nil,
 		)
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -120,9 +101,6 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns error when no results returned", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		mockRPCService.On("SimulateTransaction", mock.Anything, mock.Anything).Return(
@@ -130,7 +108,7 @@ func TestFetchSingleField(t *testing.T) {
 			nil,
 		)
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -142,9 +120,6 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns correct value for successful simulation", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		expectedScVal := xdr.ScVal{Type: xdr.ScValTypeScvString, Str: ptrToScString("TestToken")}
@@ -156,7 +131,7 @@ func TestFetchSingleField(t *testing.T) {
 			nil,
 		)
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -170,16 +145,13 @@ func TestFetchSingleField(t *testing.T) {
 
 	t.Run("returns error when context is cancelled", func(t *testing.T) {
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		// Create cancelled context
 		cancelledCtx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -196,9 +168,6 @@ func TestFetchSingleField(t *testing.T) {
 		t.Cleanup(func() { simulateMaxAttempts, simulateInitialBackoff = origAttempts, origBackoff })
 
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		// Two transient failures (a "latency" message we whitelisted) then success.
@@ -213,7 +182,7 @@ func TestFetchSingleField(t *testing.T) {
 			}, nil,
 		).Once()
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)
@@ -230,9 +199,6 @@ func TestFetchSingleField(t *testing.T) {
 		t.Cleanup(func() { simulateMaxAttempts, simulateInitialBackoff = origAttempts, origBackoff })
 
 		mockRPCService := NewRPCServiceMock(t)
-		pool := pond.NewPool(2)
-		defer pool.Stop()
-
 		contractID := "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
 
 		// Permanent-shaped error (no transient marker) — must bail on first attempt.
@@ -240,7 +206,7 @@ func TestFetchSingleField(t *testing.T) {
 			entities.RPCSimulateTransactionResult{}, errors.New("invalid contract: function not found"),
 		).Once()
 
-		service, err := NewContractMetadataService(mockRPCService, pool)
+		service, err := NewContractMetadataService(mockRPCService)
 		require.NoError(t, err)
 
 		cms := service.(*contractMetadataService)

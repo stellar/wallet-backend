@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -109,9 +108,7 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	// Build the contract metadata service. Per-protocol validators that need
 	// it (e.g. SEP-41) pull it from ProtocolDeps; the framework itself is
 	// agnostic.
-	metadataPool := pond.NewPool(0)
-	defer metadataPool.StopAndWait()
-	metadataService, err := services.NewContractMetadataService(rpcService, metadataPool)
+	metadataService, err := services.NewContractMetadataService(rpcService)
 	if err != nil {
 		return fmt.Errorf("creating contract metadata service: %w", err)
 	}

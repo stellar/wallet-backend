@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
@@ -232,9 +231,7 @@ func runMigration(
 			}
 			return h.LatestLedger, nil
 		}
-		metadataPool := pond.NewPool(0)
-		defer metadataPool.StopAndWait()
-		cms, cmsErr := services.NewContractMetadataService(rpcService, metadataPool)
+		cms, cmsErr := services.NewContractMetadataService(rpcService)
 		if cmsErr != nil {
 			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
 		}
