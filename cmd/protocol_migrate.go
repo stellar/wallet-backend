@@ -234,7 +234,7 @@ func runMigration(
 		}
 		metadataPool := pond.NewPool(0)
 		defer metadataPool.StopAndWait()
-		cms, cmsErr := services.NewContractMetadataService(rpcService, models.Contract, metadataPool)
+		cms, cmsErr := services.NewContractMetadataService(rpcService, metadataPool)
 		if cmsErr != nil {
 			return fmt.Errorf("instantiating contract metadata service: %w", cmsErr)
 		}

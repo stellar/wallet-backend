@@ -111,7 +111,7 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	// agnostic.
 	metadataPool := pond.NewPool(0)
 	defer metadataPool.StopAndWait()
-	metadataService, err := services.NewContractMetadataService(rpcService, models.Contract, metadataPool)
+	metadataService, err := services.NewContractMetadataService(rpcService, metadataPool)
 	if err != nil {
 		return fmt.Errorf("creating contract metadata service: %w", err)
 	}

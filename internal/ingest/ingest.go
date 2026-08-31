@@ -200,7 +200,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
 
 	// Create ContractMetadataService for fetching and storing token metadata
-	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
+	contractMetadataService, err := services.NewContractMetadataService(rpcService, contractMetadataPool)
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
@@ -241,7 +241,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
 		DB:                        models.DB,
 		Archive:                   archive,
-		ContractMetadataService:   contractMetadataService,
 		TrustlineAssetModel:       models.TrustlineAsset,
 		TrustlineBalanceModel:     models.TrustlineBalance,
 		NativeBalanceModel:        models.NativeBalance,
@@ -304,7 +303,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
-		ContractMetadataService:   contractMetadataService,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)

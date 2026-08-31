@@ -52,10 +52,8 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 		Run(func(mock.Arguments) { cancel() }).
 		Return(nil)
 
-	// The startup path runs the stale-SAC enrichment pass before preparing the
-	// ledger range; production always wires a checkpoint service, so provide one.
+	// Production always wires a checkpoint service, so provide one.
 	checkpointMock := NewCheckpointServiceMock(t)
-	checkpointMock.On("EnrichStaleSACMetadata", mock.Anything).Return(nil)
 
 	const testNetwork = "advisory-lock-release-test"
 	svc, err := NewIngestService(IngestServiceConfig{
