@@ -4,6 +4,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,10 +28,14 @@ import (
 func Test_ingestService_processBackfillBatchesParallel_queuedCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pool := pond.NewPool(1)
-	defer pool.StopAndWait()
 
 	firstBatchStarted := make(chan struct{})
 	releaseFirstBatch := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFirstBatch) })
+	defer func() {
+		release()
+		pool.StopAndWait()
+	}()
 	firstBatchErr := errors.New("first batch released")
 
 	svc := &ingestService{
@@ -63,7 +68,7 @@ func Test_ingestService_processBackfillBatchesParallel_queuedCancellation(t *tes
 		t.Fatal("first backfill batch did not start")
 	}
 	cancel()
-	close(releaseFirstBatch)
+	release()
 
 	var runResult batchRunResult
 	select {
