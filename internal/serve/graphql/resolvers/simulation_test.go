@@ -85,6 +85,19 @@ func TestConvertToSimulatedStateChange(t *testing.T) {
 		})
 	}
 
+	t.Run("🔴 allowance change with wrong-typed live_until_ledger reports the type, not a missing value", func(t *testing.T) {
+		_, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryAllowance,
+			StateChangeReason:   types.StateChangeReasonUpdate,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+			SpenderAccountID:    validAddress(testSimSpender),
+			Amount:              sql.NullString{String: "5000000", Valid: true},
+			KeyValue:            types.NullableJSONB{"live_until_ledger": "3000000"},
+		})
+		require.ErrorContains(t, err, "unexpected type string")
+	})
+
 	t.Run("🔴 allowance change without live_until_ledger errors", func(t *testing.T) {
 		_, err := r.convertToSimulatedStateChange(types.StateChange{
 			StateChangeCategory: types.StateChangeCategoryAllowance,
