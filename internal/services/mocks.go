@@ -278,6 +278,14 @@ func (m *ProtocolProcessorMock) Reset() {
 	m.Called()
 }
 
+func (m *ProtocolProcessorMock) StagedStateChanges() []types.StateChange {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]types.StateChange)
+}
+
 func (m *ProtocolProcessorMock) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	args := m.Called(ctx, dbTx)
 	return args.Error(0)
