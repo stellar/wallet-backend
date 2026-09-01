@@ -83,9 +83,9 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 			if err != nil {
 				return nil, err
 			}
-			expirationLedger, ok := keyValueUint32(sc.KeyValue, "live_until_ledger")
-			if !ok {
-				return nil, fmt.Errorf("state change is missing required expirationLedger")
+			expirationLedger, err := keyValueUint32(sc.KeyValue, "live_until_ledger")
+			if err != nil {
+				return nil, fmt.Errorf("resolving expirationLedger: %w", err)
 			}
 			return graphql1.SimulatedAllowanceChange{
 				Category:         sc.StateChangeCategory,
@@ -129,20 +129,22 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 // two representations: a real uint32 when the state change is built in memory
 // (the simulation path, e.g. sep41.Processor writes live_until_ledger directly),
 // or a float64 when it has been round-tripped through JSONB from the database.
-func keyValueUint32(kv types.NullableJSONB, key string) (uint32, bool) {
+// Absent, wrong-typed, and out-of-range values each get their own error so a
+// present-but-malformed value is not misreported as missing.
+func keyValueUint32(kv types.NullableJSONB, key string) (uint32, error) {
 	raw, ok := kv[key]
 	if !ok {
-		return 0, false
+		return 0, fmt.Errorf("state change is missing required %s", key)
 	}
 	switch v := raw.(type) {
 	case uint32:
-		return v, true
+		return v, nil
 	case float64:
 		if v < 0 || v > math.MaxUint32 {
-			return 0, false
+			return 0, fmt.Errorf("state change %s %v is out of uint32 range", key, v)
 		}
-		return uint32(v), true
+		return uint32(v), nil
 	default:
-		return 0, false
+		return 0, fmt.Errorf("state change %s has unexpected type %T", key, raw)
 	}
 }
