@@ -121,6 +121,7 @@ func TestQueryResolver_SimulateStateChanges_errorCodes(t *testing.T) {
 	}{
 		{"invalid XDR maps to INVALID_TRANSACTION_XDR", services.ErrInvalidTransactionXDR, "INVALID_TRANSACTION_XDR"},
 		{"unsupported maps to UNSUPPORTED_TRANSACTION", services.ErrUnsupportedTransaction, "UNSUPPORTED_TRANSACTION"},
+		{"simulation failure maps to SIMULATION_FAILED", services.ErrSimulationFailed, "SIMULATION_FAILED"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
