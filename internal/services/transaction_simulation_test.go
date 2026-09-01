@@ -20,7 +20,7 @@ import (
 )
 
 func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) {
-	svc, err := NewTransactionSimulationService(&RPCServiceMock{}, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(&RPCServiceMock{}, nil, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 	ctx := context.Background()
 
@@ -42,7 +42,7 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		rpcMock := &RPCServiceMock{}
 		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
 			Return(entities.RPCSimulateTransactionResult{Error: "contract trapped"}, nil).Once()
-		errSvc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
+		errSvc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
 		require.NoError(t, err)
 
 		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
@@ -83,7 +83,7 @@ func TestTransactionSimulationService_SimulateStateChanges_soroban(t *testing.T)
 			Events:         []string{diagnosticB64},
 		}, nil).Once()
 
-	svc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	result, err := svc.SimulateStateChanges(context.Background(), txXDR)
@@ -143,7 +143,7 @@ func nativeSACTransferXDR(t *testing.T, sourceAccount string) string {
 // token-transfer processor must emit a DEBIT for the sender and a CREDIT for
 // the receiver.
 func TestTransactionSimulationService_walkingSkeleton(t *testing.T) {
-	svc, err := NewTransactionSimulationService(&RPCServiceMock{}, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(&RPCServiceMock{}, nil, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	from := keypair.MustRandom().Address()

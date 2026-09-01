@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -47,13 +48,19 @@ type TransactionSimulationService interface {
 }
 
 type transactionSimulationService struct {
-	rpcService    RPCService
-	ledgerIndexer *indexer.Indexer
+	rpcService        RPCService
+	ledgerIndexer     *indexer.Indexer
+	models            *data.Models
+	networkPassphrase string
 }
 
 var _ TransactionSimulationService = (*transactionSimulationService)(nil)
 
-func NewTransactionSimulationService(rpcService RPCService, networkPassphrase string) (*transactionSimulationService, error) {
+// NewTransactionSimulationService builds the simulation service. models is used
+// only for the read-only protocol_contracts lookup that routes contract events
+// to the registered protocol processors (SEP-41); a nil models skips protocol
+// processing, so previews then cover native/SAC tokens only.
+func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string) (*transactionSimulationService, error) {
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
@@ -64,8 +71,10 @@ func NewTransactionSimulationService(rpcService RPCService, networkPassphrase st
 		return nil, fmt.Errorf("creating indexer: %w", err)
 	}
 	return &transactionSimulationService{
-		rpcService:    rpcService,
-		ledgerIndexer: ledgerIndexer,
+		rpcService:        rpcService,
+		ledgerIndexer:     ledgerIndexer,
+		models:            models,
+		networkPassphrase: networkPassphrase,
 	}, nil
 }
 
@@ -392,17 +401,79 @@ func isSorobanTransaction(envelope xdr.TransactionEnvelope) bool {
 
 // stateChangesForTransaction runs a synthesized ledger transaction through the
 // ingestion pipeline into an in-memory buffer. It uses the same processors real
-// ingestion uses, with no persistence, and returns the resulting state changes.
-//
-// Known limitation: this only runs the core Indexer processors, not the separate
-// protocol processors. SEP-41 custom tokens are handled by internal/services/sep41,
-// which the Indexer's token_transfer processor skips, and that processor is not
-// wired in here yet. So previews for SEP-41 tokens miss their balance changes.
-// Native and SAC token changes are covered.
+// ingestion uses, with no persistence, and returns the resulting state changes:
+// the core Indexer's (native/SAC tokens, contract deploys, classic effects)
+// plus the registered protocol processors' (SEP-41 custom tokens).
 func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	buffer := indexer.NewIndexerBuffer()
 	if _, err := s.ledgerIndexer.ProcessLedgerTransactions(ctx, []ingest.LedgerTransaction{tx}, buffer); err != nil {
 		return nil, fmt.Errorf("processing transaction through indexer: %w", err)
 	}
-	return buffer.GetStateChanges(), nil
+
+	protocolChanges, err := s.protocolStateChanges(ctx, tx, buffer.GetContractEvents())
+	if err != nil {
+		return nil, err
+	}
+	return append(buffer.GetStateChanges(), protocolChanges...), nil
+}
+
+// protocolStateChanges runs the registered protocol processors (currently
+// SEP-41) over the contract events the pipeline collected, mirroring what live
+// ingestion does after the indexer pass, so custom-token previews match
+// history. It classifies the emitting contracts with one read-only
+// protocol_contracts lookup and never persists: state changes are read from
+// the processors' staged sets instead of a PersistHistory call.
+//
+// Known limitation: only contracts already classified in protocol_contracts
+// produce rows. A token WB has not ingested and classified yet is silently
+// skipped, the same ingestion-lag caveat as SAC metadata enrichment.
+func (s *transactionSimulationService) protocolStateChanges(ctx context.Context, tx ingest.LedgerTransaction, contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent) ([]types.StateChange, error) {
+	if s.models == nil || len(contractEvents) == 0 {
+		return nil, nil
+	}
+	eventContractIDs := distinctEventContractIDs(contractEvents)
+	if len(eventContractIDs) == 0 {
+		return nil, nil
+	}
+	committedByProtocol, err := s.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+	if err != nil {
+		return nil, fmt.Errorf("resolving protocol contracts: %w", err)
+	}
+	if len(committedByProtocol) == 0 {
+		return nil, nil
+	}
+
+	// Fresh processor instances per request: protocol processors fold state
+	// across ProcessLedger calls by design, so an instance must never be shared
+	// between simulations.
+	protocolProcessors, err := BuildProcessors(ProtocolDeps{
+		NetworkPassphrase: s.networkPassphrase,
+		Models:            s.models,
+		RPCService:        s.rpcService,
+	}, GetAllProcessorIDs())
+	if err != nil {
+		return nil, fmt.Errorf("building protocol processors: %w", err)
+	}
+
+	var stateChanges []types.StateChange
+	for _, protocolProcessor := range protocolProcessors {
+		contracts := committedByProtocol[protocolProcessor.ProtocolID()]
+		if len(contracts) == 0 {
+			continue
+		}
+		input := ProtocolProcessorInput{
+			LedgerSequence:    tx.Ledger.LedgerSequence(),
+			LedgerCloseTime:   tx.Ledger.LedgerCloseTime(),
+			ContractEvents:    contractEvents,
+			ProtocolContracts: contracts,
+			// History rows only: a preview must never stage balance or
+			// allowance current-state updates.
+			StagingMode: StagingModeHistory,
+		}
+		if err := protocolProcessor.ProcessLedger(ctx, input); err != nil {
+			return nil, fmt.Errorf("running %s protocol processor: %w", protocolProcessor.ProtocolID(), err)
+		}
+		stateChanges = append(stateChanges, protocolProcessor.StagedStateChanges()...)
+	}
+	return stateChanges, nil
 }
