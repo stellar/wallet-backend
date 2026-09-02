@@ -120,7 +120,8 @@ func ParseMintEvent(event xdr.ContractEvent) (*MintEvent, error) {
 	return &MintEvent{To: to, Amount: amt, ToMuxedID: muxedID}, nil
 }
 
-// ParseBurnEvent decodes a SEP-41 burn event: [sym("burn"), from: Address], data = i128.
+// ParseBurnEvent decodes a SEP-41 burn event: [sym("burn"), from: Address],
+// data = i128 or { amount: i128 }.
 func ParseBurnEvent(event xdr.ContractEvent) (*BurnEvent, error) {
 	topics, err := eventTopics(event, EventBurn, 2)
 	if err != nil {
@@ -130,7 +131,7 @@ func ParseBurnEvent(event xdr.ContractEvent) (*BurnEvent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding burn.from: %w", err)
 	}
-	amt, err := extractI128(event.Body.V0.Data)
+	amt, err := extractAmount(event.Body.V0.Data)
 	if err != nil {
 		return nil, fmt.Errorf("decoding burn amount: %w", err)
 	}
@@ -159,7 +160,7 @@ func ParseClawbackEvent(event xdr.ContractEvent) (*ClawbackEvent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding clawback.from: %w", err)
 	}
-	amt, err := extractI128(event.Body.V0.Data)
+	amt, err := extractAmount(event.Body.V0.Data)
 	if err != nil {
 		return nil, fmt.Errorf("decoding clawback amount: %w", err)
 	}
@@ -168,7 +169,8 @@ func ParseClawbackEvent(event xdr.ContractEvent) (*ClawbackEvent, error) {
 
 // ParseApproveEvent decodes a SEP-41 approve event:
 // topics: [sym("approve"), from: Address, spender: Address]
-// data:   [ i128 amount, u32 live_until_ledger ]  (ScVec of 2 elements)
+// data:   [i128 amount, u32 live_until_ledger] or
+// { amount: i128, live_until_ledger: u32 }.
 func ParseApproveEvent(event xdr.ContractEvent) (*ApproveEvent, error) {
 	topics, err := eventTopics(event, EventApprove, 3)
 	if err != nil {
@@ -183,22 +185,34 @@ func ParseApproveEvent(event xdr.ContractEvent) (*ApproveEvent, error) {
 		return nil, fmt.Errorf("decoding approve.spender: %w", err)
 	}
 
+	var amountVal, liveUntilVal xdr.ScVal
 	data := event.Body.V0.Data
-	if data.Type != xdr.ScValTypeScvVec {
-		return nil, fmt.Errorf("approve data must be ScVec, got %v", data.Type)
-	}
-	vec, ok := data.GetVec()
-	if !ok || vec == nil || len(*vec) != 2 {
-		return nil, fmt.Errorf("approve data must be a 2-element ScVec")
+	switch data.Type {
+	case xdr.ScValTypeScvVec:
+		vec, ok := data.GetVec()
+		if !ok || vec == nil || len(*vec) != 2 {
+			return nil, fmt.Errorf("approve data must be a 2-element ScVec")
+		}
+		amountVal = (*vec)[0]
+		liveUntilVal = (*vec)[1]
+	case xdr.ScValTypeScvMap:
+		fields, err := extractRequiredMapFields(data, "amount", "live_until_ledger")
+		if err != nil {
+			return nil, fmt.Errorf("decoding approve data: %w", err)
+		}
+		amountVal = fields["amount"]
+		liveUntilVal = fields["live_until_ledger"]
+	default:
+		return nil, fmt.Errorf("approve data must be ScVec or ScMap, got %v", data.Type)
 	}
 
-	amt, err := extractI128((*vec)[0])
+	amt, err := extractI128(amountVal)
 	if err != nil {
 		return nil, fmt.Errorf("decoding approve amount: %w", err)
 	}
-	liveUntil, ok := (*vec)[1].GetU32()
+	liveUntil, ok := liveUntilVal.GetU32()
 	if !ok {
-		return nil, fmt.Errorf("approve live_until_ledger must be u32, got %v", (*vec)[1].Type)
+		return nil, fmt.Errorf("approve live_until_ledger must be u32, got %v", liveUntilVal.Type)
 	}
 
 	return &ApproveEvent{
@@ -251,6 +265,72 @@ func extractI128(val xdr.ScVal) (*big.Int, error) {
 	bi.Lsh(bi, 64)
 	bi.Add(bi, new(big.Int).SetUint64(uint64(parts.Lo)))
 	return bi, nil
+}
+
+// extractAmount decodes the two SEP-41 amount data formats used by burn and
+// clawback events: a single i128 value or a Symbol-keyed map containing amount.
+func extractAmount(val xdr.ScVal) (*big.Int, error) {
+	switch val.Type {
+	case xdr.ScValTypeScvI128:
+		return extractI128(val)
+	case xdr.ScValTypeScvMap:
+		fields, err := extractRequiredMapFields(val, "amount")
+		if err != nil {
+			return nil, err
+		}
+		amt, err := extractI128(fields["amount"])
+		if err != nil {
+			return nil, fmt.Errorf("map amount: %w", err)
+		}
+		return amt, nil
+	default:
+		return nil, fmt.Errorf("amount must be i128 or ScMap, got %v", val.Type)
+	}
+}
+
+// extractRequiredMapFields validates a SEP-41 map data value and returns the
+// requested fields. SEP-41 permits additional fields, but requires every map
+// key to be a Symbol.
+func extractRequiredMapFields(val xdr.ScVal, requiredFields ...string) (map[string]xdr.ScVal, error) {
+	if val.Type != xdr.ScValTypeScvMap {
+		return nil, fmt.Errorf("event data must be ScMap, got %v", val.Type)
+	}
+	if val.Map == nil {
+		return nil, fmt.Errorf("event data map was nil")
+	}
+	m, ok := val.GetMap()
+	if !ok || m == nil {
+		return nil, fmt.Errorf("event data map was nil")
+	}
+
+	required := make(map[string]struct{}, len(requiredFields))
+	for _, field := range requiredFields {
+		required[field] = struct{}{}
+	}
+
+	fields := make(map[string]xdr.ScVal, len(requiredFields))
+	seen := make(map[string]struct{}, len(*m))
+	for _, entry := range *m {
+		keySym, ok := entry.Key.GetSym()
+		if !ok {
+			return nil, fmt.Errorf("event data map key must be Symbol, got %v", entry.Key.Type)
+		}
+		key := string(keySym)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("event data map contains duplicate key %q", key)
+		}
+		seen[key] = struct{}{}
+		if _, ok := required[key]; ok {
+			fields[key] = entry.Val
+		}
+	}
+
+	for _, field := range requiredFields {
+		if _, ok := fields[field]; !ok {
+			return nil, fmt.Errorf("event data map missing %q", field)
+		}
+	}
+	return fields, nil
 }
 
 // extractAmountAndMuxedID decodes either a raw i128 (classic transfer/mint) or the
