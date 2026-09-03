@@ -43,7 +43,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 	require.NoError(t, err)
 
 	contractID := randomContractID(t)
-	classifyAsSEP41(t, ctx, pool, models, contractID)
+	classifiedWasm := classifyAsSEP41(t, ctx, pool, models, contractID)
 
 	holder := keypair.MustRandom().Address()
 	receiver := keypair.MustRandom().Address()
@@ -105,6 +105,63 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 
 	rpcMock.AssertExpectations(t)
 
+	// The two cases below cover the same-transaction binding overlay: like live
+	// ingestion's getEffectiveProtocolContracts, a contract whose executable the
+	// simulated transaction itself changes must be classified by its NEW wasm,
+	// not its committed row.
+	t.Run("contract upgraded away this transaction emits no rows", func(t *testing.T) {
+		var unclassifiedWasm [32]byte
+		_, err := rand.Read(unclassifiedWasm[:])
+		require.NoError(t, err)
+
+		upgradeTxXDR := invokeContractTxXDR(t, contractID)
+		rpcMock := &services.RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", upgradeTxXDR, entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{
+				LatestLedger:   2900150,
+				MinResourceFee: "100",
+				Events:         []string{diagnosticB64(t, transferEvent)},
+				StateChanges:   []entities.RPCSimulateStateChange{instanceBindingStateChange(t, contractID, unclassifiedWasm)},
+			}, nil).Once()
+
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+		require.NoError(t, err)
+
+		result, err := svc.SimulateStateChanges(ctx, upgradeTxXDR)
+		require.NoError(t, err)
+		assert.Empty(t, changesForToken(result.StateChanges, tokenStrkey),
+			"a contract rebound to an unclassified wasm in this transaction must not use its stale committed classification")
+		rpcMock.AssertExpectations(t)
+	})
+
+	t.Run("contract bound to an already-classified wasm this transaction emits rows", func(t *testing.T) {
+		freshID := randomContractID(t)
+		freshTransfer := sep41Event(freshID,
+			[]xdr.ScVal{scSymbol("transfer"), scAccountVal(holder), scAccountVal(receiver)},
+			scI128(2_000_000),
+		)
+
+		bindTxXDR := invokeContractTxXDR(t, freshID)
+		rpcMock := &services.RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", bindTxXDR, entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{
+				LatestLedger:   2900151,
+				MinResourceFee: "100",
+				Events:         []string{diagnosticB64(t, freshTransfer)},
+				StateChanges:   []entities.RPCSimulateStateChange{instanceBindingStateChange(t, freshID, classifiedWasm)},
+			}, nil).Once()
+
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+		require.NoError(t, err)
+
+		result, err := svc.SimulateStateChanges(ctx, bindTxXDR)
+		require.NoError(t, err)
+		freshChanges := changesForToken(result.StateChanges, contractIDStrkey(t, freshID))
+		assert.Len(t, freshChanges, 2,
+			"a contract with no committed row but bound this transaction to a classified wasm must emit debit + credit")
+		rpcMock.AssertExpectations(t)
+	})
+
 	t.Run("unclassified contract is silently skipped", func(t *testing.T) {
 		unknownID := randomContractID(t)
 		unknownEvent := sep41Event(unknownID,
@@ -132,12 +189,14 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 }
 
 // classifyAsSEP41 registers the contract in protocol_wasms + protocol_contracts,
-// the same rows the SEP-41 validator commits at classification time.
-func classifyAsSEP41(t *testing.T, ctx context.Context, pool *pgxpool.Pool, models *data.Models, contractID xdr.ContractId) {
+// the same rows the SEP-41 validator commits at classification time. It returns
+// the classified wasm hash so tests can bind other contracts to it.
+func classifyAsSEP41(t *testing.T, ctx context.Context, pool *pgxpool.Pool, models *data.Models, contractID xdr.ContractId) [32]byte {
 	t.Helper()
-	wasmHash := make([]byte, 32)
-	_, err := rand.Read(wasmHash)
+	var wasmArr [32]byte
+	_, err := rand.Read(wasmArr[:])
 	require.NoError(t, err)
+	wasmHash := wasmArr[:]
 
 	dbTx, err := pool.Begin(ctx)
 	require.NoError(t, err)
@@ -155,6 +214,51 @@ func classifyAsSEP41(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode
 		WasmHash:   types.HashBytea(hexString(wasmHash)),
 	}}))
 	require.NoError(t, dbTx.Commit(ctx))
+	return wasmArr
+}
+
+// instanceBindingStateChange builds the RPC state-change entry a simulation
+// returns when a transaction creates or upgrades a contract instance: a
+// ContractData instance entry whose executable points at wasmHash. The
+// indexer's protocol-contracts processor turns it into a buffered
+// contract-to-wasm binding.
+func instanceBindingStateChange(t *testing.T, contractID xdr.ContractId, wasmHash [32]byte) entities.RPCSimulateStateChange {
+	t.Helper()
+	hash := xdr.Hash(wasmHash)
+	contractAddr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID}
+
+	entryB64, err := xdr.MarshalBase64(xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.ContractDataEntry{
+				Contract:   contractAddr,
+				Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+				Durability: xdr.ContractDataDurabilityPersistent,
+				Val: xdr.ScVal{
+					Type: xdr.ScValTypeScvContractInstance,
+					Instance: &xdr.ScContractInstance{
+						Executable: xdr.ContractExecutable{
+							Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+							WasmHash: &hash,
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	keyB64, err := xdr.MarshalBase64(xdr.LedgerKey{
+		Type: xdr.LedgerEntryTypeContractData,
+		ContractData: &xdr.LedgerKeyContractData{
+			Contract:   contractAddr,
+			Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+			Durability: xdr.ContractDataDurabilityPersistent,
+		},
+	})
+	require.NoError(t, err)
+
+	return entities.RPCSimulateStateChange{Type: "created", Key: keyB64, After: &entryB64}
 }
 
 func changesForToken(stateChanges []types.StateChange, tokenStrkey string) []types.StateChange {

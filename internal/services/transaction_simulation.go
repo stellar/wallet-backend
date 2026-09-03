@@ -410,7 +410,7 @@ func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Co
 		return nil, fmt.Errorf("processing transaction through indexer: %w", err)
 	}
 
-	protocolChanges, err := s.protocolStateChanges(ctx, tx, buffer.GetContractEvents())
+	protocolChanges, err := s.protocolStateChanges(ctx, tx, buffer.GetContractEvents(), buffer.GetProtocolContracts())
 	if err != nil {
 		return nil, err
 	}
@@ -421,13 +421,16 @@ func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Co
 // SEP-41) over the contract events the pipeline collected, mirroring what live
 // ingestion does after the indexer pass, so custom-token previews match
 // history. It classifies the emitting contracts with one read-only
-// protocol_contracts lookup and never persists: state changes are read from
-// the processors' staged sets instead of a PersistHistory call.
+// protocol_contracts lookup, overlays the contract-to-wasm bindings the
+// simulated transaction itself changed (bufferedContracts, mirroring
+// getEffectiveProtocolContracts in live ingestion), and never persists: state
+// changes are read from the processors' staged sets instead of a
+// PersistHistory call.
 //
-// Known limitation: only contracts already classified in protocol_contracts
-// produce rows. A token WB has not ingested and classified yet is silently
-// skipped, the same ingestion-lag caveat as SAC metadata enrichment.
-func (s *transactionSimulationService) protocolStateChanges(ctx context.Context, tx ingest.LedgerTransaction, contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent) ([]types.StateChange, error) {
+// Known limitation: classification comes only from committed protocol_wasms
+// rows; simulation runs no validators. A wasm WB has never classified is
+// silently skipped, the same ingestion-lag caveat as SAC metadata enrichment.
+func (s *transactionSimulationService) protocolStateChanges(ctx context.Context, tx ingest.LedgerTransaction, contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent, bufferedContracts map[string]data.ProtocolContracts) ([]types.StateChange, error) {
 	if s.models == nil || len(contractEvents) == 0 {
 		return nil, nil
 	}
@@ -439,7 +442,20 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("resolving protocol contracts: %w", err)
 	}
-	if len(committedByProtocol) == 0 {
+
+	// A binding changed by the simulated transaction itself must shadow the
+	// committed row: a contract upgraded away from a protocol emits no rows, and
+	// a contract bound to an already-classified wasm emits rows even without a
+	// committed protocol_contracts entry. Classification for the buffered wasm
+	// hashes comes from committed protocol_wasms.
+	var classification map[types.HashBytea]string
+	if len(bufferedContracts) > 0 {
+		classification, err = s.models.ProtocolWasms.GetClassifiedByHashes(ctx, s.models.DB, distinctWasmHashes(bufferedContracts))
+		if err != nil {
+			return nil, fmt.Errorf("classifying simulated wasm bindings: %w", err)
+		}
+	}
+	if len(committedByProtocol) == 0 && len(classification) == 0 {
 		return nil, nil
 	}
 
@@ -457,7 +473,7 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 
 	var stateChanges []types.StateChange
 	for _, protocolProcessor := range protocolProcessors {
-		contracts := committedByProtocol[protocolProcessor.ProtocolID()]
+		contracts := getEffectiveProtocolContracts(protocolProcessor.ProtocolID(), committedByProtocol[protocolProcessor.ProtocolID()], bufferedContracts, classification)
 		if len(contracts) == 0 {
 			continue
 		}
@@ -470,10 +486,29 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 			// allowance current-state updates.
 			StagingMode: StagingModeHistory,
 		}
+		// The lifecycle contract makes the caller reset before folding
+		// (ProtocolProcessor.Reset); fresh construction is not a documented
+		// reset guarantee for arbitrary registered factories.
+		protocolProcessor.Reset()
 		if err := protocolProcessor.ProcessLedger(ctx, input); err != nil {
 			return nil, fmt.Errorf("running %s protocol processor: %w", protocolProcessor.ProtocolID(), err)
 		}
 		stateChanges = append(stateChanges, protocolProcessor.StagedStateChanges()...)
 	}
 	return stateChanges, nil
+}
+
+// distinctWasmHashes returns the deduplicated wasm hashes of the given
+// contract bindings.
+func distinctWasmHashes(contracts map[string]data.ProtocolContracts) []types.HashBytea {
+	seen := make(map[types.HashBytea]struct{}, len(contracts))
+	hashes := make([]types.HashBytea, 0, len(contracts))
+	for _, contract := range contracts {
+		if _, ok := seen[contract.WasmHash]; ok {
+			continue
+		}
+		seen[contract.WasmHash] = struct{}{}
+		hashes = append(hashes, contract.WasmHash)
+	}
+	return hashes
 }
