@@ -92,7 +92,8 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 }
 
 // Test_isPermanentPersistError covers ING-06's classifier: SQLSTATE class 22/23/42 (and the
-// ErrCursorGuardFailed / ErrCASCursorMissing cursor sentinels) must fail an ingestion attempt
+// ErrCursorGuardFailed / ErrCASCursorMissing cursor sentinels and the ErrRowEncoding
+// COPY-encoding sentinel) must fail an ingestion attempt
 // immediately instead of burning the full 5-attempt retry ladder; every other error (including
 // no PgError at all) must still retry, same as before this classifier existed.
 func Test_isPermanentPersistError(t *testing.T) {
@@ -135,6 +136,19 @@ func Test_isPermanentPersistError(t *testing.T) {
 			name:          "wrapped_cas_cursor_missing_is_permanent",
 			err:           fmt.Errorf("persisting ledger data for ledger 100: comparing and swapping protocol cursor blend: %w", data.ErrCASCursorMissing),
 			wantPermanent: true,
+		},
+		{name: "row_encoding_is_permanent", err: data.ErrRowEncoding, wantPermanent: true},
+		{
+			name:          "wrapped_row_encoding_is_permanent",
+			err:           fmt.Errorf("pgx CopyFrom state_changes: %w", fmt.Errorf("%w: state change 0: bad", data.ErrRowEncoding)),
+			wantPermanent: true,
+		},
+		{
+			// A COPY abort surfaces as SQLSTATE 57014 and stays retryable; encode
+			// failures are caught client-side before the COPY starts.
+			name:          "query_canceled_57014_is_transient",
+			err:           pgErrWithCode("57014"),
+			wantPermanent: false,
 		},
 	}
 
