@@ -288,41 +288,28 @@ func extractAmount(val xdr.ScVal) (*big.Int, error) {
 	}
 }
 
-// extractRequiredMapFields validates a SEP-41 map data value and returns the
-// requested fields. SEP-41 permits additional fields, but requires every map
-// key to be a Symbol.
+// extractRequiredMapFields validates a SEP-41 map data value and returns all
+// its fields after checking that the requested fields are present. SEP-41
+// permits additional fields, but requires every map key to be a Symbol.
 func extractRequiredMapFields(val xdr.ScVal, requiredFields ...string) (map[string]xdr.ScVal, error) {
 	if val.Type != xdr.ScValTypeScvMap {
 		return nil, fmt.Errorf("event data must be ScMap, got %v", val.Type)
 	}
-	if val.Map == nil {
+	if val.Map == nil || *val.Map == nil {
 		return nil, fmt.Errorf("event data map was nil")
 	}
-	m, ok := val.GetMap()
-	if !ok || m == nil {
-		return nil, fmt.Errorf("event data map was nil")
-	}
+	m := *val.Map
 
-	required := make(map[string]struct{}, len(requiredFields))
-	for _, field := range requiredFields {
-		required[field] = struct{}{}
-	}
-
-	fields := make(map[string]xdr.ScVal, len(requiredFields))
-	seen := make(map[string]struct{}, len(*m))
+	fields := make(map[string]xdr.ScVal, len(*m))
 	for _, entry := range *m {
-		keySym, ok := entry.Key.GetSym()
-		if !ok {
+		if entry.Key.Type != xdr.ScValTypeScvSymbol || entry.Key.Sym == nil {
 			return nil, fmt.Errorf("event data map key must be Symbol, got %v", entry.Key.Type)
 		}
-		key := string(keySym)
-		if _, ok := seen[key]; ok {
+		key := string(*entry.Key.Sym)
+		if _, ok := fields[key]; ok {
 			return nil, fmt.Errorf("event data map contains duplicate key %q", key)
 		}
-		seen[key] = struct{}{}
-		if _, ok := required[key]; ok {
-			fields[key] = entry.Val
-		}
+		fields[key] = entry.Val
 	}
 
 	for _, field := range requiredFields {
@@ -342,35 +329,20 @@ func extractAmountAndMuxedID(val xdr.ScVal) (*big.Int, *uint64, error) {
 		amt, err := extractI128(val)
 		return amt, nil, err
 	case xdr.ScValTypeScvMap:
-		m, ok := val.GetMap()
-		if !ok || m == nil {
-			return nil, nil, fmt.Errorf("amount map was nil")
+		fields, err := extractRequiredMapFields(val, "amount")
+		if err != nil {
+			return nil, nil, err
 		}
-		var (
-			amt     *big.Int
-			muxedID *uint64
-		)
-		for _, entry := range *m {
-			keySym, ok := entry.Key.GetSym()
-			if !ok {
-				continue
-			}
-			switch string(keySym) {
-			case "amount":
-				a, err := extractI128(entry.Val)
-				if err != nil {
-					return nil, nil, fmt.Errorf("map amount: %w", err)
-				}
-				amt = a
-			case "to_muxed_id":
-				if id, ok := entry.Val.GetU64(); ok {
-					v := uint64(id)
-					muxedID = &v
-				}
-			}
+		amt, err := extractI128(fields["amount"])
+		if err != nil {
+			return nil, nil, fmt.Errorf("map amount: %w", err)
 		}
-		if amt == nil {
-			return nil, nil, fmt.Errorf("map missing amount key")
+		var muxedID *uint64
+		if muxedVal, ok := fields["to_muxed_id"]; ok {
+			if id, ok := muxedVal.GetU64(); ok {
+				v := uint64(id)
+				muxedID = &v
+			}
 		}
 		return amt, muxedID, nil
 	default:

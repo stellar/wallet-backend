@@ -124,6 +124,42 @@ func TestParseTransferEvent(t *testing.T) {
 		assert.Equal(t, uint64(7), *got.ToMuxedID)
 	})
 
+	t.Run("rejects a CAP-67 map with a non-Symbol key", func(t *testing.T) {
+		dataMap := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
+			xdr.ScMapEntry{Key: strScVal("extension"), Val: u32ScVal(1)},
+		)
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			dataMap,
+		)
+
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
+
+	t.Run("rejects a CAP-67 map with duplicate keys", func(t *testing.T) {
+		dataMap := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(43)},
+		)
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			dataMap,
+		)
+
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
+
 	t.Run("rejects a transfer event whose topic count is not 3", func(t *testing.T) {
 		event := contractEvent(
 			[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountA)},
@@ -275,7 +311,7 @@ func TestParseClawbackEvent(t *testing.T) {
 		assert.Equal(t, big.NewInt(77), got.Amount)
 	})
 
-	t.Run("parses an OpenZeppelin map amount", func(t *testing.T) {
+	t.Run("parses a SEP-41 map amount", func(t *testing.T) {
 		event := contractEvent(
 			[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
 			mapScVal(xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(25)}),
