@@ -402,18 +402,20 @@ func TestProcessSACBalanceChanges_GatesOnVerifiedSAC(t *testing.T) {
 	unverifiedContract := strkey.MustEncode(strkey.VersionByteContract, bytes32(0x22))
 	holder := strkey.MustEncode(strkey.VersionByteContract, bytes32(0x33))
 
-	// The SAC has been confirmed via its instance entry, so it already has a
-	// contract_tokens row with code/issuer. The unverified contract has no such row.
+	// The first contract is a verified SAC. The second models a known arbitrary
+	// WASM contract whose UNKNOWN parent satisfies the FK but must not pass the SAC gate.
 	code, issuer := "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-		return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{{
-			ID:         wbdata.DeterministicContractID(verifiedContract),
-			ContractID: verifiedContract,
-			Type:       string(types.ContractTypeSAC),
-			Code:       &code,
-			Issuer:     &issuer,
-			Decimals:   7,
-		}})
+		return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+			{
+				ID: wbdata.DeterministicContractID(verifiedContract), ContractID: verifiedContract,
+				Type: string(types.ContractTypeSAC), Code: &code, Issuer: &issuer, Decimals: 7,
+			},
+			{
+				ID: wbdata.DeterministicContractID(unverifiedContract), ContractID: unverifiedContract,
+				Type: string(types.ContractTypeUnknown),
+			},
+		})
 	})
 	require.NoError(t, err)
 
