@@ -286,6 +286,13 @@ func (p *processor) applyBalanceDelta(account types.AddressBytea, contractStr st
 	p.stagedBalanceLedger[key] = p.ledgerNumber
 }
 
+// StagedStateChanges returns the history rows staged since the last Reset,
+// without persisting. Ordinals are not assigned here (PersistHistory owns
+// that), and the slice aliases the staged set.
+func (p *processor) StagedStateChanges() []types.StateChange {
+	return p.stagedStateChanges
+}
+
 // Reset clears the staged sets for the next window. ledgerNumber is intentionally
 // left untouched — ProcessLedger sets it each ledger.
 func (p *processor) Reset() {

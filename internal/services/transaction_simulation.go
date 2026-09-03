@@ -11,6 +11,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -47,13 +48,19 @@ type TransactionSimulationService interface {
 }
 
 type transactionSimulationService struct {
-	rpcService    RPCService
-	ledgerIndexer *indexer.Indexer
+	rpcService        RPCService
+	ledgerIndexer     *indexer.Indexer
+	models            *data.Models
+	networkPassphrase string
 }
 
 var _ TransactionSimulationService = (*transactionSimulationService)(nil)
 
-func NewTransactionSimulationService(rpcService RPCService, networkPassphrase string) (*transactionSimulationService, error) {
+// NewTransactionSimulationService builds the simulation service. models is used
+// only for the read-only protocol_contracts lookup that routes contract events
+// to the registered protocol processors (SEP-41); a nil models skips protocol
+// processing, so previews then cover native/SAC tokens only.
+func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string) (*transactionSimulationService, error) {
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
@@ -64,8 +71,10 @@ func NewTransactionSimulationService(rpcService RPCService, networkPassphrase st
 		return nil, fmt.Errorf("creating indexer: %w", err)
 	}
 	return &transactionSimulationService{
-		rpcService:    rpcService,
-		ledgerIndexer: ledgerIndexer,
+		rpcService:        rpcService,
+		ledgerIndexer:     ledgerIndexer,
+		models:            models,
+		networkPassphrase: networkPassphrase,
 	}, nil
 }
 
@@ -392,17 +401,114 @@ func isSorobanTransaction(envelope xdr.TransactionEnvelope) bool {
 
 // stateChangesForTransaction runs a synthesized ledger transaction through the
 // ingestion pipeline into an in-memory buffer. It uses the same processors real
-// ingestion uses, with no persistence, and returns the resulting state changes.
-//
-// Known limitation: this only runs the core Indexer processors, not the separate
-// protocol processors. SEP-41 custom tokens are handled by internal/services/sep41,
-// which the Indexer's token_transfer processor skips, and that processor is not
-// wired in here yet. So previews for SEP-41 tokens miss their balance changes.
-// Native and SAC token changes are covered.
+// ingestion uses, with no persistence, and returns the resulting state changes:
+// the core Indexer's (native/SAC tokens, contract deploys, classic effects)
+// plus the registered protocol processors' (SEP-41 custom tokens).
 func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Context, tx ingest.LedgerTransaction) ([]types.StateChange, error) {
 	buffer := indexer.NewIndexerBuffer()
 	if _, err := s.ledgerIndexer.ProcessLedgerTransactions(ctx, []ingest.LedgerTransaction{tx}, buffer); err != nil {
 		return nil, fmt.Errorf("processing transaction through indexer: %w", err)
 	}
-	return buffer.GetStateChanges(), nil
+
+	protocolChanges, err := s.protocolStateChanges(ctx, tx, buffer.GetContractEvents(), buffer.GetProtocolContracts())
+	if err != nil {
+		return nil, err
+	}
+	return append(buffer.GetStateChanges(), protocolChanges...), nil
+}
+
+// protocolStateChanges runs the registered protocol processors (currently
+// SEP-41) over the contract events the pipeline collected, mirroring what live
+// ingestion does after the indexer pass, so custom-token previews match
+// history. It classifies the emitting contracts with one read-only
+// protocol_contracts lookup, overlays the contract-to-wasm bindings the
+// simulated transaction itself changed (bufferedContracts, mirroring
+// getEffectiveProtocolContracts in live ingestion), and never persists: state
+// changes are read from the processors' staged sets instead of a
+// PersistHistory call.
+//
+// Known limitation: classification comes only from committed protocol_wasms
+// rows; simulation runs no validators. A wasm WB has never classified is
+// silently skipped, the same ingestion-lag caveat as SAC metadata enrichment.
+func (s *transactionSimulationService) protocolStateChanges(ctx context.Context, tx ingest.LedgerTransaction, contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent, bufferedContracts map[string]data.ProtocolContracts) ([]types.StateChange, error) {
+	if s.models == nil || len(contractEvents) == 0 {
+		return nil, nil
+	}
+	eventContractIDs := distinctEventContractIDs(contractEvents)
+	if len(eventContractIDs) == 0 {
+		return nil, nil
+	}
+	committedByProtocol, err := s.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+	if err != nil {
+		return nil, fmt.Errorf("resolving protocol contracts: %w", err)
+	}
+
+	// A binding changed by the simulated transaction itself must shadow the
+	// committed row: a contract upgraded away from a protocol emits no rows, and
+	// a contract bound to an already-classified wasm emits rows even without a
+	// committed protocol_contracts entry. Classification for the buffered wasm
+	// hashes comes from committed protocol_wasms.
+	var classification map[types.HashBytea]string
+	if len(bufferedContracts) > 0 {
+		classification, err = s.models.ProtocolWasms.GetClassifiedByHashes(ctx, s.models.DB, distinctWasmHashes(bufferedContracts))
+		if err != nil {
+			return nil, fmt.Errorf("classifying simulated wasm bindings: %w", err)
+		}
+	}
+	if len(committedByProtocol) == 0 && len(classification) == 0 {
+		return nil, nil
+	}
+
+	// Fresh processor instances per request: protocol processors fold state
+	// across ProcessLedger calls by design, so an instance must never be shared
+	// between simulations.
+	protocolProcessors, err := BuildProcessors(ProtocolDeps{
+		NetworkPassphrase: s.networkPassphrase,
+		Models:            s.models,
+		RPCService:        s.rpcService,
+	}, GetAllProcessorIDs())
+	if err != nil {
+		return nil, fmt.Errorf("building protocol processors: %w", err)
+	}
+
+	var stateChanges []types.StateChange
+	for _, protocolProcessor := range protocolProcessors {
+		contracts := getEffectiveProtocolContracts(protocolProcessor.ProtocolID(), committedByProtocol[protocolProcessor.ProtocolID()], bufferedContracts, classification)
+		if len(contracts) == 0 {
+			continue
+		}
+		input := ProtocolProcessorInput{
+			LedgerSequence:    tx.Ledger.LedgerSequence(),
+			LedgerCloseTime:   tx.Ledger.LedgerCloseTime(),
+			ContractEvents:    contractEvents,
+			ProtocolContracts: contracts,
+			// History rows only: a preview must never stage balance or
+			// allowance current-state updates.
+			StagingMode: StagingModeHistory,
+		}
+		// The lifecycle contract makes the caller reset before folding
+		// (ProtocolProcessor.Reset); fresh construction is not a documented
+		// reset guarantee for arbitrary registered factories.
+		protocolProcessor.Reset()
+		if err := protocolProcessor.ProcessLedger(ctx, input); err != nil {
+			return nil, fmt.Errorf("running %s protocol processor: %w", protocolProcessor.ProtocolID(), err)
+		}
+		stateChanges = append(stateChanges, protocolProcessor.StagedStateChanges()...)
+	}
+	return stateChanges, nil
+}
+
+// distinctWasmHashes returns the deduplicated wasm hashes of the given
+// contract bindings.
+func distinctWasmHashes(contracts map[string]data.ProtocolContracts) []types.HashBytea {
+	seen := make(map[types.HashBytea]struct{}, len(contracts))
+	hashes := make([]types.HashBytea, 0, len(contracts))
+	for _, contract := range contracts {
+		if _, ok := seen[contract.WasmHash]; ok {
+			continue
+		}
+		seen[contract.WasmHash] = struct{}{}
+		hashes = append(hashes, contract.WasmHash)
+	}
+	return hashes
 }
