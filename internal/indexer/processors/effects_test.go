@@ -3,6 +3,7 @@ package processors
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,61 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 				}
 			}
 		}
+	})
+
+	t.Run("SetOptions - signed payload signer", func(t *testing.T) {
+		// The signer added here is a CAP-40 signed-payload key; the resulting state change
+		// must carry its underlying ed25519 account, not the P... strkey.
+		const baseSigner = "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C"
+		signerKey := signedPayloadSignerKey(t, baseSigner)
+
+		// Master key weight stays 0, so the only signer summary entry is the new P key and
+		// the operation produces exactly one signer_created effect.
+		sourceAccount := someTxAccount.ToAccountId()
+		preAccount := &xdr.AccountEntry{AccountId: sourceAccount, Balance: 1000, SeqNum: 1}
+		postAccount := &xdr.AccountEntry{
+			AccountId: sourceAccount,
+			Balance:   1000,
+			SeqNum:    1,
+			Signers:   []xdr.Signer{{Key: signerKey, Weight: 2}},
+		}
+		setOptionsOp := xdr.Operation{
+			Body: xdr.OperationBody{
+				Type:         xdr.OperationTypeSetOptions,
+				SetOptionsOp: &xdr.SetOptionsOp{Signer: &xdr.Signer{Key: signerKey, Weight: 2}},
+			},
+		}
+		transaction := createTx(setOptionsOp, xdr.LedgerEntryChanges{
+			generateAccountEntryChangeState(preAccount),
+			{
+				Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated,
+				Updated: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+					Type:    xdr.LedgerEntryTypeAccount,
+					Account: postAccount,
+				}},
+			},
+		}, nil, false)
+
+		op, found := transaction.GetOperation(0)
+		require.True(t, found)
+		processor := NewEffectsProcessor(networkPassphrase, nil)
+		opWrapper := &TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        network.TestNetworkPassphrase,
+			Transaction:    transaction,
+			LedgerSequence: 12345,
+		}
+		changes, err := processor.ProcessOperation(context.Background(), opWrapper)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+
+		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
+		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
+		require.True(t, changes[0].SignerAccountID.Valid)
+		assert.Equal(t, baseSigner, changes[0].SignerAccountID.String())
+		assert.False(t, changes[0].SignerWeightOld.Valid)
+		assert.Equal(t, int16(2), changes[0].SignerWeightNew.Int16)
 	})
 
 	t.Run("SetTrustlineFlags - generates balance authorization state changes", func(t *testing.T) {
@@ -617,5 +673,133 @@ func TestEffects_GetPrevLedgerEntryState_MatchesEntity(t *testing.T) {
 		pre := p.getPrevLedgerEntryState(dataEffect, xdr.LedgerEntryTypeData, changes)
 		require.NotNil(t, pre)
 		assert.Equal(t, xdr.DataValue("v2"), pre.Data.MustData().DataValue)
+	})
+}
+
+// signedPayloadSignerKey builds a CAP-40 signed-payload signer key over the given ed25519
+// account. Going through the xdr form keeps the P... strkey and an account entry's signer
+// list in agreement, because SignerSummary keys the map on SignerKey.Address().
+func signedPayloadSignerKey(t *testing.T, account string) xdr.SignerKey {
+	t.Helper()
+	accountID := xdr.MustAddress(account)
+	return xdr.SignerKey{
+		Type: xdr.SignerKeyTypeSignerKeyTypeEd25519SignedPayload,
+		Ed25519SignedPayload: &xdr.SignerKeyEd25519SignedPayload{
+			Ed25519: *accountID.Ed25519,
+			Payload: []byte{0xde, 0xad, 0xbe, 0xef},
+		},
+	}
+}
+
+// TestEffects_ParseSigners_SignedPayloadSigner pins the split between lookup and storage for a
+// CAP-40 signed-payload signer. signer_account_id stores 32-byte keys, so the state change holds
+// the signer's underlying ed25519 account (G...), while the account pre-image's signer summary
+// is keyed on the full P... strkey and the old-weight lookup must still use that.
+func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
+	const (
+		accountAddress = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
+		baseSigner     = "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C"
+	)
+	payloadSignerKey := signedPayloadSignerKey(t, baseSigner)
+	payloadSigner := payloadSignerKey.Address()
+	require.True(t, strings.HasPrefix(payloadSigner, "P"), "fixture must be a signed-payload strkey")
+
+	plainSignerKey := xdr.SignerKey{
+		Type:    xdr.SignerKeyTypeSignerKeyTypeEd25519,
+		Ed25519: xdr.MustAddress(baseSigner).Ed25519,
+	}
+
+	// The account pre-image the old weight is recovered from. Master key weight stays 0 so
+	// the account itself is absent from the signer summary.
+	preImage := func(signers ...xdr.Signer) []ingest.Change {
+		return []ingest.Change{{
+			Type: xdr.LedgerEntryTypeAccount,
+			Pre: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeAccount,
+				Account: &xdr.AccountEntry{
+					AccountId: xdr.MustAddress(accountAddress),
+					Signers:   signers,
+				},
+			}},
+		}}
+	}
+
+	testCases := []struct {
+		name          string
+		effectType    EffectType
+		details       map[string]interface{}
+		changes       []ingest.Change
+		wantOldWeight sql.NullInt16
+		wantNewWeight sql.NullInt16
+	}{
+		{
+			name:          "signer_created stores the signer's base account",
+			effectType:    EffectSignerCreated,
+			details:       map[string]interface{}{"public_key": payloadSigner, "weight": int32(3)},
+			wantNewWeight: sql.NullInt16{Int16: 3, Valid: true},
+		},
+		{
+			name:          "signer_updated finds the old weight under the full P key",
+			effectType:    EffectSignerUpdated,
+			details:       map[string]interface{}{"public_key": payloadSigner, "weight": int32(5)},
+			changes:       preImage(xdr.Signer{Key: payloadSignerKey, Weight: 2}),
+			wantOldWeight: sql.NullInt16{Int16: 2, Valid: true},
+			wantNewWeight: sql.NullInt16{Int16: 5, Valid: true},
+		},
+		{
+			// A removal effect carries no weight detail, so only the old weight is set.
+			name:          "signer_removed finds the old weight under the full P key",
+			effectType:    EffectSignerRemoved,
+			details:       map[string]interface{}{"public_key": payloadSigner},
+			changes:       preImage(xdr.Signer{Key: payloadSignerKey, Weight: 2}),
+			wantOldWeight: sql.NullInt16{Int16: 2, Valid: true},
+		},
+		{
+			name:          "a plain ed25519 signer passes through unchanged",
+			effectType:    EffectSignerUpdated,
+			details:       map[string]interface{}{"public_key": baseSigner, "weight": int32(4)},
+			changes:       preImage(xdr.Signer{Key: plainSignerKey, Weight: 1}),
+			wantOldWeight: sql.NullInt16{Int16: 1, Valid: true},
+			wantNewWeight: sql.NullInt16{Int16: 4, Valid: true},
+		},
+	}
+
+	processor := NewEffectsProcessor(networkPassphrase, nil)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+				WithAccount(accountAddress).
+				WithCategory(types.StateChangeCategorySigner)
+			effect := &EffectOutput{
+				Address:    accountAddress,
+				TypeString: EffectTypeNames[tc.effectType],
+				Details:    tc.details,
+			}
+
+			signerChanges, err := processor.parseSigners(changeBuilder, effect, tc.effectType, tc.changes)
+			require.NoError(t, err)
+			require.Len(t, signerChanges, 1)
+
+			require.True(t, signerChanges[0].SignerAccountID.Valid)
+			assert.Equal(t, baseSigner, signerChanges[0].SignerAccountID.String())
+			assert.Equal(t, tc.wantOldWeight, signerChanges[0].SignerWeightOld)
+			assert.Equal(t, tc.wantNewWeight, signerChanges[0].SignerWeightNew)
+		})
+	}
+
+	t.Run("a P signer missing from the pre-image is an error", func(t *testing.T) {
+		changeBuilder := NewStateChangeBuilder(12345, 12345*100, toid.New(12345, 1, 1).ToInt64(), nil).
+			WithAccount(accountAddress).
+			WithCategory(types.StateChangeCategorySigner)
+		effect := &EffectOutput{
+			Address:    accountAddress,
+			TypeString: EffectTypeNames[EffectSignerUpdated],
+			Details:    map[string]interface{}{"public_key": payloadSigner, "weight": int32(5)},
+		}
+
+		// The pre-image carries the plain ed25519 signer, so the P key is not in the summary.
+		_, err := processor.parseSigners(changeBuilder, effect, EffectSignerUpdated, preImage(xdr.Signer{Key: plainSignerKey, Weight: 1}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing from previous account state")
 	})
 }
