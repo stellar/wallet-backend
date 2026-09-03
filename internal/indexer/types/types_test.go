@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/hex"
 	"testing"
@@ -122,6 +123,16 @@ func TestAddressBytea_Value(t *testing.T) {
 	expectedBytes[0] = byte(strkey.VersionByteAccountID)
 	copy(expectedBytes[1:], rawBytes)
 
+	// Signed-payload signers (P...) over the same account. The payload is a signing
+	// condition, so each of these stores as the same base-account key.
+	spTiny := signedPayloadOver(t, validAddress, bytes.Repeat([]byte{0x01}, 4))
+	spSmall := signedPayloadOver(t, validAddress, bytes.Repeat([]byte{0x02}, 8))
+	spMax := signedPayloadOver(t, validAddress, bytes.Repeat([]byte{0x03}, 64))
+
+	// Checksum-valid P... strkey whose payload is one byte short of the CAP-40
+	// minimum (32-byte key + 4-byte length). DecodeAny rejects the structure.
+	shortSignedPayload := strkey.MustEncode(strkey.VersionByteSignedPayload, make([]byte, 35))
+
 	testCases := []struct {
 		name            string
 		input           AddressBytea
@@ -139,8 +150,28 @@ func TestAddressBytea_Value(t *testing.T) {
 			want:  expectedBytes,
 		},
 		{
+			name:  "🟢signed payload, 4-byte payload",
+			input: AddressBytea(spTiny),
+			want:  expectedBytes,
+		},
+		{
+			name:  "🟢signed payload, 8-byte payload",
+			input: AddressBytea(spSmall),
+			want:  expectedBytes,
+		},
+		{
+			name:  "🟢signed payload, 64-byte payload",
+			input: AddressBytea(spMax),
+			want:  expectedBytes,
+		},
+		{
 			name:            "🔴invalid address",
 			input:           "not-a-valid-address",
+			wantErrContains: "decoding stellar address",
+		},
+		{
+			name:            "🔴signed payload with a too-short payload",
+			input:           AddressBytea(shortSignedPayload),
 			wantErrContains: "decoding stellar address",
 		},
 	}
@@ -563,6 +594,54 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 	vOther, err := AddressBytea(gOther).Value()
 	require.NoError(t, err)
 	assert.NotEqual(t, baseBytes, vOther)
+}
+
+// signedPayloadOver builds the P... strkey for a CAP-40 signed-payload signer over baseG.
+func signedPayloadOver(t *testing.T, baseG string, payload []byte) string {
+	t.Helper()
+	sp, err := strkey.NewSignedPayload(baseG, payload)
+	require.NoError(t, err)
+	addr, err := sp.Encode()
+	require.NoError(t, err)
+	return addr
+}
+
+// TestSignedPayloadAddressBytea_ReducesToEd25519Half verifies that a signed-payload signer
+// encodes to the same 33-byte key as the ed25519 account it is built over — the payload is
+// a signing condition, not part of the stored key.
+func TestSignedPayloadAddressBytea_ReducesToEd25519Half(t *testing.T) {
+	base := keypair.MustRandom().Address() // one base G... account
+
+	pA := signedPayloadOver(t, base, bytes.Repeat([]byte{0xAA}, 8))
+	pB := signedPayloadOver(t, base, bytes.Repeat([]byte{0xBB}, 32))
+	require.NotEqual(t, pA, pB, "the two signed-payload strkeys must differ as strings")
+	require.Equal(t, byte('P'), pA[0], "sanity: these are P-addresses")
+
+	baseBytes, err := AddressBytea(base).Value()
+	require.NoError(t, err)
+	vA, err := AddressBytea(pA).Value()
+	require.NoError(t, err)
+	vB, err := AddressBytea(pB).Value()
+	require.NoError(t, err)
+
+	require.Len(t, baseBytes.([]byte), 33)
+	assert.Equal(t, baseBytes, vA, "signed payload #1 must store as its ed25519 account")
+	assert.Equal(t, byte(strkey.VersionByteAccountID), vA.([]byte)[0],
+		"stored version byte must be the base-account (G) byte, not the signed-payload (P) byte")
+
+	// This is the accepted lossiness: two signed-payload signers that share an
+	// ed25519 key are stored as the same account.
+	assert.Equal(t, vA, vB)
+
+	// Distinct ed25519 accounts still stay distinct — the reduction only drops the payload.
+	vOther, err := AddressBytea(signedPayloadOver(t, keypair.MustRandom().Address(), []byte{0xAA})).Value()
+	require.NoError(t, err)
+	assert.NotEqual(t, baseBytes, vOther)
+
+	// Roundtrip: the stored bytes read back as the base G... address, not the P... one.
+	var restored AddressBytea
+	require.NoError(t, restored.Scan(vA))
+	assert.Equal(t, AddressBytea(base), restored)
 }
 
 // TestAddressBytea_RejectsMalformedPayload verifies that Value rejects a well-formed

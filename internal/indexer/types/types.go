@@ -78,9 +78,15 @@ func (a *AddressBytea) Scan(value any) error {
 // 8-byte multiplexing id (SEP-23). They are reduced to their base account here: the id is
 // off-chain routing metadata, not part of the stored key. This is a storage-layer backstop;
 // ingestion is expected to normalize muxed addresses to their base account before this point
-// (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()). Any other
-// payload length is rejected rather than silently truncated, so a malformed address surfaces
-// as an error instead of corrupt data.
+// (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()).
+//
+// Signed-payload signers (P..., CAP-40) carry a 32-byte ed25519 key followed by a 4-byte
+// length and the payload itself (36-100 bytes total). They are reduced to their ed25519
+// account the same way: the payload is a signing condition, not a separate identity.
+// Ingestion normalizes these before this point too (see EffectsProcessor.parseSigners).
+//
+// Any other payload length is rejected rather than silently truncated, so a malformed
+// address surfaces as an error instead of corrupt data.
 func (a AddressBytea) Value() (driver.Value, error) {
 	if a == "" {
 		return nil, nil
@@ -97,6 +103,16 @@ func (a AddressBytea) Value() (driver.Value, error) {
 		}
 		versionByte = strkey.VersionByteAccountID
 		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the trailing 8-byte id
+	}
+	if versionByte == strkey.VersionByteSignedPayload {
+		// Guard the payload length before slicing: a signed payload is at least
+		// 36 bytes (32-byte ed25519 key + 4-byte payload length). DecodeAny already
+		// validates the full CAP-40 structure, so this guard is defensive.
+		if len(rawBytes) < 36 {
+			return nil, fmt.Errorf("stellar signed payload address %s has a %d-byte payload; expected at least 36 bytes", a, len(rawBytes))
+		}
+		versionByte = strkey.VersionByteAccountID
+		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the payload
 	}
 	if len(rawBytes) != 32 {
 		return nil, fmt.Errorf("stellar address %s has a %d-byte key payload; the account_id column stores only 32-byte account/contract keys", a, len(rawBytes))
