@@ -445,8 +445,8 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 	holderHash := [32]byte{8, 8, 8}
 	balanceChange := makeSACBalanceChange(contractID, holderHash)
 
-	f.reader.On("Read").Return(instanceChange, nil).Once()
 	f.reader.On("Read").Return(balanceChange, nil).Once()
+	f.reader.On("Read").Return(instanceChange, nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
 
