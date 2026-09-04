@@ -88,7 +88,7 @@ func TestCustomErrorPresenter(t *testing.T) {
 	for _, code := range []string{
 		"INVALID_TRANSACTION_HASH", "INVALID_ADDRESS", "INTERNAL_ERROR",
 		"COMPLEXITY_LIMIT_EXCEEDED", "QUERY_TOO_DEEP", "UNAUTHENTICATED", "FORBIDDEN",
-		"PERSISTED_QUERY_NOT_FOUND",
+		"PERSISTED_QUERY_NOT_FOUND", "INVALID_TRANSACTION_XDR", "UNSUPPORTED_TRANSACTION",
 	} {
 		t.Run("known code "+code+" passes through unchanged", func(t *testing.T) {
 			gqlErr := &gqlerror.Error{

@@ -112,6 +112,7 @@ type handlerDeps struct {
 	// Services
 	Metrics                   *metrics.Metrics
 	RPCService                services.RPCService
+	SimulationService         services.TransactionSimulationService
 	TrustlineBalanceModel     data.TrustlineBalanceModelInterface
 	NativeBalanceModel        data.NativeBalanceModelInterface
 	SACBalanceModel           data.SACBalanceModelInterface
@@ -203,12 +204,18 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
+	simulationService, err := services.NewTransactionSimulationService(rpcService, cfg.NetworkPassphrase)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("instantiating transaction simulation service: %w", err)
+	}
+
 	return handlerDeps{
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
 		SupportedAssets:             cfg.SupportedAssets,
 		Metrics:                     m,
 		RPCService:                  rpcService,
+		SimulationService:           simulationService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
 		NativeBalanceModel:          models.NativeBalance,
 		SACBalanceModel:             models.SACBalance,
@@ -271,6 +278,7 @@ func handler(deps handlerDeps) http.Handler {
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
 				resolvers.ResolverConfig{},
+				deps.SimulationService,
 			)
 
 			config := generated.Config{
