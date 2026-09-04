@@ -275,7 +275,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			if _, txErr := dbTx.Exec(ctx, "SET LOCAL synchronous_commit = off"); txErr != nil {
 				return fmt.Errorf("setting synchronous_commit=off: %w", txErr)
 			}
-			if _, _, err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
+			if err := m.insertIntoDB(ctx, dbTx, buffer); err != nil {
 				return fmt.Errorf("inserting processed data into db: %w", err)
 			}
 			// Update cursor atomically with data insertion if requested
