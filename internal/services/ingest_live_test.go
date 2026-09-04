@@ -144,3 +144,28 @@ func Test_isPermanentPersistError(t *testing.T) {
 		})
 	}
 }
+
+// Test_contractDataMemo_get covers the memo's two guarantees. The result is
+// always non-nil: a RequiresContractData processor ranges over the map
+// unconditionally, so even a ledger with zero transactions has to yield an
+// empty map rather than nil. And the extraction walk runs at most once no
+// matter how often get() is called, which is what makes one memo safe to
+// share across every persistLedgerDataWithRetry attempt for a ledger.
+func Test_contractDataMemo_get(t *testing.T) {
+	memo := newContractDataMemo(nil, 100)
+
+	first, err := memo.get()
+	require.NoError(t, err)
+	require.NotNil(t, first, "a zero-transaction ledger still needs a rangeable map")
+	assert.Empty(t, first)
+
+	// Marking the first result is what makes the second call's map
+	// identifiable: a second extraction builds a fresh map and could not carry
+	// the marker, so finding it proves the walk did not run again.
+	const marker = "extracted-once"
+	first[marker] = nil
+
+	second, err := memo.get()
+	require.NoError(t, err)
+	assert.Contains(t, second, marker, "get should serve the memoized map instead of extracting again")
+}

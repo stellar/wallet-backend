@@ -117,6 +117,17 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	return cfg
 }
 
+// validateIngestPoolConfig fails fast on a pool too small for live persist's commit
+// barrier, which would otherwise wedge silently: no error, no crash-loop, just a
+// climbing lag gauge. Backfill never holds the barrier but shares the check, since
+// the mode is chosen further down and only a deliberate override reaches the floor.
+func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
+	if poolCfg.MaxConns < db.MinIngestMaxConns {
+		return fmt.Errorf("db-max-conns is %d, below the %d connections live persist requires", poolCfg.MaxConns, db.MinIngestMaxConns)
+	}
+	return nil
+}
+
 func Ingest(cfg Configs) error {
 	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
 	// loop and the in-flight ledger's transaction, so that ledger is rolled back
@@ -163,6 +174,9 @@ func isShutdownRequested(ctx context.Context, err error) bool {
 // returns.
 func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func(), error) {
 	poolCfg := cfg.BuildPoolConfig()
+	if err := validateIngestPoolConfig(poolCfg); err != nil {
+		return nil, nil, err
+	}
 	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to the database: %w", err)
