@@ -42,6 +42,14 @@ func (m *ContractModelMock) GetExisting(ctx context.Context, dbTx pgx.Tx, contra
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *ContractModelMock) GetWithMetadata(ctx context.Context, q db.Querier, contractIDs []string) ([]string, error) {
+	args := m.Called(ctx, q, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func (m *ContractModelMock) BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []*Contract) error {
 	args := m.Called(ctx, dbTx, contracts)
 	return args.Error(0)
