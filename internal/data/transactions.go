@@ -201,9 +201,9 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 	return transactions, nil
 }
 
-// BatchCopy inserts transactions using pgx's binary COPY protocol.
+// BatchCopy inserts transactions using pgx's binary COPY protocol: it materializes every
+// row up front with BuildTransactionCopyRows, then streams them with CopyRows.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
-// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 // The transactions_accounts links are written separately by BatchCopyAccounts,
 // so the two tables can stream on independent connections.
 //
@@ -215,57 +215,68 @@ func (m *TransactionModel) BatchCopy(
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
 ) (int, error) {
-	if len(txs) == 0 {
+	rows, err := BuildTransactionCopyRows(nil, txs)
+	if err != nil {
+		return 0, fmt.Errorf("building transactions COPY rows: %w", err)
+	}
+	copyCount, err := m.CopyRows(ctx, pgxTx, rows)
+	if err != nil {
+		return 0, err
+	}
+	return int(copyCount), nil
+}
+
+// transactionCopyColumns is the transactions COPY column order. Its order is the tuple
+// order BuildTransactionCopyRows appends below — the two must be read together.
+var transactionCopyColumns = []string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"}
+
+// BuildTransactionCopyRows appends one transactionCopyColumns-shaped tuple per
+// transaction to rows and returns the extended slice, so callers can reuse one backing
+// array across batches. Values are native pgtype types for the binary COPY protocol
+// (see https://github.com/jackc/pgx/issues/763).
+func BuildTransactionCopyRows(rows [][]any, txs []*types.Transaction) ([][]any, error) {
+	for _, tx := range txs {
+		hashBytes, err := tx.Hash.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
+		}
+		rows = append(rows, []any{
+			hashBytes,
+			pgtype.Int8{Int64: tx.ToID, Valid: true},
+			pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
+			pgtype.Text{String: tx.ResultCode, Valid: true},
+			pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
+			pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
+			pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
+		})
+	}
+	return rows, nil
+}
+
+// CopyRows streams pre-built transactions tuples (see BuildTransactionCopyRows) with pgx's
+// binary COPY protocol and returns the number of rows the server accepted. It carries the
+// same duplicate-failure semantics as BatchCopy.
+func (m *TransactionModel) CopyRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-
-	// COPY transactions using pgx binary format with native pgtype types.
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"},
-		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
-			tx := txs[i]
-			hashBytes, err := tx.Hash.Value()
-			if err != nil {
-				return nil, fmt.Errorf("converting hash %s to bytes: %w", tx.Hash, err)
-			}
-			return []any{
-				hashBytes,
-				pgtype.Int8{Int64: tx.ToID, Valid: true},
-				pgtype.Int8{Int64: tx.FeeCharged, Valid: true},
-				pgtype.Text{String: tx.ResultCode, Valid: true},
-				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
-				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
-				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
-			}, nil
-		}),
-	)
+	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{"transactions"}, transactionCopyColumns, pgx.CopyFromRows(rows))
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(rows)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 	if err != nil {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom transactions: %w", err)
 	}
-	if int(copyCount) != len(txs) {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
+	if int(copyCount) != len(rows) {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions", "row_count_mismatch").Inc()
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
-
-	return len(txs), nil
+	return copyCount, nil
 }
 
 // BatchCopyAccounts inserts the transactions_accounts links using pgx's binary
@@ -284,4 +295,10 @@ func (m *TransactionModel) BatchCopyAccounts(
 	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", txs,
 		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
 		stellarAddressesByToID)
+}
+
+// CopyAccountRows streams pre-built transactions_accounts tuples (see
+// BuildAccountLinkCopyRows) and returns the number of rows the server accepted.
+func (m *TransactionModel) CopyAccountRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return CopyAccountLinkRows(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", rows)
 }

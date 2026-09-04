@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
@@ -885,4 +886,66 @@ func TestOperationModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, batched, 1)
 	assert.True(t, now.Equal(batched[0].Operation.LedgerCreatedAt), "BatchGetByToID with minimal projection must hydrate ledger_created_at")
+}
+
+func TestBuildOperationCopyRows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	ops := []*types.Operation{
+		{
+			ID:              4097,
+			OperationType:   types.OperationTypePayment,
+			OperationXDR:    types.XDRBytea([]byte("xdr-bytes")),
+			ResultCode:      "op_success",
+			Successful:      true,
+			LedgerNumber:    42,
+			LedgerCreatedAt: now,
+		},
+		{
+			// An empty XDR stays an empty (non-nil) []byte: the column is NOT NULL.
+			ID:              4098,
+			OperationType:   types.OperationTypeCreateAccount,
+			OperationXDR:    types.XDRBytea{},
+			ResultCode:      "op_failed",
+			Successful:      false,
+			LedgerNumber:    43,
+			LedgerCreatedAt: now,
+		},
+	}
+
+	want := [][]any{
+		{
+			pgtype.Int8{Int64: 4097, Valid: true},
+			pgtype.Text{String: string(types.OperationTypePayment), Valid: true},
+			[]byte("xdr-bytes"),
+			pgtype.Text{String: "op_success", Valid: true},
+			pgtype.Bool{Bool: true, Valid: true},
+			pgtype.Int4{Int32: 42, Valid: true},
+			pgtype.Timestamptz{Time: now, Valid: true},
+		},
+		{
+			pgtype.Int8{Int64: 4098, Valid: true},
+			pgtype.Text{String: string(types.OperationTypeCreateAccount), Valid: true},
+			[]byte{},
+			pgtype.Text{String: "op_failed", Valid: true},
+			pgtype.Bool{Bool: false, Valid: true},
+			pgtype.Int4{Int32: 43, Valid: true},
+			pgtype.Timestamptz{Time: now, Valid: true},
+		},
+	}
+
+	// The pre-sized slice is reused across builds, so the second build must append
+	// rather than overwrite.
+	rows := make([][]any, 0, len(ops))
+	rows, err := BuildOperationCopyRows(rows, ops[:1])
+	require.NoError(t, err)
+	rows, err = BuildOperationCopyRows(rows, ops[1:])
+	require.NoError(t, err)
+	require.Len(t, rows, len(want))
+	for i := range want {
+		require.Len(t, rows[i], len(operationCopyColumns), "row width must match the COPY column list")
+		require.Len(t, want[i], len(operationCopyColumns), "expectation width must match the COPY column list")
+		for j := range want[i] {
+			assert.Equal(t, want[i][j], rows[i][j], "row %d column %s", i, operationCopyColumns[j])
+		}
+	}
 }

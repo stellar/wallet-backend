@@ -241,18 +241,20 @@ func Test_IngestStoreModel_UpdateGuarded(t *testing.T) {
 	testCases := []struct {
 		name          string
 		setupDB       func(t *testing.T) // nil means no row inserted
-		ledger        uint32
+		firstLedger   uint32
+		lastLedger    uint32
 		expectErr     bool
 		expectedValue string // DB value after the call; only checked when !expectErr
 	}{
 		{
-			// Normal sequential case: current value is ledger-1.
+			// Normal sequential case: current value is firstLedger-1.
 			name: "advances_from_ledger_minus_one",
 			setupDB: func(t *testing.T) {
 				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '99')`, key)
 				require.NoError(t, err)
 			},
-			ledger:        100,
+			firstLedger:   100,
+			lastLedger:    100,
 			expectedValue: "100",
 		},
 		{
@@ -264,8 +266,46 @@ func Test_IngestStoreModel_UpdateGuarded(t *testing.T) {
 				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '100')`, key)
 				require.NoError(t, err)
 			},
-			ledger:        100,
+			firstLedger:   100,
+			lastLedger:    100,
 			expectedValue: "100",
+		},
+		{
+			// A multi-ledger batch advances straight to its last ledger from the
+			// normal sequential position.
+			name: "batch_advances_from_first_minus_one_to_last",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '99')`, key)
+				require.NoError(t, err)
+			},
+			firstLedger:   100,
+			lastLedger:    102,
+			expectedValue: "102",
+		},
+		{
+			// Batch self-value case: initializeCursors set the cursor to the
+			// batch's first ledger.
+			name: "batch_advances_from_first_self_value_to_last",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '100')`, key)
+				require.NoError(t, err)
+			},
+			firstLedger:   100,
+			lastLedger:    102,
+			expectedValue: "102",
+		},
+		{
+			// A cursor already inside the batch's range means another writer
+			// advanced it: the batch's first ledger was not this caller's to
+			// claim, so the whole update is refused.
+			name: "refuses_when_cursor_inside_batch_range",
+			setupDB: func(t *testing.T) {
+				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '101')`, key)
+				require.NoError(t, err)
+			},
+			firstLedger: 100,
+			lastLedger:  102,
+			expectErr:   true,
 		},
 		{
 			// Regression guard: a second writer already advanced the cursor past
@@ -277,13 +317,15 @@ func Test_IngestStoreModel_UpdateGuarded(t *testing.T) {
 				_, err := dbConnectionPool.Exec(ctx, `INSERT INTO ingest_store (key, value) VALUES ($1, '105')`, key)
 				require.NoError(t, err)
 			},
-			ledger:    100,
-			expectErr: true,
+			firstLedger: 100,
+			lastLedger:  100,
+			expectErr:   true,
 		},
 		{
-			name:      "errors_when_row_missing",
-			ledger:    100,
-			expectErr: true,
+			name:        "errors_when_row_missing",
+			firstLedger: 100,
+			lastLedger:  100,
+			expectErr:   true,
 		},
 	}
 
@@ -303,7 +345,7 @@ func Test_IngestStoreModel_UpdateGuarded(t *testing.T) {
 			}
 
 			err = db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
-				return m.UpdateGuarded(ctx, dbTx, key, tc.ledger)
+				return m.UpdateGuarded(ctx, dbTx, key, tc.firstLedger, tc.lastLedger)
 			})
 
 			if tc.expectErr {

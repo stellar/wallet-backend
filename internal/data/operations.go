@@ -353,9 +353,9 @@ func (m *OperationModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs [
 	return operationsWithStateChanges, nil
 }
 
-// BatchCopy inserts operations using pgx's binary COPY protocol.
+// BatchCopy inserts operations using pgx's binary COPY protocol: it materializes every row
+// up front with BuildOperationCopyRows, then streams them with CopyRows.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
-// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
 // The operations_accounts links are written separately by BatchCopyAccounts, so
 // the two tables can stream on independent connections.
 //
@@ -367,53 +367,64 @@ func (m *OperationModel) BatchCopy(
 	pgxTx pgx.Tx,
 	operations []*types.Operation,
 ) (int, error) {
-	if len(operations) == 0 {
+	rows, err := BuildOperationCopyRows(nil, operations)
+	if err != nil {
+		return 0, fmt.Errorf("building operations COPY rows: %w", err)
+	}
+	copyCount, err := m.CopyRows(ctx, pgxTx, rows)
+	if err != nil {
+		return 0, err
+	}
+	return int(copyCount), nil
+}
+
+// operationCopyColumns is the operations COPY column order. Its order is the tuple order
+// BuildOperationCopyRows appends below — the two must be read together.
+var operationCopyColumns = []string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"}
+
+// BuildOperationCopyRows appends one operationCopyColumns-shaped tuple per operation to
+// rows and returns the extended slice, so callers can reuse one backing array across
+// batches. Values are native pgtype types for the binary COPY protocol (see
+// https://github.com/jackc/pgx/issues/763).
+func BuildOperationCopyRows(rows [][]any, operations []*types.Operation) ([][]any, error) {
+	for _, op := range operations {
+		rows = append(rows, []any{
+			pgtype.Int8{Int64: op.ID, Valid: true},
+			pgtype.Text{String: string(op.OperationType), Valid: true},
+			[]byte(op.OperationXDR),
+			pgtype.Text{String: op.ResultCode, Valid: true},
+			pgtype.Bool{Bool: op.Successful, Valid: true},
+			pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
+			pgtype.Timestamptz{Time: op.LedgerCreatedAt, Valid: true},
+		})
+	}
+	return rows, nil
+}
+
+// CopyRows streams pre-built operations tuples (see BuildOperationCopyRows) with pgx's
+// binary COPY protocol and returns the number of rows the server accepted. It carries the
+// same duplicate-failure semantics as BatchCopy.
+func (m *OperationModel) CopyRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-
-	// COPY operations using pgx binary format with native pgtype types
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"operations"},
-		[]string{"id", "operation_type", "operation_xdr", "result_code", "successful", "ledger_number", "ledger_created_at"},
-		pgx.CopyFromSlice(len(operations), func(i int) ([]any, error) {
-			op := operations[i]
-			return []any{
-				pgtype.Int8{Int64: op.ID, Valid: true},
-				pgtype.Text{String: string(op.OperationType), Valid: true},
-				[]byte(op.OperationXDR),
-				pgtype.Text{String: op.ResultCode, Valid: true},
-				pgtype.Bool{Bool: op.Successful, Valid: true},
-				pgtype.Int4{Int32: int32(op.LedgerNumber), Valid: true},
-				pgtype.Timestamptz{Time: op.LedgerCreatedAt, Valid: true},
-			}, nil
-		}),
-	)
+	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{"operations"}, operationCopyColumns, pgx.CopyFromRows(rows))
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(rows)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
 	if err != nil {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom operations: %w", err)
 	}
-	if int(copyCount) != len(operations) {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
+	if int(copyCount) != len(rows) {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "operations", "row_count_mismatch").Inc()
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(operations), copyCount)
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "operations").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "operations").Observe(float64(len(operations)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "operations").Inc()
-
-	return len(operations), nil
+	return copyCount, nil
 }
 
 // BatchCopyAccounts inserts the operations_accounts links using pgx's binary
@@ -432,4 +443,10 @@ func (m *OperationModel) BatchCopyAccounts(
 	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "operations_accounts", "operation_id", operations,
 		func(op *types.Operation) (int64, time.Time) { return op.ID, op.LedgerCreatedAt },
 		stellarAddressesByOpID)
+}
+
+// CopyAccountRows streams pre-built operations_accounts tuples (see
+// BuildAccountLinkCopyRows) and returns the number of rows the server accepted.
+func (m *OperationModel) CopyAccountRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return CopyAccountLinkRows(ctx, pgxTx, m.Metrics, "operations_accounts", "operation_id", rows)
 }

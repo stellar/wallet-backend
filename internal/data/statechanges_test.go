@@ -3,11 +3,13 @@ package data
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
@@ -212,6 +214,55 @@ func TestStateChangeModel_BatchCopy(t *testing.T) {
 			assert.Len(t, dbInsertedIDs, tc.wantCount)
 		})
 	}
+
+	// key_value is pre-marshaled by the row builder rather than handed to pgx as a
+	// map, so the three shapes a state change can carry — absent, empty object and
+	// nested object — are round-tripped through Postgres here.
+	t.Run("🟢key_value_round_trip", func(t *testing.T) {
+		_, err = dbConnectionPool.Exec(ctx, "TRUNCATE state_changes CASCADE")
+		require.NoError(t, err)
+
+		reg := prometheus.NewRegistry()
+		m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(reg).DB}
+
+		base := types.StateChange{
+			ToID:                1,
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   reason,
+			LedgerCreatedAt:     now,
+			LedgerNumber:        1,
+			AccountID:           types.AddressBytea(kp1.Address()),
+			OperationID:         123,
+		}
+		nilKV, emptyKV, nestedKV := base, base, base
+		nilKV.StateChangeID, nilKV.KeyValue = 10, nil
+		emptyKV.StateChangeID, emptyKV.KeyValue = 11, types.NullableJSONB{}
+		nestedKV.StateChangeID, nestedKV.KeyValue = 12, types.NullableJSONB{"old": map[string]any{"limit": "10"}, "new": nil}
+
+		pgxTx, err := conn.Begin(ctx)
+		require.NoError(t, err)
+		gotCount, err := m.BatchCopy(ctx, pgxTx, []types.StateChange{nilKV, emptyKV, nestedKV})
+		require.NoError(t, err)
+		require.NoError(t, pgxTx.Commit(ctx))
+		assert.Equal(t, 3, gotCount)
+
+		// key_value IS NULL is asserted directly: NullableJSONB.Scan maps both SQL
+		// NULL and the JSON literal null to a nil map, so reading the column alone
+		// cannot tell the two apart.
+		type keyValueRow struct {
+			StateChangeID int64               `db:"state_change_id"`
+			IsNull        bool                `db:"is_null"`
+			KeyValue      types.NullableJSONB `db:"key_value"`
+		}
+		stored, err := db.QueryManyPtrs[keyValueRow](ctx, dbConnectionPool, "SELECT state_change_id, key_value IS NULL AS is_null, key_value FROM state_changes ORDER BY state_change_id")
+		require.NoError(t, err)
+		require.Len(t, stored, 3)
+		assert.True(t, stored[0].IsNull, "a nil KeyValue must be stored as SQL NULL, not the JSON literal null")
+		assert.False(t, stored[1].IsNull)
+		assert.False(t, stored[2].IsNull)
+		assert.Equal(t, types.NullableJSONB{}, stored[1].KeyValue)
+		assert.Equal(t, types.NullableJSONB{"old": map[string]any{"limit": "10"}, "new": nil}, stored[2].KeyValue)
+	})
 }
 
 // TestStateChangeModel_BatchCopy_DuplicateFailsOnPK verifies the SQL-06
@@ -1204,4 +1255,239 @@ func TestStateChangeModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, byOpID, 1)
 	assert.True(t, now.Equal(byOpID[0].StateChange.LedgerCreatedAt), "BatchGetByOperationID with minimal projection must hydrate ledger_created_at")
+}
+
+// mustAddressCopyBytes returns the BYTEA form a COPY row carries for address.
+func mustAddressCopyBytes(t *testing.T, address string) []byte {
+	t.Helper()
+	value, err := types.AddressBytea(address).Value()
+	require.NoError(t, err)
+	bytes, ok := value.([]byte)
+	require.True(t, ok, "AddressBytea.Value must yield []byte, got %T", value)
+	return bytes
+}
+
+func TestBuildStateChangeCopyRows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	account := keypair.MustRandom().Address()
+	signer := keypair.MustRandom().Address()
+	spender := keypair.MustRandom().Address()
+	creator := keypair.MustRandom().Address()
+	destination := keypair.MustRandom().Address()
+	token := keypair.MustRandom().Address()
+
+	nestedKeyValue := types.NullableJSONB{"old": map[string]any{"limit": "10"}, "new": map[string]any{"limit": "20"}}
+	nestedKeyValueJSON, err := json.Marshal(map[string]any(nestedKeyValue))
+	require.NoError(t, err)
+	emptyKeyValueJSON, err := json.Marshal(map[string]any{})
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name        string
+		stateChange types.StateChange
+		want        []any
+	}{
+		{
+			name: "🟢every_nullable_field_set",
+			stateChange: types.StateChange{
+				ToID:                 4096,
+				StateChangeID:        7,
+				StateChangeCategory:  types.StateChangeCategoryBalance,
+				StateChangeReason:    types.StateChangeReasonCredit,
+				LedgerCreatedAt:      now,
+				LedgerNumber:         42,
+				AccountID:            types.AddressBytea(account),
+				OperationID:          4097,
+				TokenID:              types.NullAddressBytea{AddressBytea: types.AddressBytea(token), Valid: true},
+				Amount:               sql.NullString{String: "100", Valid: true},
+				SignerAccountID:      types.NullAddressBytea{AddressBytea: types.AddressBytea(signer), Valid: true},
+				SpenderAccountID:     types.NullAddressBytea{AddressBytea: types.AddressBytea(spender), Valid: true},
+				CreatorAccountID:     types.NullAddressBytea{AddressBytea: types.AddressBytea(creator), Valid: true},
+				DestinationAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(destination), Valid: true},
+				LiquidityPoolID:      sql.NullString{String: "pool-1", Valid: true},
+				SignerWeightOld:      sql.NullInt16{Int16: 1, Valid: true},
+				SignerWeightNew:      sql.NullInt16{Int16: 2, Valid: true},
+				Threshold:            sql.NullString{String: string(types.ThresholdLevelMedium), Valid: true},
+				ThresholdOld:         sql.NullInt16{Int16: 3, Valid: true},
+				ThresholdNew:         sql.NullInt16{Int16: 4, Valid: true},
+				TrustlineLimitOld:    sql.NullString{String: "1000", Valid: true},
+				TrustlineLimitNew:    sql.NullString{String: "2000", Valid: true},
+				Flags:                sql.NullInt16{Int16: 6, Valid: true},
+				DataEntryName:        sql.NullString{String: "entry", Valid: true},
+				KeyValue:             nestedKeyValue,
+				ToMuxedID:            sql.NullString{String: "18446744073709551615", Valid: true},
+			},
+			want: []any{
+				pgtype.Int8{Int64: 4096, Valid: true},
+				pgtype.Int8{Int64: 7, Valid: true},
+				pgtype.Text{String: "BALANCE", Valid: true},
+				pgtype.Text{String: "CREDIT", Valid: true},
+				pgtype.Timestamptz{Time: now, Valid: true},
+				pgtype.Int4{Int32: 42, Valid: true},
+				mustAddressCopyBytes(t, account),
+				pgtype.Int8{Int64: 4097, Valid: true},
+				mustAddressCopyBytes(t, token),
+				pgtype.Text{String: "100", Valid: true},
+				mustAddressCopyBytes(t, signer),
+				mustAddressCopyBytes(t, spender),
+				mustAddressCopyBytes(t, creator),
+				mustAddressCopyBytes(t, destination),
+				pgtype.Text{String: "pool-1", Valid: true},
+				pgtype.Int2{Int16: 1, Valid: true},
+				pgtype.Int2{Int16: 2, Valid: true},
+				pgtype.Text{String: string(types.ThresholdLevelMedium), Valid: true},
+				pgtype.Int2{Int16: 3, Valid: true},
+				pgtype.Int2{Int16: 4, Valid: true},
+				pgtype.Text{String: "1000", Valid: true},
+				pgtype.Text{String: "2000", Valid: true},
+				pgtype.Int2{Int16: 6, Valid: true},
+				pgtype.Text{String: "entry", Valid: true},
+				nestedKeyValueJSON,
+				pgtype.Text{String: "18446744073709551615", Valid: true},
+			},
+		},
+		{
+			// A fee charge carries no signer, spender, token or key_value: every
+			// nullable column must come out NULL, and key_value untyped nil so pgx
+			// writes SQL NULL rather than the JSON literal "null".
+			name: "🟢fee_row_leaves_every_nullable_field_null",
+			stateChange: types.StateChange{
+				ToID:                4096,
+				StateChangeID:       1,
+				StateChangeCategory: types.StateChangeCategoryBalance,
+				StateChangeReason:   types.StateChangeReasonDebit,
+				LedgerCreatedAt:     now,
+				LedgerNumber:        42,
+				AccountID:           types.AddressBytea(account),
+				OperationID:         4096,
+			},
+			want: []any{
+				pgtype.Int8{Int64: 4096, Valid: true},
+				pgtype.Int8{Int64: 1, Valid: true},
+				pgtype.Text{String: "BALANCE", Valid: true},
+				pgtype.Text{String: "DEBIT", Valid: true},
+				pgtype.Timestamptz{Time: now, Valid: true},
+				pgtype.Int4{Int32: 42, Valid: true},
+				mustAddressCopyBytes(t, account),
+				pgtype.Int8{Int64: 4096, Valid: true},
+				[]byte(nil),
+				pgtype.Text{},
+				[]byte(nil),
+				[]byte(nil),
+				[]byte(nil),
+				[]byte(nil),
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				nil,
+				pgtype.Text{},
+			},
+		},
+		{
+			// A NullAddressBytea can be Valid with an empty address; AddressBytea.Value
+			// maps "" to NULL, and the memo must reproduce that instead of erroring.
+			name: "🟢empty_optional_address_is_null",
+			stateChange: types.StateChange{
+				ToID:                4096,
+				StateChangeID:       2,
+				StateChangeCategory: types.StateChangeCategoryBalance,
+				StateChangeReason:   types.StateChangeReasonCredit,
+				LedgerCreatedAt:     now,
+				LedgerNumber:        42,
+				AccountID:           types.AddressBytea(account),
+				OperationID:         4097,
+				TokenID:             types.NullAddressBytea{AddressBytea: "", Valid: true},
+				SignerAccountID:     types.NullAddressBytea{AddressBytea: "", Valid: true},
+				KeyValue:            types.NullableJSONB{},
+			},
+			want: []any{
+				pgtype.Int8{Int64: 4096, Valid: true},
+				pgtype.Int8{Int64: 2, Valid: true},
+				pgtype.Text{String: "BALANCE", Valid: true},
+				pgtype.Text{String: "CREDIT", Valid: true},
+				pgtype.Timestamptz{Time: now, Valid: true},
+				pgtype.Int4{Int32: 42, Valid: true},
+				mustAddressCopyBytes(t, account),
+				pgtype.Int8{Int64: 4097, Valid: true},
+				[]byte(nil),
+				pgtype.Text{},
+				[]byte(nil),
+				[]byte(nil),
+				[]byte(nil),
+				[]byte(nil),
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				pgtype.Text{},
+				pgtype.Int2{},
+				pgtype.Text{},
+				emptyKeyValueJSON,
+				pgtype.Text{},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := BuildStateChangeCopyRows(nil, []types.StateChange{tc.stateChange}, make(types.AddressByteaMemo))
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.Len(t, rows[0], len(stateChangeCopyColumns), "row width must match the COPY column list")
+			require.Len(t, tc.want, len(stateChangeCopyColumns), "expectation width must match the COPY column list")
+			for i := range tc.want {
+				assert.Equal(t, tc.want[i], rows[0][i], "column %s", stateChangeCopyColumns[i])
+			}
+		})
+	}
+}
+
+func TestBuildStateChangeCopyRows_AppendsIntoCallerSlice(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	account := keypair.MustRandom().Address()
+	sc := types.StateChange{
+		ToID:                4096,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   types.StateChangeReasonCredit,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(account),
+		OperationID:         4097,
+	}
+
+	rows := make([][]any, 0, 4)
+	rows, err := BuildStateChangeCopyRows(rows, []types.StateChange{sc, sc}, make(types.AddressByteaMemo))
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+
+	rows, err = BuildStateChangeCopyRows(rows, []types.StateChange{sc}, make(types.AddressByteaMemo))
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	assert.Equal(t, rows[0], rows[2], "appended rows must not disturb the ones already built")
+}
+
+func TestBuildStateChangeCopyRows_InvalidAddress(t *testing.T) {
+	sc := types.StateChange{
+		ToID:                4096,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   types.StateChangeReasonCredit,
+		LedgerCreatedAt:     time.Now(),
+		AccountID:           types.AddressBytea("not-a-stellar-address"),
+		OperationID:         4097,
+	}
+	_, err := BuildStateChangeCopyRows(nil, []types.StateChange{sc}, make(types.AddressByteaMemo))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "converting account_id")
 }

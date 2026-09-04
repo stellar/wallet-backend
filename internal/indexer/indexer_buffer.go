@@ -4,8 +4,11 @@
 package indexer
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -109,7 +112,28 @@ type IndexerBuffer struct {
 	// order (the fold is serial in transaction order), so last-write-wins folding per entry key
 	// stays deterministic for the protocol processors that consume this at persist time.
 	contractDataChangesByContract map[string][]ingest.Change
+
+	// Prebuilt COPY rows for the five bulk tables, populated by BuildCopyRows on the
+	// process stage so the persist stage streams them without building or encoding
+	// anything per row. Read-only for consumers, valid until Clear(); the outer
+	// backing arrays are reused across ledgers like the buffer's maps.
+	transactionRows        [][]any
+	transactionAccountRows [][]any
+	operationRows          [][]any
+	operationAccountRows   [][]any
+	stateChangeRows        [][]any
+	// addressByteaMemo caches strkey→BYTEA conversions for every builder that
+	// touches addresses (state_changes and both account-link tables). Entries are
+	// content-addressed like parsedAssetsByString, so the memo stays warm across
+	// ledgers; unlike asset strings, unique addresses grow without bound over a
+	// process lifetime, so Clear() drops it wholesale past a cap.
+	addressByteaMemo types.AddressByteaMemo
 }
+
+// maxAddressByteaMemoEntries caps addressByteaMemo's growth (~40 bytes/entry:
+// a 56-char strkey plus 33 decoded bytes). Past the cap, Clear() drops the
+// whole memo and it rewarms from live traffic.
+const maxAddressByteaMemoEntries = 200_000
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps are pre-allocated to avoid nil map access.
@@ -138,8 +162,62 @@ func NewIndexerBuffer() *IndexerBuffer {
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 		contractEventsByKey:            make(map[ContractEventKey][]xdr.ContractEvent),
 		contractDataChangesByContract:  make(map[string][]ingest.Change),
+		addressByteaMemo:               make(types.AddressByteaMemo),
 	}
 }
+
+// BuildCopyRows materializes the five bulk tables' COPY rows from the buffer's
+// current contents, replacing whatever rows a previous ledger left (their
+// backing arrays are reused). It runs on the process stage so the persist
+// stage's COPYs stream pre-encodable tuples instead of building rows on the
+// connection's critical path. The transaction and operation rows come from the
+// sorted getters, so every table's rows are already in primary-key order.
+func (b *IndexerBuffer) BuildCopyRows() error {
+	txs := b.GetTransactions()
+	ops := b.GetOperations()
+
+	var err error
+	if b.transactionRows, err = data.BuildTransactionCopyRows(b.transactionRows[:0], txs); err != nil {
+		return fmt.Errorf("building transactions COPY rows: %w", err)
+	}
+	if b.operationRows, err = data.BuildOperationCopyRows(b.operationRows[:0], ops); err != nil {
+		return fmt.Errorf("building operations COPY rows: %w", err)
+	}
+	if b.stateChangeRows, err = data.BuildStateChangeCopyRows(b.stateChangeRows[:0], b.stateChanges, b.addressByteaMemo); err != nil {
+		return fmt.Errorf("building state_changes COPY rows: %w", err)
+	}
+	if b.transactionAccountRows, err = data.BuildAccountLinkCopyRows(b.transactionAccountRows[:0], txs,
+		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
+		b.participantsByToID, b.addressByteaMemo); err != nil {
+		return fmt.Errorf("building transactions_accounts COPY rows: %w", err)
+	}
+	if b.operationAccountRows, err = data.BuildAccountLinkCopyRows(b.operationAccountRows[:0], ops,
+		func(op *types.Operation) (int64, time.Time) { return op.ID, op.LedgerCreatedAt },
+		b.participantsByOpID, b.addressByteaMemo); err != nil {
+		return fmt.Errorf("building operations_accounts COPY rows: %w", err)
+	}
+	return nil
+}
+
+// GetTransactionCopyRows returns the buffer's prebuilt transactions COPY rows;
+// callers must not modify them. Valid until Clear().
+func (b *IndexerBuffer) GetTransactionCopyRows() [][]any { return b.transactionRows }
+
+// GetTransactionAccountCopyRows returns the buffer's prebuilt
+// transactions_accounts COPY rows; callers must not modify them. Valid until Clear().
+func (b *IndexerBuffer) GetTransactionAccountCopyRows() [][]any { return b.transactionAccountRows }
+
+// GetOperationCopyRows returns the buffer's prebuilt operations COPY rows;
+// callers must not modify them. Valid until Clear().
+func (b *IndexerBuffer) GetOperationCopyRows() [][]any { return b.operationRows }
+
+// GetOperationAccountCopyRows returns the buffer's prebuilt operations_accounts
+// COPY rows; callers must not modify them. Valid until Clear().
+func (b *IndexerBuffer) GetOperationAccountCopyRows() [][]any { return b.operationAccountRows }
+
+// GetStateChangeCopyRows returns the buffer's prebuilt state_changes COPY rows;
+// callers must not modify them. Valid until Clear().
+func (b *IndexerBuffer) GetStateChangeCopyRows() [][]any { return b.stateChangeRows }
 
 // PushTransaction adds a transaction and associates it with a participant.
 // Uses canonical pointer pattern: stores one copy of each transaction (by ToID) and tracks
@@ -181,12 +259,14 @@ func (b *IndexerBuffer) GetNumberOfOperations() int {
 	return len(b.opByID)
 }
 
-// GetTransactions returns all unique transactions.
+// GetTransactions returns all unique transactions in ascending ToID order. The transactions
+// hypertable's primary key leads with to_id, so COPYing in this order walks the index left to right.
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
 	txs := make([]*types.Transaction, 0, len(b.txByToID))
 	for _, txPtr := range b.txByToID {
 		txs = append(txs, txPtr)
 	}
+	slices.SortFunc(txs, func(a, b *types.Transaction) int { return cmp.Compare(a.ToID, b.ToID) })
 
 	return txs
 }
@@ -376,12 +456,14 @@ func (b *IndexerBuffer) PushOperation(participant string, operation *types.Opera
 	b.recordTransaction(participant, transaction)
 }
 
-// GetOperations returns all unique operations from the canonical storage.
+// GetOperations returns all unique operations from the canonical storage in ascending ID order.
+// The operations primary key is its only index, so COPYing in this order walks it left to right.
 func (b *IndexerBuffer) GetOperations() []*types.Operation {
 	ops := make([]*types.Operation, 0, len(b.opByID))
 	for _, opPtr := range b.opByID {
 		ops = append(ops, opPtr)
 	}
+	slices.SortFunc(ops, func(a, b *types.Operation) int { return cmp.Compare(a.ID, b.ID) })
 	return ops
 }
 
@@ -583,6 +665,22 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.sacTombstones)
 	clear(b.lpShareTombstones)
 	clear(b.lpTombstones)
+
+	// Reset the prebuilt COPY rows (reuse outer backing arrays; elements past
+	// the length pin the previous ledger's rows only until append overwrites
+	// them, bounded by the high-water mark — the same trade stateChanges makes).
+	b.transactionRows = b.transactionRows[:0]
+	b.transactionAccountRows = b.transactionAccountRows[:0]
+	b.operationRows = b.operationRows[:0]
+	b.operationAccountRows = b.operationAccountRows[:0]
+	b.stateChangeRows = b.stateChangeRows[:0]
+
+	// addressByteaMemo is content-addressed, so it stays warm across ledgers
+	// like parsedAssetsByString; it only drops — wholesale — once it outgrows
+	// its cap, and rewarms from live traffic.
+	if len(b.addressByteaMemo) > maxAddressByteaMemoEntries {
+		clear(b.addressByteaMemo)
+	}
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

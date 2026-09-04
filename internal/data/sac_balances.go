@@ -3,8 +3,10 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,13 +123,11 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 	start := time.Now()
 
 	if len(upserts) > 0 {
-		accountIDs := make([][]byte, len(upserts))
-		contractIDs := make([]uuid.UUID, len(upserts))
-		balances := make([]string, len(upserts))
-		isAuthorized := make([]bool, len(upserts))
-		isClawbackEnabled := make([]bool, len(upserts))
-		ledgerNumbers := make([]int32, len(upserts))
-
+		type upsertRow struct {
+			accountID []byte
+			bal       SACBalance
+		}
+		rows := make([]upsertRow, len(upserts))
 		for i, bal := range upserts {
 			raw, err := bal.AccountID.Value()
 			if err != nil {
@@ -137,14 +137,38 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 			if !ok {
 				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
 			}
-			accountIDs[i] = rawBytes
-			contractIDs[i] = bal.ContractID
-			balances[i] = bal.Balance
-			isAuthorized[i] = bal.IsAuthorized
-			isClawbackEnabled[i] = bal.IsClawbackEnabled
-			ledgerNumbers[i] = int32(bal.LedgerNumber)
+			rows[i] = upsertRow{accountID: rawBytes, bal: bal}
+		}
+		// Upserts arrive in Go map-iteration order; sorting by the PK columns
+		// descends the btree and touches heap pages in key order instead of
+		// scattering thousands of random probes across the relation.
+		slices.SortFunc(rows, func(a, b upsertRow) int {
+			if c := bytes.Compare(a.accountID, b.accountID); c != 0 {
+				return c
+			}
+			return bytes.Compare(a.bal.ContractID[:], b.bal.ContractID[:])
+		})
+
+		accountIDs := make([][]byte, len(rows))
+		contractIDs := make([]uuid.UUID, len(rows))
+		balances := make([]string, len(rows))
+		isAuthorized := make([]bool, len(rows))
+		isClawbackEnabled := make([]bool, len(rows))
+		ledgerNumbers := make([]int32, len(rows))
+		for i, row := range rows {
+			accountIDs[i] = row.accountID
+			contractIDs[i] = row.bal.ContractID
+			balances[i] = row.bal.Balance
+			isAuthorized[i] = row.bal.IsAuthorized
+			isClawbackEnabled[i] = row.bal.IsClawbackEnabled
+			ledgerNumbers[i] = int32(row.bal.LedgerNumber)
 		}
 
+		// The WHERE clause compares only the tracked values, so the update fires
+		// only when one of them differs and last_modified_ledger records the last
+		// ledger that changed one. Re-observing a balance with identical values is
+		// a pure no-op: no new tuple version, no dead tuple, no WAL, no index
+		// churn.
 		const upsertQuery = `
 			INSERT INTO sac_balances (
 				account_id, contract_id, balance, is_authorized, is_clawback_enabled, last_modified_ledger
@@ -156,7 +180,10 @@ func (m *SACBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts 
 				balance = EXCLUDED.balance,
 				is_authorized = EXCLUDED.is_authorized,
 				is_clawback_enabled = EXCLUDED.is_clawback_enabled,
-				last_modified_ledger = EXCLUDED.last_modified_ledger`
+				last_modified_ledger = EXCLUDED.last_modified_ledger
+			WHERE (sac_balances.balance, sac_balances.is_authorized, sac_balances.is_clawback_enabled)
+			      IS DISTINCT FROM
+			      (EXCLUDED.balance, EXCLUDED.is_authorized, EXCLUDED.is_clawback_enabled)`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, contractIDs, balances, isAuthorized, isClawbackEnabled, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "sac_balances").Observe(time.Since(start).Seconds())

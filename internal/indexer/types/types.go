@@ -135,10 +135,11 @@ func (n NullAddressBytea) String() string {
 // shares its token_id, an account's rows share its account_id — so a hit skips the
 // whole strkey decode (base32 + CRC16) and the 33-byte allocation.
 //
-// The memo is a plain map for use by exactly one goroutine, and hits return the
+// The memo is a plain map for use by one goroutine at a time, and hits return the
 // SAME []byte every time: callers must treat the slice as read-only. Both contracts
-// hold in the persist COPY builders, which are single-goroutine per call and hand
-// the slices to pgx, which only reads them while encoding its own buffer.
+// hold everywhere the COPY row builders run — the process stage's per-buffer memo
+// (IndexerBuffer.BuildCopyRows) and the per-call memos inside BatchCopy — and the
+// built rows hand the slices to pgx, which only reads them while encoding.
 type AddressByteaMemo map[string][]byte
 
 // Bytes returns the 33-byte BYTEA form of a, converting on the first sight of an

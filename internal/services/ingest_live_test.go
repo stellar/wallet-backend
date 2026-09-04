@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,6 +17,8 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -146,4 +149,240 @@ func Test_isPermanentPersistError(t *testing.T) {
 			assert.Equal(t, tc.wantPermanent, isPermanentPersistError(tc.err))
 		})
 	}
+}
+
+// Test_mergedAcrossLedgers pins the cross-ledger merge semantics the balance
+// siblings rely on: later ledgers win by POSITION in the batch, never by
+// comparing order values — AccountChange.SortKey is a within-ledger rank, so
+// an earlier ledger may legally carry a higher SortKey than a later one.
+func Test_mergedAcrossLedgers(t *testing.T) {
+	item := func(seq uint32, changes ...types.AccountChange) persistItem {
+		buffer := indexer.NewIndexerBuffer()
+		for _, c := range changes {
+			buffer.PushAccountChange(c)
+		}
+		return persistItem{seq: seq, buffer: buffer}
+	}
+	get := (*indexer.IndexerBuffer).GetAccountChanges
+
+	t.Run("later ledger overwrites earlier", func(t *testing.T) {
+		merged := mergedAcrossLedgers([]persistItem{
+			item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 100, Operation: types.AccountOpUpdate, Balance: 10}),
+			item(101, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 101, Operation: types.AccountOpUpdate, Balance: 20}),
+		}, get)
+		require.Len(t, merged, 1)
+		assert.Equal(t, int64(20), merged[testAddr1].Balance)
+	})
+
+	t.Run("later ledger wins even against a higher earlier SortKey", func(t *testing.T) {
+		// Legal: SortKeys rank within one ledger only. Ledger 100's final
+		// change ranked high in ITS ledger; ledger 101's ranked low in its
+		// own. Position in the batch must decide, not the SortKey.
+		merged := mergedAcrossLedgers([]persistItem{
+			item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1 << 40, LedgerNumber: 100, Operation: types.AccountOpUpdate, Balance: 10}),
+			item(101, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 101, Operation: types.AccountOpUpdate, Balance: 20}),
+		}, get)
+		require.Len(t, merged, 1)
+		assert.Equal(t, int64(20), merged[testAddr1].Balance)
+	})
+
+	t.Run("remove then recreate nets to the recreate", func(t *testing.T) {
+		merged := mergedAcrossLedgers([]persistItem{
+			item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 100, Operation: types.AccountOpRemove}),
+			item(101, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 101, Operation: types.AccountOpCreate, Balance: 5}),
+		}, get)
+		require.Len(t, merged, 1)
+		assert.Equal(t, types.AccountOpCreate, merged[testAddr1].Operation)
+		assert.Equal(t, int64(5), merged[testAddr1].Balance)
+	})
+
+	t.Run("create then remove keeps the remove so its delete executes", func(t *testing.T) {
+		merged := mergedAcrossLedgers([]persistItem{
+			item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 100, Operation: types.AccountOpCreate, Balance: 5}),
+			item(101, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 101, Operation: types.AccountOpRemove}),
+		}, get)
+		require.Len(t, merged, 1)
+		assert.Equal(t, types.AccountOpRemove, merged[testAddr1].Operation)
+	})
+
+	t.Run("key touched only by an earlier ledger survives", func(t *testing.T) {
+		merged := mergedAcrossLedgers([]persistItem{
+			item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 100, Operation: types.AccountOpUpdate, Balance: 10}),
+			item(101, types.AccountChange{AccountID: testAddr2, SortKey: 1, LedgerNumber: 101, Operation: types.AccountOpUpdate, Balance: 20}),
+		}, get)
+		require.Len(t, merged, 2)
+		assert.Equal(t, int64(10), merged[testAddr1].Balance)
+		assert.Equal(t, int64(20), merged[testAddr2].Balance)
+	})
+
+	t.Run("single item passes the live map through uncopied", func(t *testing.T) {
+		it := item(100, types.AccountChange{AccountID: testAddr1, SortKey: 1, LedgerNumber: 100, Operation: types.AccountOpUpdate, Balance: 10})
+		merged := mergedAcrossLedgers([]persistItem{it}, get)
+		assert.Equal(t, reflect.ValueOf(it.buffer.GetAccountChanges()).Pointer(), reflect.ValueOf(merged).Pointer())
+	})
+}
+
+// Test_concatCopyRows pins the batch-level COPY input: one COPY per table per
+// batch means the rows must arrive in item order, which is ascending ledger
+// order, so the concatenation keeps the ledger-monotonic key order the
+// sequential per-ledger COPYs had.
+func Test_concatCopyRows(t *testing.T) {
+	// Distinct valid hashes: the transactions COPY row carries the decoded hash.
+	hashes := []string{
+		"e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760",
+		"a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761",
+		"b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
+	}
+	item := func(seq uint32, toIDs ...int64) persistItem {
+		buffer := indexer.NewIndexerBuffer()
+		for i, toID := range toIDs {
+			tx := types.Transaction{Hash: types.HashBytea(hashes[i]), ToID: toID, LedgerNumber: seq}
+			buffer.PushTransaction(testAddr1, &tx)
+		}
+		require.NoError(t, buffer.BuildCopyRows())
+		return persistItem{seq: seq, buffer: buffer}
+	}
+	get := (*indexer.IndexerBuffer).GetTransactionCopyRows
+
+	t.Run("two items concatenate in item order", func(t *testing.T) {
+		first, second := item(100, 4096, 4097), item(101, 8192)
+		want := make([][]any, 0, 3)
+		want = append(want, get(first.buffer)...)
+		want = append(want, get(second.buffer)...)
+
+		got := concatCopyRows([]persistItem{first, second}, get)
+		require.Len(t, got, 3)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("single item passes the live slice through uncopied", func(t *testing.T) {
+		it := item(100, 4096)
+		got := concatCopyRows([]persistItem{it}, get)
+		require.Len(t, got, 1)
+		assert.Equal(t, reflect.ValueOf(it.buffer.GetTransactionCopyRows()).Pointer(), reflect.ValueOf(got).Pointer())
+	})
+
+	t.Run("an item with no rows does not disturb the order", func(t *testing.T) {
+		first, empty, last := item(100, 4096), item(101), item(102, 8192)
+		require.Empty(t, get(empty.buffer))
+		want := make([][]any, 0, 2)
+		want = append(want, get(first.buffer)...)
+		want = append(want, get(last.buffer)...)
+
+		got := concatCopyRows([]persistItem{first, empty, last}, get)
+		require.Len(t, got, 2)
+		assert.Equal(t, want, got)
+	})
+}
+
+func Test_mergedUniqueTrustlineAssets(t *testing.T) {
+	item := func(seq uint32, assets ...string) persistItem {
+		buffer := indexer.NewIndexerBuffer()
+		for i, asset := range assets {
+			buffer.PushTrustlineChange(types.TrustlineChange{
+				AccountID:   testAddr1,
+				Asset:       asset,
+				OperationID: int64(seq)<<32 + int64(i),
+				Operation:   types.TrustlineOpUpdate,
+			})
+		}
+		return persistItem{seq: seq, buffer: buffer}
+	}
+
+	usdc := "USDC:" + testAddr1
+	eurc := "EURC:" + testAddr2
+
+	t.Run("same asset in two ledgers dedupes to one entry", func(t *testing.T) {
+		assets := mergedUniqueTrustlineAssets([]persistItem{item(100, usdc), item(101, usdc)})
+		require.Len(t, assets, 1)
+		assert.Equal(t, "USDC", assets[0].Code)
+	})
+
+	t.Run("disjoint assets union", func(t *testing.T) {
+		assets := mergedUniqueTrustlineAssets([]persistItem{item(100, usdc), item(101, eurc)})
+		codes := make([]string, 0, len(assets))
+		for _, a := range assets {
+			codes = append(codes, a.Code)
+		}
+		assert.ElementsMatch(t, []string{"USDC", "EURC"}, codes)
+	})
+
+	t.Run("single item passes the buffer's slice through uncopied", func(t *testing.T) {
+		it := item(100, usdc)
+		got := mergedUniqueTrustlineAssets([]persistItem{it})
+		require.Len(t, got, 1)
+		fresh := it.buffer.GetUniqueTrustlineAssets()
+		require.Len(t, fresh, 1)
+		assert.Equal(t, fresh[0].ID, got[0].ID)
+	})
+}
+
+// Test_persistLedgerData_CoalescesBalanceUpsertsAcrossBatch pins that the
+// balance siblings upsert once per batch over the ledgers' merged final
+// state: for a two-ledger batch touching the same account, the token service
+// sees exactly one call carrying the later ledger's value.
+func Test_persistLedgerData_CoalescesBalanceUpsertsAcrossBatch(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	var nativeCalls int
+	var mergedArg map[string]types.AccountChange
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Run(func(args mock.Arguments) {
+		nativeCalls++
+		var ok bool
+		mergedArg, ok = args.Get(2).(map[string]types.AccountChange)
+		require.True(t, ok)
+	}).Return(nil).Once()
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Once()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeLive,
+		Models:                 models,
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          &LedgerBackendMock{},
+		TokenIngestionService:  mockTokenIngestionService,
+		Metrics:                m,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	setupDBCursors(t, ctx, pool, 99, 99)
+
+	item := func(seq uint32, balance int64) persistItem {
+		buffer := indexer.NewIndexerBuffer()
+		buffer.PushAccountChange(types.AccountChange{
+			AccountID:    testAddr1,
+			SortKey:      1,
+			LedgerNumber: seq,
+			Operation:    types.AccountOpUpdate,
+			Balance:      balance,
+		})
+		return persistItem{seq: seq, buffer: buffer}
+	}
+
+	err = svc.persistLedgerData(ctx, []persistItem{item(100, 10), item(101, 20)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, nativeCalls, "one native/pool upsert per batch, not per ledger")
+	require.Contains(t, mergedArg, testAddr1)
+	assert.Equal(t, int64(20), mergedArg[testAddr1].Balance, "the merged map carries the later ledger's final state")
 }

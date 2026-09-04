@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -50,16 +53,13 @@ var ErrPartialPersist = errors.New("ledger persist partially committed")
 // its buffer, which carries the ledger's ContractData changes collected by
 // the process stage. Both are shared verbatim across
 // persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
-// calls or re-collects changes. transactions and operations hold the
-// buffer's rows materialized by persistLedgerData, so the two siblings that
-// each need them share one slice.
+// calls, re-collects changes, or rebuilds the COPY rows the buffer carries
+// (IndexerBuffer.BuildCopyRows).
 type persistItem struct {
-	seq          uint32
-	closeTime    int64
-	plan         *ClassificationPlan
-	buffer       *indexer.IndexerBuffer
-	transactions []*types.Transaction
-	operations   []*types.Operation
+	seq       uint32
+	closeTime int64
+	plan      *ClassificationPlan
+	buffer    *indexer.IndexerBuffer
 }
 
 // protocolHistorySink is where stageCoordinatedWrites sends the protocol
@@ -80,10 +80,78 @@ func (h protocolHistorySink) persist(ctx context.Context, processor ProtocolProc
 }
 
 // persistSibling is one sibling transaction: the table family it owns and the
-// per-ledger writes it streams.
+// writes it streams for a batch of ledgers.
 type persistSibling struct {
 	name string
-	run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
+	run  func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error
+}
+
+// mergedAcrossLedgers folds each ledger's netted per-key change map into one
+// map by unconditional overwrite in ascending ledger order: a later ledger's
+// final state for a key supersedes an earlier ledger's entirely. Removes are
+// ordinary values here, so a remove that survives the merge still executes
+// its delete; a key absent from a later ledger keeps the earlier ledger's
+// final state, which is exactly what per-ledger upserts would have left
+// behind. Order values are NEVER compared across ledgers — AccountChange's
+// SortKey is a within-ledger rank with no ledger term — which is why this
+// overwrites in ledger order instead of reusing the buffer's
+// highest-order-wins push. Items must be in ascending ledger order
+// (persistProcessedLedgers builds them that way from its FIFO queue). With a
+// single item the buffer's live map passes through uncopied; callers must
+// treat every returned map as read-only.
+func mergedAcrossLedgers[K comparable, V any](items []persistItem, get func(*indexer.IndexerBuffer) map[K]V) map[K]V {
+	if len(items) == 1 {
+		return get(items[0].buffer)
+	}
+	merged := make(map[K]V)
+	for i := range items {
+		maps.Copy(merged, get(items[i].buffer))
+	}
+	return merged
+}
+
+// mergedUniqueTrustlineAssets deduplicates the batch's trustline assets by
+// their content-derived deterministic ID ahead of the one BatchInsert. With a
+// single item the buffer's slice passes through uncopied; callers must treat
+// it as read-only.
+func mergedUniqueTrustlineAssets(items []persistItem) []data.TrustlineAsset {
+	if len(items) == 1 {
+		return items[0].buffer.GetUniqueTrustlineAssets()
+	}
+	seen := make(map[uuid.UUID]struct{})
+	var assets []data.TrustlineAsset
+	for i := range items {
+		for _, asset := range items[i].buffer.GetUniqueTrustlineAssets() {
+			if _, ok := seen[asset.ID]; ok {
+				continue
+			}
+			seen[asset.ID] = struct{}{}
+			assets = append(assets, asset)
+		}
+	}
+	return assets
+}
+
+// concatCopyRows concatenates the batch's prebuilt COPY rows in item order.
+// Per-ledger rows are already in primary-key order and the parent tables'
+// keys are ledger-monotonic, so item-order concatenation preserves global
+// order for them; the account-link tables become at most batch-size sorted
+// runs, which walk the btree exactly as the sequential per-ledger COPYs did.
+// With a single item the buffer's live slice passes through uncopied; callers
+// must treat the result as read-only.
+func concatCopyRows(items []persistItem, get func(*indexer.IndexerBuffer) [][]any) [][]any {
+	if len(items) == 1 {
+		return get(items[0].buffer)
+	}
+	total := 0
+	for i := range items {
+		total += len(get(items[i].buffer))
+	}
+	rows := make([][]any, 0, total)
+	for i := range items {
+		rows = append(rows, get(items[i].buffer)...)
+	}
+	return rows
 }
 
 // persistSiblings builds the sibling set persistLedgerData streams
@@ -95,22 +163,45 @@ type persistSibling struct {
 // persistLedgerData.
 func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
 	return []persistSibling{
-		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactions(ctx, dbTx, it.transactions)
+		// The five bulk siblings stream the COPY rows the process stage
+		// prebuilt on each buffer (IndexerBuffer.BuildCopyRows): no row is
+		// built or encoded on a persist connection's critical path. Each runs
+		// ONE COPY per table per batch over the batch's concatenated rows
+		// (concatCopyRows), so a coalesced batch pays one COPY setup and
+		// teardown round trip per table instead of one per ledger. The
+		// backfill path has no process/persist split and keeps using the
+		// BatchCopy compositions instead.
+		{"transactions", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Transactions.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)); err != nil {
+				return fmt.Errorf("batch inserting transactions: %w", err)
+			}
+			return nil
 		}},
-		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactionsAccounts(ctx, dbTx, it.transactions, it.buffer.GetTransactionsParticipants())
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Transactions.CopyAccountRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionAccountCopyRows)); err != nil {
+				return fmt.Errorf("batch inserting transactions accounts: %w", err)
+			}
+			return nil
 		}},
-		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperations(ctx, dbTx, it.operations)
+		{"operations", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Operations.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationCopyRows)); err != nil {
+				return fmt.Errorf("batch inserting operations: %w", err)
+			}
+			return nil
 		}},
-		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperationsAccounts(ctx, dbTx, it.operations, it.buffer.GetOperationsParticipants())
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if _, err := m.models.Operations.CopyAccountRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationAccountCopyRows)); err != nil {
+				return fmt.Errorf("batch inserting operations accounts: %w", err)
+			}
+			return nil
 		}},
-		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
 			stateChangesMu.Lock()
 			defer stateChangesMu.Unlock()
-			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
+			if _, err := m.models.StateChanges.CopyRows(ctx, dbTx, concatCopyRows(items, (*indexer.IndexerBuffer).GetStateChangeCopyRows)); err != nil {
+				return fmt.Errorf("batch inserting state changes: %w", err)
+			}
+			return nil
 		}},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every
@@ -118,20 +209,27 @@ func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSib
 		// stageCoordinatedWrites: their parent (contract_tokens) is also written
 		// by the classification path there, and a same-key insert from two
 		// concurrent transactions could deadlock at the commit barrier.
-		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+		//
+		// Both balance families upsert ONCE per batch over the ledgers' merged
+		// final state (mergedAcrossLedgers): a batch that touches an account N
+		// times writes one tuple version instead of N. Values that change and
+		// revert within a batch net to zero row writes — same end state, less
+		// WAL — because the data layer's no-op guards see identical values.
+		{"balances", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
 			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
-				it.buffer.GetAccountChanges(),
-				it.buffer.GetLiquidityPoolShareChanges(),
-				it.buffer.GetLiquidityPoolChanges(),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetAccountChanges),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetLiquidityPoolShareChanges),
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetLiquidityPoolChanges),
 			)
 		}},
-		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, items []persistItem) error {
+			if uniqueAssets := mergedUniqueTrustlineAssets(items); len(uniqueAssets) > 0 {
 				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
 					return fmt.Errorf("inserting trustline assets: %w", err)
 				}
 			}
-			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx,
+				mergedAcrossLedgers(items, (*indexer.IndexerBuffer).GetTrustlineChanges))
 		}},
 	}
 }
@@ -152,10 +250,10 @@ func batchLabel(items []persistItem) string {
 // another) stream concurrently on sibling connections, each in its own
 // transaction covering every ledger in the batch, while the coordinating
 // transaction stages everything else (contracts, classification, protocol
-// current state, SAC balances, cursor — protocol history rows ride the
+// current state, SAC balances — protocol history rows ride the
 // state_changes sibling) ledger by ledger in order — the per-protocol
-// CAS chain advances N-1 → N inside the transaction, and the guarded
-// cursor's final value is the batch's last ledger. All the slow work
+// CAS chain advances N-1 → N inside the transaction, and one guarded
+// cursor update after the last ledger sets the batch's last value. All the slow work
 // happens uncommitted and invisible; only after every stream and the
 // coordinator succeed do the commits fire, siblings first and the
 // coordinating transaction strictly last. The cursor it carries is the
@@ -179,18 +277,14 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		if items[i].seq == 0 {
 			return fmt.Errorf("persisting %s: ledger sequence 0 is not persistable", label)
 		}
-		// Materialize the buffer's rows once per ledger: the transactions and
-		// transactions_accounts siblings share one transaction slice, and the
-		// two operations siblings share one operation slice, rather than each
-		// getter rebuilding its slice per sibling.
-		items[i].transactions = items[i].buffer.GetTransactions()
-		items[i].operations = items[i].buffer.GetOperations()
 	}
 
-	// The sibling transactions and the coordinating transaction are all opened
-	// up front on this goroutine, so ownership at the commit barrier below is
-	// deterministic; the deferred rollbacks tolerate ErrTxClosed and so are
-	// no-ops for whatever committed.
+	// Every transaction is owned by this goroutine: the coordinating
+	// transaction opens here, the sibling transactions land in slices this
+	// goroutine reads once their setup goroutines finish, and all the cleanup
+	// defers are registered on this frame — so ownership at the commit barrier
+	// below is deterministic. The deferred rollbacks tolerate ErrTxClosed and
+	// so are no-ops for whatever committed.
 	coordTx, err := m.models.DB.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning coordinating transaction for %s: %w", label, err)
@@ -213,34 +307,62 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// see. The result is a silent, permanent ingestion hang.
 	var stateChangesMu sync.Mutex
 	siblings := m.persistSiblings(&stateChangesMu)
+	// The sibling transactions open concurrently — each Begin and SET round
+	// trip overlaps the others' instead of queueing seven deep before any
+	// COPY byte moves. Each goroutine writes only its own slice index, and
+	// Wait() orders those writes before this goroutine reads them. The pool
+	// cannot self-deadlock on the parallel Acquires: the livePersistConnections
+	// floor reserves a connection per sibling on top of the coordinating
+	// transaction and the advisory-lock session.
+	siblingConns := make([]*pgxpool.Conn, len(siblings))
 	siblingTxs := make([]pgx.Tx, len(siblings))
+	var setup errgroup.Group
 	for i, s := range siblings {
-		conn, acquireErr := m.models.DB.Acquire(ctx)
-		if acquireErr != nil {
-			return fmt.Errorf("acquiring %s connection for %s: %w", s.name, label, acquireErr)
-		}
-		defer conn.Release()
-		tx, beginErr := conn.Begin(ctx)
-		if beginErr != nil {
-			return fmt.Errorf("beginning %s transaction for %s: %w", s.name, label, beginErr)
-		}
-		siblingTxs[i] = tx
-		defer func(name string, tx pgx.Tx) {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
-				log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
+		setup.Go(func() error {
+			conn, acquireErr := m.models.DB.Acquire(ctx)
+			if acquireErr != nil {
+				return fmt.Errorf("acquiring %s connection for %s: %w", s.name, label, acquireErr)
 			}
-		}(s.name, tx)
-		// Sibling commits skip the WAL-flush wait. Durability is untouched:
-		// the coordinating transaction commits synchronously and strictly
-		// last, and its flush covers all earlier WAL — including these
-		// commit records — so a durable cursor implies durable siblings. A
-		// crash inside the window can only lose rows the cursor never
-		// acknowledged: startup reconciliation (DeleteRowsAboveLedger)
-		// removes the bulk families' anyway, and the balances sibling's
-		// idempotent upserts reapply on re-ingest.
-		if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
-			return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+			siblingConns[i] = conn
+			tx, beginErr := conn.Begin(ctx)
+			if beginErr != nil {
+				return fmt.Errorf("beginning %s transaction for %s: %w", s.name, label, beginErr)
+			}
+			siblingTxs[i] = tx
+			// Sibling commits skip the WAL-flush wait. Durability is untouched:
+			// the coordinating transaction commits synchronously and strictly
+			// last, and its flush covers all earlier WAL — including these
+			// commit records — so a durable cursor implies durable siblings. A
+			// crash inside the window can only lose rows the cursor never
+			// acknowledged: startup reconciliation (DeleteRowsAboveLedger)
+			// removes the bulk families' anyway, and the balances sibling's
+			// idempotent upserts reapply on re-ingest.
+			if _, setErr := tx.Exec(ctx, "SET LOCAL synchronous_commit = off"); setErr != nil {
+				return fmt.Errorf("disabling synchronous commit on %s for %s: %w", s.name, label, setErr)
+			}
+			return nil
+		})
+	}
+	setupErr := setup.Wait()
+	// Cleanup registration happens on this frame AFTER Wait, error or not: a
+	// failed setup goroutine does not cancel its peers (plain errgroup.Group),
+	// so every conn and tx any of them opened is in the slices by now and gets
+	// its rollback-then-release defers — the same per-sibling LIFO order the
+	// serial setup produced.
+	for i := range siblings {
+		if conn := siblingConns[i]; conn != nil {
+			defer conn.Release()
 		}
+		if tx := siblingTxs[i]; tx != nil {
+			defer func(name string, tx pgx.Tx) {
+				if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+					log.Ctx(ctx).Warnf("rolling back %s transaction for %s: %v", name, label, rbErr)
+				}
+			}(siblings[i].name, tx)
+		}
+	}
+	if setupErr != nil {
+		return fmt.Errorf("opening sibling transactions for %s: %w", label, setupErr)
 	}
 
 	// Stream the sibling writes and stage the coordinated writes concurrently.
@@ -260,10 +382,8 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	g, gctx := errgroup.WithContext(ctx)
 	for i, s := range siblings {
 		g.Go(func() error {
-			for j := range items {
-				if runErr := s.run(gctx, siblingTxs[i], &items[j]); runErr != nil {
-					return fmt.Errorf("streaming %s for ledger %d: %w", s.name, items[j].seq, runErr)
-				}
+			if runErr := s.run(gctx, siblingTxs[i], items); runErr != nil {
+				return fmt.Errorf("streaming %s for %s: %w", s.name, label, runErr)
 			}
 			return nil
 		})
@@ -275,6 +395,16 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 			if stageErr := m.stageCoordinatedWrites(gctx, coordTx, history, it.seq, it.closeTime, it.plan, it.buffer); stageErr != nil {
 				return fmt.Errorf("staging coordinated writes for ledger %d: %w", it.seq, stageErr)
 			}
+		}
+		// Advance the latest-ledger cursor once for the whole batch. This
+		// transaction commits atomically, so only the batch's final value was
+		// ever observable; per-ledger updates would be N-1 wasted round trips.
+		// The update is guarded: a session that silently lost its advisory
+		// lock (server-side failover, see startLiveIngestion's
+		// checkLockSession) must not blindly overwrite a value a second
+		// instance already advanced, or the cursor could regress.
+		if curErr := m.models.IngestStore.UpdateGuarded(gctx, coordTx, data.LatestLedgerCursorName, items[0].seq, items[len(items)-1].seq); curErr != nil {
+			return fmt.Errorf("updating cursor for %s: %w", label, curErr)
 		}
 		return nil
 	})
@@ -326,8 +456,10 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 
 // stageCoordinatedWrites runs every per-ledger write the siblings don't own
 // on the coordinating transaction: SAC contract tokens, protocol
-// classification and wasm/contract rows, CAS-gated protocol state, the SAC
-// balance changes, and finally the guarded cursor.
+// classification and wasm/contract rows, CAS-gated protocol state, and the
+// SAC balance changes. The guarded latest-ledger cursor is not per-ledger
+// work: the coordinator goroutine advances it once after the batch's last
+// ledger stages.
 //
 // One exception: protocol history rows are state_changes rows, so they go
 // through history (the state_changes sibling), not this transaction. Their
@@ -538,14 +670,6 @@ func (m *ingestService) stageCoordinatedWrites(
 		buffer.GetSACBalanceChanges(),
 	); txErr != nil {
 		return fmt.Errorf("processing token changes for ledger %d: %w", ledgerSeq, txErr)
-	}
-
-	// 5. Advance the latest-ledger cursor. The update is guarded: a session that
-	// silently lost its advisory lock (server-side failover, see startLiveIngestion's
-	// checkLockSession) must not blindly overwrite a value a second instance already
-	// advanced, or the cursor could regress.
-	if txErr = m.models.IngestStore.UpdateGuarded(ctx, dbTx, data.LatestLedgerCursorName, ledgerSeq); txErr != nil {
-		return fmt.Errorf("updating cursor for ledger %d: %w", ledgerSeq, txErr)
 	}
 
 	return nil
@@ -917,6 +1041,13 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
 		}
+		// Materialize the bulk tables' COPY rows here, on the process stage:
+		// the persist stage's COPYs stream these tuples as-is, so the
+		// row-building CPU never sits on a persist connection's critical path.
+		if err := buffer.BuildCopyRows(); err != nil {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			return fmt.Errorf("building COPY rows for ledger %d: %w", fl.seq, err)
+		}
 		processDuration := time.Since(processStart)
 		m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("process_ledger").Observe(processDuration.Seconds())
 
@@ -1134,6 +1265,9 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
 			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 			m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
+			// The per-reason/category fold runs here, off the persist
+			// transaction the state_changes sibling serializes.
+			m.recordStateChangeMetrics(pl.buffer.GetStateChanges())
 			m.appMetrics.Ingestion.LedgersProcessed.Add(float64(1))
 			m.appMetrics.Ingestion.LatestLedger.Set(float64(pl.seq))
 
