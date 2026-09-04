@@ -1206,7 +1206,8 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
-			results := svc.processBackfillBatchesParallel(ctx, tc.batches, nil)
+			results, groupErr := svc.processBackfillBatchesParallel(ctx, tc.batches, nil)
+			require.NoError(t, groupErr)
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -1442,7 +1443,8 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
-	results := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	results, groupErr := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	require.NoError(t, groupErr)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -1854,7 +1856,8 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 		{StartLedger: 101, EndLedger: 101},
 	}
 
-	results := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	results, groupErr := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	require.NoError(t, groupErr)
 
 	// All batches should succeed
 	require.Len(t, results, 2)
