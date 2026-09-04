@@ -89,6 +89,7 @@ type IngestServiceConfig struct {
 	BackfillWorkers           int
 	BackfillBatchSize         int
 	BackfillDBInsertBatchSize int
+	LivePersistMaxBatchSize   int
 }
 
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
@@ -127,6 +128,7 @@ type ingestService struct {
 	backfillPool              pond.Pool
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
+	livePersistMaxBatchSize   int
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
@@ -153,6 +155,10 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	if backfillWorkers <= 0 {
 		backfillWorkers = runtime.NumCPU()
 	}
+
+	// A batch cap below 1 cannot hold even a single ledger; clamp so the
+	// zero value means unbatched persists.
+	livePersistMaxBatchSize := max(1, cfg.LivePersistMaxBatchSize)
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
@@ -194,6 +200,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillPool:              backfillPool,
 		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
 		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
+		livePersistMaxBatchSize:   livePersistMaxBatchSize,
 		protocolProcessors:        ppMap,
 		protocolCursors: &protocolCursorSnapshot{
 			historyExists:      make(map[string]bool, len(ppMap)),

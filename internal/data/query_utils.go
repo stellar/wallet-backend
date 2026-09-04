@@ -3,6 +3,7 @@ package data
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
@@ -40,6 +41,37 @@ func appendTimeRangeConditions(qb *strings.Builder, column string, timeRange *Ti
 		argIndex++
 	}
 	return args, argIndex
+}
+
+// appendIngestCursorBound hides rows whose ledger is past the committed ingest cursor.
+//
+// Those rows are real. The sibling COPY transactions commit before the coordinating one
+// carrying the cursor, so the bulk tables briefly hold ledgers the API must not serve yet,
+// and after a crash they hold them until startup reconciliation runs. Served unbounded, a
+// transaction whose state changes have not landed looks like one that has none.
+//
+// It appends:
+//
+//	AND <column> < (SELECT COALESCE(max((value::bigint + 1) << 32), <max int64>)
+//	                FROM ingest_store WHERE key = 'latest_ingest_ledger')
+//
+// Why that exact shape:
+//
+//   - "<< 32" — a TOID carries its ledger in its high 32 bits, so the first TOID of
+//     cursor+1 is the exclusive bound.
+//   - COALESCE inside the subquery, not around the comparison. Inside, the comparison
+//     stays a bare "column < scalar", which TimescaleDB pushes into the rowstore index
+//     condition and into the compressed batches' min/max metadata. Around it, the index
+//     condition survives but batch skipping on every compressed chunk is lost. max() over
+//     no rows is NULL, and that is what leaves a database with no cursor row unbounded
+//     instead of returning nothing.
+//   - A subquery, not a value the caller reads first, so the cursor and the rows come
+//     from one snapshot.
+//
+// No bind parameters, so callers append it without renumbering their arguments.
+func appendIngestCursorBound(qb *strings.Builder, column string) {
+	fmt.Fprintf(qb, ` AND %s < (SELECT COALESCE(max((value::bigint + 1) << 32), %d) FROM ingest_store WHERE key = '%s')`,
+		column, math.MaxInt64, LatestLedgerCursorName)
 }
 
 type SortOrder string
