@@ -280,7 +280,7 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			}
 			// Update cursor atomically with data insertion if requested
 			if updateCursorTo != nil {
-				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, *updateCursorTo); err != nil {
+				if err := m.models.IngestStore.UpdateMin(ctx, dbTx, data.OldestLedgerCursorName, *updateCursorTo); err != nil {
 					return fmt.Errorf("updating oldest cursor: %w", err)
 				}
 			}
@@ -346,7 +346,7 @@ func (m *ingestService) processLedgersInBatch(
 		}
 		endTime = ledgerTime
 
-		if err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
+		if _, err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
 			return ledgersProcessed, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 		}
 		ledgersProcessed++
@@ -381,7 +381,7 @@ func (m *ingestService) processLedgersInBatch(
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
 func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32) error {
 	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		return m.models.IngestStore.UpdateMin(ctx, dbTx, m.oldestLedgerCursorName, ledgerSeq)
+		return m.models.IngestStore.UpdateMin(ctx, dbTx, data.OldestLedgerCursorName, ledgerSeq)
 	})
 	if err != nil {
 		return fmt.Errorf("updating oldest ledger cursor: %w", err)

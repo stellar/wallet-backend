@@ -79,12 +79,6 @@ What it does:
 - Converges with live ingestion via the history CAS cursor
 - When its CAS fails (cursor already advanced by live ingestion), sets `history_migration_status = success` and exits
 
-Optional flags:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--oldest-ledger-cursor-name` | `oldest_ingest_ledger` | Name of the oldest ledger cursor in the ingest store. Must match the value used by the ingest service. |
-
 ### Step 4b: Current-State Migration
 
 Builds current state from a specified start ledger forward to the tip. Only needed if your protocol tracks current-state data.
@@ -102,6 +96,44 @@ What it does:
 - Calls `PersistCurrentState` for each ledger
 - Converges with live ingestion via the current-state CAS cursor
 - Exits when CAS convergence is reached
+
+## Rebuilding a Protocol
+
+When a bug fix changes what a protocol derives, the rows already in the database stay wrong: current-state columns like SEP-41 balances are running totals folded from events, never read back from contract state. `--rebuild` discards the protocol's rows and replays them through the fixed code.
+
+```bash
+go run main.go protocol-migrate current-state --protocol-id <PROTOCOL_ID> --start-ledger <LEDGER> --rebuild
+go run main.go protocol-migrate history       --protocol-id <PROTOCOL_ID> --rebuild
+```
+
+Both commands are **destructive** and run the same sequence: validate, take the lock, wipe, then run the normal migration. Live ingestion keeps running throughout; the protocol serves empty or partial data until the rebuild reaches the live frontier and hands off.
+
+### What each wipe clears
+
+Each wipe covers only the protocol named by `--protocol-id`. Rebuilding SEP41 clears the `sep41_*` tables and touches no other protocol's rows.
+
+| Command | Wipes, for that protocol only | Cursor reset to |
+|---------|-------------------------------|-----------------|
+| `current-state --rebuild` | its own current-state tables — `sep41_balances` and `sep41_allowances` for SEP41 | `--start-ledger` − 1 |
+| `history --rebuild` | its `state_changes` rows across the retained window | oldest retained ledger − 1 |
+
+`contract_tokens`, `protocol_wasms` and `protocol_contracts` are never touched. Nothing rebuilds classification, and the re-migration needs it to know which contracts belong to the protocol. Re-run `protocol-setup` if classification itself is wrong.
+
+The cursor row is updated, never deleted — live ingestion treats a missing cursor row as a fatal incident.
+
+### Ordering
+
+The two rebuilds differ in when the wipe happens relative to the cursor reset, because the constraint differs:
+
+- **Current-state**: reset and wipe commit in one transaction, so live can never fold onto a half-wiped table. The cursor row that transaction holds is the one live's per-ledger CAS needs, and live writes all protocols in a single transaction per ledger — so this briefly stalls ingestion for every protocol. The wipe truncates, which keeps that stall independent of how many rows are being discarded.
+- **History**: the reset commits *first*. That makes live's CAS fail, so live stops writing the protocol's history and the deletes that follow race nothing. The deletes then run in 10k-ledger slices, one transaction each, because `state_changes` is compressed and a full-window delete would decompress unbounded data.
+
+### Safety
+
+- A protocol marked `in_progress` is refused: that is residue from a dead run, which should be investigated rather than wiped under.
+- One advisory lock per protocol per strategy. A current-state rebuild and a history rebuild for the same protocol may run concurrently; two of the same kind may not, and a plain migration takes the same lock.
+- Reruns after a failure are safe. The wipes are idempotent and re-derived rows land at deterministic `state_change_id`s.
+- Rebuild time grows with the chain — expect hundreds of ledgers per second from the datastore.
 
 ## Monitoring
 
