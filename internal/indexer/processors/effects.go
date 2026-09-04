@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/go-stellar-sdk/support/log"
@@ -560,10 +562,18 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 	}
 	newWeight := int16(weight)
 
+	// The signer_account_id column stores 32-byte keys, so a CAP-40 signed-payload
+	// signer (P...) is stored as its underlying ed25519 account (G...). The full
+	// P... key is still needed below: the account's signer summary is keyed on it.
+	storedSigner, err := reduceSignedPayloadSigner(signerPublicKey)
+	if err != nil {
+		return nil, err
+	}
+
 	//exhaustive:ignore
 	switch effectType {
 	case EffectSignerCreated:
-		changeBuilder = changeBuilder.WithSigner(signerPublicKey, nil, &newWeight)
+		changeBuilder = changeBuilder.WithSigner(storedSigner, nil, &newWeight)
 	case EffectSignerUpdated, EffectSignerRemoved:
 		// The GraphQL schema declares oldWeight non-null on signer updates and
 		// removals, so the previous weight must be recovered from the account
@@ -586,12 +596,25 @@ func (p *EffectsProcessor) parseSigners(changeBuilder *StateChangeBuilder, effec
 		}
 		oldWeight := int16(oldVal)
 		if effectType == EffectSignerUpdated {
-			changeBuilder = changeBuilder.WithSigner(signerPublicKey, &oldWeight, &newWeight)
+			changeBuilder = changeBuilder.WithSigner(storedSigner, &oldWeight, &newWeight)
 		} else {
-			changeBuilder = changeBuilder.WithSigner(signerPublicKey, &oldWeight, nil)
+			changeBuilder = changeBuilder.WithSigner(storedSigner, &oldWeight, nil)
 		}
 	}
 	return []types.StateChange{changeBuilder.Build()}, nil
+}
+
+// reduceSignedPayloadSigner converts a CAP-40 signed-payload signer (P...) to its
+// underlying ed25519 account (G...). Any other signer key is returned unchanged.
+func reduceSignedPayloadSigner(signer string) (string, error) {
+	if !strings.HasPrefix(signer, "P") {
+		return signer, nil
+	}
+	signedPayload, err := strkey.DecodeSignedPayload(signer)
+	if err != nil {
+		return "", fmt.Errorf("decoding signed payload signer %s: %w", signer, err)
+	}
+	return signedPayload.Signer(), nil
 }
 
 // parseThresholds processes threshold-related effects and creates state changes for each threshold type.

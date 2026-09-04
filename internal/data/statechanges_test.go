@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // generateTestStateChanges creates n test state changes for benchmarking.
@@ -1193,4 +1195,111 @@ func TestStateChangeModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	require.NoError(t, err)
 	require.Len(t, byOpID, 1)
 	assert.True(t, now.Equal(byOpID[0].StateChange.LedgerCreatedAt), "BatchGetByOperationID with minimal projection must hydrate ledger_created_at")
+}
+
+// TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount verifies that a
+// CAP-40 signed-payload signer (P...) survives the COPY encode path and lands in
+// signer_account_id as the ed25519 account it is built over.
+func TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	kp := keypair.MustRandom()
+
+	// A signed-payload signer over kp's account.
+	sp, err := strkey.NewSignedPayload(kp.Address(), []byte{0xDE, 0xAD, 0xBE, 0xEF})
+	require.NoError(t, err)
+	signedPayloadAddress, err := sp.Encode()
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877", int64(1), 100, "TransactionResultCodeTxSuccess", uint32(1), now, false)
+	require.NoError(t, err)
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	sc := types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategorySigner,
+		StateChangeReason:   types.StateChangeReasonAdd,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(kp.Address()),
+		OperationID:         123,
+		SignerAccountID:     utils.NullAddressBytea(signedPayloadAddress),
+	}
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	gotCount, err := m.BatchCopy(ctx, pgxTx, []types.StateChange{sc})
+	require.NoError(t, err)
+	require.NoError(t, pgxTx.Commit(ctx))
+	assert.Equal(t, 1, gotCount)
+
+	storedSigner, err := db.QueryOne[types.AddressBytea](ctx, dbConnectionPool,
+		"SELECT signer_account_id FROM state_changes WHERE to_id = 1")
+	require.NoError(t, err)
+	assert.Equal(t, types.AddressBytea(kp.Address()), storedSigner,
+		"the P... signer must be stored as its ed25519 account")
+}
+
+// TestStateChangeModel_BatchCopy_RowEncodeErrorIsSentinel verifies that a row whose
+// address fails to encode is reported as ErrRowEncoding and that the failure happens
+// before the COPY stream opens, leaving the caller's transaction usable.
+func TestStateChangeModel_BatchCopy_RowEncodeErrorIsSentinel(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	kp := keypair.MustRandom()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	sc := types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategorySigner,
+		StateChangeReason:   types.StateChangeReasonAdd,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(kp.Address()),
+		OperationID:         123,
+		SignerAccountID:     utils.NullAddressBytea("not-a-strkey"),
+	}
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	defer pgxTx.Rollback(ctx)
+
+	_, err = m.BatchCopy(ctx, pgxTx, []types.StateChange{sc})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRowEncoding)
+
+	// No COPY stream was opened, so the transaction is still usable.
+	_, err = pgxTx.Exec(ctx, "SELECT 1")
+	require.NoError(t, err)
 }

@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -28,6 +29,11 @@ type StateChangeWriter interface {
 }
 
 var _ StateChangeWriter = (*StateChangeModel)(nil)
+
+// ErrRowEncoding marks a client-side failure converting a row's Go values for COPY.
+// Retrying the same rows can never succeed, so persistence treats it as permanent
+// (see isPermanentPersistError in the services package).
+var ErrRowEncoding = errors.New("encoding row for COPY")
 
 // stateChangeMandatoryColumns is always selected regardless of the GraphQL field
 // projection: the cursor/key columns, plus the discriminators (state_change_category,
@@ -154,6 +160,19 @@ func (m *StateChangeModel) BatchCopy(
 
 	start := time.Now()
 
+	// Encode every row before opening the COPY stream. Encoding failures are
+	// deterministic, so they are wrapped in ErrRowEncoding and classified as
+	// permanent by callers. Failing here also keeps the pgx transaction usable:
+	// once a COPY stream aborts, the whole transaction is doomed.
+	rows := make([][]any, len(stateChanges))
+	for i, sc := range stateChanges {
+		row, err := stateChangeCopyRow(sc)
+		if err != nil {
+			return 0, fmt.Errorf("%w: state change %d (to_id %d, state_change_id %d): %w", ErrRowEncoding, i, sc.ToID, sc.StateChangeID, err)
+		}
+		rows[i] = row
+	}
+
 	// COPY state_changes using pgx binary format with native pgtype types
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
@@ -170,66 +189,7 @@ func (m *StateChangeModel) BatchCopy(
 			"data_entry_name", "key_value",
 			"to_muxed_id",
 		},
-		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
-			sc := stateChanges[i]
-
-			// Convert account_id to BYTEA (required field)
-			accountBytes, err := sc.AccountID.Value()
-			if err != nil {
-				return nil, fmt.Errorf("converting account_id: %w", err)
-			}
-
-			// Convert nullable account_id fields to BYTEA
-			signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting signer_account_id: %w", err)
-			}
-			spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting spender_account_id: %w", err)
-			}
-			creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting creator_account_id: %w", err)
-			}
-			destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting destination_account_id: %w", err)
-			}
-			tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
-			if err != nil {
-				return nil, fmt.Errorf("converting token_id: %w", err)
-			}
-
-			return []any{
-				pgtype.Int8{Int64: sc.ToID, Valid: true},
-				pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
-				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReason(sc.StateChangeReason),
-				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				accountBytes,
-				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				tokenBytes,
-				pgtypeTextFromNullString(sc.Amount),
-				signerBytes,
-				spenderBytes,
-				creatorBytes,
-				destinationBytes,
-				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
-				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
-				pgtypeTextFromNullString(sc.Threshold),
-				pgtypeInt2FromNullInt16(sc.ThresholdOld),
-				pgtypeInt2FromNullInt16(sc.ThresholdNew),
-				pgtypeTextFromNullString(sc.TrustlineLimitOld),
-				pgtypeTextFromNullString(sc.TrustlineLimitNew),
-				pgtypeInt2FromNullInt16(sc.Flags),
-				pgtypeTextFromNullString(sc.DataEntryName),
-				jsonbFromMap(sc.KeyValue),
-				pgtypeTextFromNullString(sc.ToMuxedID),
-			}, nil
-		}),
+		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
 		duration := time.Since(start).Seconds()
@@ -254,6 +214,67 @@ func (m *StateChangeModel) BatchCopy(
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 
 	return len(stateChanges), nil
+}
+
+// stateChangeCopyRow converts one state change into the COPY column values,
+// in the same order as BatchCopy's column list.
+func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
+	// Convert account_id to BYTEA (required field)
+	accountBytes, err := sc.AccountID.Value()
+	if err != nil {
+		return nil, fmt.Errorf("converting account_id: %w", err)
+	}
+
+	// Convert nullable account_id fields to BYTEA
+	signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("converting signer_account_id: %w", err)
+	}
+	spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("converting spender_account_id: %w", err)
+	}
+	creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("converting creator_account_id: %w", err)
+	}
+	destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("converting destination_account_id: %w", err)
+	}
+	tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+	if err != nil {
+		return nil, fmt.Errorf("converting token_id: %w", err)
+	}
+
+	return []any{
+		pgtype.Int8{Int64: sc.ToID, Valid: true},
+		pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
+		pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
+		pgtypeTextFromReason(sc.StateChangeReason),
+		pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
+		pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
+		accountBytes,
+		pgtype.Int8{Int64: sc.OperationID, Valid: true},
+		tokenBytes,
+		pgtypeTextFromNullString(sc.Amount),
+		signerBytes,
+		spenderBytes,
+		creatorBytes,
+		destinationBytes,
+		pgtypeTextFromNullString(sc.LiquidityPoolID),
+		pgtypeInt2FromNullInt16(sc.SignerWeightOld),
+		pgtypeInt2FromNullInt16(sc.SignerWeightNew),
+		pgtypeTextFromNullString(sc.Threshold),
+		pgtypeInt2FromNullInt16(sc.ThresholdOld),
+		pgtypeInt2FromNullInt16(sc.ThresholdNew),
+		pgtypeTextFromNullString(sc.TrustlineLimitOld),
+		pgtypeTextFromNullString(sc.TrustlineLimitNew),
+		pgtypeInt2FromNullInt16(sc.Flags),
+		pgtypeTextFromNullString(sc.DataEntryName),
+		jsonbFromMap(sc.KeyValue),
+		pgtypeTextFromNullString(sc.ToMuxedID),
+	}, nil
 }
 
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to

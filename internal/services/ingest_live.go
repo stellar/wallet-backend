@@ -716,8 +716,10 @@ func (m *ingestService) ingestProcessedDataWithRetry(
 // ErrCASCursorMissing (see IngestStoreModel.CompareAndSwap) is likewise permanent: the cursor row
 // this ledger's protocol CAS targets is gone, and no retry of the same transaction can recreate
 // it — failing fast surfaces the incident instead of burning the whole retry ladder.
+// ErrRowEncoding (see StateChangeModel.BatchCopy) is also permanent: converting a row's
+// Go values for COPY is deterministic, so retrying the same rows can never succeed.
 func isPermanentPersistError(err error) bool {
-	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) {
+	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) || errors.Is(err, data.ErrRowEncoding) {
 		return true
 	}
 	var pgErr *pgconn.PgError
