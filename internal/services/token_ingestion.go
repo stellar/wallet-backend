@@ -155,13 +155,19 @@ func (s *tokenIngestionService) processSACBalanceChanges(ctx context.Context, db
 		return nil
 	}
 
+	// A SAC balance entry's shape (key ["Balance", holder], value {amount, authorized,
+	// clawback}) does not by itself identify the contract as a SAC: any contract can
+	// write an entry of that shape into its own storage. BatchUpsert's insert arm joins
+	// contract_tokens on type='SAC', so a balance is recorded only for a contract
+	// confirmed as a SAC via its instance entry (inserted earlier in this same
+	// transaction by prepareNewSACContracts or in a prior ledger); the rest are dropped.
+	// A REMOVE for an unverified contract matches no row, so deletes need no gating.
 	var upserts []wbdata.SACBalance
 	var deletes []wbdata.SACBalance
 	for _, change := range changesByKey {
-		contractID := wbdata.DeterministicContractID(change.ContractID)
 		sacBal := wbdata.SACBalance{
 			AccountID:         types.AddressBytea(change.AccountID),
-			ContractID:        contractID,
+			ContractID:        wbdata.DeterministicContractID(change.ContractID),
 			Balance:           change.Balance,
 			IsAuthorized:      change.IsAuthorized,
 			IsClawbackEnabled: change.IsClawbackEnabled,

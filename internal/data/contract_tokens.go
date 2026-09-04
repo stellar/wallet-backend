@@ -31,10 +31,11 @@ func DeterministicContractID(contractID string) uuid.UUID {
 type ContractModelInterface interface {
 	GetExisting(ctx context.Context, dbTx pgx.Tx, contractIDs []string) ([]string, error)
 	// GetSACContractsMissingMetadata returns the contract_id of every SAC-typed row
-	// whose name is still NULL — a balance-derived SAC row created with ledger-derived
-	// defaults whose RPC enrichment has not yet succeeded. Enrichment populates name
-	// (see BatchUpdateMetadata), so an enriched row drops out of the result and the set
-	// converges to empty. Reads through any db.Querier (pool or transaction).
+	// whose name is still NULL, i.e. whose RPC enrichment has not yet succeeded.
+	// Enrichment populates name (see BatchUpdateMetadata), so an enriched row drops
+	// out of the result and the set converges to empty. Instance-derived SAC rows are
+	// created with full metadata, so only rows from pre-existing data can match.
+	// Reads through any db.Querier (pool or transaction).
 	GetSACContractsMissingMetadata(ctx context.Context, q db.Querier) ([]string, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.

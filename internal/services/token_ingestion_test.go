@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -373,4 +374,79 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 		assert.NoError(t, err)
 	})
+}
+
+// TestProcessSACBalanceChanges_GatesOnVerifiedSAC verifies that a SAC balance change is
+// recorded only when its contract has a SAC row in contract_tokens. A change for a contract
+// not confirmed as a SAC is silently skipped, never persisted and never allowed to trigger
+// the deferred fk_contract_token violation that would halt live ingestion.
+func TestProcessSACBalanceChanges_GatesOnVerifiedSAC(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
+	sacBalanceModel := &wbdata.SACBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+	contractModel := &wbdata.ContractModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	service := NewTokenIngestionService(TokenIngestionServiceConfig{
+		SACBalanceModel:   sacBalanceModel,
+		NetworkPassphrase: "Test SDF Network ; September 2015",
+	})
+
+	verifiedContract := strkey.MustEncode(strkey.VersionByteContract, bytes32(0x11))
+	unverifiedContract := strkey.MustEncode(strkey.VersionByteContract, bytes32(0x22))
+	holder := strkey.MustEncode(strkey.VersionByteContract, bytes32(0x33))
+
+	// The first contract is a verified SAC. The second models a known arbitrary
+	// WASM contract whose UNKNOWN parent satisfies the FK but must not pass the SAC gate.
+	code, issuer := "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return contractModel.BatchInsert(ctx, dbTx, []*wbdata.Contract{
+			{
+				ID: wbdata.DeterministicContractID(verifiedContract), ContractID: verifiedContract,
+				Type: string(types.ContractTypeSAC), Code: &code, Issuer: &issuer, Decimals: 7,
+			},
+			{
+				ID: wbdata.DeterministicContractID(unverifiedContract), ContractID: unverifiedContract,
+				Type: string(types.ContractTypeUnknown),
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	changes := map[indexer.SACBalanceChangeKey]types.SACBalanceChange{
+		{AccountID: holder, ContractID: verifiedContract}: {
+			AccountID: holder, ContractID: verifiedContract, Operation: types.SACBalanceOpAdd,
+			Balance: "1000", IsAuthorized: true, LedgerNumber: 100,
+		},
+		{AccountID: holder, ContractID: unverifiedContract}: {
+			AccountID: holder, ContractID: unverifiedContract, Operation: types.SACBalanceOpAdd,
+			Balance: "9999", IsAuthorized: true, LedgerNumber: 100,
+		},
+	}
+
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return service.ProcessTokenChanges(ctx, dbTx, nil, nil, changes, nil, nil)
+	})
+	require.NoError(t, err, "the unverified balance must be skipped without a foreign-key violation")
+
+	got, err := sacBalanceModel.GetByAccount(ctx, holder, nil, nil, wbdata.ASC)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "only the verified SAC balance is persisted")
+	assert.Equal(t, wbdata.DeterministicContractID(verifiedContract), got[0].ContractID)
+	assert.Equal(t, "1000", got[0].Balance)
+}
+
+// bytes32 returns a 32-byte slice filled with b, for deterministic test contract IDs.
+func bytes32(b byte) []byte {
+	out := make([]byte, 32)
+	for i := range out {
+		out[i] = b
+	}
+	return out
 }
