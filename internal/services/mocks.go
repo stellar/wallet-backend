@@ -10,7 +10,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -374,14 +373,6 @@ type ContractMetadataServiceMock struct {
 
 var _ ContractMetadataService = (*ContractMetadataServiceMock)(nil)
 
-func (c *ContractMetadataServiceMock) FetchSACMetadata(ctx context.Context, contractIDs []string) ([]*data.Contract, error) {
-	args := c.Called(ctx, contractIDs)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*data.Contract), args.Error(1)
-}
-
 func (c *ContractMetadataServiceMock) FetchSingleField(ctx context.Context, contractAddress, functionName string, funcArgs ...xdr.ScVal) (xdr.ScVal, error) {
 	args := c.Called(ctx, contractAddress, functionName, funcArgs)
 	return args.Get(0).(xdr.ScVal), args.Error(1)
@@ -410,11 +401,6 @@ var _ CheckpointService = (*CheckpointServiceMock)(nil)
 
 func (c *CheckpointServiceMock) PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error {
 	args := c.Called(ctx, checkpointLedger, initializeCursors)
-	return args.Error(0)
-}
-
-func (c *CheckpointServiceMock) EnrichStaleSACMetadata(ctx context.Context) error {
-	args := c.Called(ctx)
 	return args.Error(0)
 }
 

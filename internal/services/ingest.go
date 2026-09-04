@@ -88,10 +88,6 @@ type IngestServiceConfig struct {
 	// dispatcher uses it to extract spec entries from candidate wasm bytecode.
 	WasmSpecExtractor WasmSpecExtractor
 
-	// === Metadata Service (used for SAC; per-protocol validators/processors get
-	// it via ProtocolDeps and are responsible for their own protocol metadata) ===
-	ContractMetadataService ContractMetadataService
-
 	// === Processing Options ===
 	GetLedgersLimit int
 
@@ -141,7 +137,6 @@ type ingestService struct {
 	backfillBatchSize         uint32
 	backfillDBInsertBatchSize uint32
 	knownContractIDs          set.Set[string]
-	contractMetadataService   ContractMetadataService
 	protocolProcessors        map[string]ProtocolProcessor
 	protocolValidators        []ProtocolValidator
 	wasmSpecExtractor         WasmSpecExtractor
@@ -206,7 +201,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		getLedgersLimit:           cfg.GetLedgersLimit,
 		ledgerIndexer:             ledgerIndexer,
 		ledgerIndexerPool:         ledgerIndexerPool,
-		contractMetadataService:   cfg.ContractMetadataService,
 		protocolValidators:        cfg.ProtocolValidators,
 		wasmSpecExtractor:         cfg.WasmSpecExtractor,
 		archive:                   cfg.Archive,

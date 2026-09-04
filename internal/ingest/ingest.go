@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alitto/pond/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -194,13 +193,8 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		return nil, nil, fmt.Errorf("creating ledger backend: %w", err)
 	}
 
-	// Create pond pool for contract metadata fetching, bounded to the batch size
-	// ContractMetadataService itself submits per round-trip (pond.NewPool(0) is unbounded).
-	contractMetadataPool := pond.NewPool(services.SimulateTransactionBatchSize)
-	metrics.RegisterPoolMetrics(m.Registry(), "contract_metadata", contractMetadataPool)
-
-	// Create ContractMetadataService for fetching and storing token metadata
-	contractMetadataService, err := services.NewContractMetadataService(rpcService, models.Contract, contractMetadataPool)
+	// Create ContractMetadataService for fetching token metadata via RPC
+	contractMetadataService, err := services.NewContractMetadataService(rpcService)
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
@@ -241,7 +235,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	checkpointService := services.NewCheckpointService(services.CheckpointServiceConfig{
 		DB:                        models.DB,
 		Archive:                   archive,
-		ContractMetadataService:   contractMetadataService,
 		TrustlineAssetModel:       models.TrustlineAsset,
 		TrustlineBalanceModel:     models.TrustlineBalance,
 		NativeBalanceModel:        models.NativeBalance,
@@ -304,7 +297,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
-		ContractMetadataService:   contractMetadataService,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)
@@ -330,10 +322,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		}
 		log.Info("Servers gracefully stopped")
 
-		// Stop the ingest service's worker pools and the contract-metadata pool
-		// before the DB pool, so no pooled task outlives the connection pool.
+		// Stop the ingest service's worker pools before the DB pool, so no
+		// pooled task outlives the connection pool.
 		ingestService.Close()
-		contractMetadataPool.StopAndWait()
 
 		if err := ledgerBackend.Close(); err != nil {
 			log.Ctx(ctx).Warnf("closing ledger backend: %v", err)

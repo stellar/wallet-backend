@@ -24,26 +24,17 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 const (
 	// flushBatchSize is the number of entries to buffer before flushing to DB.
 	flushBatchSize = 250_000
-	// maxSACEnrichmentRetries bounds retries of the RPC-backed SAC metadata enrichment. A
-	// failure that outlasts the retries falls back to ledger-derived defaults, which the
-	// restartable EnrichStaleSACMetadata pass re-attempts on the next startup.
-	maxSACEnrichmentRetries = 5
 )
 
 // CheckpointService orchestrates checkpoint population by coordinating
 // token and WASM ingestion.
 type CheckpointService interface {
 	PopulateFromCheckpoint(ctx context.Context, checkpointLedger uint32, initializeCursors func(pgx.Tx) error) error
-	// EnrichStaleSACMetadata enriches any SAC contract_tokens rows still left at their
-	// ledger-derived defaults. Safe and cheap to call on every startup; it is a no-op
-	// once all SAC rows are enriched. See the method godoc.
-	EnrichStaleSACMetadata(ctx context.Context) error
 }
 
 var _ CheckpointService = (*checkpointService)(nil)
@@ -64,7 +55,6 @@ func defaultReaderFactory(ctx context.Context, archive historyarchive.ArchiveInt
 type CheckpointServiceConfig struct {
 	DB                        *pgxpool.Pool
 	Archive                   historyarchive.ArchiveInterface
-	ContractMetadataService   ContractMetadataService
 	TrustlineAssetModel       wbdata.TrustlineAssetModelInterface
 	TrustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
 	NativeBalanceModel        wbdata.NativeBalanceModelInterface
@@ -81,7 +71,6 @@ type CheckpointServiceConfig struct {
 type checkpointService struct {
 	db                        *pgxpool.Pool
 	archive                   historyarchive.ArchiveInterface
-	contractMetadataService   ContractMetadataService
 	trustlineAssetModel       wbdata.TrustlineAssetModelInterface
 	trustlineBalanceModel     wbdata.TrustlineBalanceModelInterface
 	nativeBalanceModel        wbdata.NativeBalanceModelInterface
@@ -94,11 +83,6 @@ type checkpointService struct {
 	networkPassphrase         string
 	metricsService            *metrics.IngestionMetrics
 	readerFactory             readerFactory
-	// sacEnrichmentRetries / sacEnrichmentBackoff bound the SAC metadata enrichment
-	// retry. Defaulted in NewCheckpointService; overridable in tests to keep the
-	// retry path fast.
-	sacEnrichmentRetries int
-	sacEnrichmentBackoff time.Duration
 }
 
 // NewCheckpointService creates a CheckpointService.
@@ -106,7 +90,6 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 	return &checkpointService{
 		db:                        cfg.DB,
 		archive:                   cfg.Archive,
-		contractMetadataService:   cfg.ContractMetadataService,
 		trustlineAssetModel:       cfg.TrustlineAssetModel,
 		trustlineBalanceModel:     cfg.TrustlineBalanceModel,
 		nativeBalanceModel:        cfg.NativeBalanceModel,
@@ -119,8 +102,6 @@ func NewCheckpointService(cfg CheckpointServiceConfig) *checkpointService {
 		networkPassphrase:         cfg.NetworkPassphrase,
 		metricsService:            cfg.MetricsService,
 		readerFactory:             defaultReaderFactory,
-		sacEnrichmentRetries:      maxSACEnrichmentRetries,
-		sacEnrichmentBackoff:      maxRetryBackoff,
 	}
 }
 
@@ -248,12 +229,6 @@ type checkpointProcessor struct {
 	contractAddressesByWasmHash                       map[xdr.Hash][]xdr.Hash
 	entries, trustlineCount, accountCount, batchCount int
 	startTime                                         time.Time
-	// pendingSACMetadata holds contract IDs of SAC rows still missing
-	// name/symbol/decimals after the load. Instance-derived SAC rows carry
-	// full metadata, so this is normally empty. finalize populates this
-	// without making any RPC call; PopulateFromCheckpoint fetches metadata
-	// for these IDs in a short follow-up transaction after the load commits.
-	pendingSACMetadata []string
 	// pendingSACBalances holds SAC-shaped balance entries seen during the scan. They
 	// are not written to the batch during the pass because a balance entry's shape does
 	// not by itself identify its contract as a SAC. finalize keeps only those whose
@@ -353,83 +328,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 		return fmt.Errorf("running db transaction for checkpoint population: %w", err)
 	}
 
-	// Enrich SAC metadata via RPC in a short follow-up transaction, after the
-	// load (including cursor initialization) has already committed. The enrichment
-	// retries on transient failures; if it still fails it is logged and leaves these
-	// rows at their ledger-derived defaults — it must not undo the completed load.
-	// The restartable EnrichStaleSACMetadata pass re-attempts them on the next startup.
-	if len(proc.pendingSACMetadata) > 0 {
-		if enrichErr := s.enrichSACMetadataWithRetry(ctx, proc.pendingSACMetadata); enrichErr != nil {
-			log.Ctx(ctx).Errorf("enriching SAC metadata after checkpoint load (defaults retained, retried on restart): %v", enrichErr)
-		}
-	}
 	return nil
-}
-
-// enrichSACMetadata fetches name/symbol/decimals for the given SAC contracts
-// via RPC and updates their contract_tokens rows in a short transaction. It
-// runs after PopulateFromCheckpoint's load transaction has already committed,
-// so RPC round-trips (batches of 20 with a sleep between batches) never hold
-// the load's row locks. Any error here (fetch or write) is returned for the
-// caller to log — it never rolls back the already-completed load.
-func (s *checkpointService) enrichSACMetadata(ctx context.Context, contractIDs []string) error {
-	sacContracts, err := s.contractMetadataService.FetchSACMetadata(ctx, contractIDs)
-	if err != nil {
-		return fmt.Errorf("fetching SAC metadata: %w", err)
-	}
-	if len(sacContracts) == 0 {
-		return nil
-	}
-	err = db.RunInTransaction(ctx, s.db, func(dbTx pgx.Tx) error {
-		if txErr := s.contractModel.BatchUpdateMetadata(ctx, dbTx, sacContracts); txErr != nil {
-			return fmt.Errorf("updating SAC contract_tokens metadata: %w", txErr)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("running SAC metadata enrichment transaction: %w", err)
-	}
-	log.Ctx(ctx).Infof("Enriched %d SAC contract_tokens rows after checkpoint load", len(sacContracts))
-	return nil
-}
-
-// enrichSACMetadataWithRetry runs enrichSACMetadata under a bounded backoff so a
-// transient RPC/DB blip does not immediately drop these rows to their ledger-derived
-// defaults. A failure that outlasts the retries is returned to the caller; the
-// restartable EnrichStaleSACMetadata pass is the backstop.
-func (s *checkpointService) enrichSACMetadataWithRetry(ctx context.Context, contractIDs []string) error {
-	_, err := utils.RetryWithBackoff(ctx, s.sacEnrichmentRetries, s.sacEnrichmentBackoff,
-		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, s.enrichSACMetadata(ctx, contractIDs)
-		},
-		func(attempt int, retryErr error, backoff time.Duration) {
-			log.Ctx(ctx).Warnf("enriching SAC metadata (attempt %d/%d): %v, retrying in %v...",
-				attempt+1, s.sacEnrichmentRetries, retryErr, backoff)
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("enriching SAC metadata with retry: %w", err)
-	}
-	return nil
-}
-
-// EnrichStaleSACMetadata finds SAC contract_tokens rows still missing their metadata
-// (name left NULL because a prior enrichment never completed) and enriches them via
-// RPC. It runs on every startup, so an enrichment that failed during checkpoint load
-// — or in an earlier run — is retried until it succeeds; once every SAC row is
-// enriched it finds nothing and is a cheap no-op. A failure is returned for the caller
-// to log: it must not block ingestion, since the rows keep their working defaults and
-// the next startup retries.
-func (s *checkpointService) EnrichStaleSACMetadata(ctx context.Context) error {
-	contractIDs, err := s.contractModel.GetSACContractsMissingMetadata(ctx, s.db)
-	if err != nil {
-		return fmt.Errorf("finding SAC contracts missing metadata: %w", err)
-	}
-	if len(contractIDs) == 0 {
-		return nil
-	}
-	log.Ctx(ctx).Infof("Found %d SAC contract_tokens rows missing metadata; enriching", len(contractIDs))
-	return s.enrichSACMetadataWithRetry(ctx, contractIDs)
 }
 
 // processEntry handles Account, Trustline, and ContractData entries from a checkpoint.
@@ -572,18 +471,6 @@ func (p *checkpointProcessor) flushRemainingBatch(ctx context.Context) error {
 // finalize identifies SEP-41 contracts, fetches metadata, stores tokens in DB,
 // and persists protocol WASMs and contracts.
 func (p *checkpointProcessor) finalize(ctx context.Context, dbTx pgx.Tx) error {
-	// Identify SAC contracts missing code/issuer. SAC rows are created from
-	// their instance entry with full metadata, so this is normally empty; any
-	// row still missing metadata gets it fetched via RPC afterward, in a short
-	// follow-up transaction once this load has committed (see
-	// PopulateFromCheckpoint / enrichSACMetadata) so RPC round-trips never
-	// extend this transaction's row locks.
-	for _, contract := range p.data.uniqueContractTokens {
-		if contract.Type == string(types.ContractTypeSAC) && contract.Code == nil {
-			p.pendingSACMetadata = append(p.pendingSACMetadata, contract.ContractID)
-		}
-	}
-
 	// Store contract tokens and trustline assets in DB
 	if err := p.service.storeTokensInDB(ctx, dbTx, p.data.uniqueAssets, p.data.uniqueContractTokens); err != nil {
 		return fmt.Errorf("storing tokens in postgres: %w", err)

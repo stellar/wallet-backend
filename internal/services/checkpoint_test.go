@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -94,7 +93,6 @@ func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest
 type checkpointTestFixture struct {
 	svc                       *checkpointService
 	reader                    *ChangeReaderMock
-	contractMetadataService   *ContractMetadataServiceMock
 	trustlineAssetModel       *wbdata.TrustlineAssetModelMock
 	trustlineBalanceModel     *wbdata.TrustlineBalanceModelMock
 	nativeBalanceModel        *wbdata.NativeBalanceModelMock
@@ -117,7 +115,6 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	t.Cleanup(func() { dbPool.Close() })
 
 	readerMock := NewChangeReaderMock(t)
-	contractMetadataServiceMock := NewContractMetadataServiceMock(t)
 	trustlineAssetModelMock := wbdata.NewTrustlineAssetModelMock(t)
 	trustlineBalanceModelMock := wbdata.NewTrustlineBalanceModelMock(t)
 	nativeBalanceModelMock := wbdata.NewNativeBalanceModelMock(t)
@@ -135,7 +132,6 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	svc := &checkpointService{
 		db:                        dbPool,
 		archive:                   &HistoryArchiveMock{},
-		contractMetadataService:   contractMetadataServiceMock,
 		trustlineAssetModel:       trustlineAssetModelMock,
 		trustlineBalanceModel:     trustlineBalanceModelMock,
 		nativeBalanceModel:        nativeBalanceModelMock,
@@ -149,15 +145,11 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
-		// Keep the SAC-enrichment retry path exercised but fast in tests.
-		sacEnrichmentRetries: 3,
-		sacEnrichmentBackoff: time.Millisecond,
 	}
 
 	return checkpointTestFixture{
 		svc:                       svc,
 		reader:                    readerMock,
-		contractMetadataService:   contractMetadataServiceMock,
 		trustlineAssetModel:       trustlineAssetModelMock,
 		trustlineBalanceModel:     trustlineBalanceModelMock,
 		nativeBalanceModel:        nativeBalanceModelMock,
@@ -460,8 +452,6 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 			cs[0].Code != nil && *cs[0].Code == "USDC"
 	})).Return(nil).Once()
 
-	// FetchSACMetadata must NOT be called: the verified instance already provides metadata.
-
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
 }
@@ -484,50 +474,10 @@ func TestCheckpointService_PopulateFromCheckpoint_UnverifiedSACBalanceDropped(t 
 	f.reader.On("Close").Return(nil).Once()
 
 	// The unverified balance is dropped, so nothing is written: no SAC BatchCopy (finalize
-	// skips the empty set), no contractModel.BatchInsert from the shape, and no
-	// FetchSACMetadata. The strict mocks fail the test on any such unexpected call.
+	// skips the empty set) and no contractModel.BatchInsert from the shape. The strict
+	// mocks fail the test on any such unexpected call.
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
-	require.NoError(t, err)
-}
-
-// TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp proves the restartable pass
-// is a no-op when no SAC row is missing metadata: it must call neither RPC nor the write.
-func TestCheckpointService_EnrichStaleSACMetadata_NoStaleRowsIsNoOp(t *testing.T) {
-	f := setupCheckpointTest(t)
-	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
-		Return([]string{}, nil).Once()
-
-	err := f.svc.EnrichStaleSACMetadata(context.Background())
-	require.NoError(t, err)
-}
-
-// TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows proves the restartable pass
-// enriches SAC rows still left at their ledger-derived defaults.
-func TestCheckpointService_EnrichStaleSACMetadata_EnrichesStaleRows(t *testing.T) {
-	f := setupCheckpointTest(t)
-
-	tokenHash := [32]byte{5, 5, 5}
-	tokenAddr := strkey.MustEncode(strkey.VersionByteContract, tokenHash[:])
-
-	f.contractModel.On("GetSACContractsMissingMetadata", mock.Anything, mock.Anything).
-		Return([]string{tokenAddr}, nil).Once()
-
-	enrichedName := "Stale Token"
-	enrichedSymbol := "STL"
-	f.contractMetadataService.On("FetchSACMetadata", mock.Anything, []string{tokenAddr}).
-		Return([]*wbdata.Contract{{
-			ID:         wbdata.DeterministicContractID(tokenAddr),
-			ContractID: tokenAddr,
-			Type:       string(types.ContractTypeSAC),
-			Name:       &enrichedName,
-			Symbol:     &enrichedSymbol,
-		}}, nil).Once()
-	f.contractModel.On("BatchUpdateMetadata", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
-		return len(cs) == 1 && cs[0].ContractID == tokenAddr && cs[0].Name != nil && *cs[0].Name == enrichedName
-	})).Return(nil).Once()
-
-	err := f.svc.EnrichStaleSACMetadata(context.Background())
 	require.NoError(t, err)
 }
 
