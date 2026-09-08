@@ -32,24 +32,41 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: multi-operation classic transactions are not supported yet", ErrUnsupportedTransaction)
 	}
 	op := ops[0]
+	if err := validateClassicOperation(op); err != nil {
+		return ingest.LedgerTransaction{}, 0, err
+	}
 	opSource := classicOperationSource(envelope, op)
+	txSource := envelope.SourceAccount().ToAccountId()
 
 	keys, err := classicFootprint(op, opSource)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
+	// The transaction source always participates: it pays the fee regardless
+	// of which account the operation acts on.
+	keys = append(keys, accountLedgerKey(txSource))
 	before, latestLedger, err := s.fetchLedgerEntries(keys)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
 
-	// The network charges the fee before the operation applies, so when the
-	// operation spends from the fee-paying account its spendable balance is
-	// reduced by the fee. Operations with their own source account do not pay
-	// the transaction fee.
+	// The network rejects a transaction whose source cannot cover the fee bid,
+	// before the operation ever runs.
+	fee := int64(envelope.Fee())
+	feeSource, ok := lookupAccount(before, txSource)
+	if !ok {
+		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
+	}
+	if accountSpendableBalance(feeSource) < fee {
+		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee", txSource.Address(), fee)
+	}
+
+	// The fee is charged before the operation applies, so when the operation
+	// spends from the fee-paying account its spendable balance is reduced by
+	// the fee. Operations with their own source account do not pay it.
 	var opSourceFee int64
-	if opSource.Equals(envelope.SourceAccount().ToAccountId()) {
-		opSourceFee = int64(envelope.Fee())
+	if opSource.Equals(txSource) {
+		opSourceFee = fee
 	}
 
 	changes, err := computeClassicChanges(op, opSource, before, latestLedger, opSourceFee)
@@ -65,6 +82,47 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	// classic transaction outside surge pricing.
 	tx := newSimulatedLedgerTransaction(envelope, latestLedger, int64(envelope.Fee()), changes, nil, opResults)
 	return tx, latestLedger, nil
+}
+
+// validateClassicOperation rejects operations whose fields violate protocol
+// rules before any state is considered, so malformed (but decodable) XDR can
+// never produce a preview: a negative payment amount would otherwise reverse
+// the balance movement, and out-of-range thresholds would be silently
+// truncated to bytes.
+func validateClassicOperation(op xdr.Operation) error {
+	switch op.Body.Type {
+	case xdr.OperationTypePayment:
+		if op.Body.PaymentOp.Amount <= 0 {
+			return wouldFail("payment amount must be positive, got %d", op.Body.PaymentOp.Amount)
+		}
+	case xdr.OperationTypeChangeTrust:
+		if op.Body.ChangeTrustOp.Limit < 0 {
+			return wouldFail("trustline limit cannot be negative, got %d", op.Body.ChangeTrustOp.Limit)
+		}
+	case xdr.OperationTypeSetOptions:
+		so := op.Body.SetOptionsOp
+		for _, threshold := range []struct {
+			name  string
+			value *xdr.Uint32
+		}{
+			{"masterWeight", so.MasterWeight},
+			{"lowThreshold", so.LowThreshold},
+			{"medThreshold", so.MedThreshold},
+			{"highThreshold", so.HighThreshold},
+		} {
+			if threshold.value != nil && *threshold.value > 255 {
+				return wouldFail("%s %d is out of range (0-255)", threshold.name, *threshold.value)
+			}
+		}
+		if so.Signer != nil && so.Signer.Weight > 255 {
+			return wouldFail("signer weight %d is out of range (0-255)", so.Signer.Weight)
+		}
+	default:
+		// createAccount's starting balance is validated against the minimum
+		// reserve in its handler; manageData's field bounds are enforced by
+		// XDR decoding (String64 / opaque<64>).
+	}
+	return nil
 }
 
 // classicOperationSource returns the account the operation acts on behalf of:
@@ -122,7 +180,13 @@ func classicFootprint(op xdr.Operation, opSource xdr.AccountId) ([]xdr.LedgerKey
 		}, nil
 
 	case xdr.OperationTypeSetOptions:
-		return []xdr.LedgerKey{accountLedgerKey(opSource)}, nil
+		keys := []xdr.LedgerKey{accountLedgerKey(opSource)}
+		// Setting an inflation destination requires that account to exist, so
+		// fetch it for the handler's existence check.
+		if dest := op.Body.SetOptionsOp.InflationDest; dest != nil {
+			keys = append(keys, accountLedgerKey(*dest))
+		}
+		return keys, nil
 
 	case xdr.OperationTypeManageData:
 		return []xdr.LedgerKey{
@@ -191,11 +255,11 @@ func computeClassicChanges(op xdr.Operation, opSource xdr.AccountId, before map[
 	case xdr.OperationTypeCreateAccount:
 		return computeCreateAccountChanges(*op.Body.CreateAccountOp, opSource, before, ledgerSeq, opSourceFee)
 	case xdr.OperationTypeChangeTrust:
-		return computeChangeTrustChanges(*op.Body.ChangeTrustOp, opSource, before)
+		return computeChangeTrustChanges(*op.Body.ChangeTrustOp, opSource, before, opSourceFee)
 	case xdr.OperationTypeSetOptions:
-		return computeSetOptionsChanges(*op.Body.SetOptionsOp, opSource, before)
+		return computeSetOptionsChanges(*op.Body.SetOptionsOp, opSource, before, opSourceFee)
 	case xdr.OperationTypeManageData:
-		return computeManageDataChanges(*op.Body.ManageDataOp, opSource, before)
+		return computeManageDataChanges(*op.Body.ManageDataOp, opSource, before, opSourceFee)
 	default:
 		// classicFootprint already rejected unsupported types; this is a guard
 		// against the two switches drifting apart.
@@ -310,30 +374,35 @@ func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, 
 	), nil
 }
 
-func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
 	asset, _ := changeTrustCreditAsset(ct.Line) // pool shares rejected by classicFootprint
 	if opSource.Address() == asset.GetIssuer() {
 		return nil, wouldFail("an issuer cannot trust its own asset %s", assetString(asset))
 	}
-	if _, ok := lookupAccount(before, opSource); !ok {
+	srcAccount, ok := lookupAccount(before, opSource)
+	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
 	}
 
 	line, exists := lookupTrustline(before, opSource, asset)
 
 	if ct.Limit == 0 {
-		// Deleting the trustline.
+		// Deleting the trustline. Open offers hold liabilities against it, so
+		// any liability blocks deletion just like a remaining balance.
 		if !exists {
 			return nil, wouldFail("cannot remove nonexistent trustline for %s", assetString(asset))
 		}
 		if line.Balance != 0 {
 			return nil, wouldFail("cannot remove trustline for %s with outstanding balance %d", assetString(asset), line.Balance)
 		}
+		if trustlineBuyingLiabilities(line) != 0 || trustlineSellingLiabilities(line) != 0 {
+			return nil, wouldFail("cannot remove trustline for %s with open offer liabilities", assetString(asset))
+		}
 		removedKey := trustlineLedgerKey(opSource, asset)
-		return xdr.LedgerEntryChanges{
+		return append(xdr.LedgerEntryChanges{
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: trustlineLedgerEntry(line)},
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved, Removed: &removedKey},
-		}, nil
+		}, accountChangePair(srcAccount, dropSubentry(srcAccount))...), nil
 	}
 
 	if exists {
@@ -345,15 +414,24 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 		return trustlineChangePair(line, after), nil
 	}
 
-	// Creating the trustline. Whether it starts out authorized depends on the
-	// issuer's AUTH_REQUIRED flag, matching what Core does.
+	// Creating the trustline: a new subentry, which locks one more base
+	// reserve on the source account. Whether the line starts out authorized
+	// depends on the issuer's AUTH_REQUIRED flag, and clawback-enabled issuers
+	// stamp their trustlines with the clawback flag, matching what Core does.
 	issuerAccount, ok := lookupAccount(before, xdr.MustAddress(asset.GetIssuer()))
 	if !ok {
 		return nil, wouldFail("issuer of %s does not exist", assetString(asset))
 	}
+	srcAfter, err := affordSubentry(srcAccount, opSourceFee)
+	if err != nil {
+		return nil, err
+	}
 	var flags xdr.Uint32
 	if issuerAccount.Flags&xdr.Uint32(xdr.AccountFlagsAuthRequiredFlag) == 0 {
 		flags = xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
+	}
+	if issuerAccount.Flags&xdr.Uint32(xdr.AccountFlagsAuthClawbackEnabledFlag) != 0 {
+		flags |= xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag)
 	}
 	created := xdr.TrustLineEntry{
 		AccountId: opSource,
@@ -362,12 +440,12 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 		Limit:     ct.Limit,
 		Flags:     flags,
 	}
-	return xdr.LedgerEntryChanges{
+	return append(xdr.LedgerEntryChanges{
 		{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: trustlineLedgerEntry(created)},
-	}, nil
+	}, accountChangePair(srcAccount, srcAfter)...), nil
 }
 
-func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
 	account, ok := lookupAccount(before, opSource)
 	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
@@ -375,6 +453,10 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	after := cloneAccountEntry(account)
 
 	if so.InflationDest != nil {
+		// The network only accepts an inflation destination that exists.
+		if _, ok := lookupAccount(before, *so.InflationDest); !ok {
+			return nil, wouldFail("inflation destination account %s does not exist", so.InflationDest.Address())
+		}
 		dest := *so.InflationDest
 		after.InflationDest = &dest
 	}
@@ -401,6 +483,19 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	}
 	if so.Signer != nil {
 		after.Signers = applySignerChange(after.Signers, *so.Signer)
+		// A new signer is a subentry: it locks one more base reserve; a
+		// removed one releases it.
+		switch {
+		case len(after.Signers) > len(account.Signers):
+			if accountSpendableBalance(account)-opSourceFee < baseReserveStroops {
+				return nil, wouldFail("account %s cannot afford the base reserve for a new signer", opSource.Address())
+			}
+			after.NumSubEntries++
+		case len(after.Signers) < len(account.Signers):
+			if after.NumSubEntries > 0 {
+				after.NumSubEntries--
+			}
+		}
 	}
 
 	return accountChangePair(account, after), nil
@@ -427,8 +522,9 @@ func applySignerChange(signers []xdr.Signer, change xdr.Signer) []xdr.Signer {
 	return out
 }
 
-func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
-	if _, ok := lookupAccount(before, opSource); !ok {
+func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
+	srcAccount, ok := lookupAccount(before, opSource)
+	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
 	}
 	name := string(md.DataName)
@@ -439,10 +535,10 @@ func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, befor
 			return nil, wouldFail("cannot remove nonexistent data entry %q", name)
 		}
 		removedKey := dataLedgerKey(opSource, name)
-		return xdr.LedgerEntryChanges{
+		return append(xdr.LedgerEntryChanges{
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: dataLedgerEntry(existing)},
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved, Removed: &removedKey},
-		}, nil
+		}, accountChangePair(srcAccount, dropSubentry(srcAccount))...), nil
 	}
 
 	after := xdr.DataEntry{
@@ -451,9 +547,14 @@ func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, befor
 		DataValue: *md.DataValue,
 	}
 	if !exists {
-		return xdr.LedgerEntryChanges{
+		// A new data entry is a subentry: it locks one more base reserve.
+		srcAfter, err := affordSubentry(srcAccount, opSourceFee)
+		if err != nil {
+			return nil, err
+		}
+		return append(xdr.LedgerEntryChanges{
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: dataLedgerEntry(after)},
-		}, nil
+		}, accountChangePair(srcAccount, srcAfter)...), nil
 	}
 	return xdr.LedgerEntryChanges{
 		{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: dataLedgerEntry(existing)},
@@ -551,6 +652,34 @@ func cloneAccountEntry(account xdr.AccountEntry) xdr.AccountEntry {
 	}
 	out.Signers = append([]xdr.Signer(nil), account.Signers...)
 	return out
+}
+
+// accountSpendableBalance is the XLM the account can actually spend: its
+// balance minus the locked reserves and the amounts committed to open offers.
+func accountSpendableBalance(account xdr.AccountEntry) int64 {
+	return int64(account.Balance) - accountMinBalance(account) - accountSellingLiabilities(account)
+}
+
+// affordSubentry verifies the account can afford the base reserve one more
+// subentry locks up (after paying opSourceFee when it is also the fee payer)
+// and returns the account with its subentry counter bumped.
+func affordSubentry(account xdr.AccountEntry, opSourceFee int64) (xdr.AccountEntry, error) {
+	if accountSpendableBalance(account)-opSourceFee < baseReserveStroops {
+		return xdr.AccountEntry{}, wouldFail("account %s cannot afford the base reserve for a new subentry", account.AccountId.Address())
+	}
+	after := cloneAccountEntry(account)
+	after.NumSubEntries++
+	return after, nil
+}
+
+// dropSubentry returns the account with its subentry counter decremented,
+// mirroring the reserve released by a removed trustline, signer, or data entry.
+func dropSubentry(account xdr.AccountEntry) xdr.AccountEntry {
+	after := cloneAccountEntry(account)
+	if after.NumSubEntries > 0 {
+		after.NumSubEntries--
+	}
+	return after
 }
 
 // accountMinBalance is the XLM the account must keep locked as reserves: two
