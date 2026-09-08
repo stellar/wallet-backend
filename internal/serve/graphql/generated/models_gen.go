@@ -32,8 +32,8 @@ type Balance interface {
 // an `Account` entity, since the account may not be indexed yet.
 //
 // The set of concrete types grows with the transaction sources the simulation
-// supports; today it covers the variants a contract (Soroban) transaction can
-// produce.
+// supports; today it covers the variants contract (Soroban) transactions and
+// the supported classic operations can produce.
 type BaseSimulatedStateChange interface {
 	IsBaseSimulatedStateChange()
 	// Category of account state this change affects.
@@ -296,6 +296,27 @@ func (this SimulatedAccountCreatedChange) GetReason() types.StateChangeReason { 
 // Address of the account whose state would change.
 func (this SimulatedAccountCreatedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Simulated mirror of AccountFlagsChange.
+// Pairs: (FLAGS, SET), (FLAGS, CLEAR).
+type SimulatedAccountFlagsChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Flags that would be set (reason SET) or cleared (reason CLEAR).
+	Flags []types.AccountFlag `json:"flags"`
+}
+
+func (SimulatedAccountFlagsChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedAccountFlagsChange) GetCategory() types.StateChangeCategory { return this.Category }
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedAccountFlagsChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedAccountFlagsChange) GetAccountAddress() string { return this.AccountAddress }
+
 // Simulated mirror of AllowanceChange.
 // Pair: (ALLOWANCE, UPDATE).
 type SimulatedAllowanceChange struct {
@@ -381,6 +402,229 @@ func (this SimulatedBalanceChange) GetReason() types.StateChangeReason { return 
 // Address of the account whose state would change.
 func (this SimulatedBalanceChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Simulated mirror of DataEntryAddedChange.
+// Pair: (DATA_ENTRY, ADD).
+type SimulatedDataEntryAddedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Name of the data entry.
+	Name string `json:"name"`
+	// Value of the new entry, base64-encoded.
+	Value string `json:"value"`
+}
+
+func (SimulatedDataEntryAddedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedDataEntryAddedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedDataEntryAddedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedDataEntryAddedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of DataEntryRemovedChange.
+// Pair: (DATA_ENTRY, REMOVE).
+type SimulatedDataEntryRemovedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Name of the data entry.
+	Name string `json:"name"`
+	// Value the entry had when removed, base64-encoded.
+	OldValue string `json:"oldValue"`
+}
+
+func (SimulatedDataEntryRemovedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedDataEntryRemovedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedDataEntryRemovedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedDataEntryRemovedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of DataEntryUpdatedChange.
+// Pair: (DATA_ENTRY, UPDATE).
+type SimulatedDataEntryUpdatedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Name of the data entry.
+	Name string `json:"name"`
+	// Previous value, base64-encoded.
+	OldValue string `json:"oldValue"`
+	// New value, base64-encoded.
+	NewValue string `json:"newValue"`
+}
+
+func (SimulatedDataEntryUpdatedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedDataEntryUpdatedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedDataEntryUpdatedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedDataEntryUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of HomeDomainClearedChange.
+// Pair: (HOME_DOMAIN, CLEAR).
+type SimulatedHomeDomainClearedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Home domain the account had when it would be removed.
+	OldHomeDomain string `json:"oldHomeDomain"`
+}
+
+func (SimulatedHomeDomainClearedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedHomeDomainClearedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedHomeDomainClearedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedHomeDomainClearedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of HomeDomainSetChange.
+// Pair: (HOME_DOMAIN, SET).
+type SimulatedHomeDomainSetChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// The newly set home domain.
+	HomeDomain string `json:"homeDomain"`
+}
+
+func (SimulatedHomeDomainSetChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedHomeDomainSetChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedHomeDomainSetChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedHomeDomainSetChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of HomeDomainUpdatedChange.
+// Pair: (HOME_DOMAIN, UPDATE).
+type SimulatedHomeDomainUpdatedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Previous home domain.
+	OldHomeDomain string `json:"oldHomeDomain"`
+	// New home domain.
+	NewHomeDomain string `json:"newHomeDomain"`
+}
+
+func (SimulatedHomeDomainUpdatedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedHomeDomainUpdatedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedHomeDomainUpdatedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedHomeDomainUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of SignerAddedChange.
+// Pair: (SIGNER, ADD).
+type SimulatedSignerAddedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Address of the added signer.
+	SignerAddress string `json:"signerAddress"`
+	// Weight assigned to the new signer (0-255).
+	NewWeight int32 `json:"newWeight"`
+}
+
+func (SimulatedSignerAddedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedSignerAddedChange) GetCategory() types.StateChangeCategory { return this.Category }
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedSignerAddedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedSignerAddedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of SignerRemovedChange.
+// Pair: (SIGNER, REMOVE).
+type SimulatedSignerRemovedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Address of the removed signer.
+	SignerAddress string `json:"signerAddress"`
+	// Weight the signer had before removal (0-255).
+	OldWeight int32 `json:"oldWeight"`
+}
+
+func (SimulatedSignerRemovedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedSignerRemovedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedSignerRemovedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedSignerRemovedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of SignerUpdatedChange.
+// Pair: (SIGNER, UPDATE).
+type SimulatedSignerUpdatedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Address of the updated signer.
+	SignerAddress string `json:"signerAddress"`
+	// Previous weight (0-255).
+	OldWeight int32 `json:"oldWeight"`
+	// New weight (0-255).
+	NewWeight int32 `json:"newWeight"`
+}
+
+func (SimulatedSignerUpdatedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedSignerUpdatedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedSignerUpdatedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedSignerUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
+
 // Result of simulating an unsubmitted transaction: the state changes the
 // indexer would produce if the transaction were submitted and included in a
 // ledger, in the same variant structure as the history API's state changes.
@@ -390,6 +634,115 @@ type SimulatedStateChanges struct {
 	// State changes the transaction would produce.
 	StateChanges []BaseSimulatedStateChange `json:"stateChanges"`
 }
+
+// Simulated mirror of ThresholdChange.
+// Pair: (SIGNATURE_THRESHOLD, UPDATE).
+type SimulatedThresholdChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Which signature threshold would change.
+	Threshold types.ThresholdLevel `json:"threshold"`
+	// Previous threshold value (0-255).
+	OldThreshold int32 `json:"oldThreshold"`
+	// New threshold value (0-255).
+	NewThreshold int32 `json:"newThreshold"`
+}
+
+func (SimulatedThresholdChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedThresholdChange) GetCategory() types.StateChangeCategory { return this.Category }
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedThresholdChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedThresholdChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of TrustlineAddedChange. Exactly one of tokenId /
+// liquidityPoolId is set.
+// Pair: (TRUSTLINE, ADD).
+type SimulatedTrustlineAddedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
+	TokenID *string `json:"tokenId,omitempty"`
+	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+	// Initial trustline limit, as a decimal string in stroops.
+	Limit string `json:"limit"`
+}
+
+func (SimulatedTrustlineAddedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedTrustlineAddedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedTrustlineAddedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedTrustlineAddedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of TrustlineRemovedChange. Exactly one of tokenId /
+// liquidityPoolId is set.
+// Pair: (TRUSTLINE, REMOVE).
+type SimulatedTrustlineRemovedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
+	TokenID *string `json:"tokenId,omitempty"`
+	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+}
+
+func (SimulatedTrustlineRemovedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedTrustlineRemovedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedTrustlineRemovedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedTrustlineRemovedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of TrustlineUpdatedChange. Exactly one of tokenId /
+// liquidityPoolId is set.
+// Pair: (TRUSTLINE, UPDATE).
+type SimulatedTrustlineUpdatedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
+	TokenID *string `json:"tokenId,omitempty"`
+	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+	// Previous trustline limit, as a decimal string in stroops.
+	OldLimit string `json:"oldLimit"`
+	// New trustline limit, as a decimal string in stroops.
+	NewLimit string `json:"newLimit"`
+}
+
+func (SimulatedTrustlineUpdatedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedTrustlineUpdatedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedTrustlineUpdatedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedTrustlineUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
 
 // Relay-style page of state changes.
 type StateChangeConnection struct {
