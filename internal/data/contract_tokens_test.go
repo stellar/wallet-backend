@@ -135,6 +135,90 @@ func TestContractModel_GetExisting(t *testing.T) {
 	})
 }
 
+func TestContractModel_GetWithMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
+		require.NoError(t, err)
+	}
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &ContractModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	// seedMixed inserts one row whose metadata an earlier run resolved next to
+	// one that is still the default row Apply writes before enrichment: a NULL
+	// name. Only the first may come back, or the SEP-41 fetcher would mark the
+	// second as settled and never fetch its metadata.
+	seedMixed := func(t *testing.T) {
+		t.Helper()
+		name := "USD Coin"
+		symbol := "USDC"
+		seedErr := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchInsert(ctx, dbTx, []*Contract{
+				{ID: DeterministicContractID("resolved"), ContractID: "resolved", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 7},
+				{ID: DeterministicContractID("default_row"), ContractID: "default_row", Type: "sep41", Decimals: 0},
+			})
+		})
+		require.NoError(t, seedErr)
+	}
+
+	t.Run("returns nil for empty input", func(t *testing.T) {
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{})
+		require.NoError(t, queryErr)
+		require.Nil(t, ids)
+	})
+
+	t.Run("returns only rows whose name is set", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		// Read through the pool, which is how Prefetch calls this: before the
+		// persist transaction opens.
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{"resolved", "default_row", "absent"})
+		require.NoError(t, queryErr)
+		require.Equal(t, []string{"resolved"}, ids)
+
+		cleanUpDB()
+	})
+
+	t.Run("reads through a transaction", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		txRunErr := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, queryErr := m.GetWithMetadata(ctx, dbTx, []string{"resolved", "default_row"})
+			require.NoError(t, queryErr)
+			require.Equal(t, []string{"resolved"}, ids)
+			return nil
+		})
+		require.NoError(t, txRunErr)
+
+		cleanUpDB()
+	})
+
+	t.Run("returns empty when no row has metadata", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{"default_row"})
+		require.NoError(t, queryErr)
+		require.Empty(t, ids)
+
+		cleanUpDB()
+	})
+}
+
 func TestContractModel_BatchInsert(t *testing.T) {
 	ctx := context.Background()
 
