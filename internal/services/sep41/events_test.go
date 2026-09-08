@@ -124,6 +124,42 @@ func TestParseTransferEvent(t *testing.T) {
 		assert.Equal(t, uint64(7), *got.ToMuxedID)
 	})
 
+	t.Run("rejects a CAP-67 map with a non-Symbol key", func(t *testing.T) {
+		dataMap := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
+			xdr.ScMapEntry{Key: strScVal("extension"), Val: u32ScVal(1)},
+		)
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			dataMap,
+		)
+
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
+
+	t.Run("rejects a CAP-67 map with duplicate keys", func(t *testing.T) {
+		dataMap := mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(42)},
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(43)},
+		)
+		event := contractEvent(
+			[]xdr.ScVal{
+				symScVal(EventTransfer),
+				mustAddressScVal(t, testAccountA),
+				mustAddressScVal(t, testAccountB),
+			},
+			dataMap,
+		)
+
+		_, err := ParseTransferEvent(event)
+		assert.Error(t, err)
+	})
+
 	t.Run("rejects a transfer event whose topic count is not 3", func(t *testing.T) {
 		event := contractEvent(
 			[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountA)},
@@ -202,14 +238,48 @@ func TestParseMintEvent(t *testing.T) {
 }
 
 func TestParseBurnEvent(t *testing.T) {
-	event := contractEvent(
-		[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
-		i128ScVal(50),
-	)
-	got, err := ParseBurnEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountA, got.From)
-	assert.Equal(t, big.NewInt(50), got.Amount)
+	t.Run("parses a bare i128 amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
+			i128ScVal(50),
+		)
+		got, err := ParseBurnEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, big.NewInt(50), got.Amount)
+	})
+
+	t.Run("parses an OpenZeppelin map amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
+			mapScVal(
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(75)},
+				xdr.ScMapEntry{Key: symScVal("extension"), Val: u32ScVal(1)},
+			),
+		)
+		got, err := ParseBurnEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, big.NewInt(75), got.Amount)
+	})
+
+	t.Run("rejects a map without amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
+			mapScVal(xdr.ScMapEntry{Key: symScVal("extension"), Val: u32ScVal(1)}),
+		)
+		_, err := ParseBurnEvent(event)
+		assert.Error(t, err)
+	})
+
+	t.Run("rejects a map with a non-i128 amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventBurn), mustAddressScVal(t, testAccountA)},
+			mapScVal(xdr.ScMapEntry{Key: symScVal("amount"), Val: u32ScVal(75)}),
+		)
+		_, err := ParseBurnEvent(event)
+		assert.Error(t, err)
+	})
 }
 
 func TestParseClawbackEvent(t *testing.T) {
@@ -241,6 +311,26 @@ func TestParseClawbackEvent(t *testing.T) {
 		assert.Equal(t, big.NewInt(77), got.Amount)
 	})
 
+	t.Run("parses a SEP-41 map amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
+			mapScVal(xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(25)}),
+		)
+		got, err := ParseClawbackEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, big.NewInt(25), got.Amount)
+	})
+
+	t.Run("rejects a map without amount", func(t *testing.T) {
+		event := contractEvent(
+			[]xdr.ScVal{symScVal(EventClawback), mustAddressScVal(t, testAccountA)},
+			mapScVal(xdr.ScMapEntry{Key: symScVal("extension"), Val: u32ScVal(1)}),
+		)
+		_, err := ParseClawbackEvent(event)
+		assert.Error(t, err)
+	})
+
 	t.Run("rejects a 3-topic shape whose admin slot is not an Address", func(t *testing.T) {
 		// Mirrors the mint guard: a 3-topic clawback whose admin slot isn't an Address
 		// isn't the legacy shape and must be rejected.
@@ -258,21 +348,94 @@ func TestParseClawbackEvent(t *testing.T) {
 }
 
 func TestParseApproveEvent(t *testing.T) {
-	data := vecScVal(i128ScVal(500), u32ScVal(1234))
-	event := contractEvent(
-		[]xdr.ScVal{
-			symScVal(EventApprove),
-			mustAddressScVal(t, testAccountA),
-			mustAddressScVal(t, testAccountB),
+	topics := []xdr.ScVal{
+		symScVal(EventApprove),
+		mustAddressScVal(t, testAccountA),
+		mustAddressScVal(t, testAccountB),
+	}
+
+	t.Run("parses the positional ScVec format", func(t *testing.T) {
+		event := contractEvent(topics, vecScVal(i128ScVal(500), u32ScVal(1234)))
+		got, err := ParseApproveEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, testAccountB, got.Spender)
+		assert.Equal(t, big.NewInt(500), got.Amount)
+		assert.Equal(t, uint32(1234), got.LiveUntilLedger)
+	})
+
+	t.Run("parses the OpenZeppelin map format", func(t *testing.T) {
+		event := contractEvent(topics, mapScVal(
+			xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(750)},
+			xdr.ScMapEntry{Key: symScVal("extension"), Val: u32ScVal(1)},
+			xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: u32ScVal(4321)},
+		))
+		got, err := ParseApproveEvent(event)
+		require.NoError(t, err)
+		assert.Equal(t, testAccountA, got.From)
+		assert.Equal(t, testAccountB, got.Spender)
+		assert.Equal(t, big.NewInt(750), got.Amount)
+		assert.Equal(t, uint32(4321), got.LiveUntilLedger)
+	})
+
+	tests := []struct {
+		name string
+		data xdr.ScVal
+	}{
+		{
+			name: "map missing amount",
+			data: mapScVal(xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: u32ScVal(4321)}),
 		},
-		data,
-	)
-	got, err := ParseApproveEvent(event)
-	require.NoError(t, err)
-	assert.Equal(t, testAccountA, got.From)
-	assert.Equal(t, testAccountB, got.Spender)
-	assert.Equal(t, big.NewInt(500), got.Amount)
-	assert.Equal(t, uint32(1234), got.LiveUntilLedger)
+		{
+			name: "map missing live_until_ledger",
+			data: mapScVal(xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(750)}),
+		},
+		{
+			name: "map with non-i128 amount",
+			data: mapScVal(
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: u32ScVal(750)},
+				xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: u32ScVal(4321)},
+			),
+		},
+		{
+			name: "map with non-u32 live_until_ledger",
+			data: mapScVal(
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(750)},
+				xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: i128ScVal(4321)},
+			),
+		},
+		{
+			name: "map with a non-Symbol key",
+			data: mapScVal(
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(750)},
+				xdr.ScMapEntry{Key: strScVal("extension"), Val: u32ScVal(1)},
+				xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: u32ScVal(4321)},
+			),
+		},
+		{
+			name: "map with a duplicate field",
+			data: mapScVal(
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(750)},
+				xdr.ScMapEntry{Key: symScVal("amount"), Val: i128ScVal(751)},
+				xdr.ScMapEntry{Key: symScVal("live_until_ledger"), Val: u32ScVal(4321)},
+			),
+		},
+		{
+			name: "nil map",
+			data: xdr.ScVal{Type: xdr.ScValTypeScvMap},
+		},
+		{
+			name: "unrelated data type",
+			data: i128ScVal(750),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("rejects "+tt.name, func(t *testing.T) {
+			_, err := ParseApproveEvent(contractEvent(topics, tt.data))
+			assert.Error(t, err)
+		})
+	}
 }
 
 func TestContractIDString(t *testing.T) {
