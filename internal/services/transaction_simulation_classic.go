@@ -43,7 +43,16 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		return ingest.LedgerTransaction{}, 0, err
 	}
 
-	changes, err := computeClassicChanges(op, opSource, before, latestLedger)
+	// The network charges the fee before the operation applies, so when the
+	// operation spends from the fee-paying account its spendable balance is
+	// reduced by the fee. Operations with their own source account do not pay
+	// the transaction fee.
+	var opSourceFee int64
+	if opSource.Equals(envelope.SourceAccount().ToAccountId()) {
+		opSourceFee = int64(envelope.Fee())
+	}
+
+	changes, err := computeClassicChanges(op, opSource, before, latestLedger, opSourceFee)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
@@ -171,13 +180,16 @@ func (s *transactionSimulationService) fetchLedgerEntries(keys []xdr.LedgerKey) 
 // unchanged. When the current state means the network would reject the
 // operation (for example paying more than the balance), it returns
 // ErrSimulationFailed instead, so a preview is never shown for a transaction
-// that would not succeed.
-func computeClassicChanges(op xdr.Operation, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, ledgerSeq uint32) (xdr.LedgerEntryChanges, error) {
+// that would not succeed. opSourceFee is the transaction fee the operation's
+// source also pays (zero when a different account pays it); XLM-spending
+// handlers subtract it from the spendable balance, matching the network, which
+// charges the fee before the operation applies.
+func computeClassicChanges(op xdr.Operation, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, ledgerSeq uint32, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
 	switch op.Body.Type {
 	case xdr.OperationTypePayment:
-		return computePaymentChanges(*op.Body.PaymentOp, opSource, before)
+		return computePaymentChanges(*op.Body.PaymentOp, opSource, before, opSourceFee)
 	case xdr.OperationTypeCreateAccount:
-		return computeCreateAccountChanges(*op.Body.CreateAccountOp, opSource, before, ledgerSeq)
+		return computeCreateAccountChanges(*op.Body.CreateAccountOp, opSource, before, ledgerSeq, opSourceFee)
 	case xdr.OperationTypeChangeTrust:
 		return computeChangeTrustChanges(*op.Body.ChangeTrustOp, opSource, before)
 	case xdr.OperationTypeSetOptions:
@@ -191,7 +203,7 @@ func computeClassicChanges(op xdr.Operation, opSource xdr.AccountId, before map[
 	}
 }
 
-func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
 	dst := p.Destination.ToAccountId()
 	srcAccount, ok := lookupAccount(before, opSource)
 	if !ok {
@@ -209,7 +221,7 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 			return xdr.LedgerEntryChanges{}, nil
 		}
 		dstAccount, _ := lookupAccount(before, dst)
-		available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount)
+		available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount) - opSourceFee
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, sending %d", opSource.Address(), available, p.Amount)
 		}
@@ -264,7 +276,7 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	return changes, nil
 }
 
-func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, ledgerSeq uint32) (xdr.LedgerEntryChanges, error) {
+func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, ledgerSeq uint32, opSourceFee int64) (xdr.LedgerEntryChanges, error) {
 	srcAccount, ok := lookupAccount(before, opSource)
 	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
@@ -275,7 +287,7 @@ func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, 
 	if int64(c.StartingBalance) < 2*baseReserveStroops {
 		return nil, wouldFail("starting balance %d is below the minimum account reserve %d", c.StartingBalance, 2*baseReserveStroops)
 	}
-	available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount)
+	available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount) - opSourceFee
 	if available < int64(c.StartingBalance) {
 		return nil, wouldFail("source account %s has insufficient XLM to fund %d stroops", opSource.Address(), c.StartingBalance)
 	}
