@@ -236,8 +236,8 @@ func TestTransactionSimulationService_classicChangeTrust(t *testing.T) {
 		}
 		require.NotNil(t, added, "expected a (TRUSTLINE, ADD) state change")
 		assert.Equal(t, src, string(added.AccountID))
-		// Effects-derived rows carry decimal amount strings, matching history.
-		assert.Equal(t, "1000.0000000", added.TrustlineLimitNew.String)
+		// Limits are stroops strings, the same unit as every other amount column.
+		assert.Equal(t, "10000000000", added.TrustlineLimitNew.String)
 	})
 
 	t.Run("🟢 raising an existing limit produces (TRUSTLINE, UPDATE)", func(t *testing.T) {
@@ -258,7 +258,8 @@ func TestTransactionSimulationService_classicChangeTrust(t *testing.T) {
 			}
 		}
 		require.NotNil(t, updated, "expected a (TRUSTLINE, UPDATE) state change")
-		assert.Equal(t, "50.0000000", updated.TrustlineLimitNew.String)
+		assert.Equal(t, "500000000", updated.TrustlineLimitNew.String)
+		assert.Equal(t, "100000000", updated.TrustlineLimitOld.String)
 	})
 
 	t.Run("🟢 removing an empty trustline produces (TRUSTLINE, REMOVE)", func(t *testing.T) {
@@ -343,6 +344,175 @@ func TestTransactionSimulationService_classicManageData(t *testing.T) {
 	require.NotNil(t, added, "expected a (DATA_ENTRY, ADD) state change")
 	assert.Equal(t, src, string(added.AccountID))
 	assert.Equal(t, "config", added.DataEntryName.String)
+}
+
+func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+	issuer := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+
+	t.Run("🔴 fee payer that cannot cover the fee is a would-fail", func(t *testing.T) {
+		// Exactly the reserve floor: zero spendable balance, so even the
+		// 100-stroop fee is unaffordable, and the operation itself (setOptions)
+		// spends nothing.
+		homeDomain := "example.com"
+		svc := classicFixture(t, accountEntryResult(t, src, 2*baseReserveStroops))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			HomeDomain: &homeDomain,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 adding a trustline without reserve headroom is a would-fail", func(t *testing.T) {
+		// Spendable after fee is one stroop short of the base reserve the new
+		// subentry locks.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 3*baseReserveStroops+99),
+			accountEntryResult(t, issuer, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "1000",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 adding a signer without reserve headroom is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 3*baseReserveStroops+99))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			Signer: &txnbuild.Signer{Address: keypair.MustRandom().Address(), Weight: 5},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 removing a trustline with open offer liabilities is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithLiabilities(t, src, asset, 0, 100_0000000, 5_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "0",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 inflation destination that does not exist is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		missing := keypair.MustRandom().Address()
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			InflationDestination: &missing,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 negative payment amount is a would-fail", func(t *testing.T) {
+		// txnbuild refuses to build this, so the malformed operation is
+		// assembled as raw XDR, the way a hostile client would submit it.
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		dst := xdr.MustAddress(keypair.MustRandom().Address())
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: dst.ToMuxedAccount(),
+				Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				Amount:      -5_0000000,
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 threshold above 255 is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		high := xdr.Uint32(300)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{HighThreshold: &high},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+// TestComputeChangeTrustChanges_entryFidelity checks details of the synthesized
+// entries that state-change assertions cannot see: the clawback flag inherited
+// from the issuer and the source account's subentry counter.
+func TestComputeChangeTrustChanges_entryFidelity(t *testing.T) {
+	src := xdr.MustAddress(keypair.MustRandom().Address())
+	issuer := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+
+	before := map[string]xdr.LedgerEntry{}
+	put := func(key xdr.LedgerKey, data xdr.LedgerEntryData) {
+		b64, err := xdr.MarshalBase64(key)
+		require.NoError(t, err)
+		before[b64] = xdr.LedgerEntry{Data: data}
+	}
+	put(accountLedgerKey(src), xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+		AccountId: src, Balance: 100_0000000, NumSubEntries: 3,
+	}})
+	issuerID := xdr.MustAddress(issuer)
+	put(accountLedgerKey(issuerID), xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+		AccountId: issuerID,
+		Flags:     xdr.Uint32(xdr.AccountFlagsAuthClawbackEnabledFlag),
+	}})
+
+	changes, err := computeChangeTrustChanges(xdr.ChangeTrustOp{
+		Line:  asset.ToChangeTrustAsset(),
+		Limit: 10_0000000,
+	}, src, before, 100)
+	require.NoError(t, err)
+	require.Len(t, changes, 3, "expected trustline creation plus the source account pair")
+
+	created := changes[0].Created.Data.MustTrustLine()
+	assert.NotZero(t, created.Flags&xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag),
+		"a clawback-enabled issuer must stamp new trustlines with the clawback flag")
+	assert.NotZero(t, created.Flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag),
+		"issuer without AUTH_REQUIRED means the trustline starts authorized")
+
+	srcAfter := changes[2].Updated.Data.MustAccount()
+	assert.Equal(t, xdr.Uint32(4), srcAfter.NumSubEntries, "new trustline must bump the subentry counter")
+}
+
+// buildRawTxXDRFrom assembles a single-operation envelope directly as XDR,
+// bypassing txnbuild's client-side validation, so tests can feed the service
+// operations a hostile client could submit.
+func buildRawTxXDRFrom(t *testing.T, source string, body xdr.OperationBody) string {
+	t.Helper()
+	aid := xdr.MustAddress(source)
+	env := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+		V1: &xdr.TransactionV1Envelope{
+			Tx: xdr.Transaction{
+				SourceAccount: aid.ToMuxedAccount(),
+				Fee:           100,
+				SeqNum:        1,
+				Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+				Operations:    []xdr.Operation{{Body: body}},
+			},
+		},
+	}
+	b64, err := xdr.MarshalBase64(env)
+	require.NoError(t, err)
+	return b64
+}
+
+func trustlineEntryResultWithLiabilities(t *testing.T, address string, asset xdr.Asset, balance, limit, buyingLiabilities int64) entities.LedgerEntryResult {
+	t.Helper()
+	id := xdr.MustAddress(address)
+	return ledgerEntryResult(t,
+		trustlineLedgerKey(id, asset),
+		xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeTrustline, TrustLine: &xdr.TrustLineEntry{
+			AccountId: id,
+			Asset:     asset.ToTrustLineAsset(),
+			Balance:   xdr.Int64(balance),
+			Limit:     xdr.Int64(limit),
+			Flags:     xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag),
+			Ext: xdr.TrustLineEntryExt{V: 1, V1: &xdr.TrustLineEntryV1{
+				Liabilities: xdr.Liabilities{Buying: xdr.Int64(buyingLiabilities)},
+			}},
+		}},
+	)
 }
 
 func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
