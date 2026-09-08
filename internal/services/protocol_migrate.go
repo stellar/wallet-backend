@@ -714,9 +714,12 @@ func trackedContractIDSet(trackers []*protocolTracker, seq uint32, contractsByPr
 			continue
 		}
 		for _, c := range contractsByProtocol[t.protocolID] {
-			idBytes, err := hex.DecodeString(string(c.ContractID))
-			if err != nil || len(idBytes) != len(xdr.ContractId{}) {
-				return nil, fmt.Errorf("protocol %s contract id %q is not a 32-byte hex hash: %w", t.protocolID, c.ContractID, err)
+			idBytes, decodeErr := hex.DecodeString(string(c.ContractID))
+			if decodeErr != nil {
+				return nil, fmt.Errorf("decoding protocol %s contract id %q: %w", t.protocolID, c.ContractID, decodeErr)
+			}
+			if len(idBytes) != len(xdr.ContractId{}) {
+				return nil, fmt.Errorf("protocol %s contract id %q decoded to %d bytes, want %d", t.protocolID, c.ContractID, len(idBytes), len(xdr.ContractId{}))
 			}
 			tracked[xdr.ContractId(idBytes)] = struct{}{}
 		}
