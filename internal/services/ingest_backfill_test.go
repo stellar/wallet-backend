@@ -231,15 +231,12 @@ func Test_flushBatchBufferWithRetry_PermanentErrorFailsFast(t *testing.T) {
 		SignerAccountID:     utils.NullSignerKeyBytea("not-a-strkey"),
 	})
 
-	start := time.Now()
 	err = m.flushBatchBufferWithRetry(ctx, buffer, nil)
-	elapsed := time.Since(start)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, data.ErrRowEncoding)
 
-	// The first retry sleeps a second, so returning well inside that proves no retry ran.
-	assert.Less(t, elapsed, time.Second)
+	// No retry ran: the retry counters never moved and the permanent-error counter did.
 	assert.Equal(t, 0.0, testutil.ToFloat64(
 		appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush")))
 	assert.Equal(t, 0.0, testutil.ToFloat64(
