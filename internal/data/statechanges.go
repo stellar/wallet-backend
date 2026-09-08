@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -627,6 +628,14 @@ func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base 
 		WHERE state_change_id >= $1 AND state_change_id < $2
 		  AND to_id >= $3 AND to_id <= $4
 	`
+	// toid packs the ledger into the high 32 bits of a signed int64, so a ledger
+	// above MaxInt32 wraps negative and the to_id bounds below match no rows — a
+	// wipe that deletes nothing, leaving the re-migration to collide on
+	// already-present state_change_ids. Mainnet is four orders of magnitude below
+	// this; the check makes that failure loud rather than silent.
+	if fromLedger > math.MaxInt32 || toLedger > math.MaxInt32 {
+		return 0, fmt.Errorf("ledger range [%d,%d] exceeds the largest toid ledger %d", fromLedger, toLedger, int64(math.MaxInt32))
+	}
 	fromToID := toid.New(int32(fromLedger), 0, 0).ToInt64()
 	// AfterLedger is the MAXIMUM to_id within toLedger (not the first of
 	// toLedger+1), hence the inclusive upper bound above.
