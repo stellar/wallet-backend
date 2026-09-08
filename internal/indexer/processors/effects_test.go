@@ -337,7 +337,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategoryTrustline, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
 		assert.False(t, changes[0].TrustlineLimitOld.Valid) // New trustline has no old limit
-		assert.Equal(t, "922337203685.4775807", changes[0].TrustlineLimitNew.String)
+		assert.Equal(t, "9223372036854775807", changes[0].TrustlineLimitNew.String)
 		asset := xdr.MustNewCreditAsset("TEST", "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN")
 		assetContractID, err := asset.ContractID(networkPassphrase)
 		require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), changes[0].TokenID.String())
 		assert.Equal(t, "1000000000", changes[0].TrustlineLimitOld.String)
-		assert.Equal(t, "100.0000000", changes[0].TrustlineLimitNew.String)
+		assert.Equal(t, "1000000000", changes[0].TrustlineLimitNew.String)
 	})
 	t.Run("ChangeTrust - trustline removed", func(t *testing.T) {
 		envelopeXDR := "AAAAABwDSftLnTVAHpKUGYPZfTJr6rIm5Z5IqDHVBFuTI3ubAAAAZAARM9kAAAADAAAAAQAAAAAAAAAAAAAAAF4XMm8AAAAAAAAAAQAAAAAAAAAGAAAAAk9DSVRva2VuAAAAAAAAAABJxf/HoI4oaD9CLBvECRhG9GPMNa/65PTI9N7F37o4nwAAAAAAAAAAAAAAAAAAAAGTI3ubAAAAQMHTFPeyHA+W2EYHVDut4dQ18zvF+47SsTPaePwZUaCgw/A3tKDx7sO7R8xlI3GwKQl91Ljmm1dbvAONU9nk/AQ="

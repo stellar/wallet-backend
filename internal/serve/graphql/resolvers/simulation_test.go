@@ -152,11 +152,194 @@ func TestConvertToSimulatedStateChange(t *testing.T) {
 	})
 
 	t.Run("🔴 variant not exposed in the simulated schema errors", func(t *testing.T) {
+		// accountMerge is not derivable yet, so (ACCOUNT, MERGE) has no
+		// simulated type until its classic handler lands.
 		_, err := r.convertToSimulatedStateChange(types.StateChange{
-			StateChangeCategory: types.StateChangeCategorySigner,
-			StateChangeReason:   types.StateChangeReasonAdd,
+			StateChangeCategory: types.StateChangeCategoryAccount,
+			StateChangeReason:   types.StateChangeReasonMerge,
 			AccountID:           types.AddressBytea(testSimAccount),
 		})
 		require.ErrorContains(t, err, "no simulated GraphQL type")
+	})
+
+	t.Run("🟢 signer variants", func(t *testing.T) {
+		base := types.StateChange{
+			StateChangeCategory: types.StateChangeCategorySigner,
+			AccountID:           types.AddressBytea(testSimAccount),
+			SignerAccountID:     validAddress(testSimSpender),
+			SignerWeightOld:     sql.NullInt16{Int16: 3, Valid: true},
+			SignerWeightNew:     sql.NullInt16{Int16: 5, Valid: true},
+		}
+
+		add := base
+		add.StateChangeReason = types.StateChangeReasonAdd
+		converted, err := r.convertToSimulatedStateChange(add)
+		require.NoError(t, err)
+		added, ok := converted.(graphql1.SimulatedSignerAddedChange)
+		require.True(t, ok, "expected SimulatedSignerAddedChange, got %T", converted)
+		assert.Equal(t, testSimSpender, added.SignerAddress)
+		assert.Equal(t, int32(5), added.NewWeight)
+
+		update := base
+		update.StateChangeReason = types.StateChangeReasonUpdate
+		converted, err = r.convertToSimulatedStateChange(update)
+		require.NoError(t, err)
+		updated, ok := converted.(graphql1.SimulatedSignerUpdatedChange)
+		require.True(t, ok, "expected SimulatedSignerUpdatedChange, got %T", converted)
+		assert.Equal(t, int32(3), updated.OldWeight)
+		assert.Equal(t, int32(5), updated.NewWeight)
+
+		remove := base
+		remove.StateChangeReason = types.StateChangeReasonRemove
+		converted, err = r.convertToSimulatedStateChange(remove)
+		require.NoError(t, err)
+		removed, ok := converted.(graphql1.SimulatedSignerRemovedChange)
+		require.True(t, ok, "expected SimulatedSignerRemovedChange, got %T", converted)
+		assert.Equal(t, int32(3), removed.OldWeight)
+	})
+
+	t.Run("🟢 threshold change", func(t *testing.T) {
+		converted, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategorySignatureThreshold,
+			StateChangeReason:   types.StateChangeReasonUpdate,
+			AccountID:           types.AddressBytea(testSimAccount),
+			Threshold:           sql.NullString{String: string(types.ThresholdLevelMedium), Valid: true},
+			ThresholdOld:        sql.NullInt16{Int16: 1, Valid: true},
+			ThresholdNew:        sql.NullInt16{Int16: 2, Valid: true},
+		})
+		require.NoError(t, err)
+		threshold, ok := converted.(graphql1.SimulatedThresholdChange)
+		require.True(t, ok, "expected SimulatedThresholdChange, got %T", converted)
+		assert.Equal(t, types.ThresholdLevelMedium, threshold.Threshold)
+		assert.Equal(t, int32(1), threshold.OldThreshold)
+		assert.Equal(t, int32(2), threshold.NewThreshold)
+	})
+
+	t.Run("🟢 account flags change", func(t *testing.T) {
+		converted, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryFlags,
+			StateChangeReason:   types.StateChangeReasonSet,
+			AccountID:           types.AddressBytea(testSimAccount),
+			Flags:               sql.NullInt16{Int16: 1, Valid: true},
+		})
+		require.NoError(t, err)
+		flags, ok := converted.(graphql1.SimulatedAccountFlagsChange)
+		require.True(t, ok, "expected SimulatedAccountFlagsChange, got %T", converted)
+		assert.Equal(t, types.DecodeAccountFlags(1), flags.Flags)
+	})
+
+	t.Run("🔴 flags change without flags value errors", func(t *testing.T) {
+		_, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryFlags,
+			StateChangeReason:   types.StateChangeReasonSet,
+			AccountID:           types.AddressBytea(testSimAccount),
+		})
+		require.ErrorContains(t, err, "flags")
+	})
+
+	t.Run("🟢 home domain variants", func(t *testing.T) {
+		set, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryHomeDomain,
+			StateChangeReason:   types.StateChangeReasonSet,
+			AccountID:           types.AddressBytea(testSimAccount),
+			KeyValue:            types.NullableJSONB{"new": "example.com"},
+		})
+		require.NoError(t, err)
+		setChange, ok := set.(graphql1.SimulatedHomeDomainSetChange)
+		require.True(t, ok, "expected SimulatedHomeDomainSetChange, got %T", set)
+		assert.Equal(t, "example.com", setChange.HomeDomain)
+
+		updated, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryHomeDomain,
+			StateChangeReason:   types.StateChangeReasonUpdate,
+			AccountID:           types.AddressBytea(testSimAccount),
+			KeyValue:            types.NullableJSONB{"old": "a.com", "new": "b.com"},
+		})
+		require.NoError(t, err)
+		updatedChange, ok := updated.(graphql1.SimulatedHomeDomainUpdatedChange)
+		require.True(t, ok, "expected SimulatedHomeDomainUpdatedChange, got %T", updated)
+		assert.Equal(t, "a.com", updatedChange.OldHomeDomain)
+		assert.Equal(t, "b.com", updatedChange.NewHomeDomain)
+
+		cleared, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryHomeDomain,
+			StateChangeReason:   types.StateChangeReasonClear,
+			AccountID:           types.AddressBytea(testSimAccount),
+			KeyValue:            types.NullableJSONB{"old": "a.com"},
+		})
+		require.NoError(t, err)
+		clearedChange, ok := cleared.(graphql1.SimulatedHomeDomainClearedChange)
+		require.True(t, ok, "expected SimulatedHomeDomainClearedChange, got %T", cleared)
+		assert.Equal(t, "a.com", clearedChange.OldHomeDomain)
+	})
+
+	t.Run("🟢 data entry variants", func(t *testing.T) {
+		added, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryDataEntry,
+			StateChangeReason:   types.StateChangeReasonAdd,
+			AccountID:           types.AddressBytea(testSimAccount),
+			DataEntryName:       sql.NullString{String: "config", Valid: true},
+			KeyValue:            types.NullableJSONB{"new": "djE="},
+		})
+		require.NoError(t, err)
+		addedChange, ok := added.(graphql1.SimulatedDataEntryAddedChange)
+		require.True(t, ok, "expected SimulatedDataEntryAddedChange, got %T", added)
+		assert.Equal(t, "config", addedChange.Name)
+		assert.Equal(t, "djE=", addedChange.Value)
+
+		removed, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryDataEntry,
+			StateChangeReason:   types.StateChangeReasonRemove,
+			AccountID:           types.AddressBytea(testSimAccount),
+			DataEntryName:       sql.NullString{String: "config", Valid: true},
+			KeyValue:            types.NullableJSONB{"old": "djE="},
+		})
+		require.NoError(t, err)
+		removedChange, ok := removed.(graphql1.SimulatedDataEntryRemovedChange)
+		require.True(t, ok, "expected SimulatedDataEntryRemovedChange, got %T", removed)
+		assert.Equal(t, "djE=", removedChange.OldValue)
+	})
+
+	t.Run("🟢 trustline variants", func(t *testing.T) {
+		added, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryTrustline,
+			StateChangeReason:   types.StateChangeReasonAdd,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+			TrustlineLimitNew:   sql.NullString{String: "10000000000", Valid: true},
+		})
+		require.NoError(t, err)
+		addedChange, ok := added.(graphql1.SimulatedTrustlineAddedChange)
+		require.True(t, ok, "expected SimulatedTrustlineAddedChange, got %T", added)
+		require.NotNil(t, addedChange.TokenID)
+		assert.Equal(t, testSimToken, *addedChange.TokenID)
+		assert.Equal(t, "10000000000", addedChange.Limit)
+		assert.Nil(t, addedChange.LiquidityPoolID)
+
+		updated, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryTrustline,
+			StateChangeReason:   types.StateChangeReasonUpdate,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+			TrustlineLimitOld:   sql.NullString{String: "5", Valid: true},
+			TrustlineLimitNew:   sql.NullString{String: "9", Valid: true},
+		})
+		require.NoError(t, err)
+		updatedChange, ok := updated.(graphql1.SimulatedTrustlineUpdatedChange)
+		require.True(t, ok, "expected SimulatedTrustlineUpdatedChange, got %T", updated)
+		assert.Equal(t, "5", updatedChange.OldLimit)
+		assert.Equal(t, "9", updatedChange.NewLimit)
+
+		removed, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryTrustline,
+			StateChangeReason:   types.StateChangeReasonRemove,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+		})
+		require.NoError(t, err)
+		removedChange, ok := removed.(graphql1.SimulatedTrustlineRemovedChange)
+		require.True(t, ok, "expected SimulatedTrustlineRemovedChange, got %T", removed)
+		require.NotNil(t, removedChange.TokenID)
+		assert.Equal(t, testSimToken, *removedChange.TokenID)
 	})
 }

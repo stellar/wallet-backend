@@ -20,8 +20,8 @@ omit the fields that only exist after a transaction is included in a ledger:
 an `Account` entity, since the account may not be indexed yet.
 
 The set of concrete types grows with the transaction sources the simulation
-supports; today it covers the variants a contract (Soroban) transaction can
-produce.
+supports; today it covers the variants contract (Soroban) transactions and
+the supported classic operations can produce.
 """
 interface BaseSimulatedStateChange {
   """Category of account state this change affects."""
@@ -99,4 +99,223 @@ type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
   liquidityPoolId:            String
   """Trustline flags that would change; null for SAC contract-holder authorization, which has no flags."""
   flags:                      [TrustlineFlag!]
+}
+
+"""
+Simulated mirror of SignerAddedChange.
+Pair: (SIGNER, ADD).
+"""
+type SimulatedSignerAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the added signer."""
+  signerAddress:              String!
+  """Weight assigned to the new signer (0-255)."""
+  newWeight:                  Int!
+}
+
+"""
+Simulated mirror of SignerUpdatedChange.
+Pair: (SIGNER, UPDATE).
+"""
+type SimulatedSignerUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the updated signer."""
+  signerAddress:              String!
+  """Previous weight (0-255)."""
+  oldWeight:                  Int!
+  """New weight (0-255)."""
+  newWeight:                  Int!
+}
+
+"""
+Simulated mirror of SignerRemovedChange.
+Pair: (SIGNER, REMOVE).
+"""
+type SimulatedSignerRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the removed signer."""
+  signerAddress:              String!
+  """Weight the signer had before removal (0-255)."""
+  oldWeight:                  Int!
+}
+
+"""
+Simulated mirror of ThresholdChange.
+Pair: (SIGNATURE_THRESHOLD, UPDATE).
+"""
+type SimulatedThresholdChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Which signature threshold would change."""
+  threshold:                  ThresholdLevel!
+  """Previous threshold value (0-255)."""
+  oldThreshold:               Int!
+  """New threshold value (0-255)."""
+  newThreshold:               Int!
+}
+
+"""
+Simulated mirror of AccountFlagsChange.
+Pairs: (FLAGS, SET), (FLAGS, CLEAR).
+"""
+type SimulatedAccountFlagsChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Flags that would be set (reason SET) or cleared (reason CLEAR)."""
+  flags:                      [AccountFlag!]!
+}
+
+"""
+Simulated mirror of HomeDomainSetChange.
+Pair: (HOME_DOMAIN, SET).
+"""
+type SimulatedHomeDomainSetChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """The newly set home domain."""
+  homeDomain:                 String!
+}
+
+"""
+Simulated mirror of HomeDomainUpdatedChange.
+Pair: (HOME_DOMAIN, UPDATE).
+"""
+type SimulatedHomeDomainUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Previous home domain."""
+  oldHomeDomain:              String!
+  """New home domain."""
+  newHomeDomain:              String!
+}
+
+"""
+Simulated mirror of HomeDomainClearedChange.
+Pair: (HOME_DOMAIN, CLEAR).
+"""
+type SimulatedHomeDomainClearedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Home domain the account had when it would be removed."""
+  oldHomeDomain:              String!
+}
+
+"""
+Simulated mirror of DataEntryAddedChange.
+Pair: (DATA_ENTRY, ADD).
+"""
+type SimulatedDataEntryAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Value of the new entry, base64-encoded."""
+  value:                      String!
+}
+
+"""
+Simulated mirror of DataEntryUpdatedChange.
+Pair: (DATA_ENTRY, UPDATE).
+"""
+type SimulatedDataEntryUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Previous value, base64-encoded."""
+  oldValue:                   String!
+  """New value, base64-encoded."""
+  newValue:                   String!
+}
+
+"""
+Simulated mirror of DataEntryRemovedChange.
+Pair: (DATA_ENTRY, REMOVE).
+"""
+type SimulatedDataEntryRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Value the entry had when removed, base64-encoded."""
+  oldValue:                   String!
+}
+
+"""
+Simulated mirror of TrustlineAddedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, ADD).
+"""
+type SimulatedTrustlineAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Initial trustline limit, as a decimal string in stroops."""
+  limit:                      String!
+}
+
+"""
+Simulated mirror of TrustlineUpdatedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, UPDATE).
+"""
+type SimulatedTrustlineUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Previous trustline limit, as a decimal string in stroops."""
+  oldLimit:                   String!
+  """New trustline limit, as a decimal string in stroops."""
+  newLimit:                   String!
+}
+
+"""
+Simulated mirror of TrustlineRemovedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, REMOVE).
+"""
+type SimulatedTrustlineRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
 }

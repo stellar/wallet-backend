@@ -396,6 +396,13 @@ type ComplexityRoot struct {
 		Reason         func(childComplexity int) int
 	}
 
+	SimulatedAccountFlagsChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		Flags          func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
 	SimulatedAllowanceChange struct {
 		AccountAddress   func(childComplexity int) int
 		Amount           func(childComplexity int) int
@@ -424,9 +431,117 @@ type ComplexityRoot struct {
 		TokenID        func(childComplexity int) int
 	}
 
+	SimulatedDataEntryAddedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		Name           func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		Value          func(childComplexity int) int
+	}
+
+	SimulatedDataEntryRemovedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		Name           func(childComplexity int) int
+		OldValue       func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedDataEntryUpdatedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		Name           func(childComplexity int) int
+		NewValue       func(childComplexity int) int
+		OldValue       func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedHomeDomainClearedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		OldHomeDomain  func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedHomeDomainSetChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		HomeDomain     func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedHomeDomainUpdatedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		NewHomeDomain  func(childComplexity int) int
+		OldHomeDomain  func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedSignerAddedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		NewWeight      func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		SignerAddress  func(childComplexity int) int
+	}
+
+	SimulatedSignerRemovedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		OldWeight      func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		SignerAddress  func(childComplexity int) int
+	}
+
+	SimulatedSignerUpdatedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		NewWeight      func(childComplexity int) int
+		OldWeight      func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		SignerAddress  func(childComplexity int) int
+	}
+
 	SimulatedStateChanges struct {
 		LatestLedger func(childComplexity int) int
 		StateChanges func(childComplexity int) int
+	}
+
+	SimulatedThresholdChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		NewThreshold   func(childComplexity int) int
+		OldThreshold   func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		Threshold      func(childComplexity int) int
+	}
+
+	SimulatedTrustlineAddedChange struct {
+		AccountAddress  func(childComplexity int) int
+		Category        func(childComplexity int) int
+		Limit           func(childComplexity int) int
+		LiquidityPoolID func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+	}
+
+	SimulatedTrustlineRemovedChange struct {
+		AccountAddress  func(childComplexity int) int
+		Category        func(childComplexity int) int
+		LiquidityPoolID func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+	}
+
+	SimulatedTrustlineUpdatedChange struct {
+		AccountAddress  func(childComplexity int) int
+		Category        func(childComplexity int) int
+		LiquidityPoolID func(childComplexity int) int
+		NewLimit        func(childComplexity int) int
+		OldLimit        func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
 	}
 
 	StateChangeConnection struct {
@@ -2255,6 +2370,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SimulatedAccountCreatedChange.Reason(childComplexity), true
 
+	case "SimulatedAccountFlagsChange.accountAddress":
+		if e.ComplexityRoot.SimulatedAccountFlagsChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountFlagsChange.AccountAddress(childComplexity), true
+	case "SimulatedAccountFlagsChange.category":
+		if e.ComplexityRoot.SimulatedAccountFlagsChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountFlagsChange.Category(childComplexity), true
+	case "SimulatedAccountFlagsChange.flags":
+		if e.ComplexityRoot.SimulatedAccountFlagsChange.Flags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountFlagsChange.Flags(childComplexity), true
+	case "SimulatedAccountFlagsChange.reason":
+		if e.ComplexityRoot.SimulatedAccountFlagsChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountFlagsChange.Reason(childComplexity), true
+
 	case "SimulatedAllowanceChange.accountAddress":
 		if e.ComplexityRoot.SimulatedAllowanceChange.AccountAddress == nil {
 			break
@@ -2372,6 +2512,285 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SimulatedBalanceChange.TokenID(childComplexity), true
 
+	case "SimulatedDataEntryAddedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.AccountAddress(childComplexity), true
+	case "SimulatedDataEntryAddedChange.category":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.Category(childComplexity), true
+	case "SimulatedDataEntryAddedChange.name":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.Name(childComplexity), true
+	case "SimulatedDataEntryAddedChange.reason":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.Reason(childComplexity), true
+	case "SimulatedDataEntryAddedChange.value":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.Value(childComplexity), true
+
+	case "SimulatedDataEntryRemovedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.AccountAddress(childComplexity), true
+	case "SimulatedDataEntryRemovedChange.category":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.Category(childComplexity), true
+	case "SimulatedDataEntryRemovedChange.name":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.Name(childComplexity), true
+	case "SimulatedDataEntryRemovedChange.oldValue":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.OldValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.OldValue(childComplexity), true
+	case "SimulatedDataEntryRemovedChange.reason":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.Reason(childComplexity), true
+
+	case "SimulatedDataEntryUpdatedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.AccountAddress(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.category":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Category(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.name":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Name(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.newValue":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.NewValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.NewValue(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.oldValue":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.OldValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.OldValue(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.reason":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Reason(childComplexity), true
+
+	case "SimulatedHomeDomainClearedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.AccountAddress(childComplexity), true
+	case "SimulatedHomeDomainClearedChange.category":
+		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.Category(childComplexity), true
+	case "SimulatedHomeDomainClearedChange.oldHomeDomain":
+		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.OldHomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.OldHomeDomain(childComplexity), true
+	case "SimulatedHomeDomainClearedChange.reason":
+		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.Reason(childComplexity), true
+
+	case "SimulatedHomeDomainSetChange.accountAddress":
+		if e.ComplexityRoot.SimulatedHomeDomainSetChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainSetChange.AccountAddress(childComplexity), true
+	case "SimulatedHomeDomainSetChange.category":
+		if e.ComplexityRoot.SimulatedHomeDomainSetChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainSetChange.Category(childComplexity), true
+	case "SimulatedHomeDomainSetChange.homeDomain":
+		if e.ComplexityRoot.SimulatedHomeDomainSetChange.HomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainSetChange.HomeDomain(childComplexity), true
+	case "SimulatedHomeDomainSetChange.reason":
+		if e.ComplexityRoot.SimulatedHomeDomainSetChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainSetChange.Reason(childComplexity), true
+
+	case "SimulatedHomeDomainUpdatedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.AccountAddress(childComplexity), true
+	case "SimulatedHomeDomainUpdatedChange.category":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.Category(childComplexity), true
+	case "SimulatedHomeDomainUpdatedChange.newHomeDomain":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.NewHomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.NewHomeDomain(childComplexity), true
+	case "SimulatedHomeDomainUpdatedChange.oldHomeDomain":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.OldHomeDomain == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.OldHomeDomain(childComplexity), true
+	case "SimulatedHomeDomainUpdatedChange.reason":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.Reason(childComplexity), true
+
+	case "SimulatedSignerAddedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.AccountAddress(childComplexity), true
+	case "SimulatedSignerAddedChange.category":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.Category(childComplexity), true
+	case "SimulatedSignerAddedChange.newWeight":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.NewWeight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.NewWeight(childComplexity), true
+	case "SimulatedSignerAddedChange.reason":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.Reason(childComplexity), true
+	case "SimulatedSignerAddedChange.signerAddress":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.SignerAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.SignerAddress(childComplexity), true
+
+	case "SimulatedSignerRemovedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.AccountAddress(childComplexity), true
+	case "SimulatedSignerRemovedChange.category":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.Category(childComplexity), true
+	case "SimulatedSignerRemovedChange.oldWeight":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.OldWeight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.OldWeight(childComplexity), true
+	case "SimulatedSignerRemovedChange.reason":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.Reason(childComplexity), true
+	case "SimulatedSignerRemovedChange.signerAddress":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.SignerAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.SignerAddress(childComplexity), true
+
+	case "SimulatedSignerUpdatedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.AccountAddress(childComplexity), true
+	case "SimulatedSignerUpdatedChange.category":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.Category(childComplexity), true
+	case "SimulatedSignerUpdatedChange.newWeight":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.NewWeight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.NewWeight(childComplexity), true
+	case "SimulatedSignerUpdatedChange.oldWeight":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.OldWeight == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.OldWeight(childComplexity), true
+	case "SimulatedSignerUpdatedChange.reason":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.Reason(childComplexity), true
+	case "SimulatedSignerUpdatedChange.signerAddress":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.SignerAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.SignerAddress(childComplexity), true
+
 	case "SimulatedStateChanges.latestLedger":
 		if e.ComplexityRoot.SimulatedStateChanges.LatestLedger == nil {
 			break
@@ -2384,6 +2803,154 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedStateChanges.StateChanges(childComplexity), true
+
+	case "SimulatedThresholdChange.accountAddress":
+		if e.ComplexityRoot.SimulatedThresholdChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.AccountAddress(childComplexity), true
+	case "SimulatedThresholdChange.category":
+		if e.ComplexityRoot.SimulatedThresholdChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.Category(childComplexity), true
+	case "SimulatedThresholdChange.newThreshold":
+		if e.ComplexityRoot.SimulatedThresholdChange.NewThreshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.NewThreshold(childComplexity), true
+	case "SimulatedThresholdChange.oldThreshold":
+		if e.ComplexityRoot.SimulatedThresholdChange.OldThreshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.OldThreshold(childComplexity), true
+	case "SimulatedThresholdChange.reason":
+		if e.ComplexityRoot.SimulatedThresholdChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.Reason(childComplexity), true
+	case "SimulatedThresholdChange.threshold":
+		if e.ComplexityRoot.SimulatedThresholdChange.Threshold == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.Threshold(childComplexity), true
+
+	case "SimulatedTrustlineAddedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.AccountAddress(childComplexity), true
+	case "SimulatedTrustlineAddedChange.category":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.Category(childComplexity), true
+	case "SimulatedTrustlineAddedChange.limit":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.Limit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.Limit(childComplexity), true
+	case "SimulatedTrustlineAddedChange.liquidityPoolId":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedTrustlineAddedChange.reason":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.Reason(childComplexity), true
+	case "SimulatedTrustlineAddedChange.tokenId":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.TokenID(childComplexity), true
+
+	case "SimulatedTrustlineRemovedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.AccountAddress(childComplexity), true
+	case "SimulatedTrustlineRemovedChange.category":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.Category(childComplexity), true
+	case "SimulatedTrustlineRemovedChange.liquidityPoolId":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedTrustlineRemovedChange.reason":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.Reason(childComplexity), true
+	case "SimulatedTrustlineRemovedChange.tokenId":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.TokenID(childComplexity), true
+
+	case "SimulatedTrustlineUpdatedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.AccountAddress(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.category":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.Category(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.liquidityPoolId":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.newLimit":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.NewLimit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.NewLimit(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.oldLimit":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.OldLimit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.OldLimit(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.reason":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.Reason(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.tokenId":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.TokenID(childComplexity), true
 
 	case "StateChangeConnection.edges":
 		if e.ComplexityRoot.StateChangeConnection.Edges == nil {
@@ -3372,8 +3939,13 @@ type Query {
     """
     Simulate an unsubmitted transaction and return the state changes it would
     produce if submitted, in the same variant structure as the history API.
-    Currently accepts contract (Soroban) transactions, whose changes come from
-    RPC simulation; classic transactions are rejected as UNSUPPORTED_TRANSACTION.
+    Accepts contract (Soroban) transactions, whose changes come from RPC
+    simulation, and single-operation classic transactions for the supported
+    operation types (payment, createAccount, changeTrust, setOptions,
+    manageData), whose changes are derived from current ledger state. Other
+    transactions are rejected as UNSUPPORTED_TRANSACTION; a transaction the
+    network would reject (e.g. insufficient balance) is rejected as
+    SIMULATION_FAILED with the reason.
     """
     simulateStateChanges(transactionXdr: String!): SimulatedStateChanges!
 }
@@ -3416,8 +3988,8 @@ omit the fields that only exist after a transaction is included in a ledger:
 an ` + "`" + `Account` + "`" + ` entity, since the account may not be indexed yet.
 
 The set of concrete types grows with the transaction sources the simulation
-supports; today it covers the variants a contract (Soroban) transaction can
-produce.
+supports; today it covers the variants contract (Soroban) transactions and
+the supported classic operations can produce.
 """
 interface BaseSimulatedStateChange {
   """Category of account state this change affects."""
@@ -3495,6 +4067,225 @@ type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
   liquidityPoolId:            String
   """Trustline flags that would change; null for SAC contract-holder authorization, which has no flags."""
   flags:                      [TrustlineFlag!]
+}
+
+"""
+Simulated mirror of SignerAddedChange.
+Pair: (SIGNER, ADD).
+"""
+type SimulatedSignerAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the added signer."""
+  signerAddress:              String!
+  """Weight assigned to the new signer (0-255)."""
+  newWeight:                  Int!
+}
+
+"""
+Simulated mirror of SignerUpdatedChange.
+Pair: (SIGNER, UPDATE).
+"""
+type SimulatedSignerUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the updated signer."""
+  signerAddress:              String!
+  """Previous weight (0-255)."""
+  oldWeight:                  Int!
+  """New weight (0-255)."""
+  newWeight:                  Int!
+}
+
+"""
+Simulated mirror of SignerRemovedChange.
+Pair: (SIGNER, REMOVE).
+"""
+type SimulatedSignerRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Address of the removed signer."""
+  signerAddress:              String!
+  """Weight the signer had before removal (0-255)."""
+  oldWeight:                  Int!
+}
+
+"""
+Simulated mirror of ThresholdChange.
+Pair: (SIGNATURE_THRESHOLD, UPDATE).
+"""
+type SimulatedThresholdChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Which signature threshold would change."""
+  threshold:                  ThresholdLevel!
+  """Previous threshold value (0-255)."""
+  oldThreshold:               Int!
+  """New threshold value (0-255)."""
+  newThreshold:               Int!
+}
+
+"""
+Simulated mirror of AccountFlagsChange.
+Pairs: (FLAGS, SET), (FLAGS, CLEAR).
+"""
+type SimulatedAccountFlagsChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Flags that would be set (reason SET) or cleared (reason CLEAR)."""
+  flags:                      [AccountFlag!]!
+}
+
+"""
+Simulated mirror of HomeDomainSetChange.
+Pair: (HOME_DOMAIN, SET).
+"""
+type SimulatedHomeDomainSetChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """The newly set home domain."""
+  homeDomain:                 String!
+}
+
+"""
+Simulated mirror of HomeDomainUpdatedChange.
+Pair: (HOME_DOMAIN, UPDATE).
+"""
+type SimulatedHomeDomainUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Previous home domain."""
+  oldHomeDomain:              String!
+  """New home domain."""
+  newHomeDomain:              String!
+}
+
+"""
+Simulated mirror of HomeDomainClearedChange.
+Pair: (HOME_DOMAIN, CLEAR).
+"""
+type SimulatedHomeDomainClearedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Home domain the account had when it would be removed."""
+  oldHomeDomain:              String!
+}
+
+"""
+Simulated mirror of DataEntryAddedChange.
+Pair: (DATA_ENTRY, ADD).
+"""
+type SimulatedDataEntryAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Value of the new entry, base64-encoded."""
+  value:                      String!
+}
+
+"""
+Simulated mirror of DataEntryUpdatedChange.
+Pair: (DATA_ENTRY, UPDATE).
+"""
+type SimulatedDataEntryUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Previous value, base64-encoded."""
+  oldValue:                   String!
+  """New value, base64-encoded."""
+  newValue:                   String!
+}
+
+"""
+Simulated mirror of DataEntryRemovedChange.
+Pair: (DATA_ENTRY, REMOVE).
+"""
+type SimulatedDataEntryRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Name of the data entry."""
+  name:                       String!
+  """Value the entry had when removed, base64-encoded."""
+  oldValue:                   String!
+}
+
+"""
+Simulated mirror of TrustlineAddedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, ADD).
+"""
+type SimulatedTrustlineAddedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Initial trustline limit, as a decimal string in stroops."""
+  limit:                      String!
+}
+
+"""
+Simulated mirror of TrustlineUpdatedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, UPDATE).
+"""
+type SimulatedTrustlineUpdatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Previous trustline limit, as a decimal string in stroops."""
+  oldLimit:                   String!
+  """New trustline limit, as a decimal string in stroops."""
+  newLimit:                   String!
+}
+
+"""
+Simulated mirror of TrustlineRemovedChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pair: (TRUSTLINE, REMOVE).
+"""
+type SimulatedTrustlineRemovedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
 }
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `"""
@@ -12534,6 +13325,122 @@ func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_creatorAd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedAccountFlagsChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountFlagsChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountFlagsChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountFlagsChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountFlagsChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountFlagsChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountFlagsChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountFlagsChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountFlagsChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountFlagsChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountFlagsChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountFlagsChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountFlagsChange_flags(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountFlagsChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountFlagsChange_flags,
+		func(ctx context.Context) (any, error) {
+			return obj.Flags, nil
+		},
+		nil,
+		ec.marshalNAccountFlag2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccountFlagᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountFlagsChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type AccountFlag does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedAllowanceChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13085,6 +13992,1311 @@ func (ec *executionContext) fieldContext_SimulatedBalanceChange_toMuxedId(_ cont
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedDataEntryAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryAddedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryAddedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryAddedChange_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryAddedChange_value(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_value,
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_oldValue(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_oldValue,
+		func(ctx context.Context) (any, error) {
+			return obj.OldValue, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_oldValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_oldValue(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_oldValue,
+		func(ctx context.Context) (any, error) {
+			return obj.OldValue, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_oldValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_newValue(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_newValue,
+		func(ctx context.Context) (any, error) {
+			return obj.NewValue, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_newValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainClearedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainClearedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainClearedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainClearedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainClearedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainClearedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainClearedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainClearedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainClearedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainClearedChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainClearedChange_oldHomeDomain,
+		func(ctx context.Context) (any, error) {
+			return obj.OldHomeDomain, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_oldHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainClearedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainSetChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainSetChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainSetChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainSetChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainSetChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainSetChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainSetChange_homeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainSetChange_homeDomain,
+		func(ctx context.Context) (any, error) {
+			return obj.HomeDomain, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_homeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_oldHomeDomain,
+		func(ctx context.Context) (any, error) {
+			return obj.OldHomeDomain, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_oldHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_newHomeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_newHomeDomain,
+		func(ctx context.Context) (any, error) {
+			return obj.NewHomeDomain, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_newHomeDomain(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerAddedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerAddedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerAddedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_signerAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.SignerAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerAddedChange_newWeight(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_newWeight,
+		func(ctx context.Context) (any, error) {
+			return obj.NewWeight, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_signerAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.SignerAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange_oldWeight(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_oldWeight,
+		func(ctx context.Context) (any, error) {
+			return obj.OldWeight, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_signerAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.SignerAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_signerAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_oldWeight(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_oldWeight,
+		func(ctx context.Context) (any, error) {
+			return obj.OldWeight, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_oldWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_newWeight(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_newWeight,
+		func(ctx context.Context) (any, error) {
+			return obj.NewWeight, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_newWeight(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedStateChanges_latestLedger(ctx context.Context, field graphql.CollectedField, obj *SimulatedStateChanges) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13138,6 +15350,702 @@ func (ec *executionContext) fieldContext_SimulatedStateChanges_stateChanges(_ co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("FieldContext.Child cannot be called on type INTERFACE")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_threshold(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_threshold,
+		func(ctx context.Context) (any, error) {
+			return obj.Threshold, nil
+		},
+		nil,
+		ec.marshalNThresholdLevel2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐThresholdLevel,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_threshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ThresholdLevel does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_oldThreshold(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_oldThreshold,
+		func(ctx context.Context) (any, error) {
+			return obj.OldThreshold, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_oldThreshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedThresholdChange_newThreshold(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_newThreshold,
+		func(ctx context.Context) (any, error) {
+			return obj.NewThreshold, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_newThreshold(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_liquidityPoolId,
+		func(ctx context.Context) (any, error) {
+			return obj.LiquidityPoolID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_limit(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_limit,
+		func(ctx context.Context) (any, error) {
+			return obj.Limit, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_liquidityPoolId,
+		func(ctx context.Context) (any, error) {
+			return obj.LiquidityPoolID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_liquidityPoolId,
+		func(ctx context.Context) (any, error) {
+			return obj.LiquidityPoolID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_oldLimit(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_oldLimit,
+		func(ctx context.Context) (any, error) {
+			return obj.OldLimit, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_oldLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_newLimit(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_newLimit,
+		func(ctx context.Context) (any, error) {
+			return obj.NewLimit, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_newLimit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -17032,6 +19940,97 @@ func (ec *executionContext) _BaseSimulatedStateChange(ctx context.Context, sel a
 	switch obj := (obj).(type) {
 	case nil:
 		return graphql.Null
+	case SimulatedTrustlineUpdatedChange:
+		return ec._SimulatedTrustlineUpdatedChange(ctx, sel, &obj)
+	case *SimulatedTrustlineUpdatedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedTrustlineUpdatedChange(ctx, sel, obj)
+	case SimulatedTrustlineRemovedChange:
+		return ec._SimulatedTrustlineRemovedChange(ctx, sel, &obj)
+	case *SimulatedTrustlineRemovedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedTrustlineRemovedChange(ctx, sel, obj)
+	case SimulatedTrustlineAddedChange:
+		return ec._SimulatedTrustlineAddedChange(ctx, sel, &obj)
+	case *SimulatedTrustlineAddedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedTrustlineAddedChange(ctx, sel, obj)
+	case SimulatedThresholdChange:
+		return ec._SimulatedThresholdChange(ctx, sel, &obj)
+	case *SimulatedThresholdChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedThresholdChange(ctx, sel, obj)
+	case SimulatedSignerUpdatedChange:
+		return ec._SimulatedSignerUpdatedChange(ctx, sel, &obj)
+	case *SimulatedSignerUpdatedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedSignerUpdatedChange(ctx, sel, obj)
+	case SimulatedSignerRemovedChange:
+		return ec._SimulatedSignerRemovedChange(ctx, sel, &obj)
+	case *SimulatedSignerRemovedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedSignerRemovedChange(ctx, sel, obj)
+	case SimulatedSignerAddedChange:
+		return ec._SimulatedSignerAddedChange(ctx, sel, &obj)
+	case *SimulatedSignerAddedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedSignerAddedChange(ctx, sel, obj)
+	case SimulatedHomeDomainUpdatedChange:
+		return ec._SimulatedHomeDomainUpdatedChange(ctx, sel, &obj)
+	case *SimulatedHomeDomainUpdatedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedHomeDomainUpdatedChange(ctx, sel, obj)
+	case SimulatedHomeDomainSetChange:
+		return ec._SimulatedHomeDomainSetChange(ctx, sel, &obj)
+	case *SimulatedHomeDomainSetChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedHomeDomainSetChange(ctx, sel, obj)
+	case SimulatedHomeDomainClearedChange:
+		return ec._SimulatedHomeDomainClearedChange(ctx, sel, &obj)
+	case *SimulatedHomeDomainClearedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedHomeDomainClearedChange(ctx, sel, obj)
+	case SimulatedDataEntryUpdatedChange:
+		return ec._SimulatedDataEntryUpdatedChange(ctx, sel, &obj)
+	case *SimulatedDataEntryUpdatedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedDataEntryUpdatedChange(ctx, sel, obj)
+	case SimulatedDataEntryRemovedChange:
+		return ec._SimulatedDataEntryRemovedChange(ctx, sel, &obj)
+	case *SimulatedDataEntryRemovedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedDataEntryRemovedChange(ctx, sel, obj)
+	case SimulatedDataEntryAddedChange:
+		return ec._SimulatedDataEntryAddedChange(ctx, sel, &obj)
+	case *SimulatedDataEntryAddedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedDataEntryAddedChange(ctx, sel, obj)
 	case SimulatedBalanceChange:
 		return ec._SimulatedBalanceChange(ctx, sel, &obj)
 	case *SimulatedBalanceChange:
@@ -17053,6 +20052,13 @@ func (ec *executionContext) _BaseSimulatedStateChange(ctx context.Context, sel a
 			return graphql.Null
 		}
 		return ec._SimulatedAllowanceChange(ctx, sel, obj)
+	case SimulatedAccountFlagsChange:
+		return ec._SimulatedAccountFlagsChange(ctx, sel, &obj)
+	case *SimulatedAccountFlagsChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedAccountFlagsChange(ctx, sel, obj)
 	case SimulatedAccountCreatedChange:
 		return ec._SimulatedAccountCreatedChange(ctx, sel, &obj)
 	case *SimulatedAccountCreatedChange:
@@ -23251,6 +26257,60 @@ func (ec *executionContext) _SimulatedAccountCreatedChange(ctx context.Context, 
 	return out
 }
 
+var simulatedAccountFlagsChangeImplementors = []string{"SimulatedAccountFlagsChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedAccountFlagsChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedAccountFlagsChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedAccountFlagsChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedAccountFlagsChange")
+		case "category":
+			out.Values[i] = ec._SimulatedAccountFlagsChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedAccountFlagsChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedAccountFlagsChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "flags":
+			out.Values[i] = ec._SimulatedAccountFlagsChange_flags(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var simulatedAllowanceChangeImplementors = []string{"SimulatedAllowanceChange", "BaseSimulatedStateChange"}
 
 func (ec *executionContext) _SimulatedAllowanceChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedAllowanceChange) graphql.Marshaler {
@@ -23436,6 +26496,537 @@ func (ec *executionContext) _SimulatedBalanceChange(ctx context.Context, sel ast
 	return out
 }
 
+var simulatedDataEntryAddedChangeImplementors = []string{"SimulatedDataEntryAddedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedDataEntryAddedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedDataEntryAddedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedDataEntryAddedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedDataEntryAddedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "value":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedDataEntryRemovedChangeImplementors = []string{"SimulatedDataEntryRemovedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedDataEntryRemovedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedDataEntryRemovedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedDataEntryRemovedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedDataEntryRemovedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldValue":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_oldValue(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedDataEntryUpdatedChangeImplementors = []string{"SimulatedDataEntryUpdatedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedDataEntryUpdatedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedDataEntryUpdatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedDataEntryUpdatedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldValue":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_oldValue(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newValue":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_newValue(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedHomeDomainClearedChangeImplementors = []string{"SimulatedHomeDomainClearedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedHomeDomainClearedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedHomeDomainClearedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedHomeDomainClearedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedHomeDomainClearedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedHomeDomainClearedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedHomeDomainClearedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedHomeDomainClearedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldHomeDomain":
+			out.Values[i] = ec._SimulatedHomeDomainClearedChange_oldHomeDomain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedHomeDomainSetChangeImplementors = []string{"SimulatedHomeDomainSetChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedHomeDomainSetChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedHomeDomainSetChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedHomeDomainSetChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedHomeDomainSetChange")
+		case "category":
+			out.Values[i] = ec._SimulatedHomeDomainSetChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedHomeDomainSetChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedHomeDomainSetChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "homeDomain":
+			out.Values[i] = ec._SimulatedHomeDomainSetChange_homeDomain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedHomeDomainUpdatedChangeImplementors = []string{"SimulatedHomeDomainUpdatedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedHomeDomainUpdatedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedHomeDomainUpdatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedHomeDomainUpdatedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldHomeDomain":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_oldHomeDomain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newHomeDomain":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_newHomeDomain(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedSignerAddedChangeImplementors = []string{"SimulatedSignerAddedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedSignerAddedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedSignerAddedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedSignerAddedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedSignerAddedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedSignerAddedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedSignerAddedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedSignerAddedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "signerAddress":
+			out.Values[i] = ec._SimulatedSignerAddedChange_signerAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newWeight":
+			out.Values[i] = ec._SimulatedSignerAddedChange_newWeight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedSignerRemovedChangeImplementors = []string{"SimulatedSignerRemovedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedSignerRemovedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedSignerRemovedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedSignerRemovedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedSignerRemovedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "signerAddress":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_signerAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldWeight":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_oldWeight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedSignerUpdatedChangeImplementors = []string{"SimulatedSignerUpdatedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedSignerUpdatedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedSignerUpdatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedSignerUpdatedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "signerAddress":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_signerAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldWeight":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_oldWeight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newWeight":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_newWeight(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var simulatedStateChangesImplementors = []string{"SimulatedStateChanges"}
 
 func (ec *executionContext) _SimulatedStateChanges(ctx context.Context, sel ast.SelectionSet, obj *SimulatedStateChanges) graphql.Marshaler {
@@ -23454,6 +27045,244 @@ func (ec *executionContext) _SimulatedStateChanges(ctx context.Context, sel ast.
 			}
 		case "stateChanges":
 			out.Values[i] = ec._SimulatedStateChanges_stateChanges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedThresholdChangeImplementors = []string{"SimulatedThresholdChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedThresholdChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedThresholdChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedThresholdChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedThresholdChange")
+		case "category":
+			out.Values[i] = ec._SimulatedThresholdChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedThresholdChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedThresholdChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "threshold":
+			out.Values[i] = ec._SimulatedThresholdChange_threshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "oldThreshold":
+			out.Values[i] = ec._SimulatedThresholdChange_oldThreshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newThreshold":
+			out.Values[i] = ec._SimulatedThresholdChange_newThreshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedTrustlineAddedChangeImplementors = []string{"SimulatedTrustlineAddedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedTrustlineAddedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedTrustlineAddedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedTrustlineAddedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_tokenId(ctx, field, obj)
+		case "liquidityPoolId":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_liquidityPoolId(ctx, field, obj)
+		case "limit":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_limit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedTrustlineRemovedChangeImplementors = []string{"SimulatedTrustlineRemovedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedTrustlineRemovedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedTrustlineRemovedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedTrustlineRemovedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedTrustlineRemovedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_tokenId(ctx, field, obj)
+		case "liquidityPoolId":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_liquidityPoolId(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedTrustlineUpdatedChangeImplementors = []string{"SimulatedTrustlineUpdatedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedTrustlineUpdatedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedTrustlineUpdatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedTrustlineUpdatedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_tokenId(ctx, field, obj)
+		case "liquidityPoolId":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_liquidityPoolId(ctx, field, obj)
+		case "oldLimit":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_oldLimit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "newLimit":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_newLimit(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

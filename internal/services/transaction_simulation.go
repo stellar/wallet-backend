@@ -87,9 +87,9 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 		return nil, fmt.Errorf("%w: transaction has no operations", ErrInvalidTransactionXDR)
 	}
 
-	// Soroban transactions get ledger-entry changes from RPC simulation. Classic
-	// derivation is not implemented yet and returns ErrUnsupportedTransaction.
-	// Successful simulation paths then share the synthesis and processing below.
+	// Soroban transactions get ledger-entry changes from RPC simulation; classic
+	// transactions derive them from the operation and the fetched before-entries.
+	// Both paths then share the synthesis and processing below.
 	var (
 		tx           ingest.LedgerTransaction
 		latestLedger uint32
@@ -98,7 +98,7 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 	if isSorobanTransaction(envelope) {
 		tx, latestLedger, err = s.ledgerTransactionFromContract(transactionXDR, envelope)
 	} else {
-		tx, latestLedger, err = s.ledgerTransactionFromClassic(ctx, envelope)
+		tx, latestLedger, err = s.ledgerTransactionFromClassic(envelope)
 	}
 	if err != nil {
 		return nil, err
@@ -175,17 +175,6 @@ func injectSimulatedAuth(envelope *xdr.TransactionEnvelope, result entities.RPCS
 	}
 }
 
-// ledgerTransactionFromClassic will build the simulated ledger transaction for a
-// classic transaction. RPC can't simulate classic operations, so we derive the
-// changes ourselves: work out which ledger entries the operation touches, fetch
-// their current state with GetLedgerEntries, then compute what they would become.
-// Not implemented yet.
-//
-//nolint:unparam // stub: returns a nil LedgerTransaction until classic derivation is implemented.
-func (s *transactionSimulationService) ledgerTransactionFromClassic(_ context.Context, _ xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
-	return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: classic transactions are not supported yet", ErrUnsupportedTransaction)
-}
-
 // buildSimulatedLedgerTransaction turns an RPC simulateTransaction result into a
 // LedgerTransaction that looks just like one from a real ledger, so the existing
 // processors can read it without knowing it came from a simulation. It puts the
@@ -222,6 +211,15 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 	}
 	feeCharged := inclusionFee + minResourceFee
 
+	return newSimulatedLedgerTransaction(envelope, uint32(result.LatestLedger), feeCharged, changes, events, opResults), nil
+}
+
+// newSimulatedLedgerTransaction assembles the LedgerTransaction shape shared by
+// the Soroban and classic sources: a successful transaction at the given ledger
+// carrying the per-operation entry changes (and, for Soroban, contract events)
+// in TransactionMetaV4, which protocol 23+ networks emit and processors branch
+// on via UnsafeMeta.V.
+func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq uint32, feeCharged int64, changes xdr.LedgerEntryChanges, events []xdr.ContractEvent, opResults *[]xdr.OperationResult) ingest.LedgerTransaction {
 	return ingest.LedgerTransaction{
 		Index:    1,
 		Envelope: envelope,
@@ -229,7 +227,7 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 			V: 0,
 			V0: &xdr.LedgerCloseMetaV0{
 				LedgerHeader: xdr.LedgerHeaderHistoryEntry{
-					Header: xdr.LedgerHeader{LedgerSeq: xdr.Uint32(result.LatestLedger)},
+					Header: xdr.LedgerHeader{LedgerSeq: xdr.Uint32(ledgerSeq)},
 				},
 			},
 		},
@@ -242,15 +240,13 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 				},
 			},
 		},
-		// Protocol 23+ networks emit TransactionMetaV4, and processors branch on
-		// UnsafeMeta.V.
 		UnsafeMeta: xdr.TransactionMeta{
 			V: 4,
 			V4: &xdr.TransactionMetaV4{
 				Operations: []xdr.OperationMetaV2{{Changes: changes, Events: events}},
 			},
 		},
-	}, nil
+	}
 }
 
 // envelopeResourceFee returns the Soroban resource fee the transaction declares in
@@ -379,6 +375,16 @@ func successOperationResults(envelope xdr.TransactionEnvelope) (*[]xdr.Operation
 			tr.RestoreFootprintResult = &xdr.RestoreFootprintResult{
 				Code: xdr.RestoreFootprintResultCodeRestoreFootprintSuccess,
 			}
+		case xdr.OperationTypePayment:
+			tr.PaymentResult = &xdr.PaymentResult{Code: xdr.PaymentResultCodePaymentSuccess}
+		case xdr.OperationTypeCreateAccount:
+			tr.CreateAccountResult = &xdr.CreateAccountResult{Code: xdr.CreateAccountResultCodeCreateAccountSuccess}
+		case xdr.OperationTypeChangeTrust:
+			tr.ChangeTrustResult = &xdr.ChangeTrustResult{Code: xdr.ChangeTrustResultCodeChangeTrustSuccess}
+		case xdr.OperationTypeSetOptions:
+			tr.SetOptionsResult = &xdr.SetOptionsResult{Code: xdr.SetOptionsResultCodeSetOptionsSuccess}
+		case xdr.OperationTypeManageData:
+			tr.ManageDataResult = &xdr.ManageDataResult{Code: xdr.ManageDataResultCodeManageDataSuccess}
 		default:
 			return nil, fmt.Errorf("%w: operation type %s", ErrUnsupportedTransaction, op.Body.Type)
 		}
