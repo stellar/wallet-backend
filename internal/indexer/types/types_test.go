@@ -1,6 +1,7 @@
 package types
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/hex"
 	"testing"
@@ -122,6 +123,10 @@ func TestAddressBytea_Value(t *testing.T) {
 	expectedBytes[0] = byte(strkey.VersionByteAccountID)
 	copy(expectedBytes[1:], rawBytes)
 
+	// Checksum-valid P... strkey whose payload is one byte short of the CAP-40
+	// minimum (32-byte key + 4-byte length). DecodeAny rejects the structure.
+	shortSignedPayload := strkey.MustEncode(strkey.VersionByteSignedPayload, make([]byte, 35))
+
 	testCases := []struct {
 		name            string
 		input           AddressBytea
@@ -139,8 +144,20 @@ func TestAddressBytea_Value(t *testing.T) {
 			want:  expectedBytes,
 		},
 		{
+			// Signer columns store P... keys via SignerKeyBytea; an account column
+			// rejects them.
+			name:            "🔴signed payload key",
+			input:           AddressBytea(signedPayloadOver(t, validAddress, bytes.Repeat([]byte{0x01}, 8))),
+			wantErrContains: "stores only 32-byte account/contract keys",
+		},
+		{
 			name:            "🔴invalid address",
 			input:           "not-a-valid-address",
+			wantErrContains: "decoding stellar address",
+		},
+		{
+			name:            "🔴signed payload with a too-short payload",
+			input:           AddressBytea(shortSignedPayload),
 			wantErrContains: "decoding stellar address",
 		},
 	}
@@ -565,6 +582,16 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 	assert.NotEqual(t, baseBytes, vOther)
 }
 
+// signedPayloadOver builds the P... strkey for a CAP-40 signed-payload signer over baseG.
+func signedPayloadOver(t *testing.T, baseG string, payload []byte) string {
+	t.Helper()
+	sp, err := strkey.NewSignedPayload(baseG, payload)
+	require.NoError(t, err)
+	addr, err := sp.Encode()
+	require.NoError(t, err)
+	return addr
+}
+
 // TestAddressBytea_RejectsMalformedPayload verifies that Value rejects a well-formed
 // strkey whose payload is neither 32 bytes (account/contract) nor a muxed account,
 // rather than truncating it. (Contract C... and account G... still pass.)
@@ -592,4 +619,242 @@ func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
 	// Control: a normal contract address still encodes fine.
 	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
 	require.NoError(t, err)
+}
+
+func TestSignerKeyBytea_Value(t *testing.T) {
+	account := keypair.MustRandom().Address()
+
+	_, accountRaw, err := strkey.DecodeAny(account)
+	require.NoError(t, err)
+	accountBytes := append([]byte{byte(strkey.VersionByteAccountID)}, accountRaw...)
+
+	preAuthTxRaw := bytes.Repeat([]byte{0x11}, 32)
+	preAuthTx := strkey.MustEncode(strkey.VersionByteHashTx, preAuthTxRaw)
+	preAuthTxBytes := append([]byte{byte(strkey.VersionByteHashTx)}, preAuthTxRaw...)
+
+	hashXRaw := bytes.Repeat([]byte{0x22}, 32)
+	hashX := strkey.MustEncode(strkey.VersionByteHashX, hashXRaw)
+	hashXBytes := append([]byte{byte(strkey.VersionByteHashX)}, hashXRaw...)
+
+	signedPayload := signedPayloadOver(t, account, bytes.Repeat([]byte{0xAA}, 8))
+	_, signedPayloadRaw, err := strkey.DecodeAny(signedPayload)
+	require.NoError(t, err)
+	signedPayloadBytes := append([]byte{byte(strkey.VersionByteSignedPayload)}, signedPayloadRaw...)
+
+	testCases := []struct {
+		name            string
+		input           SignerKeyBytea
+		want            driver.Value
+		wantErrContains string
+	}{
+		{
+			name:  "🟢empty string",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "🟢ed25519 account key",
+			input: SignerKeyBytea(account),
+			want:  accountBytes,
+		},
+		{
+			name:  "🟢pre-auth tx key",
+			input: SignerKeyBytea(preAuthTx),
+			want:  preAuthTxBytes,
+		},
+		{
+			name:  "🟢hash-x key",
+			input: SignerKeyBytea(hashX),
+			want:  hashXBytes,
+		},
+		{
+			name:  "🟢signed payload key keeps its payload",
+			input: SignerKeyBytea(signedPayload),
+			want:  signedPayloadBytes,
+		},
+		{
+			name:            "🔴contract address",
+			input:           "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+			wantErrContains: "is not an account, pre-auth tx, hash-x or signed-payload key",
+		},
+		{
+			name:            "🔴muxed account",
+			input:           SignerKeyBytea(muxedOver(t, account, 7)),
+			wantErrContains: "is not an account, pre-auth tx, hash-x or signed-payload key",
+		},
+		{
+			name:            "🔴garbage string",
+			input:           "not-a-strkey",
+			wantErrContains: "decoding stellar signer key",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.input.Value()
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestSignerKeyBytea_Scan(t *testing.T) {
+	account := keypair.MustRandom().Address()
+	accountBytes, err := SignerKeyBytea(account).Value()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		input           any
+		want            SignerKeyBytea
+		wantErrContains string
+	}{
+		{
+			name:  "🟢nil value",
+			input: nil,
+			want:  "",
+		},
+		{
+			name:  "🟢33-byte account key",
+			input: accountBytes,
+			want:  SignerKeyBytea(account),
+		},
+		{
+			name:            "🔴wrong type",
+			input:           "a string",
+			wantErrContains: "expected []byte",
+		},
+		{
+			name:            "🔴fewer than 33 bytes",
+			input:           bytes.Repeat([]byte{0x00}, 32),
+			wantErrContains: "expected at least 33 bytes",
+		},
+		{
+			// 33 stored bytes with a contract version byte encode to a C... strkey,
+			// which is not a signer key.
+			name:            "🔴contract version byte",
+			input:           append([]byte{byte(strkey.VersionByteContract)}, bytes.Repeat([]byte{0x01}, 32)...),
+			wantErrContains: "validating stored signer key",
+		},
+		{
+			// A signed-payload version byte over a bare 32-byte key is missing the
+			// CAP-40 length and payload, so the re-encoded strkey fails validation.
+			name:            "🔴malformed signed payload bytes",
+			input:           append([]byte{byte(strkey.VersionByteSignedPayload)}, bytes.Repeat([]byte{0x02}, 32)...),
+			wantErrContains: "validating stored signer key",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got SignerKeyBytea
+			err := got.Scan(tc.input)
+			if tc.wantErrContains != "" {
+				assert.ErrorContains(t, err, tc.wantErrContains)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+// TestSignerKeyBytea_Roundtrip verifies that each of the four signer key types survives
+// Value -> Scan as the exact strkey it started as.
+func TestSignerKeyBytea_Roundtrip(t *testing.T) {
+	account := keypair.MustRandom().Address()
+
+	keys := map[string]SignerKeyBytea{
+		"ed25519 account":                SignerKeyBytea(account),
+		"pre-auth tx":                    SignerKeyBytea(strkey.MustEncode(strkey.VersionByteHashTx, bytes.Repeat([]byte{0x11}, 32))),
+		"hash-x":                         SignerKeyBytea(strkey.MustEncode(strkey.VersionByteHashX, bytes.Repeat([]byte{0x22}, 32))),
+		"signed payload, 8-byte payload": SignerKeyBytea(signedPayloadOver(t, account, bytes.Repeat([]byte{0xAA}, 8))),
+		"signed payload, max payload":    SignerKeyBytea(signedPayloadOver(t, account, bytes.Repeat([]byte{0xBB}, 64))),
+	}
+
+	for name, original := range keys {
+		t.Run(name, func(t *testing.T) {
+			stored, err := original.Value()
+			require.NoError(t, err)
+
+			var restored SignerKeyBytea
+			require.NoError(t, restored.Scan(stored))
+			assert.Equal(t, original, restored)
+		})
+	}
+}
+
+// TestSignerKeyBytea_SignedPayloadKeepsPayload verifies that two signed-payload signers over
+// one ed25519 account stay distinct in storage, and that neither collides with the plain
+// account key over the same ed25519 half. An account can hold all three at once.
+func TestSignerKeyBytea_SignedPayloadKeepsPayload(t *testing.T) {
+	base := keypair.MustRandom().Address()
+
+	pA := signedPayloadOver(t, base, bytes.Repeat([]byte{0xAA}, 8))
+	pB := signedPayloadOver(t, base, bytes.Repeat([]byte{0xBB}, 8))
+	require.NotEqual(t, pA, pB, "the two signed-payload strkeys must differ as strings")
+
+	vA, err := SignerKeyBytea(pA).Value()
+	require.NoError(t, err)
+	vB, err := SignerKeyBytea(pB).Value()
+	require.NoError(t, err)
+	vBase, err := SignerKeyBytea(base).Value()
+	require.NoError(t, err)
+
+	assert.NotEqual(t, vA, vB, "signers differing only in payload must store differently")
+	assert.NotEqual(t, vBase, vA, "the plain account key must not collide with a payload signer over it")
+
+	assert.Equal(t, byte(strkey.VersionByteSignedPayload), vA.([]byte)[0])
+	assert.GreaterOrEqual(t, len(vA.([]byte)), 37)
+	assert.LessOrEqual(t, len(vA.([]byte)), 101)
+	assert.Len(t, vBase.([]byte), 33)
+}
+
+func TestSignerKeyBytea_String(t *testing.T) {
+	account := keypair.MustRandom().Address()
+	assert.Equal(t, "", SignerKeyBytea("").String())
+	assert.Equal(t, account, SignerKeyBytea(account).String())
+}
+
+func TestNullSignerKeyBytea(t *testing.T) {
+	account := keypair.MustRandom().Address()
+
+	t.Run("🟢nil scan is invalid", func(t *testing.T) {
+		n := NullSignerKeyBytea{SignerKeyBytea: SignerKeyBytea(account), Valid: true}
+		require.NoError(t, n.Scan(nil))
+		assert.False(t, n.Valid)
+		assert.Equal(t, "", n.String())
+	})
+
+	t.Run("🟢invalid value is nil", func(t *testing.T) {
+		got, err := NullSignerKeyBytea{}.Value()
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("🟢empty string value is nil", func(t *testing.T) {
+		got, err := NullSignerKeyBytea{SignerKeyBytea: "", Valid: true}.Value()
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("🟢roundtrips a signed payload key", func(t *testing.T) {
+		signedPayload := signedPayloadOver(t, account, bytes.Repeat([]byte{0xCC}, 16))
+		stored, err := NullSignerKeyBytea{SignerKeyBytea: SignerKeyBytea(signedPayload), Valid: true}.Value()
+		require.NoError(t, err)
+
+		var restored NullSignerKeyBytea
+		require.NoError(t, restored.Scan(stored))
+		assert.True(t, restored.Valid)
+		assert.Equal(t, signedPayload, restored.String())
+	})
+
+	t.Run("🔴scan of fewer than 33 bytes errors", func(t *testing.T) {
+		var n NullSignerKeyBytea
+		assert.ErrorContains(t, n.Scan(bytes.Repeat([]byte{0x00}, 32)), "expected at least 33 bytes")
+	})
 }

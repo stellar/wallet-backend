@@ -2,11 +2,23 @@
 package services
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // newTestRecompressor creates a progressiveRecompressor for testing watermark logic.
@@ -173,4 +185,62 @@ func Test_progressiveRecompressor_MarkDone_allSimultaneous(t *testing.T) {
 	require.Len(t, windows, 1)
 	assert.Equal(t, endTime(3), windows[0]) // safeEnd = last batch
 	assert.Equal(t, 3, r.watermarkIdx)
+}
+
+// Test_flushBatchBufferWithRetry_PermanentErrorFailsFast verifies that a buffer the
+// database can never accept — here a state change whose signer key does not encode —
+// is abandoned on the first attempt instead of consuming the retry budget.
+func Test_flushBatchBufferWithRetry_PermanentErrorFailsFast(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	appMetrics := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, appMetrics.DB)
+	require.NoError(t, err)
+
+	// flushBatchBufferWithRetry only touches the models and the ingestion metrics when
+	// no cursor update is requested, so a struct literal with those two is the whole
+	// service surface under test.
+	m := &ingestService{models: models, appMetrics: appMetrics}
+
+	now := time.Now()
+	account := keypair.MustRandom().Address()
+	transaction := &types.Transaction{
+		Hash:            "f176b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4877",
+		ToID:            1,
+		FeeCharged:      100,
+		ResultCode:      "TransactionResultCodeTxSuccess",
+		LedgerNumber:    1,
+		LedgerCreatedAt: now,
+	}
+
+	buffer := indexer.NewIndexerBuffer()
+	buffer.PushStateChange(transaction, nil, types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategorySigner,
+		StateChangeReason:   types.StateChangeReasonAdd,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(account),
+		SignerAccountID:     utils.NullSignerKeyBytea("not-a-strkey"),
+	})
+
+	err = m.flushBatchBufferWithRetry(ctx, buffer, nil)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, data.ErrRowEncoding)
+
+	// No retry ran: the retry counters never moved and the permanent-error counter did.
+	assert.Equal(t, 0.0, testutil.ToFloat64(
+		appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush")))
+	assert.Equal(t, 0.0, testutil.ToFloat64(
+		appMetrics.Ingestion.RetryExhaustionsTotal.WithLabelValues("batch_flush")))
+	assert.Equal(t, 1.0, testutil.ToFloat64(
+		appMetrics.Ingestion.ErrorsTotal.WithLabelValues("batch_flush")))
 }

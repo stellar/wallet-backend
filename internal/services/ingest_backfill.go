@@ -290,6 +290,10 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 			return nil
 		}
 		lastErr = err
+		if isPermanentPersistError(err) {
+			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("batch_flush").Inc()
+			return fmt.Errorf("flushing batch buffer failed with a permanent error: %w", err)
+		}
 		m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("batch_flush").Inc()
 		if attempt == maxIngestProcessedDataRetries-1 {
 			break

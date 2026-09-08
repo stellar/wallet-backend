@@ -59,16 +59,6 @@ func pgtypeTextFromReason(r types.StateChangeReason) pgtype.Text {
 	return pgtype.Text{String: string(r), Valid: true}
 }
 
-// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
-// pgx automatically handles map[string]any → JSONB conversion.
-func jsonbFromMap(m types.NullableJSONB) any {
-	if m == nil {
-		return nil
-	}
-	// Return the map directly; pgx handles JSON marshaling automatically
-	return map[string]any(m)
-}
-
 // pgtypeInt2FromNullInt16 converts sql.NullInt16 to pgtype.Int2 for efficient binary COPY.
 func pgtypeInt2FromNullInt16(ni sql.NullInt16) pgtype.Int2 {
 	return pgtype.Int2{Int16: ni.Int16, Valid: ni.Valid}
@@ -82,6 +72,21 @@ func pgtypeBytesFromNullAddressBytea(na types.NullAddressBytea) ([]byte, error) 
 	val, err := na.Value()
 	if err != nil {
 		return nil, fmt.Errorf("converting address to bytes: %w", err)
+	}
+	if val == nil {
+		return nil, nil
+	}
+	return val.([]byte), nil
+}
+
+// pgtypeBytesFromNullSignerKeyBytea converts NullSignerKeyBytea to bytes for BYTEA insert.
+func pgtypeBytesFromNullSignerKeyBytea(nk types.NullSignerKeyBytea) ([]byte, error) {
+	if !nk.Valid {
+		return nil, nil
+	}
+	val, err := nk.Value()
+	if err != nil {
+		return nil, fmt.Errorf("converting signer key to bytes: %w", err)
 	}
 	if val == nil {
 		return nil, nil

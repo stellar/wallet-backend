@@ -27,3 +27,10 @@ func NullAddressBytea(s string) types.NullAddressBytea {
 		Valid:        s != "",
 	}
 }
+
+func NullSignerKeyBytea(s string) types.NullSignerKeyBytea {
+	return types.NullSignerKeyBytea{
+		SignerKeyBytea: types.SignerKeyBytea(s),
+		Valid:          s != "",
+	}
+}
