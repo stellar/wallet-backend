@@ -97,10 +97,10 @@ func NewProtocolMigrateCurrentStateService(cfg ProtocolMigrateCurrentStateConfig
 // Run performs current-state migration for the given protocol IDs, holding
 // each protocol's current-state advisory lock for the duration.
 func (s *protocolMigrateCurrentStateService) Run(ctx context.Context, protocolIDs []string) error {
-	release, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeCurrentState, dedupePreservingOrder(protocolIDs))
+	locks, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeCurrentState, dedupePreservingOrder(protocolIDs))
 	if err != nil {
 		return fmt.Errorf("locking protocols for current-state migration: %w", err)
 	}
-	defer release()
+	defer locks.release()
 	return s.engine.Run(ctx, protocolIDs)
 }
