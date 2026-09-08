@@ -105,7 +105,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 
 	t.Run("SetOptions - signed payload signer", func(t *testing.T) {
 		// The signer added here is a CAP-40 signed-payload key; the resulting state change
-		// must carry its underlying ed25519 account, not the P... strkey.
+		// must carry the full P... strkey, payload included.
 		const baseSigner = "GAQHWQYBBW272OOXNQMMLCA5WY2XAZPODGB7Q3S5OKKIXVESKO55ZQ7C"
 		signerKey := signedPayloadSignerKey(t, baseSigner)
 
@@ -153,7 +153,7 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		assert.Equal(t, types.StateChangeCategorySigner, changes[0].StateChangeCategory)
 		assert.Equal(t, types.StateChangeReasonAdd, changes[0].StateChangeReason)
 		require.True(t, changes[0].SignerAccountID.Valid)
-		assert.Equal(t, baseSigner, changes[0].SignerAccountID.String())
+		assert.Equal(t, signerKey.Address(), changes[0].SignerAccountID.String())
 		assert.False(t, changes[0].SignerWeightOld.Valid)
 		assert.Equal(t, int16(2), changes[0].SignerWeightNew.Int16)
 	})
@@ -691,10 +691,9 @@ func signedPayloadSignerKey(t *testing.T, account string) xdr.SignerKey {
 	}
 }
 
-// TestEffects_ParseSigners_SignedPayloadSigner pins the split between lookup and storage for a
-// CAP-40 signed-payload signer. signer_account_id stores 32-byte keys, so the state change holds
-// the signer's underlying ed25519 account (G...), while the account pre-image's signer summary
-// is keyed on the full P... strkey and the old-weight lookup must still use that.
+// TestEffects_ParseSigners_SignedPayloadSigner pins how a CAP-40 signed-payload signer flows
+// through parseSigners: the state change holds the full P... strkey, and the old-weight lookup
+// reads the account pre-image's signer summary, which is keyed on that same full strkey.
 func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 	const (
 		accountAddress = "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
@@ -729,13 +728,15 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 		effectType    EffectType
 		details       map[string]interface{}
 		changes       []ingest.Change
+		wantSigner    string
 		wantOldWeight sql.NullInt16
 		wantNewWeight sql.NullInt16
 	}{
 		{
-			name:          "signer_created stores the signer's base account",
+			name:          "signer_created stores the full P key",
 			effectType:    EffectSignerCreated,
 			details:       map[string]interface{}{"public_key": payloadSigner, "weight": int32(3)},
+			wantSigner:    payloadSigner,
 			wantNewWeight: sql.NullInt16{Int16: 3, Valid: true},
 		},
 		{
@@ -743,6 +744,7 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 			effectType:    EffectSignerUpdated,
 			details:       map[string]interface{}{"public_key": payloadSigner, "weight": int32(5)},
 			changes:       preImage(xdr.Signer{Key: payloadSignerKey, Weight: 2}),
+			wantSigner:    payloadSigner,
 			wantOldWeight: sql.NullInt16{Int16: 2, Valid: true},
 			wantNewWeight: sql.NullInt16{Int16: 5, Valid: true},
 		},
@@ -752,13 +754,17 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 			effectType:    EffectSignerRemoved,
 			details:       map[string]interface{}{"public_key": payloadSigner},
 			changes:       preImage(xdr.Signer{Key: payloadSignerKey, Weight: 2}),
+			wantSigner:    payloadSigner,
 			wantOldWeight: sql.NullInt16{Int16: 2, Valid: true},
 		},
 		{
+			// The P key and the plain key share one ed25519 account, and each is stored
+			// as itself: a signer summary can hold both at once.
 			name:          "a plain ed25519 signer passes through unchanged",
 			effectType:    EffectSignerUpdated,
 			details:       map[string]interface{}{"public_key": baseSigner, "weight": int32(4)},
 			changes:       preImage(xdr.Signer{Key: plainSignerKey, Weight: 1}),
+			wantSigner:    baseSigner,
 			wantOldWeight: sql.NullInt16{Int16: 1, Valid: true},
 			wantNewWeight: sql.NullInt16{Int16: 4, Valid: true},
 		},
@@ -781,7 +787,7 @@ func TestEffects_ParseSigners_SignedPayloadSigner(t *testing.T) {
 			require.Len(t, signerChanges, 1)
 
 			require.True(t, signerChanges[0].SignerAccountID.Valid)
-			assert.Equal(t, baseSigner, signerChanges[0].SignerAccountID.String())
+			assert.Equal(t, tc.wantSigner, signerChanges[0].SignerAccountID.String())
 			assert.Equal(t, tc.wantOldWeight, signerChanges[0].SignerWeightOld)
 			assert.Equal(t, tc.wantNewWeight, signerChanges[0].SignerWeightNew)
 		})

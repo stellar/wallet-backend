@@ -809,9 +809,9 @@ type StateChange struct {
 
 	// Nullable address fields (stored as BYTEA in database):
 	SignerAccountID      NullSignerKeyBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
-	SpenderAccountID     NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
-	CreatorAccountID     NullAddressBytea `json:"creatorAccountId,omitempty" db:"creator_account_id"`
-	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`
+	SpenderAccountID     NullAddressBytea   `json:"spenderAccountId,omitempty" db:"spender_account_id"`
+	CreatorAccountID     NullAddressBytea   `json:"creatorAccountId,omitempty" db:"creator_account_id"`
+	DestinationAccountID NullAddressBytea   `json:"destinationAccountId,omitempty" db:"destination_account_id"`
 
 	// Entity identifiers (moved from key_value JSONB):
 	LiquidityPoolID sql.NullString `json:"liquidityPoolId,omitempty" db:"liquidity_pool_id"`

@@ -44,8 +44,8 @@ func generateTestStateChanges(n int, accountID string, startToID int64, auxAddre
 			// NullAddressBytea token field
 			TokenID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+6)%len(auxAddresses)]), Valid: true},
 			Amount:  sql.NullString{String: fmt.Sprintf("%d", (i+1)*100), Valid: true},
-			// NullAddressBytea fields
-			SignerAccountID:  types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[auxIdx]), Valid: true},
+			// Nullable address and signer-key fields
+			SignerAccountID:  types.NullSignerKeyBytea{SignerKeyBytea: types.SignerKeyBytea(auxAddresses[auxIdx]), Valid: true},
 			SpenderAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+1)%len(auxAddresses)]), Valid: true},
 			CreatorAccountID: types.NullAddressBytea{AddressBytea: types.AddressBytea(auxAddresses[(auxIdx+4)%len(auxAddresses)]), Valid: true},
 			// Typed fields (previously JSONB)
@@ -1197,10 +1197,10 @@ func TestStateChangeModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	assert.True(t, now.Equal(byOpID[0].StateChange.LedgerCreatedAt), "BatchGetByOperationID with minimal projection must hydrate ledger_created_at")
 }
 
-// TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount verifies that a
-// CAP-40 signed-payload signer (P...) survives the COPY encode path and lands in
-// signer_account_id as the ed25519 account it is built over.
-func TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount(t *testing.T) {
+// TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresFullKey verifies that a
+// CAP-40 signed-payload signer (P...) survives the COPY encode path and reads back out
+// of signer_account_id as the same P... strkey, payload included.
+func TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresFullKey(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -1240,7 +1240,7 @@ func TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount(t *test
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp.Address()),
 		OperationID:         123,
-		SignerAccountID:     utils.NullAddressBytea(signedPayloadAddress),
+		SignerAccountID:     utils.NullSignerKeyBytea(signedPayloadAddress),
 	}
 
 	pgxTx, err := conn.Begin(ctx)
@@ -1250,15 +1250,15 @@ func TestStateChangeModel_BatchCopy_SignedPayloadSignerStoresBaseAccount(t *test
 	require.NoError(t, pgxTx.Commit(ctx))
 	assert.Equal(t, 1, gotCount)
 
-	storedSigner, err := db.QueryOne[types.AddressBytea](ctx, dbConnectionPool,
+	storedSigner, err := db.QueryOne[types.SignerKeyBytea](ctx, dbConnectionPool,
 		"SELECT signer_account_id FROM state_changes WHERE to_id = 1")
 	require.NoError(t, err)
-	assert.Equal(t, types.AddressBytea(kp.Address()), storedSigner,
-		"the P... signer must be stored as its ed25519 account")
+	assert.Equal(t, types.SignerKeyBytea(signedPayloadAddress), storedSigner,
+		"the P... signer must be stored as the full signed-payload key")
 }
 
 // TestStateChangeModel_BatchCopy_RowEncodeErrorIsSentinel verifies that a row whose
-// address fails to encode is reported as ErrRowEncoding and that the failure happens
+// signer key fails to encode is reported as ErrRowEncoding and that the failure happens
 // before the COPY stream opens, leaving the caller's transaction usable.
 func TestStateChangeModel_BatchCopy_RowEncodeErrorIsSentinel(t *testing.T) {
 	dbt := dbtest.Open(t)
@@ -1288,7 +1288,55 @@ func TestStateChangeModel_BatchCopy_RowEncodeErrorIsSentinel(t *testing.T) {
 		LedgerNumber:        1,
 		AccountID:           types.AddressBytea(kp.Address()),
 		OperationID:         123,
-		SignerAccountID:     utils.NullAddressBytea("not-a-strkey"),
+		SignerAccountID:     utils.NullSignerKeyBytea("not-a-strkey"),
+	}
+
+	pgxTx, err := conn.Begin(ctx)
+	require.NoError(t, err)
+	defer pgxTx.Rollback(ctx)
+
+	_, err = m.BatchCopy(ctx, pgxTx, []types.StateChange{sc})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRowEncoding)
+
+	// No COPY stream was opened, so the transaction is still usable.
+	_, err = pgxTx.Exec(ctx, "SELECT 1")
+	require.NoError(t, err)
+}
+
+// TestStateChangeModel_BatchCopy_KeyValueEncodeErrorIsSentinel verifies that a row whose
+// key_value cannot be marshalled to JSON is reported as ErrRowEncoding and that the
+// failure happens before the COPY stream opens, leaving the caller's transaction usable.
+func TestStateChangeModel_BatchCopy_KeyValueEncodeErrorIsSentinel(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	kp := keypair.MustRandom()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	sc := types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategoryHomeDomain,
+		StateChangeReason:   types.StateChangeReasonSet,
+		LedgerCreatedAt:     now,
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(kp.Address()),
+		OperationID:         123,
+		// A channel has no JSON representation, so json.Marshal fails on this map.
+		KeyValue: types.NullableJSONB{"bad": make(chan int)},
 	}
 
 	pgxTx, err := conn.Begin(ctx)
