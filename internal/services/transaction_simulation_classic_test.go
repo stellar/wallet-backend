@@ -129,6 +129,19 @@ func TestTransactionSimulationService_classicPayment(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🔴 balance covering amount and reserve but not the fee is a would-fail", func(t *testing.T) {
+		// Exactly the reserve floor plus the 1 XLM being sent: the network
+		// charges the fee first, so this transaction would fail on-chain.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 2*baseReserveStroops+1_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 missing destination is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
