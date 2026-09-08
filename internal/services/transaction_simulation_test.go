@@ -29,11 +29,15 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrInvalidTransactionXDR)
 	})
 
-	t.Run("🔴 classic transaction unsupported", func(t *testing.T) {
-		_, err := svc.SimulateStateChanges(ctx, buildTxXDR(t, &txnbuild.Payment{
-			Destination: keypair.MustRandom().Address(),
-			Amount:      "1",
-			Asset:       txnbuild.NativeAsset{},
+	t.Run("🔴 unsupported classic operation type", func(t *testing.T) {
+		// Order-book operations are execution-dependent and permanently out of
+		// the classic derivation's scope. Supported classic ops are covered by
+		// the classic simulation tests.
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDR(t, &txnbuild.ManageSellOffer{
+			Selling: txnbuild.NativeAsset{},
+			Buying:  txnbuild.CreditAsset{Code: "USDC", Issuer: keypair.MustRandom().Address()},
+			Amount:  "1",
+			Price:   xdr.Price{N: 1, D: 1},
 		}))
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
