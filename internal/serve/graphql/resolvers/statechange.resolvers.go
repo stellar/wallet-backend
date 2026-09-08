@@ -528,7 +528,7 @@ func (r *signerAddedChangeResolver) Transaction(ctx context.Context, obj *types.
 
 // SignerAddress is the resolver for the signerAddress field.
 func (r *signerAddedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerAddedChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
+	return r.resolveRequiredSignerKey(obj.SignerAccountID, "signerAddress")
 }
 
 // NewWeight is the resolver for the newWeight field.
@@ -563,7 +563,7 @@ func (r *signerRemovedChangeResolver) Transaction(ctx context.Context, obj *type
 
 // SignerAddress is the resolver for the signerAddress field.
 func (r *signerRemovedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerRemovedChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
+	return r.resolveRequiredSignerKey(obj.SignerAccountID, "signerAddress")
 }
 
 // OldWeight is the resolver for the oldWeight field.
@@ -598,7 +598,7 @@ func (r *signerUpdatedChangeResolver) Transaction(ctx context.Context, obj *type
 
 // SignerAddress is the resolver for the signerAddress field.
 func (r *signerUpdatedChangeResolver) SignerAddress(ctx context.Context, obj *types.SignerUpdatedChangeModel) (string, error) {
-	return r.resolveRequiredAddress(obj.SignerAccountID, "signerAddress")
+	return r.resolveRequiredSignerKey(obj.SignerAccountID, "signerAddress")
 }
 
 // OldWeight is the resolver for the oldWeight field.

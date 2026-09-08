@@ -80,10 +80,11 @@ func (a *AddressBytea) Scan(value any) error {
 // ingestion is expected to normalize muxed addresses to their base account before this point
 // (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()).
 //
-// Signed-payload signers (P..., CAP-40) carry a 32-byte ed25519 key followed by a 4-byte
+// Signed-payload keys (P..., CAP-40) carry a 32-byte ed25519 key followed by a 4-byte
 // length and the payload itself (36-100 bytes total). They are reduced to their ed25519
-// account the same way: the payload is a signing condition, not a separate identity.
-// Ingestion normalizes these before this point too (see EffectsProcessor.parseSigners).
+// account the same way. Signer columns store the full key via SignerKeyBytea instead,
+// so a P... reaching an account column is unexpected; reducing it here is a last resort
+// that keeps ingestion alive rather than halting on the row.
 //
 // Any other payload length is rejected rather than silently truncated, so a malformed
 // address surfaces as an error instead of corrupt data.
@@ -159,6 +160,99 @@ func (n NullAddressBytea) Value() (driver.Value, error) {
 // String returns the Stellar address as a string (convenience accessor).
 func (n NullAddressBytea) String() string {
 	return string(n.AddressBytea)
+}
+
+// SignerKeyBytea represents a Stellar signer key stored as BYTEA in the database.
+// Signers are not always accounts: the four signer key types have different payload
+// sizes, so the column stores the version byte followed by the full key payload.
+// Storage format: 33 bytes for ed25519 (G...), pre-auth tx (T...) and hash-x (X...)
+// keys; 37-101 bytes for CAP-40 signed-payload (P...) keys.
+// Go representation: StrKey string.
+type SignerKeyBytea string
+
+// Scan implements sql.Scanner - converts BYTEA (version byte + payload) to StrKey string
+func (s *SignerKeyBytea) Scan(value any) error {
+	if value == nil {
+		*s = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("expected []byte, got %T", value)
+	}
+	if len(bytes) < 33 {
+		return fmt.Errorf("expected at least 33 bytes, got %d", len(bytes))
+	}
+	encoded, err := strkey.Encode(strkey.VersionByte(bytes[0]), bytes[1:])
+	if err != nil {
+		return fmt.Errorf("encoding stellar signer key: %w", err)
+	}
+	*s = SignerKeyBytea(encoded)
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to version byte + payload.
+// The four signer key types (G, T, X, P) are stored as-is; anything else is rejected.
+func (s SignerKeyBytea) Value() (driver.Value, error) {
+	if s == "" {
+		return nil, nil
+	}
+	versionByte, rawBytes, err := strkey.DecodeAny(string(s))
+	if err != nil {
+		return nil, fmt.Errorf("decoding stellar signer key %s: %w", s, err)
+	}
+	switch versionByte {
+	case strkey.VersionByteAccountID, strkey.VersionByteHashTx, strkey.VersionByteHashX:
+		if len(rawBytes) != 32 {
+			return nil, fmt.Errorf("stellar signer key %s has a %d-byte payload; expected 32 bytes", s, len(rawBytes))
+		}
+	case strkey.VersionByteSignedPayload:
+		// DecodeAny already validates the CAP-40 structure (36-100 bytes).
+	default:
+		return nil, fmt.Errorf("stellar signer key %s is not an account, pre-auth tx, hash-x or signed-payload key", s)
+	}
+	result := make([]byte, 1+len(rawBytes))
+	result[0] = byte(versionByte)
+	copy(result[1:], rawBytes)
+	return result, nil
+}
+
+// String returns the signer key as a string.
+func (s SignerKeyBytea) String() string {
+	return string(s)
+}
+
+// NullSignerKeyBytea represents a nullable Stellar signer key stored as BYTEA in the
+// database. Similar to sql.NullString but handles BYTEA encoding/decoding for signer keys.
+type NullSignerKeyBytea struct {
+	SignerKeyBytea SignerKeyBytea // The signer key (G.../T.../X.../P...)
+	Valid          bool           // Valid is true if SignerKeyBytea is not NULL
+}
+
+// Scan implements sql.Scanner - converts nullable BYTEA to StrKey string
+func (n *NullSignerKeyBytea) Scan(value any) error {
+	if value == nil {
+		n.SignerKeyBytea, n.Valid = "", false
+		return nil
+	}
+	if err := n.SignerKeyBytea.Scan(value); err != nil {
+		return err
+	}
+	n.Valid = true
+	return nil
+}
+
+// Value implements driver.Valuer - converts StrKey string to version byte + payload or nil
+func (n NullSignerKeyBytea) Value() (driver.Value, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return n.SignerKeyBytea.Value()
+}
+
+// String returns the signer key as a string (convenience accessor).
+func (n NullSignerKeyBytea) String() string {
+	return string(n.SignerKeyBytea)
 }
 
 // HashBytea represents a transaction hash stored as BYTEA in the database.
@@ -714,7 +808,7 @@ type StateChange struct {
 	ToMuxedID sql.NullString `json:"toMuxedId,omitempty" db:"to_muxed_id"`
 
 	// Nullable address fields (stored as BYTEA in database):
-	SignerAccountID      NullAddressBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
+	SignerAccountID      NullSignerKeyBytea `json:"signerAccountId,omitempty" db:"signer_account_id"`
 	SpenderAccountID     NullAddressBytea `json:"spenderAccountId,omitempty" db:"spender_account_id"`
 	CreatorAccountID     NullAddressBytea `json:"creatorAccountId,omitempty" db:"creator_account_id"`
 	DestinationAccountID NullAddressBytea `json:"destinationAccountId,omitempty" db:"destination_account_id"`

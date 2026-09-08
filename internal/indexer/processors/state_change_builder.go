@@ -91,9 +91,9 @@ func (b *StateChangeBuilder) WithAccount(accountID string) *StateChangeBuilder {
 	return b
 }
 
-// WithSigner sets the signer account ID and the weights directly
+// WithSigner sets the signer key and the weights directly
 func (b *StateChangeBuilder) WithSigner(signer string, oldWeight, newWeight *int16) *StateChangeBuilder {
-	b.base.SignerAccountID = utils.NullAddressBytea(signer)
+	b.base.SignerAccountID = utils.NullSignerKeyBytea(signer)
 	if oldWeight != nil {
 		b.base.SignerWeightOld = sql.NullInt16{Int16: *oldWeight, Valid: true}
 	}

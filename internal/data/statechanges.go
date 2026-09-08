@@ -226,7 +226,7 @@ func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
 	}
 
 	// Convert nullable account_id fields to BYTEA
-	signerBytes, err := pgtypeBytesFromNullAddressBytea(sc.SignerAccountID)
+	signerBytes, err := pgtypeBytesFromNullSignerKeyBytea(sc.SignerAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting signer_account_id: %w", err)
 	}
