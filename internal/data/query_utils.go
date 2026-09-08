@@ -94,16 +94,6 @@ func pgtypeBytesFromNullSignerKeyBytea(nk types.NullSignerKeyBytea) ([]byte, err
 	return val.([]byte), nil
 }
 
-// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
-// pgx automatically handles map[string]any → JSONB conversion.
-func jsonbFromMap(m types.NullableJSONB) any {
-	if m == nil {
-		return nil
-	}
-	// Return the map directly; pgx handles JSON marshaling automatically
-	return map[string]any(m)
-}
-
 // CursorColumn represents a column name and its cursor value for decomposed pagination.
 type CursorColumn struct {
 	Name  string

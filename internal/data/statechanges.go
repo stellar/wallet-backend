@@ -247,6 +247,18 @@ func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
 		return nil, fmt.Errorf("converting token_id: %w", err)
 	}
 
+	// Marshal key_value here rather than handing pgx the raw map: pgx would only
+	// marshal it after the COPY stream opens, and a marshalling failure there
+	// bypasses ErrRowEncoding and aborts the transaction. A nil map stays SQL NULL.
+	var keyValueBytes any
+	if sc.KeyValue != nil {
+		kv, err := sc.KeyValue.Value()
+		if err != nil {
+			return nil, fmt.Errorf("converting key_value: %w", err)
+		}
+		keyValueBytes = kv
+	}
+
 	return []any{
 		pgtype.Int8{Int64: sc.ToID, Valid: true},
 		pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
@@ -272,7 +284,7 @@ func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
 		pgtypeTextFromNullString(sc.TrustlineLimitNew),
 		pgtypeInt2FromNullInt16(sc.Flags),
 		pgtypeTextFromNullString(sc.DataEntryName),
-		jsonbFromMap(sc.KeyValue),
+		keyValueBytes,
 		pgtypeTextFromNullString(sc.ToMuxedID),
 	}, nil
 }
