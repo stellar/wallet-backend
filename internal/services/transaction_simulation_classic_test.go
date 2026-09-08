@@ -282,6 +282,24 @@ func TestTransactionSimulationService_classicChangeTrust(t *testing.T) {
 		assert.True(t, found, "expected a (TRUSTLINE, REMOVE) state change")
 	})
 
+	t.Run("🔴 issuer trusting its own asset is a would-fail", func(t *testing.T) {
+		// The current protocol rejects self-trust as CHANGE_TRUST_MALFORMED.
+		svc := classicFixture(t, accountEntryResult(t, issuer, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "1000",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 absent issuer is a would-fail for changeTrust", func(t *testing.T) {
+		// Unlike payments, changeTrust still returns CHANGE_TRUST_NO_ISSUER.
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "1000",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 removing a trustline with balance is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, src, 100_0000000),
