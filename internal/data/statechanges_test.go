@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -1453,5 +1454,11 @@ func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
 	deleted, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, 10, 30)
 	require.NoError(t, err)
 	assert.Zero(t, deleted)
+	assert.Len(t, remaining(), 4)
+
+	// A ledger past the toid ledger field errors instead of wrapping negative
+	// into a to_id range that silently matches nothing.
+	_, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, math.MaxInt32+1, math.MaxInt32+1)
+	require.ErrorContains(t, err, "exceeds the largest toid ledger")
 	assert.Len(t, remaining(), 4)
 }
