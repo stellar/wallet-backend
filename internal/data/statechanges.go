@@ -168,6 +168,11 @@ func (m *StateChangeModel) BatchCopy(
 	for i, sc := range stateChanges {
 		row, err := stateChangeCopyRow(sc)
 		if err != nil {
+			duration := time.Since(start).Seconds()
+			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
+			m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
+			m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
+			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", "row_encoding").Inc()
 			return 0, fmt.Errorf("%w: state change %d (to_id %d, state_change_id %d): %w", ErrRowEncoding, i, sc.ToID, sc.StateChangeID, err)
 		}
 		rows[i] = row
