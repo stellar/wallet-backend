@@ -58,14 +58,14 @@ func (s *protocolCurrentStateRebuildService) Run(ctx context.Context, protocolID
 		return fmt.Errorf("validating protocols for current-state rebuild: %w", err)
 	}
 
-	release, lockErr := acquireMigrateLocks(ctx, s.engine.db, lockScopeCurrentState, protocolIDs)
+	locks, lockErr := acquireMigrateLocks(ctx, s.engine.db, lockScopeCurrentState, protocolIDs)
 	if lockErr != nil {
 		return fmt.Errorf("locking protocols for current-state rebuild: %w", lockErr)
 	}
-	defer release()
+	defer locks.release()
 
 	for _, pid := range protocolIDs {
-		if err := s.wipe(ctx, pid); err != nil {
+		if err := s.wipe(ctx, pid, locks.checkSession); err != nil {
 			return err
 		}
 	}
@@ -119,7 +119,16 @@ func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, proto
 // Two things bound that stall: WipeCurrentState truncates, so its cost does not
 // grow with the number of rows discarded, and wipeLockTimeout caps how long the
 // transaction can sit waiting for a lock it cannot get.
-func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string) error {
+//
+// checkLockSession is probed first because this wipe is the one write here that
+// no CAS protects: the fold that follows commits each window through the cursor
+// CAS, so a second run that acquired a silently-released lock loses its CAS and
+// hands off — but two runs truncating and re-deriving under each other lose
+// rows outright.
+func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string, checkLockSession func(context.Context) error) error {
+	if probeErr := checkLockSession(ctx); probeErr != nil {
+		return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
+	}
 	processor := s.engine.processors[protocolID]
 	cursorName := s.engine.strategy.CursorName(protocolID)
 	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {

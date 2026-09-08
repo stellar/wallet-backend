@@ -162,6 +162,30 @@ func TestCurrentStateRebuild(t *testing.T) {
 		assert.Equal(t, uint32(202), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolCurrentStateCursorName("testproto")))
 	})
 
+	t.Run("a dead lock session fails the wipe before it truncates", func(t *testing.T) {
+		ctx := context.Background()
+		dbPool, ingestStore := setupTestDB(t)
+
+		setIngestStoreValue(t, ctx, dbPool, utils.ProtocolCurrentStateCursorName("testproto"), 500)
+		processor := &testRecordingProcessor{id: "testproto", ingestStore: ingestStore}
+
+		svc, err := NewProtocolCurrentStateRebuildService(ProtocolMigrateCurrentStateConfig{
+			DB: dbPool, LedgerBackend: &multiLedgerBackend{},
+			ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
+			IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+			Processors:  []ProtocolProcessor{processor},
+			StartLedger: 100,
+		})
+		require.NoError(t, err)
+
+		sessionDeadErr := fmt.Errorf("driver: bad connection")
+		err = svc.wipe(ctx, "testproto", func(context.Context) error { return sessionDeadErr })
+		require.ErrorIs(t, err, sessionDeadErr)
+		assert.Zero(t, processor.wipeCalls, "a dead lock session must not truncate")
+		assert.Equal(t, uint32(500), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolCurrentStateCursorName("testproto")),
+			"a dead lock session must not reset the cursor")
+	})
+
 	t.Run("refuses a protocol marked in_progress without wiping", func(t *testing.T) {
 		ctx := context.Background()
 		dbPool, ingestStore := setupTestDB(t)
@@ -410,7 +434,17 @@ func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, svc.wipe(ctx, "testproto", oldest))
+	// A dead lock session fails the wipe before it resets or deletes anything:
+	// nothing behind these writes is CAS-gated, so continuing under a
+	// silently-released lock is what loses rows (see wipe).
+	sessionDeadErr := fmt.Errorf("driver: bad connection")
+	err = svc.wipe(ctx, "testproto", oldest, func(context.Context) error { return sessionDeadErr })
+	require.ErrorIs(t, err, sessionDeadErr)
+	assert.Len(t, remainingStateChanges(t, ctx, dbPool), 10, "a dead lock session must not delete rows")
+	assert.Equal(t, uint32(26_000), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")),
+		"a dead lock session must not reset the cursor")
+
+	require.NoError(t, svc.wipe(ctx, "testproto", oldest, func(context.Context) error { return nil }))
 
 	assert.Equal(t, [][2]int64{
 		{types.StateChangeOrdinalBaseIndexer + 1, 100},

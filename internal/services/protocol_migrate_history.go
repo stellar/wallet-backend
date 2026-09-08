@@ -99,10 +99,10 @@ func NewProtocolMigrateHistoryService(cfg ProtocolMigrateHistoryConfig) (*protoc
 // Run performs history migration for the given protocol IDs, holding each
 // protocol's history advisory lock for the duration.
 func (s *protocolMigrateHistoryService) Run(ctx context.Context, protocolIDs []string) error {
-	release, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeHistory, dedupePreservingOrder(protocolIDs))
+	locks, err := acquireMigrateLocks(ctx, s.engine.db, lockScopeHistory, dedupePreservingOrder(protocolIDs))
 	if err != nil {
 		return fmt.Errorf("locking protocols for history migration: %w", err)
 	}
-	defer release()
+	defer locks.release()
 	return s.engine.Run(ctx, protocolIDs)
 }

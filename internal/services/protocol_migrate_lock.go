@@ -43,10 +43,28 @@ func migrateAdvisoryLockID(scope, protocolID string) int {
 	return int(h.Sum64())
 }
 
+// migrateLocks is a held set of advisory locks. Not safe for concurrent use,
+// and checkSession must not be called after release: both speak to the same
+// connection.
+type migrateLocks struct {
+	// checkSession probes the SAME connection that holds the locks. The locks are
+	// never released mid-run, so that session staying alive is equivalent to
+	// still holding them. Live ingestion runs this same probe per ledger
+	// (checkLockSession, ingest_live.go) for the same reason: a CNPG failover
+	// ends the session server-side, releasing every lock, without this process
+	// seeing the disconnect — while pgxpool keeps handing out other, healthy
+	// connections that a run would otherwise keep writing through.
+	checkSession func(ctx context.Context) error
+
+	// release unlocks every key and returns the connection to the pool.
+	release func()
+}
+
 // acquireMigrateLocks try-locks every protocol's lock for the given scope on
-// one dedicated connection and returns the release func to defer. A held lock
-// means another run of the same strategy owns that protocol — do not proceed.
-func acquireMigrateLocks(ctx context.Context, pool *pgxpool.Pool, scope string, protocolIDs []string) (func(), error) {
+// one dedicated connection and returns the held set, whose release is the func
+// to defer. A held lock means another run of the same strategy owns that
+// protocol — do not proceed.
+func acquireMigrateLocks(ctx context.Context, pool *pgxpool.Pool, scope string, protocolIDs []string) (*migrateLocks, error) {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("acquiring a connection for %s locks: %w", scope, err)
@@ -79,17 +97,22 @@ func acquireMigrateLocks(ctx context.Context, pool *pgxpool.Pool, scope string, 
 		lockIDs = append(lockIDs, lockID)
 	}
 
-	release := func() {
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisoryUnlockTimeout)
-		defer cancel()
-		for _, lockID := range lockIDs {
-			if unlockErr := db.ReleaseAdvisoryLock(releaseCtx, conn, lockID); unlockErr != nil {
-				log.Ctx(ctx).Errorf("releasing %s lock, destroying connection to end its session: %v", scope, unlockErr)
-				destroyConn()
-				return
+	return &migrateLocks{
+		checkSession: func(probeCtx context.Context) error {
+			var one int
+			return conn.QueryRow(probeCtx, "SELECT 1").Scan(&one)
+		},
+		release: func() {
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisoryUnlockTimeout)
+			defer cancel()
+			for _, lockID := range lockIDs {
+				if unlockErr := db.ReleaseAdvisoryLock(releaseCtx, conn, lockID); unlockErr != nil {
+					log.Ctx(ctx).Errorf("releasing %s lock, destroying connection to end its session: %v", scope, unlockErr)
+					destroyConn()
+					return
+				}
 			}
-		}
-		conn.Release()
-	}
-	return release, nil
+			conn.Release()
+		},
+	}, nil
 }

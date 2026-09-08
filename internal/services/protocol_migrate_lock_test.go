@@ -46,35 +46,36 @@ func TestAcquireMigrateLocks(t *testing.T) {
 	}
 
 	t.Run("acquire, refuse while held, release, reacquire", func(t *testing.T) {
-		release, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
+		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.NoError(t, err)
 
 		_, err = acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.ErrorContains(t, err, "is held")
 
-		release()
+		require.NoError(t, locks.checkSession(ctx), "a live lock session must probe clean")
+		locks.release()
 
-		release2, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
+		locks2, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.NoError(t, err, "release must free the lock for the next run")
-		release2()
+		locks2.release()
 	})
 
 	t.Run("distinct protocols do not contend", func(t *testing.T) {
 		unhold := holdLock(t, lockScopeCurrentState, "SEP41")
 		defer unhold()
 
-		release, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"BLEND"})
+		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"BLEND"})
 		require.NoError(t, err)
-		release()
+		locks.release()
 	})
 
 	t.Run("distinct scopes do not contend", func(t *testing.T) {
 		unhold := holdLock(t, lockScopeCurrentState, "SEP41")
 		defer unhold()
 
-		release, err := acquireMigrateLocks(ctx, dbPool, lockScopeHistory, []string{"SEP41"})
+		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeHistory, []string{"SEP41"})
 		require.NoError(t, err, "a held current-state lock must not block a history run for the same protocol")
-		release()
+		locks.release()
 	})
 
 	t.Run("failing mid-list frees the locks already taken", func(t *testing.T) {
@@ -87,8 +88,8 @@ func TestAcquireMigrateLocks(t *testing.T) {
 		_, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41", "BLEND"})
 		require.ErrorContains(t, err, `protocol "BLEND" is held`)
 
-		release, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
+		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.NoError(t, err, "the failed run must not leak SEP41's lock")
-		release()
+		locks.release()
 	})
 }
