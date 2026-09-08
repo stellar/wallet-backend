@@ -568,6 +568,43 @@ func TestValidator_Prefetch_StopsQueryingOnceEveryContractIsKnown(t *testing.T) 
 	rpc.AssertNumberOfCalls(t, "FetchSingleField", 3)
 }
 
+func TestValidator_Prefetch_SkipsTheStoredLookupDuringBackoff(t *testing.T) {
+	rpc := services.NewContractMetadataServiceMock(t)
+	// The one fetch this contract gets fails, which puts it into back-off.
+	rpc.On("FetchSingleField", mock.Anything, testContractA, "name", mock.Anything).
+		Return(xdr.ScVal{}, errors.New("rpc unreachable")).Once()
+
+	// One expectation for two passes. The first pass asks the database and
+	// learns nothing. The second must not ask at all: the contract is inside
+	// its failure back-off, so it will not be fetched either way and there is
+	// nothing to learn in time to matter. A second query matches no
+	// expectation and fails the test.
+	contractsMock := data.NewContractModelMock(t)
+	contractsMock.On("GetWithMetadata", mock.Anything, mock.Anything, []string{testContractA}).
+		Return([]string{}, nil).Once()
+
+	v := &Validator{
+		fetcher: newMetadataFetcher(rpc, pond.NewPool(2)),
+		models:  &data.Models{Contract: contractsMock},
+	}
+	contracts := []services.ContractCandidate{claimedCandidate(t, testContractA)}
+
+	ctx := context.Background()
+	matched := map[indexerTypes.HashBytea]struct{}{}
+	_, err := v.Prefetch(ctx, nil, nil, matched, contracts)
+	require.NoError(t, err)
+
+	plan, err := v.Prefetch(ctx, nil, nil, matched, contracts)
+	require.NoError(t, err)
+	prefetch, ok := plan.(sep41Prefetch)
+	require.True(t, ok)
+	assert.Empty(t, prefetch.metaByAddr)
+
+	// The back-off suppressed the second pass's fetch and its query alike.
+	rpc.AssertNumberOfCalls(t, "FetchSingleField", 1)
+	contractsMock.AssertNumberOfCalls(t, "GetWithMetadata", 1)
+}
+
 func createScSpecFunctionEntry(name string, inputs []xdr.ScSpecFunctionInputV0, outputs []xdr.ScSpecTypeDef) xdr.ScSpecEntry {
 	funcName := xdr.ScSymbol(name)
 	funcV0 := &xdr.ScSpecFunctionV0{

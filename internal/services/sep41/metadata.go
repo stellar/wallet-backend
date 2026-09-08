@@ -84,6 +84,14 @@ type fetchState struct {
 	retryAfter time.Time
 }
 
+// settled reports whether this contract needs no fetch right now: its metadata
+// is already stored, or its last fetch failed and the back-off has not passed.
+// Shared by every caller that asks "is there work to do for this contract?",
+// so they cannot disagree about the answer.
+func (st fetchState) settled(now time.Time) bool {
+	return st.haveIt || now.Before(st.retryAfter)
+}
+
 // metadataFetcher resolves token metadata for SEP-41 contracts via RPC
 // simulation, with a worker pool for parallel fetches inside one batch.
 //
@@ -131,11 +139,10 @@ func (f *metadataFetcher) filterCached(contractIDs []string) []string {
 	for _, id := range contractIDs {
 		st, known := f.state[id]
 		switch {
-		case known && st.haveIt:
-			continue
-		case known && now.Before(st.retryAfter):
+		case known && st.settled(now):
 			continue
 		case known:
+			// Back-off expired, so a later failure starts a fresh window.
 			delete(f.state, id)
 		}
 		kept = append(kept, id)
@@ -143,18 +150,21 @@ func (f *metadataFetcher) filterCached(contractIDs []string) []string {
 	return kept
 }
 
-// unknownAddrs returns the contracts whose metadata we do not already have.
-// Prefetch asks contract_tokens about exactly these, so once every claimed
-// contract is accounted for the query stops being issued at all.
+// unknownAddrs returns the contracts this fetcher does not already account
+// for: neither the ones whose metadata we hold nor the ones inside a failure
+// back-off, since neither will be fetched. Prefetch asks contract_tokens about
+// exactly these, so once every claimed contract is accounted for the query
+// stops being issued at all.
 func (f *metadataFetcher) unknownAddrs(contractIDs []string) []string {
 	if f == nil {
 		return nil
 	}
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
+	now := time.Now()
 	out := make([]string, 0, len(contractIDs))
 	for _, id := range contractIDs {
-		if st, known := f.state[id]; known && st.haveIt {
+		if st, known := f.state[id]; known && st.settled(now) {
 			continue
 		}
 		out = append(out, id)
