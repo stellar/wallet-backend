@@ -81,7 +81,7 @@ func (a *AddressBytea) Scan(value any) error {
 // (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()).
 //
 // Signed-payload keys (P..., CAP-40) carry a 32-byte ed25519 key followed by a 4-byte
-// length and the payload itself (36-100 bytes total). They are reduced to their ed25519
+// length and the XDR-padded payload (40-100 bytes total). They are reduced to their ed25519
 // account the same way. Signer columns store the full key via SignerKeyBytea instead,
 // so a P... reaching an account column is unexpected; reducing it here is a last resort
 // that keeps ingestion alive rather than halting on the row.
@@ -166,7 +166,8 @@ func (n NullAddressBytea) String() string {
 // Signers are not always accounts: the four signer key types have different payload
 // sizes, so the column stores the version byte followed by the full key payload.
 // Storage format: 33 bytes for ed25519 (G...), pre-auth tx (T...) and hash-x (X...)
-// keys; 37-101 bytes for CAP-40 signed-payload (P...) keys.
+// keys; 41-101 bytes for CAP-40 signed-payload (P...) keys (the 1-64-byte payload is
+// XDR-padded to a multiple of four).
 // Go representation: StrKey string.
 type SignerKeyBytea string
 
@@ -186,6 +187,12 @@ func (s *SignerKeyBytea) Scan(value any) error {
 	encoded, err := strkey.Encode(strkey.VersionByte(bytes[0]), bytes[1:])
 	if err != nil {
 		return fmt.Errorf("encoding stellar signer key: %w", err)
+	}
+	// Encode checksums but does not validate payload shape, so run the result
+	// back through Value: it enforces the G/T/X/P allowlist and the CAP-40
+	// structure, keeping corrupt column bytes from surfacing as a signer key.
+	if _, err := SignerKeyBytea(encoded).Value(); err != nil {
+		return fmt.Errorf("validating stored signer key: %w", err)
 	}
 	*s = SignerKeyBytea(encoded)
 	return nil

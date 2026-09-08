@@ -785,6 +785,20 @@ func TestSignerKeyBytea_Scan(t *testing.T) {
 			input:           bytes.Repeat([]byte{0x00}, 32),
 			wantErrContains: "expected at least 33 bytes",
 		},
+		{
+			// 33 stored bytes with a contract version byte encode to a C... strkey,
+			// which is not a signer key.
+			name:            "🔴contract version byte",
+			input:           append([]byte{byte(strkey.VersionByteContract)}, bytes.Repeat([]byte{0x01}, 32)...),
+			wantErrContains: "validating stored signer key",
+		},
+		{
+			// A signed-payload version byte over a bare 32-byte key is missing the
+			// CAP-40 length and payload, so the re-encoded strkey fails validation.
+			name:            "🔴malformed signed payload bytes",
+			input:           append([]byte{byte(strkey.VersionByteSignedPayload)}, bytes.Repeat([]byte{0x02}, 32)...),
+			wantErrContains: "validating stored signer key",
+		},
 	}
 
 	for _, tc := range testCases {
