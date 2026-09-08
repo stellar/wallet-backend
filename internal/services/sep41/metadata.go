@@ -94,8 +94,10 @@ type fetchState struct {
 // first group from contract_tokens before any fetch runs, so a restart does not
 // refetch what is already stored.
 //
-// A restart clears all of it, which is also how metadata that changed on chain
-// gets picked up.
+// A restart clears this state but not its effect: Prefetch reseeds the first
+// group from the same rows, so stored metadata is never refetched, on restart
+// or otherwise. Clearing contract_tokens.name is what makes a contract eligible
+// again — classification owns that table and no rebuild path wipes it.
 type metadataFetcher struct {
 	rpc  services.ContractMetadataService
 	pool pond.Pool
