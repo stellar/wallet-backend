@@ -68,6 +68,25 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 		}, authorizationChange.Flags)
 	})
 
+	t.Run("zero trustline flags remain an explicit authorization state", func(t *testing.T) {
+		asset := xdr.MustNewCreditAsset("TEST", admin)
+		tx := createCAP73TrustTx(account, admin, asset.ToTrustLineAsset(), 0)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+
+		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		})
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+		require.Equal(t, types.StateChangeCategoryBalanceAuthorization, stateChanges[1].StateChangeCategory)
+		require.Equal(t, sql.NullInt16{Int16: 0, Valid: true}, stateChanges[1].Flags)
+	})
+
 	t.Run("pool-share trustline is ignored", func(t *testing.T) {
 		poolID := xdr.PoolId{1}
 		tx := createCAP73TrustTx(account, admin, xdr.TrustLineAsset{

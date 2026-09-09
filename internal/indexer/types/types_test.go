@@ -422,8 +422,10 @@ func TestDecodeAccountFlags(t *testing.T) {
 }
 
 func TestDecodeTrustlineFlags(t *testing.T) {
-	t.Run("zero decodes to nil", func(t *testing.T) {
-		assert.Nil(t, DecodeTrustlineFlags(0))
+	t.Run("zero decodes to an empty non-nil slice", func(t *testing.T) {
+		flags := DecodeTrustlineFlags(0)
+		assert.NotNil(t, flags)
+		assert.Empty(t, flags)
 	})
 
 	t.Run("decodes set bits in fixed order", func(t *testing.T) {
