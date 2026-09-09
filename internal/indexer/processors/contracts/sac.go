@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -90,8 +91,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 		return nil, fmt.Errorf("getting operation changes for operation %d: %w", opWrapper.ID(), err)
 	}
 
-	stateChanges := make([]types.StateChange, 0)
 	builder := processors.NewStateChangeBuilder(ledgerNumber, ledgerCloseTime, txID, p.metricsService).WithOperationID(opWrapper.ID())
+	stateChanges, err := p.processCreatedTrustlines(changes, builder)
+	if err != nil {
+		return nil, fmt.Errorf("processing created trustlines for operation %d: %w", opWrapper.ID(), err)
+	}
 	for _, event := range contractEvents {
 		// Validate basic contract contractEvent structure
 		if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
@@ -178,7 +182,11 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 			} else {
 				// For classic account addresses, check trustline flag changes
 				wasAuthorized, wasMaintainLiabilities, err = p.extractTrustlineFlagChanges(changes, accountToAuthorize, contractID)
-				if err != nil && !errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
+				if errors.Is(err, errNoPreviousTrustlineFlagChangesFound) {
+					// The creation pass already emitted the trustline's initial authorization state.
+					continue
+				}
+				if err != nil {
 					// We dont want to log errors for no trustline change found. We can simply skip processing.
 					if !errors.Is(err, errNoTrustlineChangeFound) {
 						log.Debugf("processor: %s: extracting trustline flag changes: txHash=%s opID=%d contractId=%s accountAddress=%s error=%v",
@@ -249,6 +257,43 @@ func (p *SACEventsProcessor) ProcessOperation(_ context.Context, opWrapper *proc
 		default:
 			continue
 		}
+	}
+	return stateChanges, nil
+}
+
+func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, builder *processors.StateChangeBuilder) ([]types.StateChange, error) {
+	stateChanges := make([]types.StateChange, 0)
+	for _, change := range changes {
+		if change.Type != xdr.LedgerEntryTypeTrustline || change.Pre != nil || change.Post == nil {
+			continue
+		}
+
+		trustline := change.Post.Data.MustTrustLine()
+		if trustline.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
+			continue
+		}
+
+		asset, err := trustLineAssetToAsset(trustline.Asset)
+		if err != nil {
+			return nil, fmt.Errorf("converting trustline asset: %w", err)
+		}
+		assetContractID, err := asset.ContractID(p.networkPassphrase)
+		if err != nil {
+			return nil, fmt.Errorf("getting trustline asset contract ID: %w", err)
+		}
+
+		contractID := strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])
+		account := trustline.AccountId.Address()
+		baseBuilder := builder.Clone().WithAccount(account).WithToken(contractID)
+		limit := amount.String(trustline.Limit)
+		stateChanges = append(stateChanges,
+			baseBuilder.Clone().
+				WithCategory(types.StateChangeCategoryTrustline).
+				WithReason(types.StateChangeReasonAdd).
+				WithTrustlineLimit(nil, &limit).
+				Build(),
+			processors.BuildBalanceAuthorizationForNewTrustline(baseBuilder, xdr.TrustLineFlags(trustline.Flags)),
+		)
 	}
 	return stateChanges, nil
 }

@@ -3,8 +3,10 @@ package contracts
 import (
 	"context"
 	"database/sql"
+	"math"
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -13,6 +15,121 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
+
+func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
+	processor := NewSACEventsProcessor(networkPassphrase, nil)
+	admin := "GBNOOJYISY7Y5IKJFDOGDTVQMPO6DZ46SCS64O2IB4NSCAMXGCKOLORN"
+	account := "GC4XF7RE3R4P77GY5XNGICM56IOKUURWAAANPXHFC7G5H6FCNQVVH3OH"
+
+	t.Run("CAP-73 trust creates trustline state changes without contract event", func(t *testing.T) {
+		asset := xdr.MustNewCreditAsset("TEST", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		expectedContractID := strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])
+		flags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsTrustlineClawbackEnabledFlag)
+		tx := createCAP73TrustTx(account, admin, asset.ToTrustLineAsset(), flags)
+		events, err := tx.GetContractEventsForOperation(0)
+		require.NoError(t, err)
+		require.Empty(t, events)
+		changes, err := tx.GetOperationChanges(0)
+		require.NoError(t, err)
+		require.Len(t, changes, 1)
+		require.Nil(t, changes[0].Pre)
+		require.NotNil(t, changes[0].Post)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+
+		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		})
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+
+		trustlineChange := stateChanges[0]
+		require.Equal(t, types.StateChangeCategoryTrustline, trustlineChange.StateChangeCategory)
+		require.Equal(t, types.StateChangeReasonAdd, trustlineChange.StateChangeReason)
+		require.Equal(t, account, trustlineChange.AccountID.String())
+		require.Equal(t, expectedContractID, trustlineChange.TokenID.String())
+		require.False(t, trustlineChange.TrustlineLimitOld.Valid)
+		require.Equal(t, "922337203685.4775807", trustlineChange.TrustlineLimitNew.String)
+
+		authorizationChange := stateChanges[1]
+		require.Equal(t, types.StateChangeCategoryBalanceAuthorization, authorizationChange.StateChangeCategory)
+		require.Equal(t, types.StateChangeReasonSet, authorizationChange.StateChangeReason)
+		require.Equal(t, account, authorizationChange.AccountID.String())
+		require.Equal(t, expectedContractID, authorizationChange.TokenID.String())
+		require.Equal(t, sql.NullInt16{
+			Int16: types.FlagBitAuthorized | types.FlagBitClawbackEnabled,
+			Valid: true,
+		}, authorizationChange.Flags)
+	})
+
+	t.Run("zero trustline flags remain an explicit authorization state", func(t *testing.T) {
+		asset := xdr.MustNewCreditAsset("TEST", admin)
+		tx := createCAP73TrustTx(account, admin, asset.ToTrustLineAsset(), 0)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+
+		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		})
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+		require.Equal(t, types.StateChangeCategoryBalanceAuthorization, stateChanges[1].StateChangeCategory)
+		require.Equal(t, sql.NullInt16{Int16: 0, Valid: true}, stateChanges[1].Flags)
+	})
+
+	t.Run("pool-share trustline is ignored", func(t *testing.T) {
+		poolID := xdr.PoolId{1}
+		tx := createCAP73TrustTx(account, admin, xdr.TrustLineAsset{
+			Type:            xdr.AssetTypeAssetTypePoolShare,
+			LiquidityPoolId: &poolID,
+		}, 0)
+		op, found := tx.GetOperation(0)
+		require.True(t, found)
+
+		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
+			Index:          0,
+			Operation:      op,
+			Network:        networkPassphrase,
+			Transaction:    tx,
+			LedgerSequence: 12345,
+		})
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
+	})
+}
+
+func createCAP73TrustTx(account, admin string, asset xdr.TrustLineAsset, flags xdr.Uint32) ingest.LedgerTransaction {
+	builder := newTestTxBuilder(account, admin, xdr.MustNewCreditAsset("DUMMY", admin), true, 4)
+	tx := builder.createBaseTx()
+	tx.UnsafeMeta.V4.Operations[0].Events = nil
+	trustline := xdr.TrustLineEntry{
+		AccountId: xdr.MustAddress(account),
+		Asset:     asset,
+		Limit:     math.MaxInt64,
+		Flags:     flags,
+	}
+	builder.addChangesToTx(&tx, []xdr.LedgerEntryChange{{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &trustline,
+			},
+		},
+	}})
+	return tx
+}
 
 func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 	processor := NewSACEventsProcessor(networkPassphrase, nil)
@@ -223,7 +340,7 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		require.Empty(t, stateChanges) // Should skip the event due to missing trustline changes
 	})
 
-	t.Run("Trustline change missing previous state is ignored", func(t *testing.T) {
+	t.Run("Trustline creation with authorization event does not duplicate authorization", func(t *testing.T) {
 		admin := keypair.MustRandom().Address()
 		account := keypair.MustRandom().Address()
 		asset := xdr.MustNewCreditAsset("TESTASSET", admin)
@@ -243,11 +360,15 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		}
 		stateChanges, err := processor.ProcessOperation(context.Background(), opWrapper)
 		require.NoError(t, err)
-		require.Len(t, stateChanges, 1) // Should create 1 state change for trustline authorization
-		assertContractEvent(t, stateChanges[0], types.StateChangeReasonSet,
+		require.Len(t, stateChanges, 2)
+		require.Equal(t, types.StateChangeCategoryTrustline, stateChanges[0].StateChangeCategory)
+		require.Equal(t, types.StateChangeReasonAdd, stateChanges[0].StateChangeReason)
+		require.Equal(t, account, stateChanges[0].AccountID.String())
+		require.Equal(t, strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]), stateChanges[0].TokenID.String())
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonSet,
 			account,
 			strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[0].Flags)
+		require.Equal(t, sql.NullInt16{Int16: types.FlagBitAuthorized, Valid: true}, stateChanges[1].Flags)
 	})
 
 	// Error case tests

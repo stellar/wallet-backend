@@ -78,10 +78,8 @@ func (b *StateChangeBuilder) WithTrustlineLimit(oldValue, newValue *string) *Sta
 
 // WithFlags sets the flags as a bitmask from a slice of flag names
 func (b *StateChangeBuilder) WithFlags(flags []string) *StateChangeBuilder {
-	if len(flags) > 0 {
-		bitmask := types.EncodeFlagsToBitmask(flags)
-		b.base.Flags = sql.NullInt16{Int16: bitmask, Valid: true}
-	}
+	bitmask := types.EncodeFlagsToBitmask(flags)
+	b.base.Flags = sql.NullInt16{Int16: bitmask, Valid: true}
 	return b
 }
 
