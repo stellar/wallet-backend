@@ -478,7 +478,7 @@ func TestComputeChangeTrustChanges_entryFidelity(t *testing.T) {
 	changes, err := computeChangeTrustChanges(xdr.ChangeTrustOp{
 		Line:  asset.ToChangeTrustAsset(),
 		Limit: 10_0000000,
-	}, src, before, 100)
+	}, src, before)
 	require.NoError(t, err)
 	require.Len(t, changes, 3, "expected trustline creation plus the source account pair")
 
