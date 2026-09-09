@@ -80,7 +80,7 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	}
 	// The fee is an estimate: the declared bid is what the network charges a
 	// classic transaction outside surge pricing.
-	tx := newSimulatedLedgerTransaction(envelope, latestLedger, int64(envelope.Fee()), changes, nil, opResults)
+	tx := newSimulatedLedgerTransaction(envelope, latestLedger, int64(envelope.Fee()), []xdr.OperationMetaV2{{Changes: changes}}, opResults)
 	return tx, latestLedger, nil
 }
 
