@@ -547,23 +547,137 @@ func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
 
-	t.Run("🔴 multi-operation transactions stay unsupported until phase 3", func(t *testing.T) {
+	t.Run("🔴 one unsupported operation rejects the whole multi-op transaction", func(t *testing.T) {
 		dst := keypair.MustRandom().Address()
-		payment := &txnbuild.Payment{Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{}}
-		second := &txnbuild.Payment{Destination: dst, Amount: "2", Asset: txnbuild.NativeAsset{}}
-		srcAccount := txnbuild.SimpleAccount{AccountID: src, Sequence: 1}
-		tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-			SourceAccount:        &srcAccount,
-			Operations:           []txnbuild.Operation{payment, second},
-			BaseFee:              txnbuild.MinBaseFee,
-			Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
-			IncrementSequenceNum: true,
-		})
-		require.NoError(t, err)
-		txXDR, err := tx.Base64()
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.Payment{Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.ManageSellOffer{
+				Selling: txnbuild.NativeAsset{},
+				Buying:  txnbuild.CreditAsset{Code: "USDC", Issuer: keypair.MustRandom().Address()},
+				Amount:  "1", Price: xdr.Price{N: 1, D: 1},
+			},
+		))
+		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+	})
+}
+
+// buildMultiOpTxXDRFrom builds an unsigned transaction envelope carrying the
+// given operations in order.
+func buildMultiOpTxXDRFrom(t *testing.T, sourceAccount string, ops ...txnbuild.Operation) string {
+	t.Helper()
+	src := txnbuild.SimpleAccount{AccountID: sourceAccount, Sequence: 1}
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &src,
+		Operations:           ops,
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
+		IncrementSequenceNum: true,
+	})
+	require.NoError(t, err)
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+	return txXDR
+}
+
+func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+
+	t.Run("🟢 two payments apply sequentially with per-operation attribution", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+		))
 		require.NoError(t, err)
 
-		_, err = svc.SimulateStateChanges(ctx, txXDR)
-		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+		var debits, credits []types.StateChange
+		operationIDs := map[int64]struct{}{}
+		for _, sc := range result.StateChanges {
+			if sc.StateChangeCategory != types.StateChangeCategoryBalance || sc.OperationID == 0 {
+				continue
+			}
+			operationIDs[sc.OperationID] = struct{}{}
+			switch sc.StateChangeReason {
+			case types.StateChangeReasonDebit:
+				debits = append(debits, sc)
+			case types.StateChangeReasonCredit:
+				credits = append(credits, sc)
+			default:
+			}
+		}
+		assert.Len(t, debits, 2, "one DEBIT per payment operation")
+		assert.Len(t, credits, 2, "one CREDIT per payment operation")
+		assert.Len(t, operationIDs, 2, "the two operations' rows must carry distinct operation IDs")
+	})
+
+	t.Run("🔴 all-or-nothing: a later failing operation aborts the whole preview", func(t *testing.T) {
+		// Spendable after fee is 40 XLM: the first 30 XLM payment succeeds, the
+		// second must see the reduced balance and fail, taking the whole
+		// transaction with it.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 2*baseReserveStroops+200+40_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+		))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "operation 2", "the error should attribute the failure to the second operation")
+	})
+
+	t.Run("🟢 an account created by operation 1 can act in operation 2", func(t *testing.T) {
+		newAccount := keypair.MustRandom().Address()
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		result, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.CreateAccount{Destination: newAccount, Amount: "20"},
+			&txnbuild.Payment{
+				SourceAccount: newAccount,
+				Destination:   src, Amount: "5", Asset: txnbuild.NativeAsset{},
+			},
+		))
+		require.NoError(t, err)
+
+		var newAccountDebited bool
+		for _, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryBalance &&
+				sc.StateChangeReason == types.StateChangeReasonDebit &&
+				string(sc.AccountID) == newAccount {
+				newAccountDebited = true
+			}
+		}
+		assert.True(t, newAccountDebited, "the account created by operation 1 must be able to pay in operation 2")
+	})
+
+	t.Run("🟢 a trustline created by operation 1 can receive in operation 2", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, issuer, 100_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.ChangeTrust{Line: line.MustToChangeTrustAsset(), Limit: "1000"},
+			&txnbuild.Payment{
+				SourceAccount: issuer,
+				Destination:   src, Amount: "5", Asset: line,
+			},
+		))
+		require.NoError(t, err)
+
+		var credited bool
+		for _, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryBalance &&
+				sc.StateChangeReason == types.StateChangeReasonCredit &&
+				string(sc.AccountID) == src {
+				credited = true
+			}
+		}
+		assert.True(t, credited, "the trustline created by operation 1 must be able to receive in operation 2")
 	})
 }
