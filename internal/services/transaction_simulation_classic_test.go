@@ -581,6 +581,32 @@ func TestFetchLedgerEntries_batches(t *testing.T) {
 	rpcMock.AssertNumberOfCalls(t, "GetLedgerEntries", 2)
 }
 
+// TestFetchLedgerEntries_retriesOnLedgerClose verifies that when a ledger
+// closes between batches, the whole fetch restarts so all entries come from
+// one ledger.
+func TestFetchLedgerEntries_retriesOnLedgerClose(t *testing.T) {
+	rpcMock := &RPCServiceMock{}
+	// First attempt: the second batch sees a newer ledger, forcing a retry.
+	rpcMock.On("GetLedgerEntries", mock.Anything).
+		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 100}, nil).Once()
+	rpcMock.On("GetLedgerEntries", mock.Anything).
+		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 101}, nil).Once()
+	// Second attempt: both batches agree.
+	rpcMock.On("GetLedgerEntries", mock.Anything).
+		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 101}, nil).Twice()
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	keys := make([]xdr.LedgerKey, 0, rpcLedgerEntryBatchSize+50)
+	for range rpcLedgerEntryBatchSize + 50 {
+		keys = append(keys, accountLedgerKey(xdr.MustAddress(keypair.MustRandom().Address())))
+	}
+	_, latestLedger, err := svc.fetchLedgerEntries(keys)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(101), latestLedger, "the retry must report the ledger all entries were fetched at")
+	rpcMock.AssertNumberOfCalls(t, "GetLedgerEntries", 4)
+}
+
 // buildMultiOpTxXDRFrom builds an unsigned transaction envelope carrying the
 // given operations in order.
 func buildMultiOpTxXDRFrom(t *testing.T, sourceAccount string, ops ...txnbuild.Operation) string {
