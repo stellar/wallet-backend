@@ -19,46 +19,38 @@ const baseReserveStroops = 5_000_000
 // (fetchLedgerEntries), and apply the operation's stated effect to those
 // entries (computeClassicChanges). The resulting before/after entries feed
 // the same synthesis and processors as the Soroban path.
-//
-// Scope: one operation per transaction, and only the operation types
-// classicFootprint lists. Transactions with several operations need the
-// evolving-state driver (phase 3) and are rejected as unsupported for now.
 func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
 	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: fee-bump classic transactions are not supported yet", ErrUnsupportedTransaction)
 	}
 	ops := envelope.Operations()
-	if len(ops) > 1 {
-		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: multi-operation classic transactions are not supported yet", ErrUnsupportedTransaction)
-	}
-	op := ops[0]
-	if err := validateClassicOperation(op); err != nil {
-		return ingest.LedgerTransaction{}, 0, err
-	}
-	opSource := classicOperationSource(envelope, op)
 	txSource := envelope.SourceAccount().ToAccountId()
 
-	keys, err := classicFootprint(op, opSource)
-	if err != nil {
-		return ingest.LedgerTransaction{}, 0, err
+	// 1. Validate each operation and fetch every ledger entry the transaction
+	//    touches in one call, always including the fee-paying source.
+	keys := []xdr.LedgerKey{accountLedgerKey(txSource)}
+	for _, op := range ops {
+		if err := validateClassicOperation(op); err != nil {
+			return ingest.LedgerTransaction{}, 0, err
+		}
+		opKeys, err := classicFootprint(op, classicOperationSource(envelope, op))
+		if err != nil {
+			return ingest.LedgerTransaction{}, 0, err
+		}
+		keys = append(keys, opKeys...)
 	}
-	// The transaction source always participates: it pays the fee regardless
-	// of which account the operation acts on.
-	keys = append(keys, accountLedgerKey(txSource))
-	before, latestLedger, err := s.fetchLedgerEntries(keys)
+	working, latestLedger, err := s.fetchLedgerEntries(keys)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
 
-	// The network charges the fee first, before the operation runs, and we do
-	// the same: check the transaction source can afford it, then subtract it
-	// from that account's fetched entry. Every balance check after this point
-	// automatically sees the post-fee balance, and the entry snapshots we emit
-	// match what a real ledger's transaction meta shows. The subtraction itself
-	// is not part of the operation's changes; the fee row in the preview comes
-	// from Result.FeeCharged instead.
+	// 2. Charge the fee to the source's entry before any operation runs.
+	//    Careful: this subtraction is internal bookkeeping only and must not be
+	//    emitted as an operation change. The preview's fee row is already
+	//    derived from Result.FeeCharged, so emitting the subtraction too would
+	//    double-count the fee.
 	fee := int64(envelope.Fee())
-	feeSource, ok := lookupAccount(before, txSource)
+	feeSource, ok := lookupAccount(working, txSource)
 	if !ok {
 		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
 	}
@@ -67,23 +59,60 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	}
 	feeSourceAfter := cloneAccountEntry(feeSource)
 	feeSourceAfter.Balance -= xdr.Int64(fee)
-	if err := storeWorkingEntry(before, accountLedgerEntry(feeSourceAfter)); err != nil {
+	if err := storeWorkingEntry(working, accountLedgerEntry(feeSourceAfter)); err != nil {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("charging fee to working state: %w", err)
 	}
 
-	changes, err := computeClassicChanges(op, opSource, before, latestLedger)
-	if err != nil {
-		return ingest.LedgerTransaction{}, 0, err
+	// 3. Apply the operations in order against the evolving working state; any
+	//    failure aborts the whole preview.
+	opMetas := make([]xdr.OperationMetaV2, len(ops))
+	for i, op := range ops {
+		changes, err := computeClassicChanges(op, classicOperationSource(envelope, op), working, latestLedger)
+		if err != nil {
+			return ingest.LedgerTransaction{}, 0, fmt.Errorf("operation %d: %w", i+1, err)
+		}
+		opMetas[i] = xdr.OperationMetaV2{Changes: changes}
+		if err := applyChangesToWorkingState(working, changes); err != nil {
+			return ingest.LedgerTransaction{}, 0, fmt.Errorf("applying operation %d changes: %w", i+1, err)
+		}
 	}
 
+	// 4. Assemble the ledger transaction the processors will read; the fee bid
+	//    stands in for the charged fee (exact outside surge pricing).
 	opResults, err := successOperationResults(envelope)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
-	// The fee is an estimate: the declared bid is what the network charges a
-	// classic transaction outside surge pricing.
-	tx := newSimulatedLedgerTransaction(envelope, latestLedger, int64(envelope.Fee()), []xdr.OperationMetaV2{{Changes: changes}}, opResults)
+	tx := newSimulatedLedgerTransaction(envelope, latestLedger, fee, opMetas, opResults)
 	return tx, latestLedger, nil
+}
+
+// applyChangesToWorkingState folds an operation's emitted entry changes back
+// into the working state, so the next operation in the transaction sees them.
+func applyChangesToWorkingState(working map[string]xdr.LedgerEntry, changes xdr.LedgerEntryChanges) error {
+	for _, change := range changes {
+		switch change.Type {
+		case xdr.LedgerEntryChangeTypeLedgerEntryState:
+			// The snapshot of how an entry looked before; nothing to apply.
+		case xdr.LedgerEntryChangeTypeLedgerEntryCreated:
+			if err := storeWorkingEntry(working, change.Created); err != nil {
+				return err
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryUpdated:
+			if err := storeWorkingEntry(working, change.Updated); err != nil {
+				return err
+			}
+		case xdr.LedgerEntryChangeTypeLedgerEntryRemoved:
+			b64, err := xdr.MarshalBase64(*change.Removed)
+			if err != nil {
+				return fmt.Errorf("encoding removed ledger key: %w", err)
+			}
+			delete(working, b64)
+		case xdr.LedgerEntryChangeTypeLedgerEntryRestored:
+			// Never produced by the classic handlers.
+		}
+	}
+	return nil
 }
 
 // storeWorkingEntry saves an entry into the working state, keyed the same way
