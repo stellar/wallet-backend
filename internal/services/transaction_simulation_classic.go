@@ -100,7 +100,7 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
-	tx := newSimulatedLedgerTransaction(envelope, latestLedger, feeCharged, changes, nil, opResults)
+	tx := newSimulatedLedgerTransaction(envelope, latestLedger, feeCharged, []xdr.OperationMetaV2{{Changes: changes}}, opResults)
 	return tx, latestLedger, nil
 }
 
