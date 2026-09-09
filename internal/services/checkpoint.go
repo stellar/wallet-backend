@@ -486,8 +486,11 @@ func (p *checkpointProcessor) processContractCode(_ context.Context, wasmHash xd
 // code and contract instances still reach protocol_wasms, protocol_contracts, and
 // contract_tokens.
 //
-// Skipped on purpose: archived balance entries and archived SAC instances. Live
-// ingestion recreates their rows when the entries are restored.
+// Archived balance entries are skipped on purpose: live ingestion recreates their
+// rows when the entries are restored. Archived SAC instances are NOT skipped: the
+// SAC extends its instance TTL by 7 days and balances by 30, so a quiet asset's
+// instance archives while holder balances stay live, and finalize keeps a live
+// SAC balance only if its contract is registered here.
 func (p *checkpointProcessor) processHotArchive(ctx context.Context) error {
 	var codeCount, instanceCount int
 	for entry, iterErr := range p.service.hotArchiveIterFactory(ctx, p.service.archive, p.checkpointLedger) {
@@ -515,8 +518,8 @@ func (p *checkpointProcessor) processHotArchive(ctx context.Context) error {
 }
 
 // processArchivedContractData ingests an archived contract-instance entry so its
-// wasm mapping and contract_tokens row survive eviction. Balance entries and SAC
-// instances are skipped. Reports whether the entry was ingested.
+// wasm mapping and contract_tokens row survive eviction. Balance entries are
+// skipped. Reports whether the entry was ingested.
 func (p *checkpointProcessor) processArchivedContractData(entry xdr.LedgerEntry) bool {
 	contractDataEntry := entry.Data.MustContractData()
 	if contractDataEntry.Key.Type != xdr.ScValTypeScvLedgerKeyContractInstance {
@@ -537,7 +540,7 @@ func (p *checkpointProcessor) processArchivedContractData(entry xdr.LedgerEntry)
 		Post:       &entry,
 	}
 	result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
-	if result.Skip || result.IsSAC {
+	if result.Skip {
 		return false
 	}
 

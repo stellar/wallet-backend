@@ -562,34 +562,45 @@ func TestCheckpointService_PopulateFromCheckpoint_HotArchiveBalanceKeySkipped(t 
 	f.contractModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceSkipped proves archived
-// SAC instances are ignored. A SAC row would otherwise be queued for RPC metadata
-// enrichment for a contract that is not even live.
-func TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceSkipped(t *testing.T) {
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceKeepsLiveBalance proves
+// an archived SAC instance still registers its contract_tokens row, so a live balance entry
+// under it survives finalize's verified-SAC filter. The SAC extends its instance TTL by 7
+// days and balances by 30, so a quiet asset's instance archives while holder balances stay
+// live; restoring the instance emits no balance change, so this is the only pass that can
+// record those balances.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceKeepsLiveBalance(t *testing.T) {
 	f := setupCheckpointTest(t)
 
 	issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	sacEntry := makeSACInstanceEntry(t, "USDC", issuer, f.svc.networkPassphrase)
-
-	// Fixture guard: a broken entry would also produce zero rows, so assert the
-	// entry really takes the SAC branch — the one processArchivedContractData skips.
 	contractData := sacEntry.Data.MustContractData()
+	contractID := [32]byte(*contractData.Contract.ContractId)
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+	// Fixture guard: a broken entry would also drop the balance, so assert the
+	// entry really takes the SAC branch.
 	result := f.svc.processContractInstanceChange(
 		ingest.Change{Type: sacEntry.Data.Type, Post: &sacEntry},
-		strkey.MustEncode(strkey.VersionByteContract, contractData.Contract.ContractId[:]),
+		contractAddr,
 		contractData,
 	)
 	require.True(t, result.IsSAC, "fixture entry must be recognized as a SAC instance")
 
-	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(sacEntry)
-
+	// The balance is live; only the instance is archived.
+	f.reader.On("Read").Return(makeSACBalanceChange(contractID, [32]byte{8, 8, 8}), nil).Once()
 	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
 	f.reader.On("Close").Return(nil).Once()
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(sacEntry)
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC)
+	})).Return(nil).Once()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool {
+		return len(b) == 1 && b[0].ContractID == wbdata.DeterministicContractID(contractAddr)
+	})).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
-
-	f.contractModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestCheckpointService_PopulateFromCheckpoint_HotArchivePreP23Skipped exercises the real
