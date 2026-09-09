@@ -654,6 +654,81 @@ func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 		assert.True(t, newAccountDebited, "the account created by operation 1 must be able to pay in operation 2")
 	})
 
+	t.Run("🟢 the fee is charged once, not per operation", func(t *testing.T) {
+		// Exactly reserve + one fee (200 for two operations) + the two amounts:
+		// double-charging the fee would make this fail.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 2*baseReserveStroops+200+60_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.Payment{Destination: dst, Amount: "30", Asset: txnbuild.NativeAsset{}},
+		))
+		require.NoError(t, err)
+
+		var feeRows []types.StateChange
+		for _, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryBalance &&
+				sc.StateChangeReason == types.StateChangeReasonDebit && sc.OperationID == 0 {
+				feeRows = append(feeRows, sc)
+			}
+		}
+		require.Len(t, feeRows, 1, "expected exactly one fee row for the whole transaction")
+		assert.Equal(t, "200", feeRows[0].Amount.String)
+	})
+
+	t.Run("🔴 an entry removed by operation 1 is gone for operation 2", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResult(t, src, asset, 0, 100_0000000),
+		)
+		// Operation 1 deletes src's empty trustline; operation 2 tries to pay
+		// the asset into it and must fail on the missing trustline.
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.ChangeTrust{Line: line.MustToChangeTrustAsset(), Limit: "0"},
+			&txnbuild.Payment{
+				SourceAccount: issuer,
+				Destination:   src, Amount: "5", Asset: line,
+			},
+		))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "operation 2")
+	})
+
+	t.Run("🔴 a reserve locked by operation 1 constrains operation 2", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		// One stroop short: after the fee and the base reserve the new
+		// trustline locks, the 10 XLM payment no longer fits.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 3*baseReserveStroops+200+10_0000000-1),
+			accountEntryResult(t, dst, 50_0000000),
+			accountEntryResult(t, issuer, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.ChangeTrust{Line: line.MustToChangeTrustAsset(), Limit: "1000"},
+			&txnbuild.Payment{Destination: dst, Amount: "10", Asset: txnbuild.NativeAsset{}},
+		))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "operation 2")
+	})
+
+	t.Run("🔴 an account created by operation 1 cannot be created again", func(t *testing.T) {
+		newAccount := keypair.MustRandom().Address()
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.CreateAccount{Destination: newAccount, Amount: "10"},
+			&txnbuild.CreateAccount{Destination: newAccount, Amount: "10"},
+		))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "operation 2")
+	})
+
 	t.Run("🟢 a trustline created by operation 1 can receive in operation 2", func(t *testing.T) {
 		issuer := keypair.MustRandom().Address()
 		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
