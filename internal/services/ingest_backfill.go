@@ -76,11 +76,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	backfillBatches := m.splitGapsIntoBatches(gaps)
 
 	// Recompress chunks as contiguous batches complete rather than waiting until the end.
-	tables := []string{
-		"transactions", "transactions_accounts", "operations",
-		"operations_accounts", "state_changes",
-	}
-	recompressor := newProgressiveRecompressor(ctx, m.models.DB, tables, len(backfillBatches))
+	recompressor := newProgressiveRecompressor(ctx, m.models.DB, data.BulkCopyTableNames(), len(backfillBatches))
 
 	startTime := time.Now()
 	results := m.processBackfillBatchesParallel(ctx, backfillBatches, recompressor)
