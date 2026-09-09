@@ -88,8 +88,11 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	// not the bid. Charge it up front by debiting the fee source in the before
 	// image, the order Core applies it in, so every handler computes against
 	// the post-fee balance without threading the fee through.
-	feeSource.Balance -= xdr.Int64(feeCharged)
-	storeAccount(before, feeSource)
+	feeSourceAfter := feeSource
+	feeSourceAfter.Balance -= xdr.Int64(feeCharged)
+	if err := storeWorkingEntry(before, accountLedgerEntry(feeSourceAfter)); err != nil {
+		return ingest.LedgerTransaction{}, 0, fmt.Errorf("charging fee to working state: %w", err)
+	}
 
 	changes, err := computeClassicChanges(op, opSource, before, latestLedger)
 	if err != nil {
@@ -102,6 +105,21 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	}
 	tx := newSimulatedLedgerTransaction(envelope, latestLedger, feeCharged, []xdr.OperationMetaV2{{Changes: changes}}, opResults)
 	return tx, latestLedger, nil
+}
+
+// storeWorkingEntry saves an entry into the working state, keyed the same way
+// fetchLedgerEntries keys them, replacing any previous version of that entry.
+func storeWorkingEntry(working map[string]xdr.LedgerEntry, entry *xdr.LedgerEntry) error {
+	key, err := entry.LedgerKey()
+	if err != nil {
+		return fmt.Errorf("deriving ledger key: %w", err)
+	}
+	b64, err := xdr.MarshalBase64(key)
+	if err != nil {
+		return fmt.Errorf("encoding ledger key: %w", err)
+	}
+	working[b64] = *entry
+	return nil
 }
 
 // validateClassicOperation rejects operations whose fields violate protocol
@@ -747,18 +765,6 @@ func lookupEntry(before map[string]xdr.LedgerEntry, key xdr.LedgerKey) (xdr.Ledg
 	}
 	entry, ok := before[b64]
 	return entry, ok
-}
-
-// storeAccount writes the account back into the before map, so later reads see
-// the updated image (used to charge the fee ahead of the operation).
-func storeAccount(before map[string]xdr.LedgerEntry, account xdr.AccountEntry) {
-	b64, err := xdr.MarshalBase64(accountLedgerKey(account.AccountId))
-	if err != nil {
-		return
-	}
-	entry := before[b64]
-	entry.Data = xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &account}
-	before[b64] = entry
 }
 
 func lookupAccount(before map[string]xdr.LedgerEntry, id xdr.AccountId) (xdr.AccountEntry, bool) {
