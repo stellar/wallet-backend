@@ -98,6 +98,10 @@ func (p *processor) ProtocolID() string { return ProtocolID }
 // StateChangeOrdinalBase returns the SEP-41 state_change_id namespace base.
 func (p *processor) StateChangeOrdinalBase() int64 { return types.StateChangeOrdinalBaseSEP41 }
 
+// RequiresContractData reports false: SEP-41 folds contract events only and
+// never reads ProtocolProcessorInput.ContractDataChanges.
+func (p *processor) RequiresContractData() bool { return false }
+
 // ProcessLedger consumes contract events that the indexer (or
 // ExtractContractEventsForLedger in the migration path) has already
 // extracted into the buffer. The processor never touches LedgerCloseMeta —
@@ -362,6 +366,15 @@ func (p *processor) PersistHistory(ctx context.Context, dbTx pgx.Tx) error {
 	if _, err := p.stateChanges.BatchCopy(ctx, dbTx, p.stagedStateChanges); err != nil {
 		return fmt.Errorf("persisting %d SEP-41 state changes for ledger %d: %w",
 			len(p.stagedStateChanges), p.ledgerNumber, err)
+	}
+	return nil
+}
+
+// WipeCurrentState deletes every SEP-41 current-state row (balances and
+// allowances) in the caller's transaction. See ProtocolProcessor.
+func (p *processor) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	if err := sep41data.WipeCurrentState(ctx, dbTx); err != nil {
+		return fmt.Errorf("wiping SEP-41 current state: %w", err)
 	}
 	return nil
 }

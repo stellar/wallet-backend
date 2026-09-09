@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -69,6 +70,13 @@ type ProtocolProcessor interface {
 	// migrated with --window-size=1.
 	ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
 
+	// RequiresContractData reports whether ProcessLedger needs
+	// ProtocolProcessorInput.ContractDataChanges populated. The migration
+	// engine and live ingestion run the (heavier) ContractData extraction
+	// only when a selected processor returns true, so event-only protocols
+	// pay nothing for it.
+	RequiresContractData() bool
+
 	// Reset clears the staged sets after a window commits or hands off. The caller
 	// (engine per window; live ingestion per ledger) invokes it.
 	Reset()
@@ -83,6 +91,13 @@ type ProtocolProcessor interface {
 	// inside the CAS-guarded transaction only when the cursor advances, so writes
 	// commit atomically with the cursor update and any failure rolls back both.
 	PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
+
+	// WipeCurrentState deletes every row of this protocol's current-state
+	// tables in the caller's transaction (the current-state rebuild's wipe).
+	// It must not touch contract_tokens, protocol_wasms, or
+	// protocol_contracts — classification owns those and nothing rebuilds
+	// them.
+	WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error
 }
 
 // ProtocolProcessorInput contains the data needed by a processor to analyze a ledger.
@@ -99,4 +114,10 @@ type ProtocolProcessorInput struct {
 	ProtocolContracts []data.ProtocolContracts
 	// StagingMode selects which staged sets the processor builds for this ledger.
 	StagingMode StagingMode
+	// ContractDataChanges groups this ledger's ContractData ledger-entry
+	// changes (successful transactions only) by owning contract C-address.
+	// Populated only when some selected processor's RequiresContractData()
+	// returns true; nil otherwise. Processors that do not require it must
+	// ignore it.
+	ContractDataChanges map[string][]ingest.Change
 }

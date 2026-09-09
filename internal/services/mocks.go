@@ -273,6 +273,11 @@ func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input Protoco
 	return args.Error(0)
 }
 
+func (m *ProtocolProcessorMock) RequiresContractData() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
 func (m *ProtocolProcessorMock) Reset() {
 	m.Called()
 }
@@ -283,6 +288,11 @@ func (m *ProtocolProcessorMock) PersistHistory(ctx context.Context, dbTx pgx.Tx)
 }
 
 func (m *ProtocolProcessorMock) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+func (m *ProtocolProcessorMock) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	args := m.Called(ctx, dbTx)
 	return args.Error(0)
 }

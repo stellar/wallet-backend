@@ -91,7 +91,7 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 	s.Require().NoError(err)
 	s.Require().Zerof(exitCode, "protocol-setup should exit 0 (see `docker logs wallet-backend-protocol-setup`); logs:\n%s", logs)
 
-	classifiedContracts, err := models.ProtocolContracts.GetByProtocolID(ctx, sep41ProtocolID)
+	classifiedContracts, err := models.ProtocolContracts.GetByProtocolID(ctx, pool, sep41ProtocolID)
 	s.Require().NoError(err)
 	s.Require().NotEmpty(classifiedContracts, "protocol-setup should classify at least one SEP-41 contract")
 
