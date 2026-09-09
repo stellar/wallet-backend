@@ -561,6 +561,26 @@ func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 	})
 }
 
+// TestFetchLedgerEntries_batches verifies footprints larger than the RPC
+// getLedgerEntries key limit are fetched in multiple calls.
+func TestFetchLedgerEntries_batches(t *testing.T) {
+	rpcMock := &RPCServiceMock{}
+	rpcMock.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
+		return len(keys) > 0 && len(keys) <= rpcLedgerEntryBatchSize
+	})).Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 5_000_000}, nil)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	keys := make([]xdr.LedgerKey, 0, rpcLedgerEntryBatchSize+50)
+	for range rpcLedgerEntryBatchSize + 50 {
+		keys = append(keys, accountLedgerKey(xdr.MustAddress(keypair.MustRandom().Address())))
+	}
+	_, latestLedger, err := svc.fetchLedgerEntries(keys)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(5_000_000), latestLedger)
+	rpcMock.AssertNumberOfCalls(t, "GetLedgerEntries", 2)
+}
+
 // buildMultiOpTxXDRFrom builds an unsigned transaction envelope carrying the
 // given operations in order.
 func buildMultiOpTxXDRFrom(t *testing.T, sourceAccount string, ops ...txnbuild.Operation) string {
@@ -716,6 +736,35 @@ func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 		))
 		require.ErrorIs(t, err, ErrSimulationFailed)
 		assert.ErrorContains(t, err, "operation 2")
+	})
+
+	t.Run("🔴 a credit self-payment must not inflate the working balance", func(t *testing.T) {
+		// The self-payment emits no entry changes; if it wrongly applied a
+		// credit built from the same snapshot as the debit, the working balance
+		// would grow to 25 and the second payment of 22 would pass.
+		issuer := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+			trustlineEntryResult(t, src, asset, 20_0000000, 100_0000000),
+			trustlineEntryResult(t, dst, asset, 0, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, src,
+			&txnbuild.Payment{Destination: src, Amount: "5", Asset: line},
+			&txnbuild.Payment{Destination: dst, Amount: "22", Asset: line},
+		))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "operation 2")
+	})
+
+	t.Run("🔴 a self-payment above the available balance is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 2*baseReserveStroops+1_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: src, Amount: "5", Asset: txnbuild.NativeAsset{},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
 	t.Run("🔴 an account created by operation 1 cannot be created again", func(t *testing.T) {
