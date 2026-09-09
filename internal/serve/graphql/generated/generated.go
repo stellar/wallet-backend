@@ -3940,12 +3940,14 @@ type Query {
     Simulate an unsubmitted transaction and return the state changes it would
     produce if submitted, in the same variant structure as the history API.
     Accepts contract (Soroban) transactions, whose changes come from RPC
-    simulation, and single-operation classic transactions for the supported
-    operation types (payment, createAccount, changeTrust, setOptions,
-    manageData), whose changes are derived from current ledger state. Other
-    transactions are rejected as UNSUPPORTED_TRANSACTION; a transaction the
-    network would reject (e.g. insufficient balance) is rejected as
-    SIMULATION_FAILED with the reason.
+    simulation, and classic transactions for the supported operation types
+    (payment, createAccount, changeTrust, setOptions, manageData), whose
+    changes are derived from current ledger state. A classic transaction may
+    carry multiple supported operations, applied sequentially with
+    all-or-nothing semantics. Other transactions are rejected as
+    UNSUPPORTED_TRANSACTION; a transaction the network would reject (e.g.
+    insufficient balance, or any operation of a multi-operation transaction
+    failing) is rejected as SIMULATION_FAILED with the reason.
     """
     simulateStateChanges(transactionXdr: String!): SimulatedStateChanges!
 }

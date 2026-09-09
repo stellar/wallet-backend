@@ -211,15 +211,16 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 	}
 	feeCharged := inclusionFee + minResourceFee
 
-	return newSimulatedLedgerTransaction(envelope, uint32(result.LatestLedger), feeCharged, changes, events, opResults), nil
+	opMetas := []xdr.OperationMetaV2{{Changes: changes, Events: events}}
+	return newSimulatedLedgerTransaction(envelope, uint32(result.LatestLedger), feeCharged, opMetas, opResults), nil
 }
 
 // newSimulatedLedgerTransaction assembles the LedgerTransaction shape shared by
 // the Soroban and classic sources: a successful transaction at the given ledger
-// carrying the per-operation entry changes (and, for Soroban, contract events)
-// in TransactionMetaV4, which protocol 23+ networks emit and processors branch
-// on via UnsafeMeta.V.
-func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq uint32, feeCharged int64, changes xdr.LedgerEntryChanges, events []xdr.ContractEvent, opResults *[]xdr.OperationResult) ingest.LedgerTransaction {
+// carrying one meta slot per operation (entry changes and, for Soroban,
+// contract events) in TransactionMetaV4, which protocol 23+ networks emit and
+// processors branch on via UnsafeMeta.V.
+func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq uint32, feeCharged int64, opMetas []xdr.OperationMetaV2, opResults *[]xdr.OperationResult) ingest.LedgerTransaction {
 	return ingest.LedgerTransaction{
 		Index:    1,
 		Envelope: envelope,
@@ -243,7 +244,7 @@ func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq u
 		UnsafeMeta: xdr.TransactionMeta{
 			V: 4,
 			V4: &xdr.TransactionMetaV4{
-				Operations: []xdr.OperationMetaV2{{Changes: changes, Events: events}},
+				Operations: opMetas,
 			},
 		},
 	}
