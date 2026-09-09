@@ -27,7 +27,7 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	txSource := envelope.SourceAccount().ToAccountId()
 
 	// 1. Validate each operation and fetch every ledger entry the transaction
-	//    touches in one call, always including the fee-paying source.
+	//    touches, always including the fee-paying source.
 	keys := []xdr.LedgerKey{accountLedgerKey(txSource)}
 	for _, op := range ops {
 		if err := validateClassicOperation(op); err != nil {
@@ -267,30 +267,44 @@ func (s *transactionSimulationService) fetchLedgerEntries(keys []xdr.LedgerKey) 
 
 	// getLedgerEntries accepts at most rpcLedgerEntryBatchSize keys per call
 	// (a 100-operation transaction can legitimately need more), so fetch in
-	// batches. Batches land milliseconds apart, so the combined result is a
-	// best-effort snapshot; a ledger closing between batches can skew it, the
-	// same way the ledger can change between the preview and the submission.
-	entries := make(map[string]xdr.LedgerEntry, len(encoded))
-	var latestLedger uint32
-	for start := 0; start < len(encoded); start += rpcLedgerEntryBatchSize {
-		end := min(start+rpcLedgerEntryBatchSize, len(encoded))
-		result, err := s.rpcService.GetLedgerEntries(encoded[start:end])
-		if err != nil {
-			return nil, 0, fmt.Errorf("fetching ledger entries via RPC: %w", err)
+	// batches. Every batch must observe the same ledger, or the combined
+	// entries would describe a state that never existed; if a ledger closes
+	// between batches, retry the whole fetch against the new ledger.
+	const maxSnapshotAttempts = 3
+	for attempt := 1; ; attempt++ {
+		entries := make(map[string]xdr.LedgerEntry, len(encoded))
+		var latestLedger uint32
+		consistent := true
+		for start := 0; start < len(encoded); start += rpcLedgerEntryBatchSize {
+			end := min(start+rpcLedgerEntryBatchSize, len(encoded))
+			result, err := s.rpcService.GetLedgerEntries(encoded[start:end])
+			if err != nil {
+				return nil, 0, fmt.Errorf("fetching ledger entries via RPC: %w", err)
+			}
+			if latestLedger == 0 {
+				latestLedger = result.LatestLedger
+			} else if result.LatestLedger != latestLedger {
+				consistent = false
+				break
+			}
+			for _, entry := range result.Entries {
+				var entryData xdr.LedgerEntryData
+				if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &entryData); err != nil {
+					return nil, 0, fmt.Errorf("decoding ledger entry data: %w", err)
+				}
+				entries[entry.KeyXDR] = xdr.LedgerEntry{
+					LastModifiedLedgerSeq: xdr.Uint32(entry.LastModifiedLedger),
+					Data:                  entryData,
+				}
+			}
 		}
-		latestLedger = result.LatestLedger
-		for _, entry := range result.Entries {
-			var entryData xdr.LedgerEntryData
-			if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &entryData); err != nil {
-				return nil, 0, fmt.Errorf("decoding ledger entry data: %w", err)
-			}
-			entries[entry.KeyXDR] = xdr.LedgerEntry{
-				LastModifiedLedgerSeq: xdr.Uint32(entry.LastModifiedLedger),
-				Data:                  entryData,
-			}
+		if consistent {
+			return entries, latestLedger, nil
+		}
+		if attempt == maxSnapshotAttempts {
+			return nil, 0, fmt.Errorf("ledger advanced during the footprint fetch %d times in a row", attempt)
 		}
 	}
-	return entries, latestLedger, nil
 }
 
 // computeClassicChanges applies the operation's stated effect to the fetched
