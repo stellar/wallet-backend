@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -697,5 +698,88 @@ func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.expectedLedger, oldest)
 		})
+	}
+}
+
+// Test_IngestStoreModel_DeleteRowsAboveLedger seeds two consecutive ledgers across all five
+// bulk-COPY tables and verifies the startup reconciliation removes exactly the rows above the
+// cursor ledger — the shape a crash between persistLedgerData's sibling commits and its
+// coordinating commit leaves behind — and is a no-op when run again.
+func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &IngestStoreModel{
+		DB:      dbConnectionPool,
+		Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB,
+	}
+
+	const cursorLedger = uint32(100)
+	seedLedger := func(t *testing.T, ledger uint32, closedAt string) {
+		txTOID := toid.New(int32(ledger), 1, 0).ToInt64()
+		opTOID := toid.New(int32(ledger), 1, 1).ToInt64()
+		_, seedErr := dbConnectionPool.Exec(ctx,
+			`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+			 VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, $4::timestamptz)`,
+			fmt.Appendf(nil, "hash-%d", ledger), txTOID, ledger, closedAt)
+		require.NoError(t, seedErr)
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+			 VALUES ($1::timestamptz, $2, $3)`, closedAt, txTOID, []byte{1})
+		require.NoError(t, seedErr)
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+			 VALUES ($1, 'PAYMENT', $2, 'op_success', true, $3, $4::timestamptz)`,
+			opTOID, []byte{0}, ledger, closedAt)
+		require.NoError(t, seedErr)
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+			 VALUES ($1::timestamptz, $2, $3)`, closedAt, opTOID, []byte{1})
+		require.NoError(t, seedErr)
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category, state_change_reason, ledger_number, account_id, ledger_created_at)
+			 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
+			txTOID, opTOID, ledger, []byte{1}, closedAt)
+		require.NoError(t, seedErr)
+	}
+	seedLedger(t, cursorLedger, "2026-01-01T00:00:00Z")
+	seedLedger(t, cursorLedger+1, "2026-01-01T00:00:05Z")
+
+	countRows := func(t *testing.T) map[string][2]int {
+		counts := make(map[string][2]int)
+		for table, column := range map[string]string{
+			"transactions":          "to_id",
+			"transactions_accounts": "tx_to_id",
+			"operations":            "id",
+			"operations_accounts":   "operation_id",
+			"state_changes":         "to_id",
+		} {
+			var atCursor, aboveCursor int
+			boundary := toid.New(int32(cursorLedger+1), 0, 0).ToInt64()
+			require.NoError(t, dbConnectionPool.QueryRow(ctx,
+				fmt.Sprintf(`SELECT count(*) FILTER (WHERE %[1]s < $1), count(*) FILTER (WHERE %[1]s >= $1) FROM %[2]s`, column, table),
+				boundary).Scan(&atCursor, &aboveCursor))
+			counts[table] = [2]int{atCursor, aboveCursor}
+		}
+		return counts
+	}
+
+	for table, c := range countRows(t) {
+		require.Equal(t, [2]int{1, 1}, c, "seed should place one row per ledger in %s", table)
+	}
+
+	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
+	for table, c := range countRows(t) {
+		assert.Equal(t, [2]int{1, 0}, c, "%s must keep the cursor ledger's row and lose the orphan", table)
+	}
+
+	// Idempotent: nothing above the cursor remains, so a second run changes nothing.
+	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
+	for table, c := range countRows(t) {
+		assert.Equal(t, [2]int{1, 0}, c, "%s must be unchanged by a reconciliation no-op", table)
 	}
 }
