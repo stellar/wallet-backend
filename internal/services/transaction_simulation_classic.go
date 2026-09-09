@@ -265,23 +265,32 @@ func (s *transactionSimulationService) fetchLedgerEntries(keys []xdr.LedgerKey) 
 		encoded = append(encoded, b64)
 	}
 
-	result, err := s.rpcService.GetLedgerEntries(encoded)
-	if err != nil {
-		return nil, 0, fmt.Errorf("fetching ledger entries via RPC: %w", err)
-	}
-
-	entries := make(map[string]xdr.LedgerEntry, len(result.Entries))
-	for _, entry := range result.Entries {
-		var entryData xdr.LedgerEntryData
-		if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &entryData); err != nil {
-			return nil, 0, fmt.Errorf("decoding ledger entry data: %w", err)
+	// getLedgerEntries accepts at most rpcLedgerEntryBatchSize keys per call
+	// (a 100-operation transaction can legitimately need more), so fetch in
+	// batches. Batches land milliseconds apart, so the combined result is a
+	// best-effort snapshot; a ledger closing between batches can skew it, the
+	// same way the ledger can change between the preview and the submission.
+	entries := make(map[string]xdr.LedgerEntry, len(encoded))
+	var latestLedger uint32
+	for start := 0; start < len(encoded); start += rpcLedgerEntryBatchSize {
+		end := min(start+rpcLedgerEntryBatchSize, len(encoded))
+		result, err := s.rpcService.GetLedgerEntries(encoded[start:end])
+		if err != nil {
+			return nil, 0, fmt.Errorf("fetching ledger entries via RPC: %w", err)
 		}
-		entries[entry.KeyXDR] = xdr.LedgerEntry{
-			LastModifiedLedgerSeq: xdr.Uint32(entry.LastModifiedLedger),
-			Data:                  entryData,
+		latestLedger = result.LatestLedger
+		for _, entry := range result.Entries {
+			var entryData xdr.LedgerEntryData
+			if err := xdr.SafeUnmarshalBase64(entry.DataXDR, &entryData); err != nil {
+				return nil, 0, fmt.Errorf("decoding ledger entry data: %w", err)
+			}
+			entries[entry.KeyXDR] = xdr.LedgerEntry{
+				LastModifiedLedgerSeq: xdr.Uint32(entry.LastModifiedLedger),
+				Data:                  entryData,
+			}
 		}
 	}
-	return entries, result.LatestLedger, nil
+	return entries, latestLedger, nil
 }
 
 // computeClassicChanges applies the operation's stated effect to the fetched
@@ -323,17 +332,19 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	}
 
 	if p.Asset.Type == xdr.AssetTypeAssetTypeNative {
-		if opSource.Equals(dst) {
-			// A self-payment moves nothing; emit no entry changes. The
-			// token-transfer processor still derives the debit/credit pair
-			// from the operation itself, matching history.
-			return xdr.LedgerEntryChanges{}, nil
-		}
-		dstAccount, _ := lookupAccount(before, dst)
 		available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, sending %d", opSource.Address(), available, p.Amount)
 		}
+		if opSource.Equals(dst) {
+			// A self-payment must still pass the checks above but moves
+			// nothing, so it emits no entry changes; emitting a debit and a
+			// credit built from the same snapshot would corrupt the working
+			// state. The token-transfer processor still derives the
+			// debit/credit rows from the operation itself, matching history.
+			return xdr.LedgerEntryChanges{}, nil
+		}
+		dstAccount, _ := lookupAccount(before, dst)
 		srcAfter := cloneAccountEntry(srcAccount)
 		srcAfter.Balance -= p.Amount
 		dstAfter := cloneAccountEntry(dstAccount)
@@ -361,6 +372,10 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 		available := int64(srcLine.Balance) - trustlineSellingLiabilities(srcLine)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source trustline for %s has insufficient balance: available %d, sending %d", assetString(p.Asset), available, p.Amount)
+		}
+		if opSource.Equals(dst) {
+			// Same as the native self-payment above: checks pass, nothing moves.
+			return xdr.LedgerEntryChanges{}, nil
 		}
 		srcAfter := srcLine
 		srcAfter.Balance -= p.Amount
