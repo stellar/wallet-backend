@@ -23,6 +23,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -271,15 +272,72 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 	}
 
 	for _, scenario := range scenarios {
-		snapshot := snapshotLedgerEntries(t, rpcURL, snapshotKeys)
-		fixture := captureFixture(t, rpcURL, scenario.name, scenario.source, scenario.ops...)
-		fixture.LedgerEntries = snapshot
-		payload, err := json.MarshalIndent(fixture, "", "  ")
-		require.NoError(t, err)
-		path := filepath.Join(outDir, scenario.name+".json")
-		require.NoError(t, os.WriteFile(path, append(payload, '\n'), 0o644))
-		t.Logf("wrote %s (ledger %d)", path, fixture.Ledger)
+		writeScenario(t, rpcURL, outDir, snapshotKeys, scenario.name, scenario.source, scenario.ops...)
 	}
+
+	// Scenarios whose operations depend on an earlier on-chain result: a claim
+	// or clawback needs the balance ID the create operation reported, so these
+	// are built one at a time from the previous fixture's result.
+	created := writeScenario(t, rpcURL, outDir, snapshotKeys, "create_claimable_balance", accountB, &txnbuild.CreateClaimableBalance{
+		Amount: "7", Asset: usdc,
+		Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(accountB.Address(), nil)},
+	})
+	claimKeys := append(snapshotKeys, claimableBalanceLedgerKey(createdBalanceID(t, created)))
+	writeScenario(t, rpcURL, outDir, claimKeys, "claim_claimable_balance", accountB, &txnbuild.ClaimClaimableBalance{
+		BalanceID: balanceIDHex(t, createdBalanceID(t, created)),
+	})
+
+	// B's trustline is clawback-enabled (created after A set AUTH_CLAWBACK_ENABLED),
+	// so this balance is too, and the issuer can claw it back.
+	forClawback := writeScenario(t, rpcURL, outDir, snapshotKeys, "create_claimable_balance_clawback", accountB, &txnbuild.CreateClaimableBalance{
+		Amount: "5", Asset: usdc,
+		Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(accountA.Address(), nil)},
+	})
+	clawbackKeys := append(snapshotKeys, claimableBalanceLedgerKey(createdBalanceID(t, forClawback)))
+	writeScenario(t, rpcURL, outDir, clawbackKeys, "clawback_claimable_balance", accountA, &txnbuild.ClawbackClaimableBalance{
+		BalanceID: balanceIDHex(t, createdBalanceID(t, forClawback)),
+	})
+
+	// newAccount owns nothing beyond its balance, so it can merge; run this
+	// last so no later scenario needs the account.
+	writeScenario(t, rpcURL, outDir, snapshotKeys, "account_merge", newAccount, &txnbuild.AccountMerge{
+		Destination: accountA.Address(),
+	})
+}
+
+// writeScenario snapshots pre-state, submits one transaction, and writes the
+// fixture; it returns the fixture so a later scenario can read its result.
+func writeScenario(t *testing.T, rpcURL, outDir string, snapshotKeys []xdr.LedgerKey, name string, source *keypair.Full, ops ...txnbuild.Operation) equivalenceFixture {
+	t.Helper()
+	snapshot := snapshotLedgerEntries(t, rpcURL, snapshotKeys)
+	fixture := captureFixture(t, rpcURL, name, source, ops...)
+	fixture.LedgerEntries = snapshot
+	payload, err := json.MarshalIndent(fixture, "", "  ")
+	require.NoError(t, err)
+	path := filepath.Join(outDir, name+".json")
+	require.NoError(t, os.WriteFile(path, append(payload, '\n'), 0o644))
+	t.Logf("wrote %s (ledger %d)", path, fixture.Ledger)
+	return fixture
+}
+
+// createdBalanceID reads the claimable balance ID out of a create fixture's
+// on-chain result.
+func createdBalanceID(t *testing.T, fixture equivalenceFixture) xdr.ClaimableBalanceId {
+	t.Helper()
+	var result xdr.TransactionResult
+	require.NoError(t, xdr.SafeUnmarshalBase64(fixture.ResultXDR, &result))
+	opResults, ok := result.OperationResults()
+	require.True(t, ok, "fixture %s has no operation results", fixture.Name)
+	cbResult := opResults[0].Tr.MustCreateClaimableBalanceResult()
+	return cbResult.MustBalanceId()
+}
+
+// balanceIDHex renders a balance ID in the hex form txnbuild operations take.
+func balanceIDHex(t *testing.T, id xdr.ClaimableBalanceId) string {
+	t.Helper()
+	payload, err := id.MarshalBinary()
+	require.NoError(t, err)
+	return hex.EncodeToString(payload)
 }
 
 // captureFixture submits one transaction and returns its on-chain record.
