@@ -68,6 +68,19 @@ type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
 }
 
 """
+Simulated mirror of AccountMergedChange.
+Pair: (ACCOUNT, MERGE).
+"""
+type SimulatedAccountMergedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Account that would receive the merged account's balance."""
+  destinationAddress:         String!
+}
+
+"""
 Simulated mirror of AllowanceChange.
 Pair: (ALLOWANCE, UPDATE).
 """
