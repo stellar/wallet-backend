@@ -23,6 +23,27 @@ type Balance interface {
 	GetTokenType() TokenType
 }
 
+// Common contract implemented by every simulated state change. Simulated
+// variants mirror the history API's state-change types (same names with a
+// `Simulated` prefix, same `(category, reason)` pairs and variant fields) but
+// omit the fields that only exist after a transaction is included in a ledger:
+// `ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and
+// `transaction`. The affected account is exposed as a plain address rather than
+// an `Account` entity, since the account may not be indexed yet.
+//
+// The set of concrete types grows with the transaction sources the simulation
+// supports; today it covers the variants a contract (Soroban) transaction can
+// produce.
+type BaseSimulatedStateChange interface {
+	IsBaseSimulatedStateChange()
+	// Category of account state this change affects.
+	GetCategory() types.StateChangeCategory
+	// Why the change occurred. Each concrete type documents its valid reasons.
+	GetReason() types.StateChangeReason
+	// Address of the account whose state would change.
+	GetAccountAddress() string
+}
+
 // Common contract implemented by every state change. A state change records one
 // modification to one account's ledger state, attributed to the transaction (and,
 // except for transaction fees, the operation) that caused it.
@@ -250,6 +271,125 @@ func (this SEP41Balance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
 func (this SEP41Balance) GetTokenType() TokenType { return this.TokenType }
+
+// Simulated mirror of AccountCreatedChange. For a contract deployment,
+// `accountAddress` is the deployed contract's C-address.
+// Pair: (ACCOUNT, CREATE).
+type SimulatedAccountCreatedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Account that would create this one: the funder or the contract deployer.
+	CreatorAddress string `json:"creatorAddress"`
+}
+
+func (SimulatedAccountCreatedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedAccountCreatedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedAccountCreatedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedAccountCreatedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of AllowanceChange.
+// Pair: (ALLOWANCE, UPDATE).
+type SimulatedAllowanceChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the token the allowance applies to.
+	TokenID string `json:"tokenId"`
+	// Address authorized to spend from the holder's balance.
+	Spender string `json:"spender"`
+	// Approved allowance, as a decimal string in the token's smallest unit.
+	Amount string `json:"amount"`
+	// Last ledger sequence at which the allowance is live.
+	ExpirationLedger uint32 `json:"expirationLedger"`
+}
+
+func (SimulatedAllowanceChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedAllowanceChange) GetCategory() types.StateChangeCategory { return this.Category }
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedAllowanceChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedAllowanceChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Simulated mirror of BalanceAuthorizationChange. Exactly one of tokenId /
+// liquidityPoolId is set.
+// Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
+type SimulatedBalanceAuthorizationChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the asset; null for liquidity-pool-share trustlines.
+	TokenID *string `json:"tokenId,omitempty"`
+	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
+	LiquidityPoolID *string `json:"liquidityPoolId,omitempty"`
+	// Trustline flags that would change; null for SAC contract-holder authorization, which has no flags.
+	Flags []types.TrustlineFlag `json:"flags,omitempty"`
+}
+
+func (SimulatedBalanceAuthorizationChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedBalanceAuthorizationChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedBalanceAuthorizationChange) GetReason() types.StateChangeReason {
+	return this.Reason
+}
+
+// Address of the account whose state would change.
+func (this SimulatedBalanceAuthorizationChange) GetAccountAddress() string {
+	return this.AccountAddress
+}
+
+// Simulated mirror of BalanceChange. The transaction-fee row is (BALANCE, DEBIT)
+// on the fee-paying account, estimated from the simulation's resource fee.
+// Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
+type SimulatedBalanceChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Contract ID of the token whose balance would move.
+	TokenID string `json:"tokenId"`
+	// Amount moved, as a decimal string in the token's smallest unit.
+	Amount string `json:"amount"`
+	// CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and MINT only).
+	ToMuxedID *string `json:"toMuxedId,omitempty"`
+}
+
+func (SimulatedBalanceChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedBalanceChange) GetCategory() types.StateChangeCategory { return this.Category }
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedBalanceChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedBalanceChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Result of simulating an unsubmitted transaction: the state changes the
+// indexer would produce if the transaction were submitted and included in a
+// ledger, in the same variant structure as the history API's state changes.
+type SimulatedStateChanges struct {
+	// Latest ledger the simulation was evaluated against.
+	LatestLedger uint32 `json:"latestLedger"`
+	// State changes the transaction would produce.
+	StateChanges []BaseSimulatedStateChange `json:"stateChanges"`
+}
 
 // Relay-style page of state changes.
 type StateChangeConnection struct {

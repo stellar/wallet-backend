@@ -303,9 +303,10 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		AccountByAddress  func(childComplexity int, address string) int
-		OperationByID     func(childComplexity int, id int64) int
-		TransactionByHash func(childComplexity int, hash string) int
+		AccountByAddress     func(childComplexity int, address string) int
+		OperationByID        func(childComplexity int, id int64) int
+		SimulateStateChanges func(childComplexity int, transactionXdr string) int
+		TransactionByHash    func(childComplexity int, hash string) int
 	}
 
 	SACBalance struct {
@@ -386,6 +387,46 @@ type ComplexityRoot struct {
 		Reason          func(childComplexity int) int
 		SignerAddress   func(childComplexity int) int
 		Transaction     func(childComplexity int) int
+	}
+
+	SimulatedAccountCreatedChange struct {
+		AccountAddress func(childComplexity int) int
+		Category       func(childComplexity int) int
+		CreatorAddress func(childComplexity int) int
+		Reason         func(childComplexity int) int
+	}
+
+	SimulatedAllowanceChange struct {
+		AccountAddress   func(childComplexity int) int
+		Amount           func(childComplexity int) int
+		Category         func(childComplexity int) int
+		ExpirationLedger func(childComplexity int) int
+		Reason           func(childComplexity int) int
+		Spender          func(childComplexity int) int
+		TokenID          func(childComplexity int) int
+	}
+
+	SimulatedBalanceAuthorizationChange struct {
+		AccountAddress  func(childComplexity int) int
+		Category        func(childComplexity int) int
+		Flags           func(childComplexity int) int
+		LiquidityPoolID func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+	}
+
+	SimulatedBalanceChange struct {
+		AccountAddress func(childComplexity int) int
+		Amount         func(childComplexity int) int
+		Category       func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		ToMuxedID      func(childComplexity int) int
+		TokenID        func(childComplexity int) int
+	}
+
+	SimulatedStateChanges struct {
+		LatestLedger func(childComplexity int) int
+		StateChanges func(childComplexity int) int
 	}
 
 	StateChangeConnection struct {
@@ -626,6 +667,7 @@ type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
+	SimulateStateChanges(ctx context.Context, transactionXdr string) (*SimulatedStateChanges, error)
 }
 type SignerAddedChangeResolver interface {
 	Category(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeCategory, error)
@@ -1821,6 +1863,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.OperationByID(childComplexity, args["id"].(int64)), true
+	case "Query.simulateStateChanges":
+		if e.ComplexityRoot.Query.SimulateStateChanges == nil {
+			break
+		}
+
+		args, err := ec.field_Query_simulateStateChanges_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SimulateStateChanges(childComplexity, args["transactionXdr"].(string)), true
 	case "Query.transactionByHash":
 		if e.ComplexityRoot.Query.TransactionByHash == nil {
 			break
@@ -2176,6 +2229,161 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SignerUpdatedChange.Transaction(childComplexity), true
+
+	case "SimulatedAccountCreatedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedAccountCreatedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountCreatedChange.AccountAddress(childComplexity), true
+	case "SimulatedAccountCreatedChange.category":
+		if e.ComplexityRoot.SimulatedAccountCreatedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountCreatedChange.Category(childComplexity), true
+	case "SimulatedAccountCreatedChange.creatorAddress":
+		if e.ComplexityRoot.SimulatedAccountCreatedChange.CreatorAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountCreatedChange.CreatorAddress(childComplexity), true
+	case "SimulatedAccountCreatedChange.reason":
+		if e.ComplexityRoot.SimulatedAccountCreatedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountCreatedChange.Reason(childComplexity), true
+
+	case "SimulatedAllowanceChange.accountAddress":
+		if e.ComplexityRoot.SimulatedAllowanceChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.AccountAddress(childComplexity), true
+	case "SimulatedAllowanceChange.amount":
+		if e.ComplexityRoot.SimulatedAllowanceChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.Amount(childComplexity), true
+	case "SimulatedAllowanceChange.category":
+		if e.ComplexityRoot.SimulatedAllowanceChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.Category(childComplexity), true
+	case "SimulatedAllowanceChange.expirationLedger":
+		if e.ComplexityRoot.SimulatedAllowanceChange.ExpirationLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.ExpirationLedger(childComplexity), true
+	case "SimulatedAllowanceChange.reason":
+		if e.ComplexityRoot.SimulatedAllowanceChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.Reason(childComplexity), true
+	case "SimulatedAllowanceChange.spender":
+		if e.ComplexityRoot.SimulatedAllowanceChange.Spender == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.Spender(childComplexity), true
+	case "SimulatedAllowanceChange.tokenId":
+		if e.ComplexityRoot.SimulatedAllowanceChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.TokenID(childComplexity), true
+
+	case "SimulatedBalanceAuthorizationChange.accountAddress":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.AccountAddress(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.category":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Category(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.flags":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Flags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Flags(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.liquidityPoolId":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.LiquidityPoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.reason":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Reason(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.tokenId":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.TokenID(childComplexity), true
+
+	case "SimulatedBalanceChange.accountAddress":
+		if e.ComplexityRoot.SimulatedBalanceChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.AccountAddress(childComplexity), true
+	case "SimulatedBalanceChange.amount":
+		if e.ComplexityRoot.SimulatedBalanceChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.Amount(childComplexity), true
+	case "SimulatedBalanceChange.category":
+		if e.ComplexityRoot.SimulatedBalanceChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.Category(childComplexity), true
+	case "SimulatedBalanceChange.reason":
+		if e.ComplexityRoot.SimulatedBalanceChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.Reason(childComplexity), true
+	case "SimulatedBalanceChange.toMuxedId":
+		if e.ComplexityRoot.SimulatedBalanceChange.ToMuxedID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.ToMuxedID(childComplexity), true
+	case "SimulatedBalanceChange.tokenId":
+		if e.ComplexityRoot.SimulatedBalanceChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.TokenID(childComplexity), true
+
+	case "SimulatedStateChanges.latestLedger":
+		if e.ComplexityRoot.SimulatedStateChanges.LatestLedger == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedStateChanges.LatestLedger(childComplexity), true
+	case "SimulatedStateChanges.stateChanges":
+		if e.ComplexityRoot.SimulatedStateChanges.StateChanges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedStateChanges.StateChanges(childComplexity), true
 
 	case "StateChangeConnection.edges":
 		if e.ComplexityRoot.StateChangeConnection.Edges == nil {
@@ -3160,6 +3368,14 @@ type Query {
 
     """Look up an operation by its ID (TOID)."""
     operationById(id: Int64!): Operation
+
+    """
+    Simulate an unsubmitted transaction and return the state changes it would
+    produce if submitted, in the same variant structure as the history API.
+    Currently accepts contract (Soroban) transactions, whose changes come from
+    RPC simulation; classic transactions are rejected as UNSUPPORTED_TRANSACTION.
+    """
+    simulateStateChanges(transactionXdr: String!): SimulatedStateChanges!
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `"""RFC 3339 timestamp."""
@@ -3177,6 +3393,109 @@ this scalar carries larger values such as operation IDs (TOIDs) and stroop
 amounts.
 """
 scalar Int64
+`, BuiltIn: false},
+	{Name: "../schema/simulation.graphqls", Input: `"""
+Result of simulating an unsubmitted transaction: the state changes the
+indexer would produce if the transaction were submitted and included in a
+ledger, in the same variant structure as the history API's state changes.
+"""
+type SimulatedStateChanges {
+  """Latest ledger the simulation was evaluated against."""
+  latestLedger:               UInt32!
+  """State changes the transaction would produce."""
+  stateChanges:               [BaseSimulatedStateChange!]!
+}
+
+"""
+Common contract implemented by every simulated state change. Simulated
+variants mirror the history API's state-change types (same names with a
+` + "`" + `Simulated` + "`" + ` prefix, same ` + "`" + `(category, reason)` + "`" + ` pairs and variant fields) but
+omit the fields that only exist after a transaction is included in a ledger:
+` + "`" + `ingestedAt` + "`" + `, ` + "`" + `ledgerCreatedAt` + "`" + `, ` + "`" + `ledgerNumber` + "`" + `, ` + "`" + `operation` + "`" + `, and
+` + "`" + `transaction` + "`" + `. The affected account is exposed as a plain address rather than
+an ` + "`" + `Account` + "`" + ` entity, since the account may not be indexed yet.
+
+The set of concrete types grows with the transaction sources the simulation
+supports; today it covers the variants a contract (Soroban) transaction can
+produce.
+"""
+interface BaseSimulatedStateChange {
+  """Category of account state this change affects."""
+  category:                   StateChangeCategory!
+  """Why the change occurred. Each concrete type documents its valid reasons."""
+  reason:                     StateChangeReason!
+  """Address of the account whose state would change."""
+  accountAddress:             String!
+}
+
+"""
+Simulated mirror of BalanceChange. The transaction-fee row is (BALANCE, DEBIT)
+on the fee-paying account, estimated from the simulation's resource fee.
+Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
+"""
+type SimulatedBalanceChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the token whose balance would move."""
+  tokenId:                    String!
+  """Amount moved, as a decimal string in the token's smallest unit."""
+  amount:                     String!
+  """CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and MINT only)."""
+  toMuxedId:                  String
+}
+
+"""
+Simulated mirror of AccountCreatedChange. For a contract deployment,
+` + "`" + `accountAddress` + "`" + ` is the deployed contract's C-address.
+Pair: (ACCOUNT, CREATE).
+"""
+type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Account that would create this one: the funder or the contract deployer."""
+  creatorAddress:             String!
+}
+
+"""
+Simulated mirror of AllowanceChange.
+Pair: (ALLOWANCE, UPDATE).
+"""
+type SimulatedAllowanceChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the token the allowance applies to."""
+  tokenId:                    String!
+  """Address authorized to spend from the holder's balance."""
+  spender:                    String!
+  """Approved allowance, as a decimal string in the token's smallest unit."""
+  amount:                     String!
+  """Last ledger sequence at which the allowance is live."""
+  expirationLedger:           UInt32!
+}
+
+"""
+Simulated mirror of BalanceAuthorizationChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
+"""
+type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Trustline flags that would change; null for SAC contract-holder authorization, which has no flags."""
+  flags:                      [TrustlineFlag!]
+}
 `, BuiltIn: false},
 	{Name: "../schema/statechange.graphqls", Input: `"""
 Common contract implemented by every state change. A state change records one
@@ -3876,6 +4195,17 @@ func (ec *executionContext) field_Query_operationById_args(ctx context.Context, 
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_simulateStateChanges_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "transactionXdr", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["transactionXdr"] = arg0
 	return args, nil
 }
 
@@ -10099,6 +10429,53 @@ func (ec *executionContext) fieldContext_Query_operationById(ctx context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_simulateStateChanges(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_simulateStateChanges,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SimulateStateChanges(ctx, fc.Args["transactionXdr"].(string))
+		},
+		nil,
+		ec.marshalNSimulatedStateChanges2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedStateChanges,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_simulateStateChanges(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "latestLedger":
+				return ec.fieldContext_SimulatedStateChanges_latestLedger(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_SimulatedStateChanges_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SimulatedStateChanges", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_simulateStateChanges_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -12036,6 +12413,731 @@ func (ec *executionContext) fieldContext_SignerUpdatedChange_newWeight(_ context
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountCreatedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountCreatedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountCreatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountCreatedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountCreatedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountCreatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountCreatedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountCreatedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountCreatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountCreatedChange_creatorAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountCreatedChange_creatorAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatorAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_creatorAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountCreatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_spender(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_spender,
+		func(ctx context.Context) (any, error) {
+			return obj.Spender, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_spender(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_amount(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_expirationLedger(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_expirationLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.ExpirationLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_expirationLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_liquidityPoolId(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_liquidityPoolId,
+		func(ctx context.Context) (any, error) {
+			return obj.LiquidityPoolID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_liquidityPoolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_flags(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_flags,
+		func(ctx context.Context) (any, error) {
+			return obj.Flags, nil
+		},
+		nil,
+		ec.marshalOTrustlineFlag2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTrustlineFlagᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_flags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TrustlineFlag does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_amount(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_toMuxedId(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_toMuxedId,
+		func(ctx context.Context) (any, error) {
+			return obj.ToMuxedID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_toMuxedId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedStateChanges_latestLedger(ctx context.Context, field graphql.CollectedField, obj *SimulatedStateChanges) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedStateChanges_latestLedger,
+		func(ctx context.Context) (any, error) {
+			return obj.LatestLedger, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedStateChanges_latestLedger(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedStateChanges",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedStateChanges_stateChanges(ctx context.Context, field graphql.CollectedField, obj *SimulatedStateChanges) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedStateChanges_stateChanges,
+		func(ctx context.Context) (any, error) {
+			return obj.StateChanges, nil
+		},
+		nil,
+		ec.marshalNBaseSimulatedStateChange2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseSimulatedStateChangeᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedStateChanges_stateChanges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedStateChanges",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("FieldContext.Child cannot be called on type INTERFACE")
 		},
 	}
 	return fc, nil
@@ -15922,6 +17024,47 @@ func (ec *executionContext) _Balance(ctx context.Context, sel ast.SelectionSet, 
 			return typedObj
 		} else {
 			panic(fmt.Errorf("unexpected type %T; non-generated variants of Balance must implement graphql.Marshaler", obj))
+		}
+	}
+}
+
+func (ec *executionContext) _BaseSimulatedStateChange(ctx context.Context, sel ast.SelectionSet, obj BaseSimulatedStateChange) graphql.Marshaler {
+	switch obj := (obj).(type) {
+	case nil:
+		return graphql.Null
+	case SimulatedBalanceChange:
+		return ec._SimulatedBalanceChange(ctx, sel, &obj)
+	case *SimulatedBalanceChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedBalanceChange(ctx, sel, obj)
+	case SimulatedBalanceAuthorizationChange:
+		return ec._SimulatedBalanceAuthorizationChange(ctx, sel, &obj)
+	case *SimulatedBalanceAuthorizationChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedBalanceAuthorizationChange(ctx, sel, obj)
+	case SimulatedAllowanceChange:
+		return ec._SimulatedAllowanceChange(ctx, sel, &obj)
+	case *SimulatedAllowanceChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedAllowanceChange(ctx, sel, obj)
+	case SimulatedAccountCreatedChange:
+		return ec._SimulatedAccountCreatedChange(ctx, sel, &obj)
+	case *SimulatedAccountCreatedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedAccountCreatedChange(ctx, sel, obj)
+	default:
+		if typedObj, ok := obj.(graphql.Marshaler); ok {
+			return typedObj
+		} else {
+			panic(fmt.Errorf("unexpected type %T; non-generated variants of BaseSimulatedStateChange must implement graphql.Marshaler", obj))
 		}
 	}
 }
@@ -20773,6 +21916,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "simulateStateChanges":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_simulateStateChanges(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -22009,6 +23174,289 @@ func (ec *executionContext) _SignerUpdatedChange(ctx context.Context, sel ast.Se
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedAccountCreatedChangeImplementors = []string{"SimulatedAccountCreatedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedAccountCreatedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedAccountCreatedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedAccountCreatedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedAccountCreatedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedAccountCreatedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedAccountCreatedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedAccountCreatedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "creatorAddress":
+			out.Values[i] = ec._SimulatedAccountCreatedChange_creatorAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedAllowanceChangeImplementors = []string{"SimulatedAllowanceChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedAllowanceChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedAllowanceChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedAllowanceChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedAllowanceChange")
+		case "category":
+			out.Values[i] = ec._SimulatedAllowanceChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedAllowanceChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedAllowanceChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedAllowanceChange_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "spender":
+			out.Values[i] = ec._SimulatedAllowanceChange_spender(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._SimulatedAllowanceChange_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expirationLedger":
+			out.Values[i] = ec._SimulatedAllowanceChange_expirationLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedBalanceAuthorizationChangeImplementors = []string{"SimulatedBalanceAuthorizationChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedBalanceAuthorizationChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedBalanceAuthorizationChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedBalanceAuthorizationChange")
+		case "category":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_tokenId(ctx, field, obj)
+		case "liquidityPoolId":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_liquidityPoolId(ctx, field, obj)
+		case "flags":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_flags(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedBalanceChangeImplementors = []string{"SimulatedBalanceChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedBalanceChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedBalanceChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedBalanceChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedBalanceChange")
+		case "category":
+			out.Values[i] = ec._SimulatedBalanceChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedBalanceChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedBalanceChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenId":
+			out.Values[i] = ec._SimulatedBalanceChange_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._SimulatedBalanceChange_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "toMuxedId":
+			out.Values[i] = ec._SimulatedBalanceChange_toMuxedId(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedStateChangesImplementors = []string{"SimulatedStateChanges"}
+
+func (ec *executionContext) _SimulatedStateChanges(ctx context.Context, sel ast.SelectionSet, obj *SimulatedStateChanges) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedStateChangesImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedStateChanges")
+		case "latestLedger":
+			out.Values[i] = ec._SimulatedStateChanges_latestLedger(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "stateChanges":
+			out.Values[i] = ec._SimulatedStateChanges_stateChanges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -24265,6 +25713,32 @@ func (ec *executionContext) marshalNBalanceEdge2ᚖgithubᚗcomᚋstellarᚋwall
 	return ec._BalanceEdge(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNBaseSimulatedStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseSimulatedStateChange(ctx context.Context, sel ast.SelectionSet, v BaseSimulatedStateChange) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BaseSimulatedStateChange(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBaseSimulatedStateChange2ᚕgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseSimulatedStateChangeᚄ(ctx context.Context, sel ast.SelectionSet, v []BaseSimulatedStateChange) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBaseSimulatedStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseSimulatedStateChange(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) marshalNBaseStateChange2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBaseStateChange(ctx context.Context, sel ast.SelectionSet, v BaseStateChange) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
@@ -24510,6 +25984,20 @@ func (ec *executionContext) marshalNSEP41AllowanceEdge2ᚖgithubᚗcomᚋstellar
 		return graphql.Null
 	}
 	return ec._SEP41AllowanceEdge(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSimulatedStateChanges2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedStateChanges(ctx context.Context, sel ast.SelectionSet, v SimulatedStateChanges) graphql.Marshaler {
+	return ec._SimulatedStateChanges(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSimulatedStateChanges2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedStateChanges(ctx context.Context, sel ast.SelectionSet, v *SimulatedStateChanges) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SimulatedStateChanges(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx context.Context, v any) (types.StateChangeCategory, error) {

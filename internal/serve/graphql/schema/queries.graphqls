@@ -8,4 +8,12 @@ type Query {
 
     """Look up an operation by its ID (TOID)."""
     operationById(id: Int64!): Operation
+
+    """
+    Simulate an unsubmitted transaction and return the state changes it would
+    produce if submitted, in the same variant structure as the history API.
+    Currently accepts contract (Soroban) transactions, whose changes come from
+    RPC simulation; classic transactions are rejected as UNSUPPORTED_TRANSACTION.
+    """
+    simulateStateChanges(transactionXdr: String!): SimulatedStateChanges!
 }

@@ -865,24 +865,22 @@ func (r *Resolver) TrustlineUpdatedChange() graphql1.TrustlineUpdatedChangeResol
 	return &trustlineUpdatedChangeResolver{r}
 }
 
-type (
-	accountCreatedChangeResolver       struct{ *Resolver }
-	accountFlagsChangeResolver         struct{ *Resolver }
-	accountMergedChangeResolver        struct{ *Resolver }
-	allowanceChangeResolver            struct{ *Resolver }
-	balanceAuthorizationChangeResolver struct{ *Resolver }
-	balanceChangeResolver              struct{ *Resolver }
-	dataEntryAddedChangeResolver       struct{ *Resolver }
-	dataEntryRemovedChangeResolver     struct{ *Resolver }
-	dataEntryUpdatedChangeResolver     struct{ *Resolver }
-	homeDomainClearedChangeResolver    struct{ *Resolver }
-	homeDomainSetChangeResolver        struct{ *Resolver }
-	homeDomainUpdatedChangeResolver    struct{ *Resolver }
-	signerAddedChangeResolver          struct{ *Resolver }
-	signerRemovedChangeResolver        struct{ *Resolver }
-	signerUpdatedChangeResolver        struct{ *Resolver }
-	thresholdChangeResolver            struct{ *Resolver }
-	trustlineAddedChangeResolver       struct{ *Resolver }
-	trustlineRemovedChangeResolver     struct{ *Resolver }
-	trustlineUpdatedChangeResolver     struct{ *Resolver }
-)
+type accountCreatedChangeResolver struct{ *Resolver }
+type accountFlagsChangeResolver struct{ *Resolver }
+type accountMergedChangeResolver struct{ *Resolver }
+type allowanceChangeResolver struct{ *Resolver }
+type balanceAuthorizationChangeResolver struct{ *Resolver }
+type balanceChangeResolver struct{ *Resolver }
+type dataEntryAddedChangeResolver struct{ *Resolver }
+type dataEntryRemovedChangeResolver struct{ *Resolver }
+type dataEntryUpdatedChangeResolver struct{ *Resolver }
+type homeDomainClearedChangeResolver struct{ *Resolver }
+type homeDomainSetChangeResolver struct{ *Resolver }
+type homeDomainUpdatedChangeResolver struct{ *Resolver }
+type signerAddedChangeResolver struct{ *Resolver }
+type signerRemovedChangeResolver struct{ *Resolver }
+type signerUpdatedChangeResolver struct{ *Resolver }
+type thresholdChangeResolver struct{ *Resolver }
+type trustlineAddedChangeResolver struct{ *Resolver }
+type trustlineRemovedChangeResolver struct{ *Resolver }
+type trustlineUpdatedChangeResolver struct{ *Resolver }

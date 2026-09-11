@@ -7,12 +7,15 @@ package resolvers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -51,6 +54,38 @@ func (r *queryResolver) AccountByAddress(ctx context.Context, address string) (*
 func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Operation, error) {
 	dbColumns := GetDBColumnsForFields(ctx, types.Operation{})
 	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
+}
+
+// SimulateStateChanges is the resolver for the simulateStateChanges field.
+// It delegates to the transaction simulation service and maps its sentinel
+// errors onto the GraphQL error convention (extensions.code).
+func (r *queryResolver) SimulateStateChanges(ctx context.Context, transactionXdr string) (*graphql1.SimulatedStateChanges, error) {
+	result, err := r.simulationService.SimulateStateChanges(ctx, transactionXdr)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrInvalidTransactionXDR):
+			return nil, &gqlerror.Error{
+				Message:    err.Error(),
+				Extensions: map[string]interface{}{"code": "INVALID_TRANSACTION_XDR"},
+			}
+		case errors.Is(err, services.ErrUnsupportedTransaction):
+			return nil, &gqlerror.Error{
+				Message:    err.Error(),
+				Extensions: map[string]interface{}{"code": "UNSUPPORTED_TRANSACTION"},
+			}
+		default:
+			return nil, fmt.Errorf("simulating state changes: %w", err)
+		}
+	}
+
+	stateChanges, err := r.convertToSimulatedStateChanges(result.StateChanges)
+	if err != nil {
+		return nil, fmt.Errorf("converting simulated state changes: %w", err)
+	}
+	return &graphql1.SimulatedStateChanges{
+		LatestLedger: result.LatestLedger,
+		StateChanges: stateChanges,
+	}, nil
 }
 
 // Query returns graphql1.QueryResolver implementation.

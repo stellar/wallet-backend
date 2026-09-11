@@ -1,0 +1,102 @@
+"""
+Result of simulating an unsubmitted transaction: the state changes the
+indexer would produce if the transaction were submitted and included in a
+ledger, in the same variant structure as the history API's state changes.
+"""
+type SimulatedStateChanges {
+  """Latest ledger the simulation was evaluated against."""
+  latestLedger:               UInt32!
+  """State changes the transaction would produce."""
+  stateChanges:               [BaseSimulatedStateChange!]!
+}
+
+"""
+Common contract implemented by every simulated state change. Simulated
+variants mirror the history API's state-change types (same names with a
+`Simulated` prefix, same `(category, reason)` pairs and variant fields) but
+omit the fields that only exist after a transaction is included in a ledger:
+`ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and
+`transaction`. The affected account is exposed as a plain address rather than
+an `Account` entity, since the account may not be indexed yet.
+
+The set of concrete types grows with the transaction sources the simulation
+supports; today it covers the variants a contract (Soroban) transaction can
+produce.
+"""
+interface BaseSimulatedStateChange {
+  """Category of account state this change affects."""
+  category:                   StateChangeCategory!
+  """Why the change occurred. Each concrete type documents its valid reasons."""
+  reason:                     StateChangeReason!
+  """Address of the account whose state would change."""
+  accountAddress:             String!
+}
+
+"""
+Simulated mirror of BalanceChange. The transaction-fee row is (BALANCE, DEBIT)
+on the fee-paying account, estimated from the simulation's resource fee.
+Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
+"""
+type SimulatedBalanceChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the token whose balance would move."""
+  tokenId:                    String!
+  """Amount moved, as a decimal string in the token's smallest unit."""
+  amount:                     String!
+  """CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and MINT only)."""
+  toMuxedId:                  String
+}
+
+"""
+Simulated mirror of AccountCreatedChange. For a contract deployment,
+`accountAddress` is the deployed contract's C-address.
+Pair: (ACCOUNT, CREATE).
+"""
+type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Account that would create this one: the funder or the contract deployer."""
+  creatorAddress:             String!
+}
+
+"""
+Simulated mirror of AllowanceChange.
+Pair: (ALLOWANCE, UPDATE).
+"""
+type SimulatedAllowanceChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the token the allowance applies to."""
+  tokenId:                    String!
+  """Address authorized to spend from the holder's balance."""
+  spender:                    String!
+  """Approved allowance, as a decimal string in the token's smallest unit."""
+  amount:                     String!
+  """Last ledger sequence at which the allowance is live."""
+  expirationLedger:           UInt32!
+}
+
+"""
+Simulated mirror of BalanceAuthorizationChange. Exactly one of tokenId /
+liquidityPoolId is set.
+Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
+"""
+type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String
+  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String
+  """Trustline flags that would change; null for SAC contract-holder authorization, which has no flags."""
+  flags:                      [TrustlineFlag!]
+}
