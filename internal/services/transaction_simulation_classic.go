@@ -557,6 +557,7 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	}
 	if so.Signer != nil {
 		after.Signers = applySignerChange(after.Signers, *so.Signer)
+		realignSignerSponsorships(&after, account)
 		// A new signer is a subentry: it locks one more base reserve; a
 		// removed one releases it.
 		switch {
@@ -573,6 +574,36 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	}
 
 	return accountChangePair(account, after), nil
+}
+
+// realignSignerSponsorships rebuilds the account extension's
+// SignerSponsoringIDs array so it stays parallel to the new signer list: kept
+// signers keep their sponsor, a newly added signer has none. The two arrays
+// are indexed together (see xdr.AccountEntry.SponsorPerSigner), so leaving the
+// sponsorship array behind after a signer change panics the processors.
+func realignSignerSponsorships(after *xdr.AccountEntry, oldAccount xdr.AccountEntry) {
+	v1, ok := after.Ext.GetV1()
+	if !ok {
+		return
+	}
+	v2, ok := v1.Ext.GetV2()
+	if !ok {
+		return
+	}
+
+	oldSponsors := map[string]xdr.SponsorshipDescriptor{}
+	for i, signer := range oldAccount.Signers {
+		if i < len(v2.SignerSponsoringIDs) {
+			oldSponsors[signer.Key.Address()] = v2.SignerSponsoringIDs[i]
+		}
+	}
+	ids := make([]xdr.SponsorshipDescriptor, len(after.Signers))
+	for i, signer := range after.Signers {
+		ids[i] = oldSponsors[signer.Key.Address()]
+	}
+	v2.SignerSponsoringIDs = ids
+	v1.Ext.V2 = &v2
+	after.Ext.V1 = &v1
 }
 
 // applySignerChange returns the signer list after applying one change: a weight

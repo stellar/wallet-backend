@@ -561,6 +561,37 @@ func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 	})
 }
 
+// TestRealignSignerSponsorships pins the parallel-array contract: the account
+// extension's SignerSponsoringIDs must stay index-aligned with Signers after a
+// signer change, or processors indexing them together panic.
+func TestRealignSignerSponsorships(t *testing.T) {
+	existingSigner := xdr.MustSigner(keypair.MustRandom().Address())
+	sponsor := xdr.MustAddress(keypair.MustRandom().Address())
+	account := xdr.AccountEntry{
+		AccountId:     xdr.MustAddress(keypair.MustRandom().Address()),
+		Signers:       []xdr.Signer{{Key: existingSigner, Weight: 1}},
+		NumSubEntries: 1,
+		Ext: xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{
+			Ext: xdr.AccountEntryExtensionV1Ext{V: 2, V2: &xdr.AccountEntryExtensionV2{
+				SignerSponsoringIDs: []xdr.SponsorshipDescriptor{&sponsor},
+			}},
+		}},
+	}
+
+	after := cloneAccountEntry(account)
+	after.Signers = applySignerChange(after.Signers, xdr.Signer{
+		Key: xdr.MustSigner(keypair.MustRandom().Address()), Weight: 5,
+	})
+	realignSignerSponsorships(&after, account)
+
+	v2 := after.Ext.V1.Ext.V2
+	require.Len(t, v2.SignerSponsoringIDs, len(after.Signers),
+		"sponsoring IDs must stay parallel to the signer list")
+	require.NotNil(t, v2.SignerSponsoringIDs[0], "the kept signer keeps its sponsor")
+	assert.Equal(t, sponsor, *v2.SignerSponsoringIDs[0])
+	assert.Nil(t, v2.SignerSponsoringIDs[1], "a newly added signer has no sponsor")
+}
+
 // TestFetchLedgerEntries_batches verifies footprints larger than the RPC
 // getLedgerEntries key limit are fetched in multiple calls.
 func TestFetchLedgerEntries_batches(t *testing.T) {
