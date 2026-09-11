@@ -40,15 +40,15 @@ func printableASCII(s string) bool {
 // entries (computeClassicChanges). The resulting before/after entries feed
 // the same synthesis and processors as the Soroban path.
 func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
-	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
-		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: fee-bump classic transactions are not supported yet", ErrUnsupportedTransaction)
-	}
 	ops := envelope.Operations()
-	txSource := envelope.SourceAccount().ToAccountId()
+	// For a fee-bump envelope the operations come from the inner transaction
+	// but the fee is paid by the wrapper's fee source; FeeAccount resolves to
+	// the plain source for ordinary envelopes.
+	feeAccount := envelope.FeeAccount().ToAccountId()
 
 	// 1. Validate each operation and fetch every ledger entry the transaction
-	//    touches, always including the fee-paying source.
-	keys := []xdr.LedgerKey{accountLedgerKey(txSource)}
+	//    touches, always including the fee-paying account.
+	keys := []xdr.LedgerKey{accountLedgerKey(feeAccount)}
 	for _, op := range ops {
 		if err := validateClassicOperation(op); err != nil {
 			return ingest.LedgerTransaction{}, 0, err
@@ -79,18 +79,22 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	}
 
 	// 2. Reject what the network would reject up front: a bid below the base
-	//    fee per operation, or a source that cannot cover the full bid.
-	feeBid := int64(envelope.Fee())
+	//    fee per operation, or a fee source that cannot cover the full bid.
+	feeBid := envelopeFeeBid(envelope)
 	feeCharged := int64(len(ops)) * baseFeeStroops
+	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		// Core charges a fee-bump as one extra operation.
+		feeCharged += baseFeeStroops
+	}
 	if feeBid < feeCharged {
 		return ingest.LedgerTransaction{}, 0, wouldFail("fee bid %d is below the network minimum %d", feeBid, feeCharged)
 	}
-	feeSource, ok := lookupAccount(working, txSource)
+	feeSource, ok := lookupAccount(working, feeAccount)
 	if !ok {
-		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
+		return ingest.LedgerTransaction{}, 0, wouldFail("fee-paying account %s does not exist", feeAccount.Address())
 	}
 	if accountSpendableBalance(feeSource) < feeBid {
-		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee bid", txSource.Address(), feeBid)
+		return ingest.LedgerTransaction{}, 0, wouldFail("fee-paying account %s cannot cover the %d stroop fee bid", feeAccount.Address(), feeBid)
 	}
 
 	// Charge the fee before any operation runs: outside surge pricing Core
