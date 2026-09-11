@@ -343,7 +343,9 @@ func contractEventsFromSimulation(encoded []string) ([]xdr.ContractEvent, error)
 // successOperationResults builds one "succeeded" OperationResult per operation,
 // matching each operation's type. The processors look results up by position, so
 // the slice has to be there and each entry's type has to line up with the
-// matching operation in the envelope.
+// matching operation in the envelope. Only the Soroban path uses this; the
+// classic driver builds its results with classicOperationResult, because some
+// classic results carry state-dependent payloads.
 func successOperationResults(envelope xdr.TransactionEnvelope) (*[]xdr.OperationResult, error) {
 	ops := envelope.Operations()
 	results := make([]xdr.OperationResult, 0, len(ops))
@@ -363,24 +365,6 @@ func successOperationResults(envelope xdr.TransactionEnvelope) (*[]xdr.Operation
 			tr.RestoreFootprintResult = &xdr.RestoreFootprintResult{
 				Code: xdr.RestoreFootprintResultCodeRestoreFootprintSuccess,
 			}
-		case xdr.OperationTypePayment:
-			tr.PaymentResult = &xdr.PaymentResult{Code: xdr.PaymentResultCodePaymentSuccess}
-		case xdr.OperationTypeCreateAccount:
-			tr.CreateAccountResult = &xdr.CreateAccountResult{Code: xdr.CreateAccountResultCodeCreateAccountSuccess}
-		case xdr.OperationTypeChangeTrust:
-			tr.ChangeTrustResult = &xdr.ChangeTrustResult{Code: xdr.ChangeTrustResultCodeChangeTrustSuccess}
-		case xdr.OperationTypeSetOptions:
-			tr.SetOptionsResult = &xdr.SetOptionsResult{Code: xdr.SetOptionsResultCodeSetOptionsSuccess}
-		case xdr.OperationTypeManageData:
-			tr.ManageDataResult = &xdr.ManageDataResult{Code: xdr.ManageDataResultCodeManageDataSuccess}
-		case xdr.OperationTypeSetTrustLineFlags:
-			tr.SetTrustLineFlagsResult = &xdr.SetTrustLineFlagsResult{Code: xdr.SetTrustLineFlagsResultCodeSetTrustLineFlagsSuccess}
-		case xdr.OperationTypeAllowTrust:
-			tr.AllowTrustResult = &xdr.AllowTrustResult{Code: xdr.AllowTrustResultCodeAllowTrustSuccess}
-		case xdr.OperationTypeClawback:
-			tr.ClawbackResult = &xdr.ClawbackResult{Code: xdr.ClawbackResultCodeClawbackSuccess}
-		case xdr.OperationTypeBumpSequence:
-			tr.BumpSeqResult = &xdr.BumpSequenceResult{Code: xdr.BumpSequenceResultCodeBumpSequenceSuccess}
 		default:
 			return nil, fmt.Errorf("%w: operation type %s", ErrUnsupportedTransaction, op.Body.Type)
 		}

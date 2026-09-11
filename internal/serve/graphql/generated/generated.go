@@ -403,6 +403,13 @@ type ComplexityRoot struct {
 		Reason         func(childComplexity int) int
 	}
 
+	SimulatedAccountMergedChange struct {
+		AccountAddress     func(childComplexity int) int
+		Category           func(childComplexity int) int
+		DestinationAddress func(childComplexity int) int
+		Reason             func(childComplexity int) int
+	}
+
 	SimulatedAllowanceChange struct {
 		AccountAddress   func(childComplexity int) int
 		Amount           func(childComplexity int) int
@@ -2395,6 +2402,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SimulatedAccountFlagsChange.Reason(childComplexity), true
 
+	case "SimulatedAccountMergedChange.accountAddress":
+		if e.ComplexityRoot.SimulatedAccountMergedChange.AccountAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountMergedChange.AccountAddress(childComplexity), true
+	case "SimulatedAccountMergedChange.category":
+		if e.ComplexityRoot.SimulatedAccountMergedChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountMergedChange.Category(childComplexity), true
+	case "SimulatedAccountMergedChange.destinationAddress":
+		if e.ComplexityRoot.SimulatedAccountMergedChange.DestinationAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountMergedChange.DestinationAddress(childComplexity), true
+	case "SimulatedAccountMergedChange.reason":
+		if e.ComplexityRoot.SimulatedAccountMergedChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountMergedChange.Reason(childComplexity), true
+
 	case "SimulatedAllowanceChange.accountAddress":
 		if e.ComplexityRoot.SimulatedAllowanceChange.AccountAddress == nil {
 			break
@@ -4035,6 +4067,19 @@ type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
 
   """Account that would create this one: the funder or the contract deployer."""
   creatorAddress:             String!
+}
+
+"""
+Simulated mirror of AccountMergedChange.
+Pair: (ACCOUNT, MERGE).
+"""
+type SimulatedAccountMergedChange implements BaseSimulatedStateChange {
+  category:                   StateChangeCategory!
+  reason:                     StateChangeReason!
+  accountAddress:             String!
+
+  """Account that would receive the merged account's balance."""
+  destinationAddress:         String!
 }
 
 """
@@ -13446,6 +13491,122 @@ func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_flags(_ con
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedAccountMergedChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountMergedChange_category,
+		func(ctx context.Context) (any, error) {
+			return obj.Category, nil
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountMergedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountMergedChange_reason(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountMergedChange_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountMergedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountMergedChange_accountAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountMergedChange_accountAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.AccountAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_accountAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountMergedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountMergedChange_destinationAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountMergedChange_destinationAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.DestinationAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_destinationAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountMergedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedAllowanceChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20057,6 +20218,13 @@ func (ec *executionContext) _BaseSimulatedStateChange(ctx context.Context, sel a
 			return graphql.Null
 		}
 		return ec._SimulatedAllowanceChange(ctx, sel, obj)
+	case SimulatedAccountMergedChange:
+		return ec._SimulatedAccountMergedChange(ctx, sel, &obj)
+	case *SimulatedAccountMergedChange:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._SimulatedAccountMergedChange(ctx, sel, obj)
 	case SimulatedAccountFlagsChange:
 		return ec._SimulatedAccountFlagsChange(ctx, sel, &obj)
 	case *SimulatedAccountFlagsChange:
@@ -26290,6 +26458,60 @@ func (ec *executionContext) _SimulatedAccountFlagsChange(ctx context.Context, se
 			}
 		case "flags":
 			out.Values[i] = ec._SimulatedAccountFlagsChange_flags(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedAccountMergedChangeImplementors = []string{"SimulatedAccountMergedChange", "BaseSimulatedStateChange"}
+
+func (ec *executionContext) _SimulatedAccountMergedChange(ctx context.Context, sel ast.SelectionSet, obj *SimulatedAccountMergedChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedAccountMergedChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedAccountMergedChange")
+		case "category":
+			out.Values[i] = ec._SimulatedAccountMergedChange_category(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._SimulatedAccountMergedChange_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "accountAddress":
+			out.Values[i] = ec._SimulatedAccountMergedChange_accountAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "destinationAddress":
+			out.Values[i] = ec._SimulatedAccountMergedChange_destinationAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
