@@ -42,32 +42,6 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
 
-	t.Run("🔴 fee-bump transaction unsupported without touching RPC", func(t *testing.T) {
-		// The bare RPC mock has no expectations, so reaching RPC would fail the
-		// test: the guard must reject the envelope first.
-		var inner xdr.TransactionEnvelope
-		require.NoError(t, xdr.SafeUnmarshalBase64(nativeSACTransferXDR(t, keypair.MustRandom().Address()), &inner))
-		feeSource := xdr.MustAddress(keypair.MustRandom().Address())
-		bump := xdr.TransactionEnvelope{
-			Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
-			FeeBump: &xdr.FeeBumpTransactionEnvelope{
-				Tx: xdr.FeeBumpTransaction{
-					FeeSource: feeSource.ToMuxedAccount(),
-					Fee:       200,
-					InnerTx: xdr.FeeBumpTransactionInnerTx{
-						Type: xdr.EnvelopeTypeEnvelopeTypeTx,
-						V1:   inner.V1,
-					},
-				},
-			},
-		}
-		bumpB64, err := xdr.MarshalBase64(bump)
-		require.NoError(t, err)
-
-		_, err = svc.SimulateStateChanges(ctx, bumpB64)
-		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
-	})
-
 	t.Run("🔴 RPC simulation error surfaced", func(t *testing.T) {
 		rpcMock := &RPCServiceMock{}
 		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
@@ -210,6 +184,87 @@ func TestTransactionSimulationService_SimulateStateChanges_feeOverBid(t *testing
 	// One operation at the 100-stroop base fee plus the simulated resource fee
 	// of 100: the 5000-stroop bid must not leak into the row.
 	assert.Equal(t, "200", feeDebit.Amount.String)
+	rpcMock.AssertExpectations(t)
+}
+
+// TestTransactionSimulationService_SimulateStateChanges_sorobanFeeBump pins the
+// fee-bump path: the synthesized result must carry the fee-bump wrapper shape
+// real ingestion records, and the fee row must land on the wrapper's fee source
+// with the estimated charge, not on the inner source.
+func TestTransactionSimulationService_SimulateStateChanges_sorobanFeeBump(t *testing.T) {
+	from := keypair.MustRandom().Address()
+	feePayer := keypair.MustRandom().Address()
+	to := keypair.MustRandom().Address()
+	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
+
+	transferEvent := contractevents.GenerateEvent(
+		contractevents.EventTypeTransfer,
+		from, to, "",
+		nativeAsset,
+		big.NewInt(10_000_000),
+		network.TestNetworkPassphrase,
+	)
+	diagnosticB64, err := xdr.MarshalBase64(xdr.DiagnosticEvent{InSuccessfulContractCall: true, Event: transferEvent})
+	require.NoError(t, err)
+
+	var inner xdr.TransactionEnvelope
+	require.NoError(t, xdr.SafeUnmarshalBase64(nativeSACTransferXDR(t, from), &inner))
+	feeAID := xdr.MustAddress(feePayer)
+	bump := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+		FeeBump: &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: feeAID.ToMuxedAccount(),
+				Fee:       400,
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+					V1:   inner.V1,
+				},
+			},
+		},
+	}
+	bumpB64, err := xdr.MarshalBase64(bump)
+	require.NoError(t, err)
+
+	rpcMock := &RPCServiceMock{}
+	rpcMock.On("SimulateTransaction", bumpB64, entities.RPCResourceConfig{}).
+		Return(entities.RPCSimulateTransactionResult{
+			LatestLedger:   2900148,
+			MinResourceFee: "100",
+			Events:         []string{diagnosticB64},
+		}, nil).Once()
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	result, err := svc.SimulateStateChanges(context.Background(), bumpB64)
+	require.NoError(t, err)
+
+	var feeDebit *types.StateChange
+	transfers := map[types.StateChangeReason]types.StateChange{}
+	for i, sc := range result.StateChanges {
+		if sc.StateChangeCategory != types.StateChangeCategoryBalance {
+			continue
+		}
+		if sc.OperationID == 0 && sc.StateChangeReason == types.StateChangeReasonDebit {
+			feeDebit = &result.StateChanges[i]
+			continue
+		}
+		transfers[sc.StateChangeReason] = sc
+	}
+
+	require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+	assert.Equal(t, feePayer, string(feeDebit.AccountID), "the fee must land on the fee-bump source")
+	// One inner operation plus the bump itself at the 100-stroop base fee, plus
+	// the simulated resource fee of 100; the 400-stroop bid must not leak in.
+	assert.Equal(t, "300", feeDebit.Amount.String)
+
+	debit, ok := transfers[types.StateChangeReasonDebit]
+	require.True(t, ok, "expected the transfer DEBIT")
+	assert.Equal(t, from, string(debit.AccountID))
+	credit, ok := transfers[types.StateChangeReasonCredit]
+	require.True(t, ok, "expected the transfer CREDIT")
+	assert.Equal(t, to, string(credit.AccountID))
+
 	rpcMock.AssertExpectations(t)
 }
 
