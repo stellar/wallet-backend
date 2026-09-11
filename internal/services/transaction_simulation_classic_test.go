@@ -1002,6 +1002,97 @@ func trustlineEntryResultWithLiabilities(t *testing.T, address string, asset xdr
 	)
 }
 
+// buildFeeBumpTxXDRFrom wraps a single-op inner transaction from innerSource in
+// an unsigned fee-bump envelope paid for by feeSource, bidding bumpFee.
+func buildFeeBumpTxXDRFrom(t *testing.T, feeSource, innerSource string, bumpFee int64, body xdr.OperationBody) string {
+	t.Helper()
+	innerAID := xdr.MustAddress(innerSource)
+	feeAID := xdr.MustAddress(feeSource)
+	env := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+		FeeBump: &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: feeAID.ToMuxedAccount(),
+				Fee:       xdr.Int64(bumpFee),
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+					V1: &xdr.TransactionV1Envelope{
+						Tx: xdr.Transaction{
+							SourceAccount: innerAID.ToMuxedAccount(),
+							Fee:           100,
+							SeqNum:        1,
+							Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+							Operations:    []xdr.Operation{{Body: body}},
+						},
+					},
+				},
+			},
+		},
+	}
+	b64, err := xdr.MarshalBase64(env)
+	require.NoError(t, err)
+	return b64
+}
+
+func TestTransactionSimulationService_classicFeeBump(t *testing.T) {
+	ctx := context.Background()
+	feePayer := keypair.MustRandom().Address()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+	dstAID := xdr.MustAddress(dst)
+	payment := xdr.OperationBody{
+		Type: xdr.OperationTypePayment,
+		PaymentOp: &xdr.PaymentOp{
+			Destination: dstAID.ToMuxedAccount(),
+			Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+			Amount:      1_0000000,
+		},
+	}
+
+	t.Run("🟢 the wrapper's fee source pays the fee, not the inner source", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, feePayer, 100_0000000),
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		require.NoError(t, err)
+
+		feeDebit, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+		assert.Equal(t, feePayer, string(feeDebit.AccountID), "the fee must land on the fee-bump source")
+		// One inner operation plus the bump itself at the 100-stroop base fee;
+		// the 400-stroop bid must not leak into the row.
+		assert.Equal(t, "200", feeDebit.Amount.String, "the fee is the estimated charge, not the wrapper's bid")
+
+		debit, ok := opByReason[types.StateChangeReasonDebit]
+		require.True(t, ok, "expected the payment DEBIT")
+		assert.Equal(t, src, string(debit.AccountID))
+		credit, ok := opByReason[types.StateChangeReasonCredit]
+		require.True(t, ok, "expected the payment CREDIT")
+		assert.Equal(t, dst, string(credit.AccountID))
+	})
+
+	t.Run("🔴 a fee source that cannot cover the bid is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, feePayer, 2*baseReserveStroops), // nothing spendable
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a missing fee source is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
 func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 	ctx := context.Background()
 	src := keypair.MustRandom().Address()

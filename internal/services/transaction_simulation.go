@@ -122,13 +122,6 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 // Soroban transaction. It asks RPC to simulate the transaction and turns that
 // result into the ledger-entry changes and events the processors expect.
 func (s *transactionSimulationService) ledgerTransactionFromContract(transactionXDR string, envelope xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
-	// Fee-bump envelopes land here too (the Soroban check inspects the inner
-	// operations), but the synthesized result does not yet carry the fee-bump
-	// wrapper shape real ingestion records, so fail closed rather than return
-	// an unverified preview.
-	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
-		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: fee-bump transactions are not supported yet", ErrUnsupportedTransaction)
-	}
 	result, err := s.rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("simulating transaction via RPC: %w", err)
@@ -220,6 +213,10 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 		return ingest.LedgerTransaction{}, fmt.Errorf("parsing minResourceFee %q: %w", result.MinResourceFee, err)
 	}
 	feeCharged := int64(len(envelope.Operations()))*baseFeeStroops + minResourceFee
+	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		// Core charges a fee-bump as one extra operation.
+		feeCharged += baseFeeStroops
+	}
 
 	opMetas := []xdr.OperationMetaV2{{Changes: changes, Events: events}}
 	return newSimulatedLedgerTransaction(envelope, uint32(result.LatestLedger), feeCharged, opMetas, opResults), nil
@@ -242,15 +239,7 @@ func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq u
 				},
 			},
 		},
-		Result: xdr.TransactionResultPair{
-			Result: xdr.TransactionResult{
-				FeeCharged: xdr.Int64(feeCharged),
-				Result: xdr.TransactionResultResult{
-					Code:    xdr.TransactionResultCodeTxSuccess,
-					Results: opResults,
-				},
-			},
-		},
+		Result:     simulatedTransactionResult(envelope, feeCharged, opResults),
 		UnsafeMeta: xdr.TransactionMeta{
 			V: 4,
 			V4: &xdr.TransactionMetaV4{
@@ -258,6 +247,51 @@ func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq u
 			},
 		},
 	}
+}
+
+// simulatedTransactionResult builds the successful transaction result in the
+// shape real ingestion records for this envelope type: a plain result, or for
+// fee-bump envelopes the wrapper result nesting the inner transaction's result
+// (which is where readers like xdr.TransactionResult.OperationResults look).
+// The inner transaction hash is left zero; no processor reads it.
+func simulatedTransactionResult(envelope xdr.TransactionEnvelope, feeCharged int64, opResults *[]xdr.OperationResult) xdr.TransactionResultPair {
+	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		return xdr.TransactionResultPair{
+			Result: xdr.TransactionResult{
+				FeeCharged: xdr.Int64(feeCharged),
+				Result: xdr.TransactionResultResult{
+					Code: xdr.TransactionResultCodeTxFeeBumpInnerSuccess,
+					InnerResultPair: &xdr.InnerTransactionResultPair{
+						Result: xdr.InnerTransactionResult{
+							Result: xdr.InnerTransactionResultResult{
+								Code:    xdr.TransactionResultCodeTxSuccess,
+								Results: opResults,
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	return xdr.TransactionResultPair{
+		Result: xdr.TransactionResult{
+			FeeCharged: xdr.Int64(feeCharged),
+			Result: xdr.TransactionResultResult{
+				Code:    xdr.TransactionResultCodeTxSuccess,
+				Results: opResults,
+			},
+		},
+	}
+}
+
+// envelopeFeeBid returns the fee the envelope actually bids: the wrapper's fee
+// for a fee-bump (the inner transaction's fee is not charged when the bump
+// applies), the transaction's own fee otherwise.
+func envelopeFeeBid(envelope xdr.TransactionEnvelope) int64 {
+	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		return envelope.FeeBumpFee()
+	}
+	return int64(envelope.Fee())
 }
 
 // ledgerEntryChangesFromSimulation turns the simulation's before/after entries
