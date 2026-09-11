@@ -183,11 +183,21 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 	// Each scenario is one transaction, submitted in order because later ones
 	// depend on earlier state (the trustline must exist before the credit
 	// payment, the data entry before its removal, and so on).
+	// bumpTo must exceed A's live sequence when the bump_sequence scenario runs;
+	// a testnet sequence starts at ledger<<32 and each earlier scenario adds one,
+	// so a +10000 headroom is plenty.
+	bumpTarget := fetchSequence(t, rpcURL, accountA.Address()) + 10_000
+
 	scenarios := []struct {
 		name   string
 		source *keypair.Full
 		ops    []txnbuild.Operation
 	}{
+		// A becomes a revocable, clawback-enabled issuer FIRST, so B's trustline
+		// below is created clawback-enabled and the flag/clawback scenarios work.
+		{"set_options_issuer_flags", accountA, []txnbuild.Operation{
+			&txnbuild.SetOptions{SetFlags: []txnbuild.AccountFlag{txnbuild.AuthRevocable, txnbuild.AuthClawbackEnabled}},
+		}},
 		{"create_account", accountA, []txnbuild.Operation{
 			&txnbuild.CreateAccount{Destination: newAccount.Address(), Amount: "100"},
 		}},
@@ -207,6 +217,19 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 		}},
 		{"change_trust_update", accountB, []txnbuild.Operation{
 			&txnbuild.ChangeTrust{Line: usdc.MustToChangeTrustAsset(), Limit: "5000"},
+		}},
+		{"clawback", accountA, []txnbuild.Operation{
+			&txnbuild.Clawback{From: accountB.Address(), Amount: "5", Asset: usdc},
+		}},
+		{"set_trust_line_flags_clear", accountA, []txnbuild.Operation{
+			&txnbuild.SetTrustLineFlags{Trustor: accountB.Address(), Asset: usdc,
+				ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized}},
+		}},
+		{"allow_trust_authorize", accountA, []txnbuild.Operation{
+			&txnbuild.AllowTrust{Trustor: accountB.Address(), Type: usdc, Authorize: true},
+		}},
+		{"bump_sequence", accountA, []txnbuild.Operation{
+			&txnbuild.BumpSequence{BumpTo: bumpTarget},
 		}},
 		{"set_options", accountA, []txnbuild.Operation{
 			&txnbuild.SetOptions{
