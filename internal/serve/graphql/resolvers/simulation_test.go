@@ -179,7 +179,7 @@ func TestConvertToSimulatedStateChange(t *testing.T) {
 		base := types.StateChange{
 			StateChangeCategory: types.StateChangeCategorySigner,
 			AccountID:           types.AddressBytea(testSimAccount),
-			SignerAccountID:     validAddress(testSimSpender),
+			SignerAccountID:     types.NullSignerKeyBytea{SignerKeyBytea: types.SignerKeyBytea(testSimSpender), Valid: true},
 			SignerWeightOld:     sql.NullInt16{Int16: 3, Valid: true},
 			SignerWeightNew:     sql.NullInt16{Int16: 5, Valid: true},
 		}

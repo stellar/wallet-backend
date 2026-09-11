@@ -116,7 +116,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 		default: // invalid reason for BALANCE_AUTHORIZATION; falls through to the error below
 		}
 	case types.StateChangeCategorySigner:
-		signerAddress, err := r.resolveRequiredAddress(sc.SignerAccountID, "signerAddress")
+		signerAddress, err := r.resolveRequiredSignerKey(sc.SignerAccountID, "signerAddress")
 		if err != nil {
 			return nil, err
 		}
