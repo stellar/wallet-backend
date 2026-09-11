@@ -317,32 +317,34 @@ func createRPCContainer(ctx context.Context, testNetwork *testcontainers.DockerN
 	}, nil
 }
 
-// createMinioContainer starts a minio (S3-compatible) object store that backs the
+// createObjectStoreContainer starts a SeaweedFS S3-compatible object store that backs the
 // datastore ledger backend exercised by the protocol-migrate test. The host process
 // exports ledgers into it (see ledger_exporter.go) and the migrate container reads them
 // back through the production optimizedStorageBackend.
 //
 // The data dir lives only inside the container (no host bind-mount), so exported ledger
-// files are discarded when the container is reaped at teardown. Pre-creating the bucket
-// directory makes minio expose "ledgers" as a bucket at startup, so no bucket-creation
-// code or AWS SDK dependency is needed.
-func createMinioContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+// files are discarded when the container is reaped at teardown. `weed server -s3` runs
+// the whole stack (master, volume, filer, S3 gateway) in one process with no auth, and
+// the startup loop creates the bucket once the filer is up; the wait strategy lists the
+// bucket, so the container only reports ready when the bucket exists.
+func createObjectStoreContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
+	startupCmd := fmt.Sprintf(
+		"weed server -dir=/data -s3 & "+
+			"until echo s3.bucket.list | weed shell -master localhost:9333 2>/dev/null | grep -q %[1]s; do "+
+			"echo s3.bucket.create -name %[1]s | weed shell -master localhost:9333 2>/dev/null; sleep 1; done; wait",
+		datastoreBucket)
 	containerRequest := testcontainers.ContainerRequest{
-		Name:  minioNetworkAlias,
-		Image: minioImage,
+		Name:  objectStoreNetworkAlias,
+		Image: objectStoreImage,
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
-		Entrypoint: []string{"sh", "-c"},
-		Cmd:        []string{fmt.Sprintf("mkdir -p /data/%s && minio server /data --address :%s", datastoreBucket, minioPort)},
-		Env: map[string]string{
-			"MINIO_ROOT_USER":     minioRootUser,
-			"MINIO_ROOT_PASSWORD": minioRootPassword,
-		},
+		Entrypoint:   []string{"sh", "-c"},
+		Cmd:          []string{startupCmd},
 		Networks:     []string{testNetwork.Name},
-		ExposedPorts: []string{minioPort + "/tcp"},
-		WaitingFor: wait.ForHTTP("/minio/health/live").
-			WithPort(nat.Port(minioPort + "/tcp")).
+		ExposedPorts: []string{objectStorePort + "/tcp"},
+		WaitingFor: wait.ForHTTP("/" + datastoreBucket).
+			WithPort(nat.Port(objectStorePort + "/tcp")).
 			WithStartupTimeout(60 * time.Second),
 	}
 
@@ -352,13 +354,13 @@ func createMinioContainer(ctx context.Context, testNetwork *testcontainers.Docke
 		Started:          true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating minio container: %w", err)
+		return nil, fmt.Errorf("creating object-store container: %w", err)
 	}
-	log.Ctx(ctx).Infof("🔄 Created minio container")
+	log.Ctx(ctx).Infof("🔄 Created object-store container")
 
 	return &TestContainer{
 		Container:     container,
-		MappedPortStr: minioPort,
+		MappedPortStr: objectStorePort,
 	}, nil
 }
 
