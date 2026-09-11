@@ -38,6 +38,32 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
 
+	t.Run("🔴 fee-bump transaction unsupported without touching RPC", func(t *testing.T) {
+		// The bare RPC mock has no expectations, so reaching RPC would fail the
+		// test: the guard must reject the envelope first.
+		var inner xdr.TransactionEnvelope
+		require.NoError(t, xdr.SafeUnmarshalBase64(nativeSACTransferXDR(t, keypair.MustRandom().Address()), &inner))
+		feeSource := xdr.MustAddress(keypair.MustRandom().Address())
+		bump := xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+			FeeBump: &xdr.FeeBumpTransactionEnvelope{
+				Tx: xdr.FeeBumpTransaction{
+					FeeSource: feeSource.ToMuxedAccount(),
+					Fee:       200,
+					InnerTx: xdr.FeeBumpTransactionInnerTx{
+						Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+						V1:   inner.V1,
+					},
+				},
+			},
+		}
+		bumpB64, err := xdr.MarshalBase64(bump)
+		require.NoError(t, err)
+
+		_, err = svc.SimulateStateChanges(ctx, bumpB64)
+		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+	})
+
 	t.Run("🔴 RPC simulation error surfaced", func(t *testing.T) {
 		rpcMock := &RPCServiceMock{}
 		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
@@ -95,12 +121,27 @@ func TestTransactionSimulationService_SimulateStateChanges_soroban(t *testing.T)
 	nativeContractAddress, err := strkeyContractID(nativeContractID)
 	require.NoError(t, err)
 
+	// The fee row and the transfer debit share (BALANCE, DEBIT); the fee row is
+	// transaction-level (OperationID 0), so keep it separate or one overwrites
+	// the other and the fee synthesis goes untested.
+	var feeDebit *types.StateChange
 	byReason := map[types.StateChangeReason]types.StateChange{}
-	for _, sc := range result.StateChanges {
-		if sc.StateChangeCategory == types.StateChangeCategoryBalance {
-			byReason[sc.StateChangeReason] = sc
+	for i, sc := range result.StateChanges {
+		if sc.StateChangeCategory != types.StateChangeCategoryBalance {
+			continue
 		}
+		if sc.OperationID == 0 && sc.StateChangeReason == types.StateChangeReasonDebit {
+			feeDebit = &result.StateChanges[i]
+			continue
+		}
+		byReason[sc.StateChangeReason] = sc
 	}
+
+	require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+	assert.Equal(t, from, string(feeDebit.AccountID))
+	// The envelope bids 100 with no resource fee declared, so the charged fee is
+	// that inclusion fee plus the freshly simulated minResourceFee of 100.
+	assert.Equal(t, "200", feeDebit.Amount.String)
 
 	debit, ok := byReason[types.StateChangeReasonDebit]
 	require.True(t, ok, "expected a DEBIT balance change for the sender")

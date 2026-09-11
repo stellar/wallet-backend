@@ -140,6 +140,9 @@ func keyValueUint32(kv types.NullableJSONB, key string) (uint32, error) {
 	case uint32:
 		return v, nil
 	case float64:
+		if v != math.Trunc(v) {
+			return 0, fmt.Errorf("state change %s %v is not an integer", key, v)
+		}
 		if v < 0 || v > math.MaxUint32 {
 			return 0, fmt.Errorf("state change %s %v is out of uint32 range", key, v)
 		}

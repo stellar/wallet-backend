@@ -109,6 +109,13 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 // Soroban transaction. It asks RPC to simulate the transaction and turns that
 // result into the ledger-entry changes and events the processors expect.
 func (s *transactionSimulationService) ledgerTransactionFromContract(transactionXDR string, envelope xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
+	// Fee-bump envelopes land here too (the Soroban check inspects the inner
+	// operations), but the synthesized result does not yet carry the fee-bump
+	// wrapper shape real ingestion records, so fail closed rather than return
+	// an unverified preview.
+	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: fee-bump transactions are not supported yet", ErrUnsupportedTransaction)
+	}
 	result, err := s.rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("simulating transaction via RPC: %w", err)
