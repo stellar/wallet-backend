@@ -303,6 +303,75 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 	writeScenario(t, rpcURL, outDir, snapshotKeys, "account_merge", newAccount, &txnbuild.AccountMerge{
 		Destination: accountA.Address(),
 	})
+
+	// A fee-bumped payment: B's transaction, A pays the fee. The bump bids the
+	// minimum base fee so the charged fee equals the bid, the same convention
+	// every fixture relies on.
+	writeFeeBumpScenario(t, rpcURL, outDir, snapshotKeys, "fee_bump_payment", accountA, accountB, &txnbuild.Payment{
+		Destination: accountA.Address(), Amount: "1", Asset: txnbuild.NativeAsset{},
+	})
+}
+
+// writeFeeBumpScenario snapshots pre-state, submits one fee-bumped transaction
+// (innerSource signs the inner transaction, feeSource signs and pays the bump),
+// and writes the fixture carrying the UNSIGNED fee-bump envelope.
+func writeFeeBumpScenario(t *testing.T, rpcURL, outDir string, snapshotKeys []xdr.LedgerKey, name string, feeSource, innerSource *keypair.Full, ops ...txnbuild.Operation) {
+	t.Helper()
+	snapshot := snapshotLedgerEntries(t, rpcURL, snapshotKeys)
+
+	seq := fetchSequence(t, rpcURL, innerSource.Address())
+	innerTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &txnbuild.SimpleAccount{AccountID: innerSource.Address(), Sequence: seq},
+		Operations:           ops,
+		BaseFee:              txnbuild.MinBaseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
+		IncrementSequenceNum: true,
+	})
+	require.NoError(t, err)
+
+	// The unsigned envelope is what the fixture replays through the simulation;
+	// signatures play no role in state changes.
+	unsignedBump, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+		Inner: innerTx, FeeAccount: feeSource.Address(), BaseFee: txnbuild.MinBaseFee,
+	})
+	require.NoError(t, err)
+	unsignedB64, err := unsignedBump.Base64()
+	require.NoError(t, err)
+
+	signedInner, err := innerTx.Sign(network.TestNetworkPassphrase, innerSource)
+	require.NoError(t, err)
+	bump, err := txnbuild.NewFeeBumpTransaction(txnbuild.FeeBumpTransactionParams{
+		Inner: signedInner, FeeAccount: feeSource.Address(), BaseFee: txnbuild.MinBaseFee,
+	})
+	require.NoError(t, err)
+	bump, err = bump.Sign(network.TestNetworkPassphrase, feeSource)
+	require.NoError(t, err)
+	bumpB64, err := bump.Base64()
+	require.NoError(t, err)
+	hash, err := bump.HashHex(network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	var sendResult struct {
+		Status         string `json:"status"`
+		ErrorResultXdr string `json:"errorResultXdr"`
+	}
+	rpcCall(t, rpcURL, "sendTransaction", map[string]any{"transaction": bumpB64}, &sendResult)
+	require.Equalf(t, "PENDING", sendResult.Status, "%s: submit rejected (errorResultXdr=%s)", name, sendResult.ErrorResultXdr)
+	confirmed := waitForTransaction(t, rpcURL, name, hash)
+
+	fixture := equivalenceFixture{
+		Name:          name,
+		EnvelopeXDR:   unsignedB64,
+		ResultXDR:     confirmed.ResultXDR,
+		ResultMetaXDR: confirmed.ResultMetaXDR,
+		Ledger:        confirmed.Ledger,
+		LedgerEntries: snapshot,
+	}
+	payload, err := json.MarshalIndent(fixture, "", "  ")
+	require.NoError(t, err)
+	path := filepath.Join(outDir, name+".json")
+	require.NoError(t, os.WriteFile(path, append(payload, '\n'), 0o644))
+	t.Logf("wrote %s (ledger %d)", path, fixture.Ledger)
 }
 
 // writeScenario snapshots pre-state, submits one transaction, and writes the
