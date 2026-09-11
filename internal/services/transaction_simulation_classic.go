@@ -163,6 +163,30 @@ func validateClassicOperation(op xdr.Operation) error {
 		if so.Signer != nil && so.Signer.Weight > 255 {
 			return wouldFail("signer weight %d is out of range (0-255)", so.Signer.Weight)
 		}
+	case xdr.OperationTypeClawback:
+		if op.Body.ClawbackOp.Amount <= 0 {
+			return wouldFail("clawback amount must be positive, got %d", op.Body.ClawbackOp.Amount)
+		}
+	case xdr.OperationTypeSetTrustLineFlags:
+		st := op.Body.SetTrustLineFlagsOp
+		validFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag | xdr.TrustLineFlagsTrustlineClawbackEnabledFlag)
+		if st.SetFlags&st.ClearFlags != 0 {
+			return wouldFail("a trustline flag cannot be both set and cleared in one operation")
+		}
+		if st.SetFlags&^validFlags != 0 || st.ClearFlags&^validFlags != 0 {
+			return wouldFail("unknown trustline flag bits")
+		}
+		if st.SetFlags&xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag) != 0 {
+			return wouldFail("the clawback-enabled trustline flag can only be cleared, never set")
+		}
+	case xdr.OperationTypeAllowTrust:
+		if op.Body.AllowTrustOp.Authorize > xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag) {
+			return wouldFail("allowTrust authorize value %d is invalid", op.Body.AllowTrustOp.Authorize)
+		}
+	case xdr.OperationTypeBumpSequence:
+		if op.Body.BumpSequenceOp.BumpTo < 0 {
+			return wouldFail("bumpTo cannot be negative, got %d", op.Body.BumpSequenceOp.BumpTo)
+		}
 	default:
 		// createAccount's starting balance is validated against the minimum
 		// reserve in its handler; manageData's field bounds are enforced by
@@ -239,6 +263,30 @@ func classicFootprint(op xdr.Operation, opSource xdr.AccountId) ([]xdr.LedgerKey
 			accountLedgerKey(opSource),
 			dataLedgerKey(opSource, string(op.Body.ManageDataOp.DataName)),
 		}, nil
+
+	case xdr.OperationTypeSetTrustLineFlags:
+		st := op.Body.SetTrustLineFlagsOp
+		return []xdr.LedgerKey{
+			accountLedgerKey(opSource),
+			trustlineLedgerKey(st.Trustor, st.Asset),
+		}, nil
+
+	case xdr.OperationTypeAllowTrust:
+		at := op.Body.AllowTrustOp
+		return []xdr.LedgerKey{
+			accountLedgerKey(opSource),
+			trustlineLedgerKey(at.Trustor, at.Asset.ToAsset(opSource)),
+		}, nil
+
+	case xdr.OperationTypeClawback:
+		cb := op.Body.ClawbackOp
+		return []xdr.LedgerKey{
+			accountLedgerKey(opSource),
+			trustlineLedgerKey(cb.From.ToAccountId(), cb.Asset),
+		}, nil
+
+	case xdr.OperationTypeBumpSequence:
+		return []xdr.LedgerKey{accountLedgerKey(opSource)}, nil
 
 	default:
 		return nil, fmt.Errorf("%w: classic operation type %s is not supported", ErrUnsupportedTransaction, op.Body.Type)
@@ -328,6 +376,15 @@ func computeClassicChanges(op xdr.Operation, opSource xdr.AccountId, before map[
 		return computeSetOptionsChanges(*op.Body.SetOptionsOp, opSource, before)
 	case xdr.OperationTypeManageData:
 		return computeManageDataChanges(*op.Body.ManageDataOp, opSource, before)
+	case xdr.OperationTypeSetTrustLineFlags:
+		st := *op.Body.SetTrustLineFlagsOp
+		return computeTrustlineFlagChanges(opSource, st.Trustor, st.Asset, st.SetFlags, st.ClearFlags, before)
+	case xdr.OperationTypeAllowTrust:
+		return computeAllowTrustChanges(*op.Body.AllowTrustOp, opSource, before)
+	case xdr.OperationTypeClawback:
+		return computeClawbackChanges(*op.Body.ClawbackOp, opSource, before)
+	case xdr.OperationTypeBumpSequence:
+		return computeBumpSequenceChanges(*op.Body.BumpSequenceOp, opSource, before)
 	default:
 		// classicFootprint already rejected unsupported types; this is a guard
 		// against the two switches drifting apart.
@@ -573,6 +630,108 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 		}
 	}
 
+	return accountChangePair(account, after), nil
+}
+
+// computeAllowTrustChanges translates the legacy allowTrust operation into the
+// equivalent trustline flag change: authorize 0 clears both authorization
+// flags, 1 grants full authorization, 2 grants maintain-liabilities only.
+func computeAllowTrustChanges(at xdr.AllowTrustOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+	authFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	set := at.Authorize
+	clear := authFlags &^ at.Authorize
+	return computeTrustlineFlagChanges(opSource, at.Trustor, at.Asset.ToAsset(opSource), set, clear, before)
+}
+
+// computeTrustlineFlagChanges applies an issuer's flag change to the trustor's
+// trustline for the asset. Lowering the authorization level requires the
+// issuer's AUTH_REVOCABLE flag, matching Core.
+//
+// Note: fully revoking authorization on the real network also cancels the
+// trustor's open offers in the asset and redeems its pool shares; those
+// entries are outside the declarative footprint, so the preview shows the
+// flag change only.
+func computeTrustlineFlagChanges(issuer, trustor xdr.AccountId, asset xdr.Asset, set, clear xdr.Uint32, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+	if asset.GetIssuer() != issuer.Address() {
+		return nil, wouldFail("only the issuer of %s can change its trustline flags", assetString(asset))
+	}
+	if trustor.Equals(issuer) {
+		return nil, wouldFail("the issuer cannot hold a trustline for its own asset %s", assetString(asset))
+	}
+	issuerAccount, ok := lookupAccount(before, issuer)
+	if !ok {
+		return nil, wouldFail("issuer account %s does not exist", issuer.Address())
+	}
+	line, ok := lookupTrustline(before, trustor, asset)
+	if !ok {
+		return nil, wouldFail("account %s holds no trustline for %s", trustor.Address(), assetString(asset))
+	}
+
+	newFlags := (line.Flags &^ clear) | set
+	if trustlineAuthLevel(newFlags) < trustlineAuthLevel(line.Flags) &&
+		issuerAccount.Flags&xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag) == 0 {
+		return nil, wouldFail("issuer %s cannot revoke authorization without the AUTH_REVOCABLE flag", issuer.Address())
+	}
+
+	after := line
+	after.Flags = newFlags
+	return trustlineChangePair(line, after), nil
+}
+
+// trustlineAuthLevel orders the authorization states: fully authorized (2),
+// authorized to maintain liabilities only (1), unauthorized (0). Moving down
+// this ladder is a revocation.
+func trustlineAuthLevel(flags xdr.Uint32) int {
+	switch {
+	case flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag) != 0:
+		return 2
+	case flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag) != 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// computeClawbackChanges removes a stated amount of the issuer's asset from a
+// holder's trustline. The trustline must have been created clawback-enabled.
+func computeClawbackChanges(cb xdr.ClawbackOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+	from := cb.From.ToAccountId()
+	if cb.Asset.GetIssuer() != opSource.Address() {
+		return nil, wouldFail("only the issuer of %s can claw it back", assetString(cb.Asset))
+	}
+	if from.Equals(opSource) {
+		return nil, wouldFail("cannot claw back from the issuer itself")
+	}
+	line, ok := lookupTrustline(before, from, cb.Asset)
+	if !ok {
+		return nil, wouldFail("account %s holds no trustline for %s", from.Address(), assetString(cb.Asset))
+	}
+	if line.Flags&xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag) == 0 {
+		return nil, wouldFail("trustline for %s is not clawback enabled", assetString(cb.Asset))
+	}
+	available := int64(line.Balance) - trustlineSellingLiabilities(line)
+	if available < int64(cb.Amount) {
+		return nil, wouldFail("clawback amount %d exceeds the available balance %d", cb.Amount, available)
+	}
+	after := line
+	after.Balance -= cb.Amount
+	return trustlineChangePair(line, after), nil
+}
+
+// computeBumpSequenceChanges bumps the source's sequence number forward; a
+// bumpTo at or below the current sequence is a successful no-op, matching
+// Core. Sequence numbers do not surface as wallet-facing state changes, so the
+// preview usually carries only the fee row.
+func computeBumpSequenceChanges(bs xdr.BumpSequenceOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+	account, ok := lookupAccount(before, opSource)
+	if !ok {
+		return nil, wouldFail("source account %s does not exist", opSource.Address())
+	}
+	if bs.BumpTo <= account.SeqNum {
+		return xdr.LedgerEntryChanges{}, nil
+	}
+	after := cloneAccountEntry(account)
+	after.SeqNum = bs.BumpTo
 	return accountChangePair(account, after), nil
 }
 

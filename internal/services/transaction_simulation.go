@@ -373,6 +373,14 @@ func successOperationResults(envelope xdr.TransactionEnvelope) (*[]xdr.Operation
 			tr.SetOptionsResult = &xdr.SetOptionsResult{Code: xdr.SetOptionsResultCodeSetOptionsSuccess}
 		case xdr.OperationTypeManageData:
 			tr.ManageDataResult = &xdr.ManageDataResult{Code: xdr.ManageDataResultCodeManageDataSuccess}
+		case xdr.OperationTypeSetTrustLineFlags:
+			tr.SetTrustLineFlagsResult = &xdr.SetTrustLineFlagsResult{Code: xdr.SetTrustLineFlagsResultCodeSetTrustLineFlagsSuccess}
+		case xdr.OperationTypeAllowTrust:
+			tr.AllowTrustResult = &xdr.AllowTrustResult{Code: xdr.AllowTrustResultCodeAllowTrustSuccess}
+		case xdr.OperationTypeClawback:
+			tr.ClawbackResult = &xdr.ClawbackResult{Code: xdr.ClawbackResultCodeClawbackSuccess}
+		case xdr.OperationTypeBumpSequence:
+			tr.BumpSeqResult = &xdr.BumpSequenceResult{Code: xdr.BumpSequenceResultCodeBumpSequenceSuccess}
 		default:
 			return nil, fmt.Errorf("%w: operation type %s", ErrUnsupportedTransaction, op.Body.Type)
 		}
