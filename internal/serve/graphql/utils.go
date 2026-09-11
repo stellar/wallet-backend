@@ -36,8 +36,9 @@ var clientSafeErrorCodes = map[string]bool{
 	"UNAUTHENTICATED":           true,
 	"FORBIDDEN":                 true,
 	"PERSISTED_QUERY_NOT_FOUND": true, // gqlgen extension.AutomaticPersistedQuery: hash-only cache miss; the client must receive it verbatim to retry with the full query
-	"INVALID_TRANSACTION_XDR":   true, // resolvers/queries.resolvers.go: simulateStateChanges
-	"UNSUPPORTED_TRANSACTION":   true, // resolvers/queries.resolvers.go: simulateStateChanges
+	"INVALID_TRANSACTION_XDR":   true, // simulateStateChanges: the transaction envelope failed to decode
+	"UNSUPPORTED_TRANSACTION":   true, // simulateStateChanges: the transaction/operation type is not simulatable
+	"SIMULATION_FAILED":         true, // simulateStateChanges: RPC simulateTransaction reported an error (e.g. a contract trap)
 }
 
 // CustomErrorPresenter provides more detailed error messages for GraphQL validation errors, and
