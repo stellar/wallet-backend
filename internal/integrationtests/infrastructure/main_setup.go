@@ -35,7 +35,7 @@ type SharedContainers struct {
 	StellarCoreContainer   *TestContainer
 	RPCContainer           *TestContainer
 	WalletDBContainer      *TestContainer
-	MinioContainer         *TestContainer // S3-compatible object store backing the datastore ledger backend
+	ObjectStoreContainer   *TestContainer // S3-compatible object store backing the datastore ledger backend
 	WalletBackendContainer *WalletBackendContainer
 	BackfillContainer      *TestContainer // Separate container for backfill testing
 
@@ -117,10 +117,10 @@ func (s *SharedContainers) initializeContainerInfrastructure(ctx context.Context
 		return fmt.Errorf("creating RPC container: %w", err)
 	}
 
-	// Start minio (object store for the datastore ledger backend exercised by the migration test)
-	s.MinioContainer, err = createMinioContainer(ctx, s.TestNetwork)
+	// Start the object store for the datastore ledger backend exercised by the migration test
+	s.ObjectStoreContainer, err = createObjectStoreContainer(ctx, s.TestNetwork)
 	if err != nil {
-		return fmt.Errorf("creating minio container: %w", err)
+		return fmt.Errorf("creating object-store container: %w", err)
 	}
 
 	return nil
@@ -510,8 +510,8 @@ func (s *SharedContainers) Cleanup(ctx context.Context) {
 	if s.RPCContainer != nil {
 		_ = (*s.RPCContainer).Terminate(ctx) //nolint:errcheck
 	}
-	if s.MinioContainer != nil {
-		_ = (*s.MinioContainer).Terminate(ctx) //nolint:errcheck
+	if s.ObjectStoreContainer != nil {
+		_ = (*s.ObjectStoreContainer).Terminate(ctx) //nolint:errcheck
 	}
 	if s.StellarCoreContainer != nil {
 		_ = (*s.StellarCoreContainer).Terminate(ctx) //nolint:errcheck
