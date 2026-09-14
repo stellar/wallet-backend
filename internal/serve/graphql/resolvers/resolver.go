@@ -112,6 +112,8 @@ func (r *Resolver) resolveRequiredAddress(field types.NullAddressBytea, fieldNam
 
 // resolveRequiredSignerKey resolves a required signer key field into its strkey string.
 // Returns an error when the field is null, since the GraphQL schema declares it non-nullable.
+//
+//nolint:unparam // fieldName mirrors the other resolveRequired* helpers; every signer field happens to share one name.
 func (r *Resolver) resolveRequiredSignerKey(field types.NullSignerKeyBytea, fieldName string) (string, error) {
 	if !field.Valid {
 		return "", fmt.Errorf("state change is missing required %s", fieldName)
