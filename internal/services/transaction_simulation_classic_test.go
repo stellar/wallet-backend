@@ -625,6 +625,68 @@ func buildMultiOpTxXDRFrom(t *testing.T, sourceAccount string, ops ...txnbuild.O
 	return txXDR
 }
 
+// buildMultiOpTxXDRWithBaseFee is buildMultiOpTxXDRFrom with an explicit
+// per-operation fee bid, for pinning bid-versus-charge behavior.
+func buildMultiOpTxXDRWithBaseFee(t *testing.T, sourceAccount string, baseFee int64, ops ...txnbuild.Operation) string {
+	t.Helper()
+	src := txnbuild.SimpleAccount{AccountID: sourceAccount, Sequence: 1}
+	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
+		SourceAccount:        &src,
+		Operations:           ops,
+		BaseFee:              baseFee,
+		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
+		IncrementSequenceNum: true,
+	})
+	require.NoError(t, err)
+	txXDR, err := tx.Base64()
+	require.NoError(t, err)
+	return txXDR
+}
+
+// TestTransactionSimulationService_classicFeeBidVersusCharge pins that the fee
+// bid is only checked for affordability while the working state and the fee row
+// carry the estimated charge: wallets routinely bid headroom, and deducting the
+// whole bid would fail operations the network would apply.
+func TestTransactionSimulationService_classicFeeBidVersusCharge(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+
+	t.Run("🟢 a padded bid neither fails the spend nor inflates the fee row", func(t *testing.T) {
+		// Balance covers the reserve, the 1 XLM payment, and the 200-stroop
+		// charge with 300 stroops to spare, but NOT the 2000-stroop bid on top:
+		// deducting the bid would falsely fail the payment.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 2*baseReserveStroops+1_0000000+500),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRWithBaseFee(t, src, 1000,
+			&txnbuild.Payment{Destination: dst, Amount: "0.5", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.Payment{Destination: dst, Amount: "0.5", Asset: txnbuild.NativeAsset{}},
+		))
+		require.NoError(t, err)
+
+		feeDebit, _ := balanceChangesByReasonAndOp(result.StateChanges)
+		require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+		assert.Equal(t, "200", feeDebit.Amount.String, "the fee row must carry the per-operation charge, not the 2000-stroop bid")
+	})
+
+	t.Run("🔴 a bid the source cannot cover is still a would-fail", func(t *testing.T) {
+		// The network refuses a transaction whose source cannot pay the full
+		// bid, so a spendable balance below the bid must fail even though it
+		// covers the actual charge.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 2*baseReserveStroops+1000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRWithBaseFee(t, src, 1000,
+			&txnbuild.Payment{Destination: dst, Amount: "0.00001", Asset: txnbuild.NativeAsset{}},
+			&txnbuild.Payment{Destination: dst, Amount: "0.00001", Asset: txnbuild.NativeAsset{}},
+		))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
 func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 	ctx := context.Background()
 	src := keypair.MustRandom().Address()

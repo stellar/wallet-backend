@@ -44,21 +44,22 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		return ingest.LedgerTransaction{}, 0, err
 	}
 
-	// 2. Charge the fee to the source's entry before any operation runs.
-	//    Careful: this subtraction is internal bookkeeping only and must not be
-	//    emitted as an operation change. The preview's fee row is already
-	//    derived from Result.FeeCharged, so emitting the subtraction too would
-	//    double-count the fee.
-	fee := int64(envelope.Fee())
+	// 2. Check and charge the fee before any operation runs, mirroring the
+	//    network: the source must cover the full bid, but only the base fee per
+	//    operation is actually charged outside surge pricing. The subtraction
+	//    is internal bookkeeping only; the fee row comes from Result.FeeCharged,
+	//    so emitting it too would double-count the fee.
+	feeBid := int64(envelope.Fee())
+	feeCharged := int64(len(ops)) * baseFeeStroops
 	feeSource, ok := lookupAccount(working, txSource)
 	if !ok {
 		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
 	}
-	if accountSpendableBalance(feeSource) < fee {
-		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee", txSource.Address(), fee)
+	if accountSpendableBalance(feeSource) < feeBid {
+		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee bid", txSource.Address(), feeBid)
 	}
 	feeSourceAfter := cloneAccountEntry(feeSource)
-	feeSourceAfter.Balance -= xdr.Int64(fee)
+	feeSourceAfter.Balance -= xdr.Int64(feeCharged)
 	if err := storeWorkingEntry(working, accountLedgerEntry(feeSourceAfter)); err != nil {
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("charging fee to working state: %w", err)
 	}
@@ -77,13 +78,12 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		}
 	}
 
-	// 4. Assemble the ledger transaction the processors will read; the fee bid
-	//    stands in for the charged fee (exact outside surge pricing).
+	// 4. Assemble the ledger transaction the processors will read.
 	opResults, err := successOperationResults(envelope)
 	if err != nil {
 		return ingest.LedgerTransaction{}, 0, err
 	}
-	tx := newSimulatedLedgerTransaction(envelope, latestLedger, fee, opMetas, opResults)
+	tx := newSimulatedLedgerTransaction(envelope, latestLedger, feeCharged, opMetas, opResults)
 	return tx, latestLedger, nil
 }
 
