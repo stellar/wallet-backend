@@ -64,17 +64,17 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 
 	// 2. Reject what the network would reject up front: a bid below the base
 	//    fee per operation, or a source that cannot cover the full bid.
-	fee := int64(envelope.Fee())
+	feeBid := int64(envelope.Fee())
 	feeCharged := int64(len(ops)) * baseFeeStroops
-	if fee < feeCharged {
-		return ingest.LedgerTransaction{}, 0, wouldFail("fee bid %d is below the network minimum %d", fee, feeCharged)
+	if feeBid < feeCharged {
+		return ingest.LedgerTransaction{}, 0, wouldFail("fee bid %d is below the network minimum %d", feeBid, feeCharged)
 	}
 	feeSource, ok := lookupAccount(working, txSource)
 	if !ok {
 		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
 	}
-	if accountSpendableBalance(feeSource) < fee {
-		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee", txSource.Address(), fee)
+	if accountSpendableBalance(feeSource) < feeBid {
+		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee bid", txSource.Address(), feeBid)
 	}
 
 	// Charge the fee before any operation runs: outside surge pricing Core
