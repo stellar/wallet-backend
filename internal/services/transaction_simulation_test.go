@@ -190,7 +190,7 @@ func TestTransactionSimulationService_SimulateStateChanges_feeOverBid(t *testing
 			MinResourceFee: "100",
 			Events:         []string{diagnosticB64},
 		}, nil).Once()
-	svc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
 	require.NoError(t, err)
 
 	result, err := svc.SimulateStateChanges(context.Background(), paddedXDR)
