@@ -106,17 +106,17 @@ func (s *DataMigrationTestSuite) TestProtocolSetupThenCurrentStateMigration() {
 
 	// Phase 3: protocol-migrate current-state builds SEP-41 balances from start ledger to
 	// the tip, coalescing with --window-size 10, using the production datastore backend
-	// (optimizedStorageBackend reading from the in-test minio object store) — the same path
-	// live migrations use. A host-side exporter streams standalone ledgers into minio and
+	// (optimizedStorageBackend reading from the in-test object store) — the same path
+	// live migrations use. A host-side exporter streams standalone ledgers into it and
 	// keeps following the tip, so the unbounded datastore backend never starves; the
 	// migration converges and hands off to live ingestion at the tip exactly as it would
 	// with the RPC backend. The migrate container persists as "wallet-backend-protocol-migrate"
 	// for `docker logs`.
 	rpcURL, err := s.testEnv.Containers.RPCContainer.GetConnectionString(ctx)
 	s.Require().NoError(err)
-	minioEndpoint, err := s.testEnv.Containers.MinioContainer.GetConnectionString(ctx)
+	objectStoreEndpoint, err := s.testEnv.Containers.ObjectStoreContainer.GetConnectionString(ctx)
 	s.Require().NoError(err)
-	stopExporter := infrastructure.StartLedgerExporter(s.T(), rpcURL, minioEndpoint, startLedger)
+	stopExporter := infrastructure.StartLedgerExporter(s.T(), rpcURL, objectStoreEndpoint, startLedger)
 	defer stopExporter()
 
 	// Datastore config (bucket, endpoint, schema, buffer/worker tuning) arrives via env from
