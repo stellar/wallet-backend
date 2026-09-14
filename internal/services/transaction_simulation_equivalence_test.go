@@ -304,9 +304,14 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 		Destination: accountA.Address(),
 	})
 
+	// A payment bidding double the base fee: the network still charges only the
+	// base fee, pinning that a padded bid does not inflate the derived fee row.
+	writeScenarioWithBaseFee(t, rpcURL, outDir, snapshotKeys, "payment_padded_bid", accountB, 2*txnbuild.MinBaseFee, &txnbuild.Payment{
+		Destination: accountA.Address(), Amount: "1", Asset: txnbuild.NativeAsset{},
+	})
+
 	// A fee-bumped payment: B's transaction, A pays the fee. The bump bids the
-	// minimum base fee so the charged fee equals the bid, the same convention
-	// every fixture relies on.
+	// minimum base fee.
 	writeFeeBumpScenario(t, rpcURL, outDir, snapshotKeys, "fee_bump_payment", accountA, accountB, &txnbuild.Payment{
 		Destination: accountA.Address(), Amount: "1", Asset: txnbuild.NativeAsset{},
 	})
@@ -378,8 +383,15 @@ func writeFeeBumpScenario(t *testing.T, rpcURL, outDir string, snapshotKeys []xd
 // fixture; it returns the fixture so a later scenario can read its result.
 func writeScenario(t *testing.T, rpcURL, outDir string, snapshotKeys []xdr.LedgerKey, name string, source *keypair.Full, ops ...txnbuild.Operation) equivalenceFixture {
 	t.Helper()
+	return writeScenarioWithBaseFee(t, rpcURL, outDir, snapshotKeys, name, source, txnbuild.MinBaseFee, ops...)
+}
+
+// writeScenarioWithBaseFee is writeScenario with an explicit per-operation fee
+// bid, for pinning bid-versus-charge behavior against the real network.
+func writeScenarioWithBaseFee(t *testing.T, rpcURL, outDir string, snapshotKeys []xdr.LedgerKey, name string, source *keypair.Full, baseFee int64, ops ...txnbuild.Operation) equivalenceFixture {
+	t.Helper()
 	snapshot := snapshotLedgerEntries(t, rpcURL, snapshotKeys)
-	fixture := captureFixture(t, rpcURL, name, source, ops...)
+	fixture := captureFixture(t, rpcURL, name, source, baseFee, ops...)
 	fixture.LedgerEntries = snapshot
 	payload, err := json.MarshalIndent(fixture, "", "  ")
 	require.NoError(t, err)
@@ -410,14 +422,14 @@ func balanceIDHex(t *testing.T, id xdr.ClaimableBalanceId) string {
 }
 
 // captureFixture submits one transaction and returns its on-chain record.
-func captureFixture(t *testing.T, rpcURL, name string, source *keypair.Full, ops ...txnbuild.Operation) equivalenceFixture {
+func captureFixture(t *testing.T, rpcURL, name string, source *keypair.Full, baseFee int64, ops ...txnbuild.Operation) equivalenceFixture {
 	t.Helper()
 
 	seq := fetchSequence(t, rpcURL, source.Address())
 	tx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount:        &txnbuild.SimpleAccount{AccountID: source.Address(), Sequence: seq},
 		Operations:           ops,
-		BaseFee:              txnbuild.MinBaseFee,
+		BaseFee:              baseFee,
 		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(300)},
 		IncrementSequenceNum: true,
 	})
