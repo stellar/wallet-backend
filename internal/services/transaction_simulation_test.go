@@ -158,6 +158,57 @@ func TestTransactionSimulationService_SimulateStateChanges_soroban(t *testing.T)
 	rpcMock.AssertExpectations(t)
 }
 
+// TestTransactionSimulationService_SimulateStateChanges_feeOverBid pins that the
+// fee row reflects the modeled network charge, not the envelope's maximum fee
+// bid: wallets routinely bid headroom, and echoing the bid would overstate the
+// fee whenever they do.
+func TestTransactionSimulationService_SimulateStateChanges_feeOverBid(t *testing.T) {
+	from := keypair.MustRandom().Address()
+	nativeAsset := xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}
+
+	transferEvent := contractevents.GenerateEvent(
+		contractevents.EventTypeTransfer,
+		from, keypair.MustRandom().Address(), "",
+		nativeAsset,
+		big.NewInt(10_000_000),
+		network.TestNetworkPassphrase,
+	)
+	diagnosticB64, err := xdr.MarshalBase64(xdr.DiagnosticEvent{InSuccessfulContractCall: true, Event: transferEvent})
+	require.NoError(t, err)
+
+	// The same transaction, but bidding 5000 stroops instead of the minimum.
+	var envelope xdr.TransactionEnvelope
+	require.NoError(t, xdr.SafeUnmarshalBase64(nativeSACTransferXDR(t, from), &envelope))
+	envelope.V1.Tx.Fee = 5000
+	paddedXDR, err := xdr.MarshalBase64(envelope)
+	require.NoError(t, err)
+
+	rpcMock := &RPCServiceMock{}
+	rpcMock.On("SimulateTransaction", paddedXDR, entities.RPCResourceConfig{}).
+		Return(entities.RPCSimulateTransactionResult{
+			LatestLedger:   2900148,
+			MinResourceFee: "100",
+			Events:         []string{diagnosticB64},
+		}, nil).Once()
+	svc, err := NewTransactionSimulationService(rpcMock, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+
+	result, err := svc.SimulateStateChanges(context.Background(), paddedXDR)
+	require.NoError(t, err)
+
+	var feeDebit *types.StateChange
+	for i, sc := range result.StateChanges {
+		if sc.StateChangeCategory == types.StateChangeCategoryBalance && sc.OperationID == 0 && sc.StateChangeReason == types.StateChangeReasonDebit {
+			feeDebit = &result.StateChanges[i]
+		}
+	}
+	require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+	// One operation at the 100-stroop base fee plus the simulated resource fee
+	// of 100: the 5000-stroop bid must not leak into the row.
+	assert.Equal(t, "200", feeDebit.Amount.String)
+	rpcMock.AssertExpectations(t)
+}
+
 // nativeSACTransferXDR builds an unsigned InvokeHostFunction envelope invoking
 // the native SAC's transfer: a minimal, fully-encodable Soroban transaction.
 func nativeSACTransferXDR(t *testing.T, sourceAccount string) string {

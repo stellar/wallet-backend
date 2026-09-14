@@ -16,6 +16,10 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
+// baseFeeStroops is the network base fee per operation (100 stroops): the
+// per-operation charge outside surge pricing.
+const baseFeeStroops = 100
+
 // Sentinel errors the GraphQL resolver maps onto extensions.code values.
 var (
 	// ErrInvalidTransactionXDR means the transaction envelope failed to decode.
@@ -205,20 +209,19 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 		return ingest.LedgerTransaction{}, err
 	}
 
-	// The fee row should reflect what the network would charge: the transaction's
-	// inclusion fee plus the resource fee. tx.Fee already bundles the inclusion fee
-	// with the resource-fee bid, so subtract the declared bid to isolate the inclusion
-	// portion, then add the freshly simulated resource fee. A missing or malformed
-	// minResourceFee is a synthesis error rather than a silent zero-fee preview.
+	// The fee row should reflect what the network would actually charge, not the
+	// envelope's maximum fee bid: outside surge pricing, Core charges the base
+	// fee per operation, and the bid only caps that. Echoing the bid would
+	// overstate the fee whenever a wallet bids headroom. Add the freshly
+	// simulated resource fee on top; the post-execution refund of its refundable
+	// portion is not knowable here, so the row shows the pre-refund charge. A
+	// missing or malformed minResourceFee is a synthesis error rather than a
+	// silent zero-fee preview.
 	minResourceFee, err := strconv.ParseInt(result.MinResourceFee, 10, 64)
 	if err != nil {
 		return ingest.LedgerTransaction{}, fmt.Errorf("parsing minResourceFee %q: %w", result.MinResourceFee, err)
 	}
-	inclusionFee := int64(envelope.Fee()) - envelopeResourceFee(envelope)
-	if inclusionFee < 0 {
-		inclusionFee = 0
-	}
-	feeCharged := inclusionFee + minResourceFee
+	feeCharged := int64(len(envelope.Operations()))*baseFeeStroops + minResourceFee
 
 	return ingest.LedgerTransaction{
 		Index:    1,
@@ -249,29 +252,6 @@ func buildSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, result en
 			},
 		},
 	}, nil
-}
-
-// envelopeResourceFee returns the Soroban resource fee the transaction declares in
-// its SorobanData, or 0 if it declares none. tx.Fee already includes this bid, so
-// subtracting it leaves the inclusion fee.
-func envelopeResourceFee(envelope xdr.TransactionEnvelope) int64 {
-	var ext xdr.TransactionExt
-	switch envelope.Type {
-	case xdr.EnvelopeTypeEnvelopeTypeTx:
-		if envelope.V1 != nil {
-			ext = envelope.V1.Tx.Ext
-		}
-	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
-		if envelope.FeeBump != nil && envelope.FeeBump.Tx.InnerTx.V1 != nil {
-			ext = envelope.FeeBump.Tx.InnerTx.V1.Tx.Ext
-		}
-	default:
-		// TxV0 and non-transaction envelope types carry no SorobanData.
-	}
-	if ext.SorobanData != nil {
-		return int64(ext.SorobanData.ResourceFee)
-	}
-	return 0
 }
 
 // ledgerEntryChangesFromSimulation turns the simulation's before/after entries
