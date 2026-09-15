@@ -239,7 +239,7 @@ func newSimulatedLedgerTransaction(envelope xdr.TransactionEnvelope, ledgerSeq u
 				},
 			},
 		},
-		Result:     simulatedTransactionResult(envelope, feeCharged, opResults),
+		Result: simulatedTransactionResult(envelope, feeCharged, opResults),
 		UnsafeMeta: xdr.TransactionMeta{
 			V: 4,
 			V4: &xdr.TransactionMetaV4{
