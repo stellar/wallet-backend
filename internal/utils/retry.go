@@ -17,7 +17,9 @@ import (
 var ErrRetriesExhausted = errors.New("retries exhausted")
 
 // RetryWithBackoff calls fn up to maxRetries times with exponential backoff
-// capped at maxBackoff. It respects context cancellation between attempts.
+// capped at maxBackoff. It respects context cancellation between attempts and
+// after a failed attempt: a cancellation that lands while fn runs returns the
+// context error, never ErrRetriesExhausted, and skips onRetry.
 // onRetry, if non-nil, is called before each backoff wait with the attempt
 // number (0-indexed), the error, and the backoff duration. isPermanent is an
 // optional classifier (omit it, or pass nil, to retry every error as
@@ -57,6 +59,9 @@ func RetryWithBackoff[T any](
 			return result, nil
 		}
 		lastErr = err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return zero, fmt.Errorf("context cancelled: %w", ctxErr)
+		}
 		if permanent != nil && permanent(err) {
 			return zero, fmt.Errorf("permanent error on attempt %d: %w", attempt+1, err)
 		}
