@@ -379,7 +379,8 @@ func accountEntryResultWithFlags(t *testing.T, address string, balanceStroops in
 	)
 }
 
-func trustlineEntryResultWithFlags(t *testing.T, address string, asset xdr.Asset, balance, limit int64, flags xdr.Uint32) entities.LedgerEntryResult {
+func trustlineEntryResultWithFlags(t *testing.T, address string, asset xdr.Asset, balance int64, flags xdr.Uint32) entities.LedgerEntryResult {
+	const limit = int64(100_0000000)
 	t.Helper()
 	id := xdr.MustAddress(address)
 	return ledgerEntryResult(t,
@@ -415,7 +416,7 @@ func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
 	t.Run("🟢 authorizing produces (BALANCE_AUTHORIZATION, SET) on the trustor", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, 0),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
 		)
 		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
 			Trustor: trustor, Asset: line,
@@ -432,7 +433,7 @@ func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
 	t.Run("🟢 revoking with AUTH_REVOCABLE produces (BALANCE_AUTHORIZATION, CLEAR)", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResultWithFlags(t, issuer, 100_0000000, xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)),
-			trustlineEntryResultWithFlags(t, trustor, asset, 5_0000000, 100_0000000, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+			trustlineEntryResultWithFlags(t, trustor, asset, 5_0000000, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
 		)
 		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
 			Trustor: trustor, Asset: line,
@@ -448,7 +449,7 @@ func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
 	t.Run("🔴 revoking without AUTH_REVOCABLE is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
 			Trustor: trustor, Asset: line,
@@ -461,7 +462,7 @@ func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
 		outsider := keypair.MustRandom().Address()
 		svc := classicFixture(t,
 			accountEntryResult(t, outsider, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, 0),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, outsider, &txnbuild.SetTrustLineFlags{
 			Trustor: trustor, Asset: line,
@@ -482,7 +483,7 @@ func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
 	t.Run("🔴 setting the clawback-enabled flag is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, 0),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
 			Trustor: trustor, Asset: line,
@@ -502,8 +503,9 @@ func TestTransactionSimulationService_classicAllowTrust(t *testing.T) {
 	t.Run("🟢 authorizing produces (BALANCE_AUTHORIZATION, SET) on the trustor", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, 0),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
 		)
+		//nolint:staticcheck // the deprecated operation is the point: the simulation must handle legacy allowTrust transactions.
 		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.AllowTrust{
 			Trustor: trustor, Type: line, Authorize: true,
 		}))
@@ -518,8 +520,9 @@ func TestTransactionSimulationService_classicAllowTrust(t *testing.T) {
 	t.Run("🔴 deauthorizing without AUTH_REVOCABLE is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, trustor, asset, 0, 100_0000000, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
 		)
+		//nolint:staticcheck // the deprecated operation is the point: the simulation must handle legacy allowTrust transactions.
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.AllowTrust{
 			Trustor: trustor, Type: line, Authorize: false,
 		}))
@@ -538,7 +541,7 @@ func TestTransactionSimulationService_classicClawback(t *testing.T) {
 	t.Run("🟢 clawback produces a BURN on the issuer and a DEBIT on the holder", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, 100_0000000, clawbackable),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
 		)
 		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.Clawback{
 			From: holder, Amount: "20", Asset: line,
@@ -559,7 +562,7 @@ func TestTransactionSimulationService_classicClawback(t *testing.T) {
 		outsider := keypair.MustRandom().Address()
 		svc := classicFixture(t,
 			accountEntryResult(t, outsider, 100_0000000),
-			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, 100_0000000, clawbackable),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, outsider, &txnbuild.Clawback{
 			From: holder, Amount: "20", Asset: line,
@@ -581,7 +584,7 @@ func TestTransactionSimulationService_classicClawback(t *testing.T) {
 	t.Run("🔴 clawing back more than the balance is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, 100_0000000, clawbackable),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.Clawback{
 			From: holder, Amount: "60", Asset: line,
@@ -662,7 +665,10 @@ func TestTransactionSimulationService_classicAccountMerge(t *testing.T) {
 	})
 }
 
-func claimableBalanceEntryResult(t *testing.T, id xdr.ClaimableBalanceId, asset xdr.Asset, amount int64, claimant string, clawbackEnabled bool) entities.LedgerEntryResult {
+// claimableBalanceEntryResult builds a 20-token claimable-balance entry with a
+// single unconditional claimant.
+func claimableBalanceEntryResult(t *testing.T, id xdr.ClaimableBalanceId, asset xdr.Asset, claimant string, clawbackEnabled bool) entities.LedgerEntryResult {
+	const amount = int64(20_0000000)
 	t.Helper()
 	v0 := xdr.ClaimantV0{
 		Destination: xdr.MustAddress(claimant),
@@ -733,7 +739,7 @@ func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, claimant, 100_0000000),
 			trustlineEntryResult(t, claimant, asset, 0, 100_0000000),
-			claimableBalanceEntryResult(t, cbID, asset, 20_0000000, claimant, false),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
 		)
 		result, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
 			Type:                    xdr.OperationTypeClaimClaimableBalance,
@@ -753,7 +759,7 @@ func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, outsider, 100_0000000),
 			trustlineEntryResult(t, outsider, asset, 0, 100_0000000),
-			claimableBalanceEntryResult(t, cbID, asset, 20_0000000, claimant, false),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, outsider, xdr.OperationBody{
 			Type:                    xdr.OperationTypeClaimClaimableBalance,
@@ -765,7 +771,7 @@ func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
 	t.Run("🔴 claiming without a trustline for the asset is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, claimant, 100_0000000),
-			claimableBalanceEntryResult(t, cbID, asset, 20_0000000, claimant, false),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
 			Type:                    xdr.OperationTypeClaimClaimableBalance,
@@ -777,7 +783,7 @@ func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
 	t.Run("🟢 clawing back produces a (BALANCE, BURN)", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			claimableBalanceEntryResult(t, cbID, asset, 20_0000000, claimant, true),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, true),
 		)
 		result, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
 			Type:                       xdr.OperationTypeClawbackClaimableBalance,
@@ -794,7 +800,7 @@ func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
 	t.Run("🔴 clawing back a non-clawback-enabled balance is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t,
 			accountEntryResult(t, issuer, 100_0000000),
-			claimableBalanceEntryResult(t, cbID, asset, 20_0000000, claimant, false),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
 			Type:                       xdr.OperationTypeClawbackClaimableBalance,

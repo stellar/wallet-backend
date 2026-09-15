@@ -223,10 +223,14 @@ func TestRefreshEquivalenceFixtures(t *testing.T) {
 			&txnbuild.Clawback{From: accountB.Address(), Amount: "5", Asset: usdc},
 		}},
 		{"set_trust_line_flags_clear", accountA, []txnbuild.Operation{
-			&txnbuild.SetTrustLineFlags{Trustor: accountB.Address(), Asset: usdc,
-				ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized}},
+			&txnbuild.SetTrustLineFlags{
+				Trustor:    accountB.Address(),
+				Asset:      usdc,
+				ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+			},
 		}},
 		{"allow_trust_authorize", accountA, []txnbuild.Operation{
+			//nolint:staticcheck // the deprecated operation is exactly what this scenario pins: the simulation must handle legacy allowTrust transactions.
 			&txnbuild.AllowTrust{Trustor: accountB.Address(), Type: usdc, Authorize: true},
 		}},
 		{"bump_sequence", accountA, []txnbuild.Operation{
