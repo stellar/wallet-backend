@@ -556,7 +556,11 @@ func (m *ingestService) fetchLedgers(ctx context.Context, startLedger uint32, fe
 			m.isPermanentFetchError,
 		)
 		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			// A sibling stage's failure cancels ctx and fails this call too;
+			// only the originating stage counts the error.
+			if ctx.Err() == nil {
+				m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			}
 			return fmt.Errorf("fetching ledger %d: %w", seq, err)
 		}
 		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
@@ -601,7 +605,9 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 		processStart := time.Now()
 		transactions, err := m.processLedger(ctx, fl.meta, buffer)
 		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			if ctx.Err() == nil {
+				m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			}
 			return fmt.Errorf("processing ledger %d: %w", fl.seq, err)
 		}
 		processDuration := time.Since(processStart)
@@ -633,11 +639,12 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		}
 
 		// A cancelled pipeline fails this probe too, so check cancellation
-		// first: a shutdown must not be reported as a lost lock.
-		if ctx.Err() != nil {
-			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
-		}
+		// after it: a shutdown, even one landing mid-probe, must not be
+		// reported as a lost lock.
 		if probeErr := checkLockSession(ctx); probeErr != nil {
+			if ctx.Err() != nil {
+				return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+			}
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
 		}
@@ -652,7 +659,9 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		classifyStart := time.Now()
 		plan, err := m.prepareClassificationPlan(ctx, pl.buffer.GetProtocolWasms(), pl.buffer.GetProtocolWasmBytecodes(), pl.buffer.GetProtocolContracts())
 		if err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			if ctx.Err() == nil {
+				m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			}
 			return fmt.Errorf("preparing classification plan for ledger %d: %w", pl.seq, err)
 		}
 		classifyDuration := time.Since(classifyStart)
@@ -661,7 +670,9 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		// All DB operations in a single atomic transaction with retry
 		dbStart := time.Now()
 		if err := m.persistLedgerDataWithRetry(ctx, pl.seq, pl.meta, plan, pl.transactions, pl.buffer); err != nil {
-			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			if ctx.Err() == nil {
+				m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
+			}
 			return fmt.Errorf("persisting ledger %d: %w", pl.seq, err)
 		}
 		persistDuration := time.Since(dbStart)
@@ -693,7 +704,11 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 
 		log.Ctx(ctx).Infof("Ingested ledger %d in %.4fs", pl.seq, ledgerDuration.Seconds())
 
-		freeBuffers <- pl.buffer
+		select {
+		case freeBuffers <- pl.buffer:
+		case <-ctx.Done():
+			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
+		}
 	}
 }
 
