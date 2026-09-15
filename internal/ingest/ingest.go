@@ -65,7 +65,7 @@ type Configs struct {
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
 	Datastore DatastoreConfig
 	// BackfillWorkers limits concurrent batch processing during backfill.
-	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
+	// Defaults to runtime.GOMAXPROCS(0). Lower values reduce RAM usage.
 	BackfillWorkers int
 	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
