@@ -124,7 +124,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			name:                   "🔴participant_for_unknown_to_id",
 			txs:                    []*types.Transaction{&txCopy1},
 			stellarAddressesByToID: map[int64]map[string]struct{}{999999: {kp1.Address(): {}}},
-			wantErrContains:        "no transaction supplies ledger_created_at for to_id 999999",
+			wantErrContains:        "no row supplies ledger_created_at for tx_to_id 999999",
 		},
 	}
 
