@@ -96,12 +96,15 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 
 	families, err := reg.Gather()
 	require.NoError(t, err)
+	var bounds []float64
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_phase_duration_seconds" {
-			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 13) // 13 custom boundaries
+			for _, b := range f.GetMetric()[0].GetHistogram().GetBucket() {
+				bounds = append(bounds, b.GetUpperBound())
+			}
 		}
 	}
+	assert.Equal(t, []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10}, bounds)
 }
 
 func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
