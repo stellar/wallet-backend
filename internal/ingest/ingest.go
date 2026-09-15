@@ -119,8 +119,7 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 
 // validateIngestPoolConfig fails fast on a pool too small for live persist's commit
 // barrier, which would otherwise wedge silently: no error, no crash-loop, just a
-// climbing lag gauge. Backfill never holds the barrier but shares the check, since
-// the mode is chosen further down and only a deliberate override reaches the floor.
+// climbing lag gauge. Backfill never holds the barrier, so only live mode runs it.
 func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
 	if poolCfg.MaxConns < db.MinIngestMaxConns {
 		return fmt.Errorf("db-max-conns is %d, below the %d connections live persist requires", poolCfg.MaxConns, db.MinIngestMaxConns)
@@ -177,8 +176,10 @@ func isShutdownRequested(ctx context.Context, err error) bool {
 // returns.
 func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func(), error) {
 	poolCfg := cfg.BuildPoolConfig()
-	if err := validateIngestPoolConfig(poolCfg); err != nil {
-		return nil, nil, err
+	if cfg.IngestionMode == services.IngestionModeLive {
+		if err := validateIngestPoolConfig(poolCfg); err != nil {
+			return nil, nil, err
+		}
 	}
 	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
