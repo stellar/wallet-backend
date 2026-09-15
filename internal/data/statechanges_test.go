@@ -1419,7 +1419,7 @@ func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
 	require.Len(t, remaining(), 8)
 
 	// A single-ledger range takes both SEP-41 rows in ledger 20 and nothing else.
-	deleted, err := m.DeleteNamespaceLedgerRange(ctx, sep41Base, 20, 20)
+	deleted, err := m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 20, 20)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), deleted)
 	assert.Equal(t, [][2]int64{
@@ -1433,7 +1433,7 @@ func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
 
 	// A range spanning the surviving SEP-41 ledgers takes them, still leaving the
 	// other namespaces untouched in the very same ledgers.
-	deleted, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, 10, 30)
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 10, 30)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), deleted)
 	assert.Equal(t, [][2]int64{
@@ -1444,21 +1444,21 @@ func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
 	}, remaining())
 
 	// A range disjoint from every row deletes nothing.
-	deleted, err = m.DeleteNamespaceLedgerRange(ctx, blendBase, 1, 9)
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, blendBase, 1, 9)
 	require.NoError(t, err)
 	assert.Zero(t, deleted)
 	assert.Len(t, remaining(), 4)
 
 	// Re-running a completed delete is a no-op, which is what makes a failed
 	// rebuild safe to retry.
-	deleted, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, 10, 30)
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 10, 30)
 	require.NoError(t, err)
 	assert.Zero(t, deleted)
 	assert.Len(t, remaining(), 4)
 
 	// A ledger past the toid ledger field errors instead of wrapping negative
 	// into a to_id range that silently matches nothing.
-	_, err = m.DeleteNamespaceLedgerRange(ctx, sep41Base, math.MaxInt32+1, math.MaxInt32+1)
+	_, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, math.MaxInt32+1, math.MaxInt32+1)
 	require.ErrorContains(t, err, "exceeds the largest toid ledger")
 	assert.Len(t, remaining(), 4)
 }

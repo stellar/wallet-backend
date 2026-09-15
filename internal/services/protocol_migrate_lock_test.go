@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,7 +53,8 @@ func TestAcquireMigrateLocks(t *testing.T) {
 		_, err = acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.ErrorContains(t, err, "is held")
 
-		require.NoError(t, locks.checkSession(ctx), "a live lock session must probe clean")
+		require.NoError(t, db.RunInTransaction(ctx, locks.conn, func(pgx.Tx) error { return nil }),
+			"a live lock session must run a transaction")
 		locks.release()
 
 		locks2, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
@@ -91,5 +93,25 @@ func TestAcquireMigrateLocks(t *testing.T) {
 		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
 		require.NoError(t, err, "the failed run must not leak SEP41's lock")
 		locks.release()
+	})
+
+	t.Run("a transaction on the lock connection cannot commit after the session dies", func(t *testing.T) {
+		locks, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
+		require.NoError(t, err)
+		defer locks.release()
+
+		// Ending the lock session server-side is what a CNPG failover does: the
+		// locks are gone, but this process has not seen the disconnect yet.
+		var pid int
+		require.NoError(t, locks.conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid))
+		_, err = dbPool.Exec(ctx, "SELECT pg_terminate_backend($1)", pid)
+		require.NoError(t, err)
+
+		err = db.RunInTransaction(ctx, locks.conn, func(pgx.Tx) error { return nil })
+		require.Error(t, err, "a write fenced by the lock connection must fail once its session is gone")
+
+		locks2, err := acquireMigrateLocks(ctx, dbPool, lockScopeCurrentState, []string{"SEP41"})
+		require.NoError(t, err, "the dead session no longer holds the lock")
+		locks2.release()
 	})
 }

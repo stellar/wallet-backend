@@ -120,7 +120,7 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 	}
 
 	for _, pid := range protocolIDs {
-		if wipeErr := s.wipe(ctx, pid, oldest, locks.checkSession); wipeErr != nil {
+		if wipeErr := s.wipe(ctx, pid, oldest, locks.conn); wipeErr != nil {
 			return wipeErr
 		}
 	}
@@ -197,18 +197,17 @@ func (s *protocolHistoryRebuildService) oldestRetained(ctx context.Context) (uin
 // nothing. The cursor row is UPDATEd, never deleted: live treats a missing
 // cursor row as a fatal incident (ErrCASCursorMissing).
 //
-// checkLockSession is probed before the reset and again before every delete
-// slice, because these are the writes no CAS protects: the fold that follows
-// commits each window through the cursor CAS, so a second run that acquired a
-// silently-released lock loses its CAS and hands off — but a run deleting rows
-// another has already re-derived loses them for good, since the deleting run's
-// cursor says the range is done.
-func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID string, oldest uint32, checkLockSession func(context.Context) error) error {
-	if probeErr := checkLockSession(ctx); probeErr != nil {
-		return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
-	}
+// The reset and every delete slice run in transactions begun on lockConn, the
+// connection holding the protocol's advisory lock, because these are the writes
+// no CAS protects: the fold that follows commits each window through the cursor
+// CAS, so a second run that acquired a silently-released lock loses its CAS and
+// hands off — but a run deleting rows another has already re-derived loses them
+// for good, since the deleting run's cursor says the range is done. A
+// transaction on the lock's own session cannot commit once that session, and so
+// the lock, is gone.
+func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID string, oldest uint32, lockConn db.TxBeginner) error {
 	cursorName := s.engine.strategy.CursorName(protocolID)
-	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {
+	if txErr := db.RunInTransaction(ctx, lockConn, func(dbTx pgx.Tx) error {
 		if updErr := s.engine.ingestStore.Update(ctx, dbTx, cursorName, oldest-1); updErr != nil {
 			return fmt.Errorf("resetting cursor %s: %w", cursorName, updErr)
 		}
@@ -236,14 +235,11 @@ func (s *protocolHistoryRebuildService) wipe(ctx context.Context, protocolID str
 	base := s.engine.processors[protocolID].StateChangeOrdinalBase()
 	var total int64
 	for start := oldest; start <= latest; {
-		if probeErr := checkLockSession(ctx); probeErr != nil {
-			return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
-		}
 		end := latest
 		if latest-start >= historyRebuildDeleteSlice {
 			end = start + historyRebuildDeleteSlice - 1
 		}
-		deleted, err := s.stateChanges.DeleteNamespaceLedgerRange(ctx, base, start, end)
+		deleted, err := s.stateChanges.DeleteNamespaceLedgerRange(ctx, lockConn, base, start, end)
 		if err != nil {
 			return fmt.Errorf("deleting history rows for %s: %w", protocolID, err)
 		}

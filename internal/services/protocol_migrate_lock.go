@@ -44,17 +44,16 @@ func migrateAdvisoryLockID(scope, protocolID string) int {
 }
 
 // migrateLocks is a held set of advisory locks. Not safe for concurrent use,
-// and checkSession must not be called after release: both speak to the same
-// connection.
+// and conn must not be used after release.
 type migrateLocks struct {
-	// checkSession probes the SAME connection that holds the locks. The locks are
-	// never released mid-run, so that session staying alive is equivalent to
-	// still holding them. Live ingestion runs this same probe per ledger
-	// (checkLockSession, ingest_live.go) for the same reason: a CNPG failover
-	// ends the session server-side, releasing every lock, without this process
-	// seeing the disconnect — while pgxpool keeps handing out other, healthy
-	// connections that a run would otherwise keep writing through.
-	checkSession func(ctx context.Context) error
+	// conn is the connection that holds the locks. Every write that no cursor
+	// CAS protects (the rebuild wipes) runs in a transaction begun on it, so the
+	// write commits only while the session, and with it every lock, is alive. A
+	// CNPG failover ends the session server-side without this process seeing
+	// the disconnect, and pgxpool keeps handing out other, healthy connections:
+	// a transaction on one of those would commit after another run had taken
+	// the same locks.
+	conn *pgxpool.Conn
 
 	// release unlocks every key and returns the connection to the pool.
 	release func()
@@ -98,10 +97,7 @@ func acquireMigrateLocks(ctx context.Context, pool *pgxpool.Pool, scope string, 
 	}
 
 	return &migrateLocks{
-		checkSession: func(probeCtx context.Context) error {
-			var one int
-			return conn.QueryRow(probeCtx, "SELECT 1").Scan(&one)
-		},
+		conn: conn,
 		release: func() {
 			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisoryUnlockTimeout)
 			defer cancel()

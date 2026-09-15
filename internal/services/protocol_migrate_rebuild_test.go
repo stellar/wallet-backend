@@ -179,7 +179,7 @@ func TestCurrentStateRebuild(t *testing.T) {
 		require.NoError(t, err)
 
 		sessionDeadErr := fmt.Errorf("driver: bad connection")
-		err = svc.wipe(ctx, "testproto", func(context.Context) error { return sessionDeadErr })
+		err = svc.wipe(ctx, "testproto", deadTxBeginner{err: sessionDeadErr})
 		require.ErrorIs(t, err, sessionDeadErr)
 		assert.Zero(t, processor.wipeCalls, "a dead lock session must not truncate")
 		assert.Equal(t, uint32(500), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolCurrentStateCursorName("testproto")),
@@ -395,6 +395,12 @@ func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 // TestProtocolHistoryRebuildWipe pins the wipe: the cursor and status reset
 // commit before the sliced deletes, the deletes cover exactly the retained
 // window in slices, and neighbouring ledgers and other namespaces survive.
+// deadTxBeginner stands in for a lock connection whose session has ended: every
+// transaction fails to begin, the way a CNPG failover fails the real one.
+type deadTxBeginner struct{ err error }
+
+func (d deadTxBeginner) Begin(context.Context) (pgx.Tx, error) { return nil, d.err }
+
 func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	ctx := context.Background()
 	dbPool, ingestStore := setupTestDB(t)
@@ -438,13 +444,13 @@ func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	// nothing behind these writes is CAS-gated, so continuing under a
 	// silently-released lock is what loses rows (see wipe).
 	sessionDeadErr := fmt.Errorf("driver: bad connection")
-	err = svc.wipe(ctx, "testproto", oldest, func(context.Context) error { return sessionDeadErr })
+	err = svc.wipe(ctx, "testproto", oldest, deadTxBeginner{err: sessionDeadErr})
 	require.ErrorIs(t, err, sessionDeadErr)
 	assert.Len(t, remainingStateChanges(t, ctx, dbPool), 10, "a dead lock session must not delete rows")
 	assert.Equal(t, uint32(26_000), getIngestStoreValue(t, ctx, dbPool, utils.ProtocolHistoryCursorName("testproto")),
 		"a dead lock session must not reset the cursor")
 
-	require.NoError(t, svc.wipe(ctx, "testproto", oldest, func(context.Context) error { return nil }))
+	require.NoError(t, svc.wipe(ctx, "testproto", oldest, dbPool))
 
 	assert.Equal(t, [][2]int64{
 		{types.StateChangeOrdinalBaseIndexer + 1, 100},

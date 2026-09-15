@@ -96,10 +96,16 @@ func SQLDBFromPool(pool *pgxpool.Pool) *sql.DB {
 	return stdlib.OpenDBFromPool(pool)
 }
 
+// TxBeginner starts transactions. *pgxpool.Pool begins one on any pooled
+// connection; *pgxpool.Conn begins one on that specific connection.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // RunInTransaction runs the given atomic function in a pgx transaction.
 // It automatically rolls back on error and commits on success.
-func RunInTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	pgxTx, err := pool.Begin(ctx)
+func RunInTransaction(ctx context.Context, beginner TxBeginner, fn func(pgx.Tx) error) error {
+	pgxTx, err := beginner.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning pgx transaction: %w", err)
 	}

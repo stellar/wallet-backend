@@ -619,10 +619,10 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 // Both predicates prune compressed batches without decompressing them: to_id
 // carries the ledger in its high 32 bits, and both columns are compression
 // orderby columns with per-batch min/max metadata. Runs in its own
-// transaction with the DML decompression cap lifted — callers bound the
-// per-statement work by slicing the ledger range (see
+// transaction, begun on beginner, with the DML decompression cap lifted —
+// callers bound the per-statement work by slicing the ledger range (see
 // historyRebuildDeleteSlice), not via the cap.
-func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base int64, fromLedger, toLedger uint32) (int64, error) {
+func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, beginner db.TxBeginner, base int64, fromLedger, toLedger uint32) (int64, error) {
 	const query = `
 		DELETE FROM state_changes
 		WHERE state_change_id >= $1 AND state_change_id < $2
@@ -643,7 +643,7 @@ func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, base 
 
 	var deleted int64
 	start := time.Now()
-	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+	err := db.RunInTransaction(ctx, beginner, func(dbTx pgx.Tx) error {
 		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
 			return fmt.Errorf("lifting DML decompression cap: %w", execErr)
 		}

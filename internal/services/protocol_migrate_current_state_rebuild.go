@@ -65,7 +65,7 @@ func (s *protocolCurrentStateRebuildService) Run(ctx context.Context, protocolID
 	defer locks.release()
 
 	for _, pid := range protocolIDs {
-		if err := s.wipe(ctx, pid, locks.checkSession); err != nil {
+		if err := s.wipe(ctx, pid, locks.conn); err != nil {
 			return err
 		}
 	}
@@ -120,18 +120,17 @@ func (s *protocolCurrentStateRebuildService) validate(ctx context.Context, proto
 // grow with the number of rows discarded, and wipeLockTimeout caps how long the
 // transaction can sit waiting for a lock it cannot get.
 //
-// checkLockSession is probed first because this wipe is the one write here that
-// no CAS protects: the fold that follows commits each window through the cursor
-// CAS, so a second run that acquired a silently-released lock loses its CAS and
-// hands off — but two runs truncating and re-deriving under each other lose
-// rows outright.
-func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string, checkLockSession func(context.Context) error) error {
-	if probeErr := checkLockSession(ctx); probeErr != nil {
-		return fmt.Errorf("advisory lock session is no longer alive, the lock may have been lost: %w", probeErr)
-	}
+// The transaction begins on lockConn, the connection holding the protocol's
+// advisory lock, because this wipe is the one write here that no CAS protects:
+// the fold that follows commits each window through the cursor CAS, so a second
+// run that acquired a silently-released lock loses its CAS and hands off — but
+// two runs truncating and re-deriving under each other lose rows outright. A
+// transaction on the lock's own session cannot commit once that session, and
+// so the lock, is gone.
+func (s *protocolCurrentStateRebuildService) wipe(ctx context.Context, protocolID string, lockConn db.TxBeginner) error {
 	processor := s.engine.processors[protocolID]
 	cursorName := s.engine.strategy.CursorName(protocolID)
-	if txErr := db.RunInTransaction(ctx, s.engine.db, func(dbTx pgx.Tx) error {
+	if txErr := db.RunInTransaction(ctx, lockConn, func(dbTx pgx.Tx) error {
 		if _, toErr := dbTx.Exec(ctx, "SET LOCAL lock_timeout = "+wipeLockTimeout); toErr != nil {
 			return fmt.Errorf("setting lock timeout: %w", toErr)
 		}
