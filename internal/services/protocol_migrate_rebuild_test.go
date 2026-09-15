@@ -327,13 +327,13 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 				},
 			}, nil)
 
-			svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+			svc, err := NewProtocolHistoryRebuildService(ProtocolMigrateHistoryConfig{
 				DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 				ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-				IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+				IngestStore:       ingestStore,
 				NetworkPassphrase: "Test SDF Network ; September 2015",
 				Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-			})
+			}, &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB})
 			require.NoError(t, err)
 
 			err = svc.engine.validateRebuild(ctx, []string{"testproto"})
@@ -371,13 +371,13 @@ func TestProtocolHistoryRebuildOldestRetained(t *testing.T) {
 			setIngestStoreValue(t, ctx, dbPool, data.OldestLedgerCursorName, tc.oldest)
 			setIngestStoreValue(t, ctx, dbPool, data.LatestLedgerCursorName, tc.latest)
 
-			svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+			svc, err := NewProtocolHistoryRebuildService(ProtocolMigrateHistoryConfig{
 				DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 				ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-				IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+				IngestStore:       ingestStore,
 				NetworkPassphrase: "Test SDF Network ; September 2015",
 				Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-			})
+			}, &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB})
 			require.NoError(t, err)
 
 			oldest, err := svc.oldestRetained(ctx)
@@ -431,13 +431,13 @@ func TestProtocolHistoryRebuildWipe(t *testing.T) {
 	protocolsModel := data.NewProtocolsModelMock(t)
 	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusNotStarted).Return(nil)
 
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+	svc, err := NewProtocolHistoryRebuildService(ProtocolMigrateHistoryConfig{
 		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+		IngestStore:       ingestStore,
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-	})
+	}, &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB})
 	require.NoError(t, err)
 
 	// A dead lock session fails the wipe before it resets or deletes anything:
@@ -515,14 +515,14 @@ func TestProtocolHistoryRebuildRun(t *testing.T) {
 		203: dummyLedgerMeta(203), 204: dummyLedgerMeta(204),
 	}}
 
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+	svc, err := NewProtocolHistoryRebuildService(ProtocolMigrateHistoryConfig{
 		DB: dbPool, LedgerBackend: backend,
 		ProtocolsModel: protocolsModel, ProtocolContractsModel: protocolContractsModel,
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+		IngestStore:       ingestStore,
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:        []ProtocolProcessor{processor},
 		WindowSize:        2,
-	})
+	}, &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB})
 	require.NoError(t, err)
 
 	require.NoError(t, svc.Run(ctx, []string{"testproto"}))
@@ -560,13 +560,13 @@ func TestProtocolHistoryRebuildRefusesWhileLockHeld(t *testing.T) {
 		{ID: "testproto", ClassificationStatus: data.StatusSuccess, HistoryMigrationStatus: data.StatusSuccess},
 	}, nil)
 
-	svc, err := NewProtocolHistoryRebuildService(ProtocolHistoryRebuildConfig{
+	svc, err := NewProtocolHistoryRebuildService(ProtocolMigrateHistoryConfig{
 		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
 		ProtocolsModel: protocolsModel, ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
-		IngestStore: ingestStore, StateChanges: &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB},
+		IngestStore:       ingestStore,
 		NetworkPassphrase: "Test SDF Network ; September 2015",
 		Processors:        []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
-	})
+	}, &data.StateChangeModel{DB: dbPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB})
 	require.NoError(t, err)
 
 	conn, err := dbPool.Acquire(ctx)

@@ -5,13 +5,10 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
 // historyRebuildDeleteSlice is how many ledgers each history-wipe DELETE
@@ -50,51 +47,24 @@ type ProtocolHistoryRebuildService interface {
 
 var _ ProtocolHistoryRebuildService = (*protocolHistoryRebuildService)(nil)
 
-// ProtocolHistoryRebuildConfig holds the configuration for creating a protocolHistoryRebuildService.
-type ProtocolHistoryRebuildConfig struct {
-	DB                     *pgxpool.Pool
-	LedgerBackend          ledgerbackend.LedgerBackend
-	ProtocolsModel         data.ProtocolsModelInterface
-	ProtocolContractsModel data.ProtocolContractsModelInterface
-	IngestStore            *data.IngestStoreModel
-	StateChanges           *data.StateChangeModel
-	NetworkPassphrase      string
-	Processors             []ProtocolProcessor
-	WindowSize             uint32
-	Metrics                *metrics.MigrationMetrics
-	TipProvider            func() (uint32, error)
-}
-
 type protocolHistoryRebuildService struct {
 	engine       protocolMigrateEngine
 	stateChanges *data.StateChangeModel
 }
 
-// NewProtocolHistoryRebuildService creates a rebuild service from the same
-// configuration as the plain history migration, plus the state-changes model
-// for the wipe.
-func NewProtocolHistoryRebuildService(cfg ProtocolHistoryRebuildConfig) (*protocolHistoryRebuildService, error) {
-	migrate, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
-		DB:                     cfg.DB,
-		LedgerBackend:          cfg.LedgerBackend,
-		ProtocolsModel:         cfg.ProtocolsModel,
-		ProtocolContractsModel: cfg.ProtocolContractsModel,
-		IngestStore:            cfg.IngestStore,
-		NetworkPassphrase:      cfg.NetworkPassphrase,
-		Processors:             cfg.Processors,
-		WindowSize:             cfg.WindowSize,
-		Metrics:                cfg.Metrics,
-		TipProvider:            cfg.TipProvider,
-	})
+// NewProtocolHistoryRebuildService creates a rebuild service from the plain
+// history migration config plus the state-changes model for the wipe.
+func NewProtocolHistoryRebuildService(cfg ProtocolMigrateHistoryConfig, stateChanges *data.StateChangeModel) (*protocolHistoryRebuildService, error) {
+	migrate, err := NewProtocolMigrateHistoryService(cfg)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.StateChanges == nil {
+	if stateChanges == nil {
 		return nil, fmt.Errorf("state changes model is required")
 	}
 	return &protocolHistoryRebuildService{
 		engine:       migrate.engine,
-		stateChanges: cfg.StateChanges,
+		stateChanges: stateChanges,
 	}, nil
 }
 
