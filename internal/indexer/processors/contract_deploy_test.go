@@ -79,6 +79,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -101,6 +102,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -122,6 +124,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -211,6 +214,8 @@ func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t 
 			},
 		},
 	}
+
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(contractB), contractInstanceCreated(contractC)}, nil)
 
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 	stateChanges, err := proc.ProcessOperation(ctx, op)
@@ -315,6 +320,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -331,6 +337,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -352,4 +359,23 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 			assertStateChangesElementsMatch(t, tc.wantStateChanges, stateChanges)
 		})
 	}
+}
+
+// Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored is the regression test
+// for fabricated deploy records: a CreateContract declared in an unmatched auth
+// entry's invocation tree, with no created instance entry in the meta, produces no record.
+func Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored(t *testing.T) {
+	op := makeInvokeContractOp()
+	op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
+		Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+		RootInvocation: xdr.SorobanAuthorizedInvocation{Function: xdr.SorobanAuthorizedFunction{Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn, ContractFn: &xdr.InvokeContractArgs{ContractAddress: makeScContract(invokedContractID)}}},
+	}}
+	includeSubInvocations(op) // declares deployedContractID created by deployerAccountID
+	// Meta: nothing was created.
+	setOperationMeta(op, nil, nil)
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
 }
