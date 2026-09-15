@@ -520,3 +520,64 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	require.Len(t, ops, 1, "time-pinned child lookup must find the operation via the hydrated timestamp")
 	assert.Equal(t, int64(4098), ops[0].Operation.ID)
 }
+
+// TestTransactionModel_IngestCursorBound pins the cursor bound on both transaction read
+// shapes a client can reach directly: the account list, where the bound sits inside the
+// MATERIALIZED CTE over transactions_accounts, and the by-hash lookup, where a caller can
+// supply the hash of a transaction whose ledger is not yet part of the served chain.
+func TestTransactionModel_IngestCursorBound(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	address := keypair.MustRandom().Address()
+
+	cursorLedger, aheadLedger := int32(10), int32(11)
+	atCursor := toid.New(cursorLedger, 1, 0).ToInt64()
+	aboveCursor := toid.New(aheadLedger, 1, 0).ToInt64()
+	hashAtCursor := types.HashBytea("00000000000000000000000000000000000000000000000000000000000000aa")
+	hashAboveCursor := types.HashBytea("00000000000000000000000000000000000000000000000000000000000000bb")
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($3, $1, 100, 'TransactionResultCodeTxSuccess', $5, $6, false),
+		       ($4, $2, 100, 'TransactionResultCodeTxSuccess', $7, $6, false)
+	`, atCursor, aboveCursor, hashAtCursor, hashAboveCursor, cursorLedger, now, aheadLedger)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions_accounts (tx_to_id, account_id, ledger_created_at)
+		VALUES ($1, $3, $4), ($2, $3, $4)
+	`, atCursor, aboveCursor, types.AddressBytea(address), now)
+	require.NoError(t, err)
+
+	m := &TransactionModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	_, err = dbConnectionPool.Exec(ctx,
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		LatestLedgerCursorName, fmt.Sprintf("%d", cursorLedger))
+	require.NoError(t, err)
+
+	t.Run("the account list hides a ledger past the cursor", func(t *testing.T) {
+		transactions, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, atCursor, transactions[0].ToID)
+	})
+
+	t.Run("by-hash resolves a transaction at or below the cursor", func(t *testing.T) {
+		transaction, qErr := m.GetByHash(ctx, hashAtCursor.String(), "")
+		require.NoError(t, qErr)
+		assert.Equal(t, atCursor, transaction.ToID)
+	})
+
+	t.Run("by-hash does not resolve a transaction past the cursor", func(t *testing.T) {
+		_, qErr := m.GetByHash(ctx, hashAboveCursor.String(), "")
+		require.Error(t, qErr)
+	})
+}

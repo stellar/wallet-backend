@@ -246,7 +246,7 @@ func TestProtocolContractsBatchGetByContractIDs(t *testing.T) {
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		cleanUpDB()
-		result, qErr := model.BatchGetByContractIDs(ctx, nil)
+		result, qErr := model.BatchGetByContractIDs(ctx, dbConnectionPool, nil)
 		require.NoError(t, qErr)
 		assert.Nil(t, result)
 	})
@@ -275,7 +275,7 @@ func TestProtocolContractsBatchGetByContractIDs(t *testing.T) {
 			require.NoError(t, vErr)
 			return v.([]byte)
 		}
-		result, qErr := model.BatchGetByContractIDs(ctx, [][]byte{toBytes(cA), toBytes(cB), toBytes(cC), toBytes(cMissing)})
+		result, qErr := model.BatchGetByContractIDs(ctx, dbConnectionPool, [][]byte{toBytes(cA), toBytes(cB), toBytes(cC), toBytes(cMissing)})
 		require.NoError(t, qErr)
 
 		require.Len(t, result, 2)

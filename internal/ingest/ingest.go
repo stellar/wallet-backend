@@ -73,6 +73,10 @@ type Configs struct {
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
 	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// LivePersistMaxBatchSize caps how many consecutive ledgers live
+	// ingestion coalesces into one persist commit when persist falls behind.
+	// 1 persists every ledger in its own commit.
+	LivePersistMaxBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -113,12 +117,26 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	return cfg
 }
 
+// validateIngestPoolConfig fails fast on a pool too small for live persist's commit
+// barrier, which would otherwise wedge silently: no error, no crash-loop, just a
+// climbing lag gauge. Backfill never holds the barrier but shares the check, since
+// the mode is chosen further down and only a deliberate override reaches the floor.
+func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
+	if poolCfg.MaxConns < db.MinIngestMaxConns {
+		return fmt.Errorf("db-max-conns is %d, below the %d connections live persist requires", poolCfg.MaxConns, db.MinIngestMaxConns)
+	}
+	return nil
+}
+
 func Ingest(cfg Configs) error {
 	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// loop and the in-flight ledger's transaction, so that ledger is rolled back
-	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
-	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
-	// state is ever persisted. Cleanup (deferred below) then drains the servers and
+	// pipeline: an in-flight batch that has not reached its commit barrier rolls
+	// back entirely, while the barrier itself runs detached (context.WithoutCancel
+	// in persistLedgerData) so a batch never half-commits on shutdown. Ingestion is
+	// idempotent and gap-driven: a rolled-back batch is simply re-fetched and
+	// re-ingested on the next startup, and any sibling rows a crash strands above
+	// the committed cursor are removed by startup reconciliation
+	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the servers and
 	// tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -159,6 +177,9 @@ func isShutdownRequested(ctx context.Context, err error) bool {
 // returns.
 func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func(), error) {
 	poolCfg := cfg.BuildPoolConfig()
+	if err := validateIngestPoolConfig(poolCfg); err != nil {
+		return nil, nil, err
+	}
 	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to the database: %w", err)
@@ -290,6 +311,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
