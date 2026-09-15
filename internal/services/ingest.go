@@ -147,17 +147,17 @@ type ingestService struct {
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a
 	// ledger). This is CPU-bound XDR decode/processing work, not RPC-bound, so it's sized off
-	// NumCPU rather than an RPC batch size; 2x gives headroom for goroutines blocked on the
-	// occasional DB lookup without letting the pool grow unbounded (pond.NewPool(0) is
-	// unbounded).
-	ledgerIndexerPool := pond.NewPool(2 * runtime.NumCPU())
+	// GOMAXPROCS, which the Go 1.25+ runtime derives from the container CPU limit, where
+	// NumCPU reports the node's cores. 2x headroom covers goroutines blocked on the occasional
+	// DB lookup without letting the pool grow unbounded (pond.NewPool(0) is unbounded).
+	ledgerIndexerPool := pond.NewPool(2 * runtime.GOMAXPROCS(0))
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
-	// Default to NumCPU if not specified.
+	// Default to GOMAXPROCS if not specified, for the same reason as above.
 	backfillWorkers := cfg.BackfillWorkers
 	if backfillWorkers <= 0 {
-		backfillWorkers = runtime.NumCPU()
+		backfillWorkers = runtime.GOMAXPROCS(0)
 	}
 	backfillPool := pond.NewPool(backfillWorkers)
 	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
