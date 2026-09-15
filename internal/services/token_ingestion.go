@@ -84,8 +84,10 @@ func (s *tokenIngestionService) ProcessSACBalanceChanges(ctx context.Context, db
 	return s.processSACBalanceChanges(ctx, dbTx, sacBalanceChangesByKey)
 }
 
-// ProcessNativeAndPoolChanges applies native-balance and liquidity-pool changes; the
-// target tables have no foreign keys, so any transaction may carry them.
+// ProcessNativeAndPoolChanges applies native-balance and liquidity-pool changes. The
+// only foreign key among the targets is liquidity_pool_balances.pool_id →
+// liquidity_pools, and the pools are written first on this same transaction, so
+// the caller may run it on any transaction.
 func (s *tokenIngestionService) ProcessNativeAndPoolChanges(ctx context.Context, dbTx pgx.Tx, accountChangesByAccountID map[string]types.AccountChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
 	if err := s.processNativeBalanceChanges(ctx, dbTx, accountChangesByAccountID); err != nil {
 		return err
