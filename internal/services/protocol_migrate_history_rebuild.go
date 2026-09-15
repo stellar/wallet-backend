@@ -104,7 +104,7 @@ func NewProtocolHistoryRebuildService(cfg ProtocolHistoryRebuildConfig) (*protoc
 // deterministic state_change_ids.
 func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []string) error {
 	protocolIDs = dedupePreservingOrder(protocolIDs)
-	if err := s.validate(ctx, protocolIDs); err != nil {
+	if err := s.engine.validateRebuild(ctx, protocolIDs); err != nil {
 		return fmt.Errorf("validating protocols for history rebuild: %w", err)
 	}
 
@@ -128,38 +128,6 @@ func (s *protocolHistoryRebuildService) Run(ctx context.Context, protocolIDs []s
 	// Statuses are not_started after the wipe, so this is a normal migration
 	// run: fold from the retention floor, hand off to live at the frontier.
 	return s.engine.Run(ctx, protocolIDs)
-}
-
-// validate requires each protocol to exist, be classified, and not be marked
-// in_progress (dead-run residue — investigate, don't wipe under it).
-func (s *protocolHistoryRebuildService) validate(ctx context.Context, protocolIDs []string) error {
-	for _, pid := range protocolIDs {
-		if _, ok := s.engine.processors[pid]; !ok {
-			return fmt.Errorf("no processor registered for protocol %q", pid)
-		}
-	}
-
-	protocols, err := s.engine.protocolsModel.GetByIDs(ctx, protocolIDs)
-	if err != nil {
-		return fmt.Errorf("querying protocols: %w", err)
-	}
-	found := make(map[string]*data.Protocols, len(protocols))
-	for i := range protocols {
-		found[protocols[i].ID] = &protocols[i]
-	}
-	for _, pid := range protocolIDs {
-		p, ok := found[pid]
-		if !ok {
-			return fmt.Errorf("protocol %q not found in DB", pid)
-		}
-		if p.ClassificationStatus != data.StatusSuccess {
-			return fmt.Errorf("protocol %q classification not complete (status: %s)", pid, p.ClassificationStatus)
-		}
-		if p.HistoryMigrationStatus == data.StatusInProgress {
-			return fmt.Errorf("protocol %q history migration is marked in_progress; investigate the dead run before rebuilding", pid)
-		}
-	}
-	return nil
 }
 
 // oldestRetained returns the wipe's lower bound: the oldest retained ledger.

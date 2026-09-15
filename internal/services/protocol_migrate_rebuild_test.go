@@ -336,7 +336,7 @@ func TestProtocolHistoryRebuildValidate(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			err = svc.validate(ctx, []string{"testproto"})
+			err = svc.engine.validateRebuild(ctx, []string{"testproto"})
 			if tc.wantErrContains == "" {
 				require.NoError(t, err)
 				return

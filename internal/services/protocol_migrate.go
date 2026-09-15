@@ -223,6 +223,38 @@ func (s *protocolMigrateEngine) validate(ctx context.Context, protocolIDs []stri
 	return active, nil
 }
 
+// validateRebuild requires each protocol to exist, be classified, and not be
+// marked in_progress (dead-run residue — investigate, don't wipe under it).
+func (s *protocolMigrateEngine) validateRebuild(ctx context.Context, protocolIDs []string) error {
+	for _, pid := range protocolIDs {
+		if _, ok := s.processors[pid]; !ok {
+			return fmt.Errorf("no processor registered for protocol %q", pid)
+		}
+	}
+
+	protocols, err := s.protocolsModel.GetByIDs(ctx, protocolIDs)
+	if err != nil {
+		return fmt.Errorf("querying protocols: %w", err)
+	}
+	found := make(map[string]*data.Protocols, len(protocols))
+	for i := range protocols {
+		found[protocols[i].ID] = &protocols[i]
+	}
+	for _, pid := range protocolIDs {
+		p, ok := found[pid]
+		if !ok {
+			return fmt.Errorf("protocol %q not found in DB", pid)
+		}
+		if p.ClassificationStatus != data.StatusSuccess {
+			return fmt.Errorf("protocol %q classification not complete (status: %s)", pid, p.ClassificationStatus)
+		}
+		if s.strategy.MigrationStatusField(p) == data.StatusInProgress {
+			return fmt.Errorf("protocol %q %s migration is marked in_progress; investigate the dead run before rebuilding", pid, s.strategy.Label)
+		}
+	}
+	return nil
+}
+
 // stageTimers accumulates per-stage wall-clock across the whole migration run so the loop can
 // report where time goes: waiting for a ledger, extracting its contract events, folding it into
 // the processors, or flushing a window to the DB. It is never reset, so breakdown() reports the
