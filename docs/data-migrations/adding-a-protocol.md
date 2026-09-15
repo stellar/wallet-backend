@@ -320,6 +320,12 @@ type ProtocolProcessor interface {
     // A protocol that cannot meet this must be migrated with --window-size=1.
     ProcessLedger(ctx context.Context, input ProtocolProcessorInput) error
 
+    // RequiresContractData reports whether ProcessLedger needs
+    // ProtocolProcessorInput.ContractDataChanges populated. The migration engine and live
+    // ingestion run the (heavier) ContractData extraction only when a selected processor
+    // returns true, so event-only protocols pay nothing for it.
+    RequiresContractData() bool
+
     // Reset clears the staged sets. The caller invokes it: the migration engine per window,
     // live ingestion per ledger.
     Reset()
@@ -328,6 +334,11 @@ type ProtocolProcessor interface {
     // caller's transaction (committed atomically with the CAS cursor advance when it succeeds).
     PersistHistory(ctx context.Context, dbTx pgx.Tx) error
     PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error
+
+    // WipeCurrentState deletes every row of this protocol's current-state tables in the
+    // caller's transaction. It must not touch contract_tokens, protocol_wasms, or
+    // protocol_contracts — classification owns those and nothing rebuilds them.
+    WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error
 }
 
 type ProtocolProcessorInput struct {
@@ -336,6 +347,8 @@ type ProtocolProcessorInput struct {
     ContractEvents    map[indexer.ContractEventKey][]xdr.ContractEvent
     ProtocolContracts []data.ProtocolContracts
     StagingMode       StagingMode
+    // Populated only when a selected processor's RequiresContractData() returns true; nil otherwise.
+    ContractDataChanges map[string][]ingest.Change
 }
 ```
 
@@ -344,9 +357,11 @@ type ProtocolProcessorInput struct {
 | Method | Called By | Purpose |
 |--------|-----------|---------|
 | `ProcessLedger` | Live ingestion, history & current-state migration | Fold a single ledger's protocol state into the staged sets. Does **not** clear between ledgers — accumulates until `Reset()`. |
+| `RequiresContractData` | Live ingestion, migration engine (per ledger) | Report whether `ProcessLedger` reads `input.ContractDataChanges`. Returning `true` turns on the heavier ContractData extraction and the full protocol-membership lookup for the ledgers this protocol folds. |
 | `Reset` | Migration engine (per window), live ingestion (per ledger) | Clear the staged sets after a window commits/hands off, or before the next ledger. |
 | `PersistHistory` | Live ingestion, history migration | Write the history rows staged since the last `Reset` within the caller's transaction. |
 | `PersistCurrentState` | Live ingestion, current-state migration | Write the current state staged since the last `Reset` within the caller's transaction. |
+| `WipeCurrentState` | Current-state migration (`--rebuild`) | Delete every row of this protocol's own current-state tables, in the same transaction that resets the cursor. |
 
 `input.StagingMode` tells the processor which staged sets to build (`history`, `current_state`, or both); the migration engine sets it per strategy, live ingestion sets both.
 
@@ -445,6 +460,10 @@ func (p *MyProtocolProcessor) ProcessLedger(ctx context.Context, input ProtocolP
     return nil
 }
 
+// RequiresContractData reports false: MY_PROTOCOL folds contract events only and never reads
+// ProtocolProcessorInput.ContractDataChanges.
+func (p *MyProtocolProcessor) RequiresContractData() bool { return false }
+
 // Reset clears the staged window. The caller invokes it: the migration engine after each window
 // commits or hands off, and live ingestion before each ledger.
 func (p *MyProtocolProcessor) Reset() {
@@ -481,6 +500,16 @@ func (p *MyProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.
     log.Ctx(ctx).Debugf("MY_PROTOCOL: persisted %d upserts, %d deletes", len(upserts), len(deletes))
     return nil
 }
+
+// WipeCurrentState deletes every MY_PROTOCOL current-state row in the caller's transaction. It
+// must not touch contract_tokens, protocol_wasms, or protocol_contracts — classification owns
+// those and nothing rebuilds them.
+func (p *MyProtocolProcessor) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+    if _, err := dbTx.Exec(ctx, "TRUNCATE my_protocol_entries"); err != nil {
+        return fmt.Errorf("wiping MY_PROTOCOL current state: %w", err)
+    }
+    return nil
+}
 ```
 
 ### Key Patterns
@@ -491,6 +520,7 @@ func (p *MyProtocolProcessor) PersistCurrentState(ctx context.Context, dbTx pgx.
 - **Contract filtering**: build a set of tracked contract IDs from `input.ProtocolContracts` and skip events from contracts you don't track.
 - **Graceful no-ops**: methods return `nil` early when there's nothing to do (no tracked contracts, nothing staged).
 - **Transaction safety**: `PersistHistory` and `PersistCurrentState` receive a `pgx.Tx` and all writes happen within it. The CAS cursor advance commits in the same transaction, so writes and cursor move atomically (and roll back together on failure).
+- **Current-state wipe**: `WipeCurrentState` covers only the protocol's own current-state tables; the classification tables (`contract_tokens`, `protocol_wasms`, `protocol_contracts`) are never touched. It is invoked by `protocol-migrate current-state --rebuild` inside the transaction that resets the cursor — see [Rebuilding a Protocol](./running-a-data-migration.md#rebuilding-a-protocol). Return `false` from `RequiresContractData` unless `ProcessLedger` reads `input.ContractDataChanges`, since `true` turns on the heavier ContractData extraction.
 
 ## Step 5: Register the Validator and Processor
 

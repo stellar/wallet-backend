@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -66,7 +68,7 @@ func TestHistoryStrategySpecifics(t *testing.T) {
 	// Verify it calls UpdateHistoryMigrationStatus (not current state)
 	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusInProgress).Return(nil)
 	protocolsModel.On("UpdateHistoryMigrationStatus", mock.Anything, mock.Anything, []string{"testproto"}, data.StatusSuccess).Return(nil)
-	protocolContractsModel.On("GetByProtocolID", mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
+	protocolContractsModel.On("GetByProtocolID", mock.Anything, mock.Anything, "testproto").Return([]data.ProtocolContracts{}, nil)
 
 	backend := &multiLedgerBackend{
 		ledgers: map[uint32]xdr.LedgerCloseMeta{
@@ -104,4 +106,37 @@ func TestHistoryStrategySpecifics(t *testing.T) {
 	assert.False(t, ok)
 
 	protocolsModel.AssertExpectations(t)
+}
+
+// TestHistoryMigrationRefusesWhileLockHeld pins the history advisory-lock
+// exclusion from the migrate side: a held per-protocol lock (another migration
+// or a rebuild) makes Run fail before it reads or marks anything.
+func TestHistoryMigrationRefusesWhileLockHeld(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	dbPool, ingestStore := setupTestDB(t)
+
+	svc, err := NewProtocolMigrateHistoryService(ProtocolMigrateHistoryConfig{
+		DB: dbPool, LedgerBackend: &multiLedgerBackend{},
+		ProtocolsModel: data.NewProtocolsModelMock(t), ProtocolContractsModel: data.NewProtocolContractsModelMock(t),
+		IngestStore: ingestStore, NetworkPassphrase: "Test SDF Network ; September 2015",
+		Processors: []ProtocolProcessor{&testRecordingProcessor{id: "testproto", ingestStore: ingestStore}},
+	})
+	require.NoError(t, err)
+
+	// Hold the lock on a raw connection, as a concurrent rebuild would.
+	conn, err := dbPool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	lockID := migrateAdvisoryLockID(lockScopeHistory, "testproto")
+	acquired, err := db.AcquireAdvisoryLock(ctx, conn, lockID)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	defer func() {
+		require.NoError(t, db.ReleaseAdvisoryLock(context.Background(), conn, lockID))
+	}()
+
+	err = svc.Run(ctx, []string{"testproto"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is held")
 }

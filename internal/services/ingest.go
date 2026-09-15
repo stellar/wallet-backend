@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"runtime"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/historyarchive"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -68,7 +68,6 @@ type IngestServiceConfig struct {
 	IsPermanentFetchError func(error) bool
 
 	// === Cursors ===
-	OldestLedgerCursorName string
 
 	// === Live Mode Dependencies ===
 	TokenIngestionService TokenIngestionService
@@ -100,9 +99,7 @@ type IngestServiceConfig struct {
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {
-	h := fnv.New64a()
-	h.Write([]byte("wallet-backend-ingest-" + network))
-	return int(h.Sum64())
+	return advisoryLockID("wallet-backend-ingest-" + network)
 }
 
 type IngestService interface {
@@ -118,7 +115,6 @@ var _ IngestService = (*ingestService)(nil)
 type ingestService struct {
 	ingestionMode             string
 	models                    *data.Models
-	oldestLedgerCursorName    string
 	advisoryLockID            int
 	appTracker                apptracker.AppTracker
 	rpcService                RPCService
@@ -187,7 +183,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
-		oldestLedgerCursorName:    cfg.OldestLedgerCursorName,
 		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
 		appTracker:                cfg.AppTracker,
 		rpcService:                cfg.RPCService,
@@ -245,14 +240,17 @@ func (m *ingestService) Close() {
 	}
 }
 
-// processLedger processes a single ledger - gets the transactions and processes them using indexer processors.
-func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) error {
-	participantCount, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
+// processLedger processes a single ledger - gets the transactions and
+// processes them using indexer processors. The materialized transactions are
+// returned so the live path can reuse them for ContractData extraction
+// instead of building a second LedgerTransactionReader for the same ledger.
+func (m *ingestService) processLedger(ctx context.Context, ledgerMeta xdr.LedgerCloseMeta, buffer *indexer.IndexerBuffer) ([]ingest.LedgerTransaction, error) {
+	participantCount, transactions, err := indexer.ProcessLedger(ctx, m.networkPassphrase, ledgerMeta, m.ledgerIndexer, buffer)
 	if err != nil {
-		return fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+		return nil, fmt.Errorf("processing ledger %d: %w", ledgerMeta.LedgerSequence(), err)
 	}
 	m.appMetrics.Ingestion.ParticipantsCount.Observe(float64(participantCount))
-	return nil
+	return transactions, nil
 }
 
 // insertIntoDB persists the processed data from the buffer to the database.
