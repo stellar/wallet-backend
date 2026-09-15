@@ -364,6 +364,481 @@ func TestTransactionSimulationService_classicManageData(t *testing.T) {
 	assert.Equal(t, "config", added.DataEntryName.String)
 }
 
+func accountEntryResultWithFlags(t *testing.T, address string, balanceStroops int64, flags xdr.Uint32) entities.LedgerEntryResult {
+	t.Helper()
+	id := xdr.MustAddress(address)
+	return ledgerEntryResult(t,
+		accountLedgerKey(id),
+		xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+			AccountId:  id,
+			Balance:    xdr.Int64(balanceStroops),
+			SeqNum:     1,
+			Thresholds: xdr.Thresholds{1, 0, 0, 0},
+			Flags:      flags,
+		}},
+	)
+}
+
+func trustlineEntryResultWithFlags(t *testing.T, address string, asset xdr.Asset, balance int64, flags xdr.Uint32) entities.LedgerEntryResult {
+	const limit = int64(100_0000000)
+	t.Helper()
+	id := xdr.MustAddress(address)
+	return ledgerEntryResult(t,
+		trustlineLedgerKey(id, asset),
+		xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeTrustline, TrustLine: &xdr.TrustLineEntry{
+			AccountId: id,
+			Asset:     asset.ToTrustLineAsset(),
+			Balance:   xdr.Int64(balance),
+			Limit:     xdr.Int64(limit),
+			Flags:     flags,
+		}},
+	)
+}
+
+// findBalanceAuthorization returns the first (BALANCE_AUTHORIZATION, <reason>)
+// state change, or nil.
+func findBalanceAuthorization(stateChanges []types.StateChange, reason types.StateChangeReason) *types.StateChange {
+	for i, sc := range stateChanges {
+		if sc.StateChangeCategory == types.StateChangeCategoryBalanceAuthorization && sc.StateChangeReason == reason {
+			return &stateChanges[i]
+		}
+	}
+	return nil
+}
+
+func TestTransactionSimulationService_classicSetTrustLineFlags(t *testing.T) {
+	ctx := context.Background()
+	issuer := keypair.MustRandom().Address()
+	trustor := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+
+	t.Run("🟢 authorizing produces (BALANCE_AUTHORIZATION, SET) on the trustor", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			SetFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		require.NoError(t, err)
+
+		set := findBalanceAuthorization(result.StateChanges, types.StateChangeReasonSet)
+		require.NotNil(t, set, "expected a (BALANCE_AUTHORIZATION, SET) state change")
+		assert.Equal(t, trustor, string(set.AccountID))
+		assert.Contains(t, types.DecodeTrustlineFlags(set.Flags.Int16), types.TrustlineFlagAuthorized)
+	})
+
+	t.Run("🟢 revoking with AUTH_REVOCABLE produces (BALANCE_AUTHORIZATION, CLEAR)", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResultWithFlags(t, issuer, 100_0000000, xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)),
+			trustlineEntryResultWithFlags(t, trustor, asset, 5_0000000, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		require.NoError(t, err)
+
+		cleared := findBalanceAuthorization(result.StateChanges, types.StateChangeReasonClear)
+		require.NotNil(t, cleared, "expected a (BALANCE_AUTHORIZATION, CLEAR) state change")
+		assert.Equal(t, trustor, string(cleared.AccountID))
+	})
+
+	t.Run("🔴 revoking without AUTH_REVOCABLE is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a non-issuer source is a would-fail", func(t *testing.T) {
+		outsider := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, outsider, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, outsider, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			SetFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a missing trustline is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, issuer, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			SetFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 setting the clawback-enabled flag is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: line,
+			SetFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineClawbackEnabled},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+func TestTransactionSimulationService_classicAllowTrust(t *testing.T) {
+	ctx := context.Background()
+	issuer := keypair.MustRandom().Address()
+	trustor := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+
+	t.Run("🟢 authorizing produces (BALANCE_AUTHORIZATION, SET) on the trustor", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, 0),
+		)
+		//nolint:staticcheck // the deprecated operation is the point: the simulation must handle legacy allowTrust transactions.
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.AllowTrust{
+			Trustor: trustor, Type: line, Authorize: true,
+		}))
+		require.NoError(t, err)
+
+		set := findBalanceAuthorization(result.StateChanges, types.StateChangeReasonSet)
+		require.NotNil(t, set, "expected a (BALANCE_AUTHORIZATION, SET) state change")
+		assert.Equal(t, trustor, string(set.AccountID))
+		assert.Contains(t, types.DecodeTrustlineFlags(set.Flags.Int16), types.TrustlineFlagAuthorized)
+	})
+
+	t.Run("🔴 deauthorizing without AUTH_REVOCABLE is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)),
+		)
+		//nolint:staticcheck // the deprecated operation is the point: the simulation must handle legacy allowTrust transactions.
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.AllowTrust{
+			Trustor: trustor, Type: line, Authorize: false,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+func TestTransactionSimulationService_classicClawback(t *testing.T) {
+	ctx := context.Background()
+	issuer := keypair.MustRandom().Address()
+	holder := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+	clawbackable := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsTrustlineClawbackEnabledFlag)
+
+	t.Run("🟢 clawback produces a BURN on the issuer and a DEBIT on the holder", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.Clawback{
+			From: holder, Amount: "20", Asset: line,
+		}))
+		require.NoError(t, err)
+
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		burn, ok := opByReason[types.StateChangeReasonBurn]
+		require.True(t, ok, "expected a (BALANCE, BURN) state change")
+		assert.Equal(t, issuer, string(burn.AccountID))
+		debit, ok := opByReason[types.StateChangeReasonDebit]
+		require.True(t, ok, "expected a (BALANCE, DEBIT) state change")
+		assert.Equal(t, holder, string(debit.AccountID))
+		assert.Equal(t, "200000000", debit.Amount.String)
+	})
+
+	t.Run("🔴 a non-issuer source is a would-fail", func(t *testing.T) {
+		outsider := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, outsider, 100_0000000),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, outsider, &txnbuild.Clawback{
+			From: holder, Amount: "20", Asset: line,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a trustline without the clawback-enabled flag is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResult(t, holder, asset, 50_0000000, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.Clawback{
+			From: holder, Amount: "20", Asset: line,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 clawing back more than the balance is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, holder, asset, 50_0000000, clawbackable),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.Clawback{
+			From: holder, Amount: "60", Asset: line,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+func TestTransactionSimulationService_classicAccountMerge(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+
+	t.Run("🟢 merge produces DEBIT, CREDIT, and (ACCOUNT, MERGE) on the source", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{
+			Destination: dst,
+		}))
+		require.NoError(t, err)
+
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		debit, ok := opByReason[types.StateChangeReasonDebit]
+		require.True(t, ok, "expected a (BALANCE, DEBIT) on the merged account")
+		assert.Equal(t, src, string(debit.AccountID))
+		// The whole balance minus the already-charged fee moves.
+		assert.Equal(t, "999999900", debit.Amount.String)
+		credit, ok := opByReason[types.StateChangeReasonCredit]
+		require.True(t, ok, "expected a (BALANCE, CREDIT) on the destination")
+		assert.Equal(t, dst, string(credit.AccountID))
+
+		var merged *types.StateChange
+		for i, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryAccount && sc.StateChangeReason == types.StateChangeReasonMerge {
+				merged = &result.StateChanges[i]
+			}
+		}
+		require.NotNil(t, merged, "expected an (ACCOUNT, MERGE) state change")
+		assert.Equal(t, src, string(merged.AccountID))
+		assert.Equal(t, dst, merged.DestinationAccountID.String())
+	})
+
+	t.Run("🔴 merging into itself is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{
+			Destination: src,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a missing destination is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{
+			Destination: dst,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a source with subentries is a would-fail", func(t *testing.T) {
+		id := xdr.MustAddress(src)
+		withTrustline := ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+				AccountId:     id,
+				Balance:       100_0000000,
+				SeqNum:        1,
+				NumSubEntries: 1,
+				Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			}},
+		)
+		svc := classicFixture(t, withTrustline, accountEntryResult(t, dst, 50_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{
+			Destination: dst,
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+// claimableBalanceEntryResult builds a 20-token claimable-balance entry with a
+// single unconditional claimant.
+func claimableBalanceEntryResult(t *testing.T, id xdr.ClaimableBalanceId, asset xdr.Asset, claimant string, clawbackEnabled bool) entities.LedgerEntryResult {
+	const amount = int64(20_0000000)
+	t.Helper()
+	v0 := xdr.ClaimantV0{
+		Destination: xdr.MustAddress(claimant),
+		Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional},
+	}
+	entry := xdr.ClaimableBalanceEntry{
+		BalanceId: id,
+		Claimants: []xdr.Claimant{{Type: xdr.ClaimantTypeClaimantTypeV0, V0: &v0}},
+		Asset:     asset,
+		Amount:    xdr.Int64(amount),
+	}
+	if clawbackEnabled {
+		entry.Ext = xdr.ClaimableBalanceEntryExt{V: 1, V1: &xdr.ClaimableBalanceEntryExtensionV1{
+			Flags: xdr.Uint32(xdr.ClaimableBalanceFlagsClaimableBalanceClawbackEnabledFlag),
+		}}
+	}
+	return ledgerEntryResult(t,
+		claimableBalanceLedgerKey(id),
+		xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeClaimableBalance, ClaimableBalance: &entry},
+	)
+}
+
+func testClaimableBalanceID(seed byte) xdr.ClaimableBalanceId {
+	hash := xdr.Hash{seed}
+	return xdr.ClaimableBalanceId{Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0, V0: &hash}
+}
+
+func TestTransactionSimulationService_classicClaimableBalances(t *testing.T) {
+	ctx := context.Background()
+	issuer := keypair.MustRandom().Address()
+	holder := keypair.MustRandom().Address()
+	claimant := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+	cbID := testClaimableBalanceID(7)
+
+	t.Run("🟢 creating escrows the asset with a (BALANCE, DEBIT) on the creator", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, holder, 100_0000000),
+			trustlineEntryResult(t, holder, asset, 50_0000000, 100_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, holder, &txnbuild.CreateClaimableBalance{
+			Amount: "20", Asset: line,
+			Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(claimant, nil)},
+		}))
+		require.NoError(t, err)
+
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		debit, ok := opByReason[types.StateChangeReasonDebit]
+		require.True(t, ok, "expected a (BALANCE, DEBIT) on the creator")
+		assert.Equal(t, holder, string(debit.AccountID))
+		assert.Equal(t, "200000000", debit.Amount.String)
+	})
+
+	t.Run("🔴 creating with an insufficient trustline balance is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, holder, 100_0000000),
+			trustlineEntryResult(t, holder, asset, 5_0000000, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, holder, &txnbuild.CreateClaimableBalance{
+			Amount: "20", Asset: line,
+			Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(claimant, nil)},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🟢 claiming produces a (BALANCE, CREDIT) on the claimant", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, claimant, 100_0000000),
+			trustlineEntryResult(t, claimant, asset, 0, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
+			Type:                    xdr.OperationTypeClaimClaimableBalance,
+			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{BalanceId: cbID},
+		}))
+		require.NoError(t, err)
+
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		credit, ok := opByReason[types.StateChangeReasonCredit]
+		require.True(t, ok, "expected a (BALANCE, CREDIT) on the claimant")
+		assert.Equal(t, claimant, string(credit.AccountID))
+		assert.Equal(t, "200000000", credit.Amount.String)
+	})
+
+	t.Run("🔴 claiming someone else's balance is a would-fail", func(t *testing.T) {
+		outsider := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, outsider, 100_0000000),
+			trustlineEntryResult(t, outsider, asset, 0, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, outsider, xdr.OperationBody{
+			Type:                    xdr.OperationTypeClaimClaimableBalance,
+			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{BalanceId: cbID},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 claiming without a trustline for the asset is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, claimant, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
+			Type:                    xdr.OperationTypeClaimClaimableBalance,
+			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{BalanceId: cbID},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🟢 clawing back produces a (BALANCE, BURN)", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, true),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
+			Type:                       xdr.OperationTypeClawbackClaimableBalance,
+			ClawbackClaimableBalanceOp: &xdr.ClawbackClaimableBalanceOp{BalanceId: cbID},
+		}))
+		require.NoError(t, err)
+
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		burn, ok := opByReason[types.StateChangeReasonBurn]
+		require.True(t, ok, "expected a (BALANCE, BURN) state change")
+		assert.Equal(t, "200000000", burn.Amount.String)
+	})
+
+	t.Run("🔴 clawing back a non-clawback-enabled balance is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, false),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
+			Type:                       xdr.OperationTypeClawbackClaimableBalance,
+			ClawbackClaimableBalanceOp: &xdr.ClawbackClaimableBalanceOp{BalanceId: cbID},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+func TestTransactionSimulationService_classicBumpSequence(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+
+	t.Run("🟢 a forward bump succeeds with only the fee row", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.BumpSequence{
+			BumpTo: 1_000_000,
+		}))
+		require.NoError(t, err)
+
+		// Sequence numbers are not wallet-facing state, so the fee debit is the
+		// only expected row.
+		feeDebit, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+		assert.Empty(t, opByReason, "expected no operation-level balance changes")
+		assert.Len(t, result.StateChanges, 1)
+	})
+
+	t.Run("🟢 bumping at or below the current sequence is a successful no-op", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.BumpSequence{
+			BumpTo: 1, // the fixture account's sequence is already 1
+		}))
+		require.NoError(t, err)
+		assert.Len(t, result.StateChanges, 1, "expected only the fee row")
+	})
+}
+
 func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 	ctx := context.Background()
 	src := keypair.MustRandom().Address()
@@ -533,6 +1008,97 @@ func trustlineEntryResultWithLiabilities(t *testing.T, address string, asset xdr
 	)
 }
 
+// buildFeeBumpTxXDRFrom wraps a single-op inner transaction from innerSource in
+// an unsigned fee-bump envelope paid for by feeSource, bidding bumpFee.
+func buildFeeBumpTxXDRFrom(t *testing.T, feeSource, innerSource string, bumpFee int64, body xdr.OperationBody) string {
+	t.Helper()
+	innerAID := xdr.MustAddress(innerSource)
+	feeAID := xdr.MustAddress(feeSource)
+	env := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+		FeeBump: &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: feeAID.ToMuxedAccount(),
+				Fee:       xdr.Int64(bumpFee),
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+					V1: &xdr.TransactionV1Envelope{
+						Tx: xdr.Transaction{
+							SourceAccount: innerAID.ToMuxedAccount(),
+							Fee:           100,
+							SeqNum:        1,
+							Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+							Operations:    []xdr.Operation{{Body: body}},
+						},
+					},
+				},
+			},
+		},
+	}
+	b64, err := xdr.MarshalBase64(env)
+	require.NoError(t, err)
+	return b64
+}
+
+func TestTransactionSimulationService_classicFeeBump(t *testing.T) {
+	ctx := context.Background()
+	feePayer := keypair.MustRandom().Address()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+	dstAID := xdr.MustAddress(dst)
+	payment := xdr.OperationBody{
+		Type: xdr.OperationTypePayment,
+		PaymentOp: &xdr.PaymentOp{
+			Destination: dstAID.ToMuxedAccount(),
+			Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+			Amount:      1_0000000,
+		},
+	}
+
+	t.Run("🟢 the wrapper's fee source pays the fee, not the inner source", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, feePayer, 100_0000000),
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		require.NoError(t, err)
+
+		feeDebit, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+		assert.Equal(t, feePayer, string(feeDebit.AccountID), "the fee must land on the fee-bump source")
+		// One inner operation plus the bump itself at the 100-stroop base fee;
+		// the 400-stroop bid must not leak into the row.
+		assert.Equal(t, "200", feeDebit.Amount.String, "the fee is the estimated charge, not the wrapper's bid")
+
+		debit, ok := opByReason[types.StateChangeReasonDebit]
+		require.True(t, ok, "expected the payment DEBIT")
+		assert.Equal(t, src, string(debit.AccountID))
+		credit, ok := opByReason[types.StateChangeReasonCredit]
+		require.True(t, ok, "expected the payment CREDIT")
+		assert.Equal(t, dst, string(credit.AccountID))
+	})
+
+	t.Run("🔴 a fee source that cannot cover the bid is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, feePayer, 2*baseReserveStroops), // nothing spendable
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a missing fee source is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, feePayer, src, 400, payment))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
 func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 	ctx := context.Background()
 	src := keypair.MustRandom().Address()
@@ -559,6 +1125,37 @@ func TestTransactionSimulationService_classicUnsupported(t *testing.T) {
 		))
 		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
 	})
+}
+
+// TestRealignSignerSponsorships pins the parallel-array contract: the account
+// extension's SignerSponsoringIDs must stay index-aligned with Signers after a
+// signer change, or processors indexing them together panic.
+func TestRealignSignerSponsorships(t *testing.T) {
+	existingSigner := xdr.MustSigner(keypair.MustRandom().Address())
+	sponsor := xdr.MustAddress(keypair.MustRandom().Address())
+	account := xdr.AccountEntry{
+		AccountId:     xdr.MustAddress(keypair.MustRandom().Address()),
+		Signers:       []xdr.Signer{{Key: existingSigner, Weight: 1}},
+		NumSubEntries: 1,
+		Ext: xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{
+			Ext: xdr.AccountEntryExtensionV1Ext{V: 2, V2: &xdr.AccountEntryExtensionV2{
+				SignerSponsoringIDs: []xdr.SponsorshipDescriptor{&sponsor},
+			}},
+		}},
+	}
+
+	after := cloneAccountEntry(account)
+	after.Signers = applySignerChange(after.Signers, xdr.Signer{
+		Key: xdr.MustSigner(keypair.MustRandom().Address()), Weight: 5,
+	})
+	realignSignerSponsorships(&after, account)
+
+	v2 := after.Ext.V1.Ext.V2
+	require.Len(t, v2.SignerSponsoringIDs, len(after.Signers),
+		"sponsoring IDs must stay parallel to the signer list")
+	require.NotNil(t, v2.SignerSponsoringIDs[0], "the kept signer keeps its sponsor")
+	assert.Equal(t, sponsor, *v2.SignerSponsoringIDs[0])
+	assert.Nil(t, v2.SignerSponsoringIDs[1], "a newly added signer has no sponsor")
 }
 
 // TestFetchLedgerEntries_batches verifies footprints larger than the RPC
