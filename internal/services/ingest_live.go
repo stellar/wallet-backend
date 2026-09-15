@@ -518,10 +518,10 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	// persist drains the other. Reuse keeps the asset-parse memo warm and the
 	// maps' backing arrays allocated across ledgers.
 	//
-	// Invariant: cap(freeBuffers) >= cap(processed) + 1. Persist hands its
-	// buffer back with a blocking send, and process can't start a ledger
-	// without a free buffer. Raising `processed` on its own deadlocks the
-	// pipeline — raise both.
+	// The channel holds every buffer that exists, so handing one back never
+	// blocks. The buffer count, not the channel depths, bounds the pipeline:
+	// process cannot start a ledger without a free buffer, so a deeper
+	// `processed` queue only helps if more buffers are added with it.
 	freeBuffers := make(chan *indexer.IndexerBuffer, 2)
 	freeBuffers <- indexer.NewIndexerBuffer()
 	freeBuffers <- indexer.NewIndexerBuffer()
