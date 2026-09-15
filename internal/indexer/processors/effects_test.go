@@ -477,6 +477,22 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 	})
 }
 
+func TestGenerateBalanceAuthorizationForNewTrustline(t *testing.T) {
+	processor := NewEffectsProcessor(networkPassphrase, nil)
+	builder := NewStateChangeBuilder(12345, 1234500, 1, nil).WithAccount(someTxAccount.Address())
+	effect := &EffectOutput{Details: map[string]interface{}{
+		"asset_type":        "liquidity_pool_shares",
+		"liquidity_pool_id": "pool-id",
+	}}
+
+	stateChange, err := processor.generateBalanceAuthorizationForNewTrustline(builder, effect, nil)
+	require.NoError(t, err)
+	require.Equal(t, types.StateChangeCategoryBalanceAuthorization, stateChange.StateChangeCategory)
+	require.Equal(t, types.StateChangeReasonSet, stateChange.StateChangeReason)
+	require.Equal(t, "pool-id", stateChange.LiquidityPoolID.String)
+	require.False(t, stateChange.Flags.Valid)
+}
+
 // TestEffects_ParseThresholds_DeterministicOrder pins the emission order of threshold state
 // changes: when a single SetOptions effect updates low, medium, and high thresholds together,
 // the resulting state changes must always come back in low -> medium -> high order so that

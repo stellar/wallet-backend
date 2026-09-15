@@ -275,7 +275,9 @@ func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, b
 
 		asset, err := trustLineAssetToAsset(trustline.Asset)
 		if err != nil {
-			return nil, fmt.Errorf("converting trustline asset: %w", err)
+			log.Debugf("processor: %s: skipping created trustline with unsupported asset type: accountAddress=%s assetType=%d error=%v",
+				p.Name(), trustline.AccountId.Address(), trustline.Asset.Type, err)
+			continue
 		}
 		assetContractID, err := asset.ContractID(p.networkPassphrase)
 		if err != nil {
@@ -286,13 +288,14 @@ func (p *SACEventsProcessor) processCreatedTrustlines(changes []ingest.Change, b
 		account := trustline.AccountId.Address()
 		baseBuilder := builder.Clone().WithAccount(account).WithToken(contractID)
 		limit := amount.String(trustline.Limit)
+		trustlineFlags := xdr.TrustLineFlags(trustline.Flags)
 		stateChanges = append(stateChanges,
 			baseBuilder.Clone().
 				WithCategory(types.StateChangeCategoryTrustline).
 				WithReason(types.StateChangeReasonAdd).
 				WithTrustlineLimit(nil, &limit).
 				Build(),
-			processors.BuildBalanceAuthorizationForNewTrustline(baseBuilder, xdr.TrustLineFlags(trustline.Flags)),
+			processors.BuildBalanceAuthorizationForNewTrustline(baseBuilder, &trustlineFlags),
 		)
 	}
 	return stateChanges, nil

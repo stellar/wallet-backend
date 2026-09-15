@@ -315,7 +315,7 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		return types.StateChange{}, nil
 	}
 
-	var trustlineFlags xdr.TrustLineFlags
+	var trustlineFlags *xdr.TrustLineFlags
 	if assetType == "liquidity_pool_shares" {
 		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
 		if err != nil {
@@ -330,22 +330,26 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		baseBuilder = baseBuilder.WithToken(assetContractID)
 
 		// Extract trustline flags directly from the transaction changes
-		trustlineFlags, err = p.getTrustlineFlagsFromChanges(effect.Address, assetCode, assetIssuer, changes)
+		flags, err := p.getTrustlineFlagsFromChanges(effect.Address, assetCode, assetIssuer, changes)
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("getting trustline flags from changes: %w", err)
 		}
+		trustlineFlags = &flags
 	}
 
 	return BuildBalanceAuthorizationForNewTrustline(baseBuilder, trustlineFlags), nil
 }
 
 // BuildBalanceAuthorizationForNewTrustline builds the initial authorization state from a new trustline's flags.
-func BuildBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, flags xdr.TrustLineFlags) types.StateChange {
-	return baseBuilder.Clone().
+// A nil flags value represents a trustline type without classic authorization flags.
+func BuildBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, flags *xdr.TrustLineFlags) types.StateChange {
+	builder := baseBuilder.Clone().
 		WithCategory(types.StateChangeCategoryBalanceAuthorization).
-		WithReason(types.StateChangeReasonSet).
-		WithFlags(mapTrustlineFlagsToStrings(flags)).
-		Build()
+		WithReason(types.StateChangeReasonSet)
+	if flags != nil {
+		builder = builder.WithFlags(mapTrustlineFlagsToStrings(*flags))
+	}
+	return builder.Build()
 }
 
 func (p *EffectsProcessor) buildAssetContractIDFromTrustlineEffect(effect *EffectOutput) (string, string, string, error) {

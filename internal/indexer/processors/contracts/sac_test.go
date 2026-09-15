@@ -106,6 +106,25 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, stateChanges)
 	})
+
+	t.Run("unsupported trustline asset is ignored", func(t *testing.T) {
+		trustline := xdr.TrustLineEntry{
+			AccountId: xdr.MustAddress(account),
+			Asset:     xdr.TrustLineAsset{Type: xdr.AssetType(999)},
+		}
+		changes := []ingest.Change{{
+			Type: xdr.LedgerEntryTypeTrustline,
+			Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+				Type:      xdr.LedgerEntryTypeTrustline,
+				TrustLine: &trustline,
+			}},
+		}}
+		builder := processors.NewStateChangeBuilder(12345, 1234500, 1, nil)
+
+		stateChanges, err := processor.processCreatedTrustlines(changes, builder)
+		require.NoError(t, err)
+		require.Empty(t, stateChanges)
+	})
 }
 
 func createCAP73TrustTx(account, admin string, asset xdr.TrustLineAsset, flags xdr.Uint32) ingest.LedgerTransaction {
