@@ -71,6 +71,12 @@ func makeBasicSorobanOp() *TransactionOperationWrapper {
 				},
 			},
 			Hash: xdr.Hash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20},
+			// One empty operation meta so GetOperationChanges / GetContractEventsForOperation
+			// return empty rather than "TransactionMeta.V=0 not supported".
+			UnsafeMeta: xdr.TransactionMeta{
+				V:  3,
+				V3: &xdr.TransactionMetaV3{Operations: []xdr.OperationMeta{{}}},
+			},
 			Ledger: xdr.LedgerCloseMeta{
 				V: 1,
 				V1: &xdr.LedgerCloseMetaV1{
@@ -182,5 +188,48 @@ func assertStateChangesElementsMatch(t *testing.T, want []types.StateChange, got
 			assert.Fail(t, "state change not found", "state change id: %s", key)
 		}
 		assertStateChangeEqual(t, wantMap[key], g)
+	}
+}
+
+// setOperationMeta attaches ledger entry changes and contract events to the op's
+// (single) operation meta, the way the host records them for a Soroban transaction.
+func setOperationMeta(op *TransactionOperationWrapper, changes xdr.LedgerEntryChanges, events []xdr.ContractEvent) {
+	op.Transaction.UnsafeMeta = xdr.TransactionMeta{
+		V: 3,
+		V3: &xdr.TransactionMetaV3{
+			Operations:  []xdr.OperationMeta{{Changes: changes}},
+			SorobanMeta: &xdr.SorobanTransactionMeta{Events: events},
+		},
+	}
+}
+
+// nonceEntryCreated builds the created ContractData change the host writes under an
+// authorising address once its signature verified (key type SCV_LEDGER_KEY_NONCE).
+func nonceEntryCreated(authorizer xdr.ScAddress, nonce int64) xdr.LedgerEntryChange {
+	return xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract:   authorizer,
+					Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyNonce, NonceKey: &xdr.ScNonceKey{Nonce: xdr.Int64(nonce)}},
+					Durability: xdr.ContractDataDurabilityTemporary,
+					Val:        xdr.ScVal{Type: xdr.ScValTypeScvVoid},
+				},
+			},
+		},
+	}
+}
+
+// contractEventFrom builds a minimal contract event emitted by contractID.
+func contractEventFrom(contractID string) xdr.ContractEvent {
+	decoded := strkey.MustDecode(strkey.VersionByteContract, contractID)
+	id := xdr.ContractId(decoded)
+	return xdr.ContractEvent{
+		Type:       xdr.ContractEventTypeContract,
+		ContractId: &id,
+		Body:       xdr.ContractEventBody{V: 0, V0: &xdr.ContractEventV0{Topics: []xdr.ScVal{{Type: xdr.ScValTypeScvVoid}}, Data: xdr.ScVal{Type: xdr.ScValTypeScvVoid}}},
 	}
 }

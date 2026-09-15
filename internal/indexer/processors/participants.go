@@ -163,7 +163,19 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 // GetOperationParticipants returns the participants for a transaction operation.
 // In case of a Soroban operation, it calls the participantsForSorobanOp function to get the Soroban participants.
 func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperationWrapper) (set.Set[string], error) {
-	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
+	// A failed transaction changes no state beyond its fee. Payment destinations,
+	// signer keys and auth entries are unverified submitter input, so only the accounts
+	// whose state changed are attributed. The set is never empty, so the operation row
+	// still exists for the submitter.
+	if !op.Transaction.Successful() {
+		participants := set.NewThreadUnsafeSet(op.Transaction.Envelope.SourceAccount().ToAccountId().Address())
+		if op.Transaction.Envelope.IsFeeBump() {
+			participants.Add(op.Transaction.Envelope.FeeBumpAccount().ToAccountId().Address())
+		}
+		return participants, nil
+	}
+
+	// 1. Participants from the operation body (G-accounts named by classic operations)
 	participantsAccountIDs, err := op.Participants()
 	if err != nil {
 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
@@ -173,17 +185,11 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		participants.Add(accountID.Address())
 	}
 
-	// 1.1. Return early if the operation is not a Soroban operation
 	if !op.Transaction.IsSorobanTx() {
 		return participants, nil
 	}
 
-	// 1.2. Skip Soroban participants for failed transactions (they don't have ledger changes)
-	if !op.Transaction.Successful() {
-		return participants, nil
-	}
-
-	// 2. Get Soroban participants
+	// 2. Soroban participants, from the operation body and the executed meta
 	sorobanParticipants, err := participantsForSorobanOp(op)
 	if err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
