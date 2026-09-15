@@ -63,6 +63,26 @@ func TestRetryWithBackoff_RespectsContextCancellation(t *testing.T) {
 		"a cancelled context exits early — attempts were never exhausted")
 }
 
+func TestRetryWithBackoff_CancelledDuringAttempt(t *testing.T) {
+	// A cancellation that lands while fn runs must exit as cancellation, not
+	// exhaustion, and must not reach onRetry — on the first attempt or the last.
+	for _, maxRetries := range []int{3, 1} {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls, retries := 0, 0
+		_, err := RetryWithBackoff(ctx, maxRetries, 10*time.Second,
+			func(ctx context.Context) (string, error) {
+				calls++
+				cancel()
+				return "", errors.New("attempt failed as the context was cancelled")
+			},
+			func(int, error, time.Duration) { retries++ })
+		require.ErrorIs(t, err, context.Canceled)
+		assert.NotErrorIs(t, err, ErrRetriesExhausted, "maxRetries=%d", maxRetries)
+		assert.Equal(t, 1, calls, "maxRetries=%d", maxRetries)
+		assert.Zero(t, retries, "maxRetries=%d: onRetry must not run for a cancelled attempt", maxRetries)
+	}
+}
+
 func TestRetryWithBackoff_CallsOnRetry(t *testing.T) {
 	var retryAttempts []int
 	sentinel := errors.New("fail")
