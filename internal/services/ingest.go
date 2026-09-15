@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"runtime"
 	"strings"
 	"time"
@@ -100,9 +99,7 @@ type IngestServiceConfig struct {
 // generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
 // This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
 func generateAdvisoryLockID(network string) int {
-	h := fnv.New64a()
-	h.Write([]byte("wallet-backend-ingest-" + network))
-	return int(h.Sum64())
+	return advisoryLockID("wallet-backend-ingest-" + network)
 }
 
 type IngestService interface {

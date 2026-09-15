@@ -34,13 +34,17 @@ func dedupePreservingOrder(protocolIDs []string) []string {
 	return unique
 }
 
-// migrateAdvisoryLockID derives the advisory lock key for (scope, protocol).
-// The input string is the wire-level key: changing it silently stops
-// excluding runs of older builds.
-func migrateAdvisoryLockID(scope, protocolID string) int {
+// advisoryLockID hashes a wire-level key into a Postgres advisory lock ID.
+// Changing a key silently stops excluding runs of older builds.
+func advisoryLockID(key string) int {
 	h := fnv.New64a()
-	h.Write([]byte("wallet-backend-" + scope + "-" + protocolID))
+	h.Write([]byte(key))
 	return int(h.Sum64())
+}
+
+// migrateAdvisoryLockID derives the advisory lock key for (scope, protocol).
+func migrateAdvisoryLockID(scope, protocolID string) int {
+	return advisoryLockID("wallet-backend-" + scope + "-" + protocolID)
 }
 
 // migrateLocks is a held set of advisory locks. Not safe for concurrent use,
