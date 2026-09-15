@@ -251,7 +251,12 @@ func handler(deps handlerDeps) http.Handler {
 		RPCService: deps.RPCService,
 		AppTracker: deps.AppTracker,
 	}.GetHealth)
-	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{}).ServeHTTP)
+	// Unauthenticated scrape endpoint: bound concurrent scrapes and their duration so a
+	// large registry cannot be scraped in parallel for CPU and allocation cost.
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{
+		MaxRequestsInFlight: 5,
+		Timeout:             10 * time.Second,
+	}).ServeHTTP)
 
 	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
