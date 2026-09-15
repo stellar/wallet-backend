@@ -865,17 +865,26 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 //
 // Later ledgers win the merge, which is the correct end state for the batch:
 // a contract rebound mid-batch ends up bound to its final wasm. Each ledger
-// still writes its own protocol_contracts row from its own buffer, in order.
+// still writes its own protocol_contracts row from its own buffer, in order,
+// and stages its own protocol events against the binding it saw — so the
+// plan's Matches must also resolve the wasm hashes the merge superseded, or
+// the earlier ledger's contract would silently drop out of its protocol.
 func (m *ingestService) prepareBatchClassificationPlan(ctx context.Context, batch []processedLedger) (*ClassificationPlan, error) {
 	wasms := make(map[string]data.ProtocolWasms)
 	bytecodes := make(map[string][]byte)
 	contracts := make(map[string]data.ProtocolContracts)
+	var supersededHashes []types.HashBytea
 	for _, pl := range batch {
 		maps.Copy(wasms, pl.buffer.GetProtocolWasms())
 		maps.Copy(bytecodes, pl.buffer.GetProtocolWasmBytecodes())
-		maps.Copy(contracts, pl.buffer.GetProtocolContracts())
+		for id, c := range pl.buffer.GetProtocolContracts() {
+			if prev, rebound := contracts[id]; rebound && prev.WasmHash != c.WasmHash {
+				supersededHashes = append(supersededHashes, prev.WasmHash)
+			}
+			contracts[id] = c
+		}
 	}
-	return m.prepareClassificationPlan(ctx, wasms, bytecodes, contracts)
+	return m.prepareClassificationPlan(ctx, wasms, bytecodes, contracts, supersededHashes)
 }
 
 // persistProcessedLedgers is the pipeline's persist stage and the only stage
@@ -1303,6 +1312,7 @@ func (m *ingestService) prepareClassificationPlan(
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
 	bufferedContracts map[string]data.ProtocolContracts,
+	supersededHashes []types.HashBytea,
 ) (*ClassificationPlan, error) {
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
 		return nil, nil
@@ -1327,12 +1337,21 @@ func (m *ingestService) prepareClassificationPlan(
 	// this ledger's buffer — resolve those from the verdict already stored in
 	// protocol_wasms. Hashes uploaded this ledger (thisBatch) are skipped here
 	// because PrepareClassification classifies them from their buffered bytecode below.
-	knownHashes := make([]types.HashBytea, 0, len(contractSlice))
+	// supersededHashes are bindings an earlier ledger of the batch saw before a
+	// later one rebound the contract; they are resolved too, so that ledger's
+	// events still classify (see prepareBatchClassificationPlan).
+	knownHashes := make([]types.HashBytea, 0, len(contractSlice)+len(supersededHashes))
 	for _, c := range contractSlice {
 		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
 			continue
 		}
 		knownHashes = append(knownHashes, c.WasmHash)
+	}
+	for _, h := range supersededHashes {
+		if _, inBatch := thisBatch[h]; inBatch {
+			continue
+		}
+		knownHashes = append(knownHashes, h)
 	}
 	known, err := utils.RetryWithBackoff(ctx, maxClassificationReadRetries, maxRetryBackoff,
 		func(ctx context.Context) (map[types.HashBytea]string, error) {

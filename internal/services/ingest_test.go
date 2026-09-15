@@ -2504,7 +2504,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 	t.Run("nil plan when nothing is buffered", func(t *testing.T) {
 		svc := newSvc(data.NewProtocolWasmsModelMock(t), nil, NewWasmSpecExtractorMock(t))
 
-		plan, err := svc.prepareClassificationPlan(ctx, nil, nil, nil)
+		plan, err := svc.prepareClassificationPlan(ctx, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Nil(t, plan)
 	})
@@ -2531,7 +2531,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 			map[string]data.ProtocolContracts{
 				string(c1): {ContractID: c1, WasmHash: w1},
 				string(c2): {ContractID: c2, WasmHash: w2},
-			},
+			}, nil,
 		)
 		require.NoError(t, err)
 		require.NotNil(t, plan)
@@ -2557,7 +2557,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 		svc := newSvc(wasmsMock, []ProtocolValidator{rv}, NewWasmSpecExtractorMock(t))
 
 		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
-			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}}, nil)
 		require.NoError(t, err)
 		require.NotNil(t, plan)
 		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
@@ -2574,7 +2574,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
 
 		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
-			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}}, nil)
 		require.NoError(t, err)
 		require.NotNil(t, plan)
 		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
@@ -2590,7 +2590,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
 
 		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
-			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}}, nil)
 		require.NoError(t, err)
 		require.NotNil(t, plan)
 		assert.Equal(t, map[types.HashBytea]string{w2: "A"}, plan.Matches)
@@ -2606,7 +2606,7 @@ func Test_prepareClassificationPlan(t *testing.T) {
 		svc := newSvc(wasmsMock, nil, NewWasmSpecExtractorMock(t))
 
 		plan, err := svc.prepareClassificationPlan(ctx, nil, nil,
-			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}})
+			map[string]data.ProtocolContracts{string(c2): {ContractID: c2, WasmHash: w2}}, nil)
 		require.Error(t, err)
 		assert.Nil(t, plan)
 		assert.Equal(t, 0.0, testutil.ToFloat64(
@@ -3260,7 +3260,9 @@ func Test_prepareBatchClassificationPlan_MergesBatchInputs(t *testing.T) {
 }
 
 // Test_prepareBatchClassificationPlan_LastBindingWins pins the merge rule for a
-// contract rebound inside one batch: the batch's plan reflects its final wasm.
+// contract rebound inside one batch: the contract itself ends bound to its
+// final wasm, but the plan resolves BOTH hashes, because the earlier ledger
+// stages its protocol events against the binding it saw.
 func Test_prepareBatchClassificationPlan_LastBindingWins(t *testing.T) {
 	ctx := context.Background()
 
@@ -3275,13 +3277,13 @@ func Test_prepareBatchClassificationPlan_LastBindingWins(t *testing.T) {
 	second := indexer.NewIndexerBuffer()
 	second.PushProtocolContracts(data.ProtocolContracts{ContractID: contractID, WasmHash: w2})
 
-	// Only the surviving binding's wasm may be resolved from the database.
+	// The surviving binding's wasm and the superseded one are both resolved.
 	wasmsMock := data.NewProtocolWasmsModelMock(t)
 	wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything,
 		mock.MatchedBy(func(hashes []types.HashBytea) bool {
-			return len(hashes) == 1 && hashes[0] == w2
+			return len(hashes) == 2 && hashes[0] == w2 && hashes[1] == w1
 		}),
-	).Return(map[types.HashBytea]string{w2: "B"}, nil).Once()
+	).Return(map[types.HashBytea]string{w1: "A", w2: "B"}, nil).Once()
 
 	svc := &ingestService{
 		models:     &data.Models{ProtocolWasms: wasmsMock},
@@ -3294,5 +3296,6 @@ func Test_prepareBatchClassificationPlan_LastBindingWins(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
-	assert.Equal(t, map[types.HashBytea]string{w2: "B"}, plan.Matches)
+	assert.Equal(t, map[types.HashBytea]string{w1: "A", w2: "B"}, plan.Matches,
+		"the superseded binding must stay classified for the ledger that saw it")
 }
