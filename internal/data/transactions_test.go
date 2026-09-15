@@ -120,6 +120,12 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			stellarAddressesByToID: map[int64]map[string]struct{}{},
 			wantCount:              1,
 		},
+		{
+			name:                   "🔴participant_for_unknown_to_id",
+			txs:                    []*types.Transaction{&txCopy1},
+			stellarAddressesByToID: map[int64]map[string]struct{}{999999: {kp1.Address(): {}}},
+			wantErrContains:        "no transaction supplies ledger_created_at for to_id 999999",
+		},
 	}
 
 	// Create pgx connection for BatchCopy (requires pgx.Tx, not sqlx.Tx)
