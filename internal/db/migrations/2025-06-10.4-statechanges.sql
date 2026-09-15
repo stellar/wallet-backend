@@ -46,6 +46,10 @@ CREATE TABLE state_changes (
     -- a top-N first page is served by scanning the PK itself -- forward or backward, no
     -- heapsort -- which also makes it this table's replacement for the default single-column
     -- index TimescaleDB would otherwise auto-create on the partition column.
+    -- Operation-scoped lookups ride this PK too: TOID encoding makes a state change's parent
+    -- transaction to_id derivable from its operation_id (to_id = operation_id & ~x'FFF'), so
+    -- StateChangeModel.BatchGetByOperationID and BatchGetByOperationIDs bind
+    -- (ledger_created_at, to_id, operation_id) as a three-column prefix.
     PRIMARY KEY (ledger_created_at, to_id, operation_id, state_change_id)
 ) WITH (
     tsdb.hypertable,
