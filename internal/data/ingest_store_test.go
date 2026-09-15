@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"testing"
 
@@ -781,5 +782,12 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
 	for table, c := range countRows(t) {
 		assert.Equal(t, [2]int{1, 0}, c, "%s must be unchanged by a reconciliation no-op", table)
+	}
+
+	// A cursor whose successor does not fit the toid ledger field must be
+	// rejected before the bound is computed, not wrap and delete every row.
+	require.Error(t, m.DeleteRowsAboveLedger(ctx, math.MaxInt32))
+	for table, c := range countRows(t) {
+		assert.Equal(t, [2]int{1, 0}, c, "%s must be untouched by a rejected cursor", table)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -272,13 +273,19 @@ func (m *IngestStoreModel) GetOldestLedger(ctx context.Context) (uint32, error) 
 // one from the five bulk-COPY tables, in one transaction. It is live
 // ingestion's startup reconciliation: sibling COPY transactions commit before
 // the coordinating transaction that carries the cursor, so a crash between
-// those commits leaves orphaned bulk rows for (at most) the single ledger past
-// the committed cursor — and they must be cleared before that ledger is
+// those commits leaves orphaned bulk rows for the persist batch past the
+// committed cursor — and they must be cleared before those ledgers are
 // re-ingested, because COPY has no ON CONFLICT and would collide on the
 // primary keys. Rows of ledgers > ledger are exactly rows whose TOID column is
 // >= the first TOID of ledger+1; each table has chunk skipping on its TOID
 // column, so the deletes stay bounded to the newest chunks.
 func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uint32) error {
+	// toid packs the ledger into the high 32 bits of a signed int64: a cursor at
+	// MaxInt32 would wrap ledger+1 negative and the bound below would match every
+	// row. Mainnet is four orders of magnitude below this; fail loudly instead.
+	if ledger >= math.MaxInt32 {
+		return fmt.Errorf("cursor ledger %d cannot be incremented within the toid ledger range (max %d)", ledger, int64(math.MaxInt32)-1)
+	}
 	minTOID := toid.New(int32(ledger+1), 0, 0).ToInt64()
 	targets := []struct {
 		table  string
