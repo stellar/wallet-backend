@@ -104,7 +104,7 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 			}
 		}
 	}
-	assert.Equal(t, []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10}, bounds)
+	assert.Equal(t, []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10, 30, 60}, bounds)
 }
 
 func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
