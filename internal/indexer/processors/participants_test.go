@@ -625,7 +625,7 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 // TestParticipantsProcessor_GetOperationsParticipants_failedTx: a failed transaction
 // changes no state beyond its fee, so only the tx source (and fee-bump source) is
 // attributed at the operation level. The payment destination is unverified envelope
-// input (wallet-eng-monorepo#35).
+// input.
 func TestParticipantsProcessor_GetOperationsParticipants_failedTx(t *testing.T) {
 	const (
 		sourceAccount  = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
