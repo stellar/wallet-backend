@@ -596,8 +596,8 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		// Remove any bulk rows a crashed run left above the cursor before that
 		// ledger is re-ingested: persistLedgerData commits the sibling COPY
 		// transactions before the coordinating transaction that carries the
-		// cursor, so a crash between those commits orphans (at most) the single
-		// ledger past the cursor. Fatal on failure — ingesting over the orphans
+		// cursor, so a crash between those commits orphans the persist batch
+		// past the cursor. Fatal on failure — ingesting over the orphans
 		// would collide on the bulk tables' primary keys anyway.
 		if err := m.models.IngestStore.DeleteRowsAboveLedger(ctx, latestIngestedLedger); err != nil {
 			return fmt.Errorf("reconciling bulk rows above cursor ledger %d: %w", latestIngestedLedger, err)
