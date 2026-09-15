@@ -338,7 +338,7 @@ func TestGetAccountTrustlineBalances(t *testing.T) {
 	})
 }
 
-func TestProcessTokenChanges(t *testing.T) {
+func TestProcessBalanceChanges(t *testing.T) {
 	ctx := context.Background()
 
 	dbt := dbtest.Open(t)
@@ -370,7 +370,13 @@ func TestProcessTokenChanges(t *testing.T) {
 		})
 
 		err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-			return service.ProcessTokenChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}, make(map[string]types.AccountChange), make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange), make(map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange), make(map[string]types.LiquidityPoolChange))
+			if tlErr := service.ProcessTrustlineChanges(ctx, dbTx, map[indexer.TrustlineChangeKey]types.TrustlineChange{}); tlErr != nil {
+				return tlErr
+			}
+			if sacErr := service.ProcessSACBalanceChanges(ctx, dbTx, make(map[indexer.SACBalanceChangeKey]types.SACBalanceChange)); sacErr != nil {
+				return sacErr
+			}
+			return service.ProcessNativeAndPoolChanges(ctx, dbTx, make(map[string]types.AccountChange), make(map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange), make(map[string]types.LiquidityPoolChange))
 		})
 		assert.NoError(t, err)
 	})
@@ -431,7 +437,7 @@ func TestProcessSACBalanceChanges_GatesOnVerifiedSAC(t *testing.T) {
 	}
 
 	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
-		return service.ProcessTokenChanges(ctx, dbTx, nil, nil, changes, nil, nil)
+		return service.ProcessSACBalanceChanges(ctx, dbTx, changes)
 	})
 	require.NoError(t, err, "the unverified balance must be skipped without a foreign-key violation")
 
