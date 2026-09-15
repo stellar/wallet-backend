@@ -119,6 +119,65 @@ func batchLabel(items []persistItem) string {
 	return fmt.Sprintf("ledgers %d-%d", items[0].seq, items[len(items)-1].seq)
 }
 
+// persistSibling is one sibling transaction of the persist commit set: the
+// tables it owns, named for errors and logs, and the per-ledger writer that
+// stages them.
+type persistSibling struct {
+	name string
+	run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
+}
+
+// persistSiblings lists the sibling transactions in commit order. The order
+// matters: the bulk-COPY tables (data.BulkCopyTables) come first and the
+// two mutable current-state groups, balances and trustlines, come last, right
+// before the coordinating transaction that carries the cursor. Startup
+// reconciliation can delete bulk rows a crash strands above the cursor, but a
+// balance row can only be overwritten by replay, so committing the mutable
+// groups last keeps the window in which such a row is visible ahead of the
+// cursor as short as the barrier allows. Test_persistSiblings_Order pins it.
+func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSibling {
+	return []persistSibling{
+		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactions(ctx, dbTx, it.buffer.GetTransactions())
+		}},
+		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTransactionsAccounts(ctx, dbTx, it.buffer.GetTransactions(), it.buffer.GetTransactionsParticipants())
+		}},
+		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperations(ctx, dbTx, it.buffer.GetOperations())
+		}},
+		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertOperationsAccounts(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
+		}},
+		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			stateChangesMu.Lock()
+			defer stateChangesMu.Unlock()
+			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
+		}},
+		// Each balance family rides the transaction that stages its FK parents,
+		// so the coordinating transaction's serial path stays short and every
+		// foreign key is checked within one commit. The SAC balances remain in
+		// stageCoordinatedWrites: their parent (contract_tokens) is also written
+		// by the classification path there, and a same-key insert from two
+		// concurrent transactions could deadlock at the commit barrier.
+		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
+				it.buffer.GetAccountChanges(),
+				it.buffer.GetLiquidityPoolShareChanges(),
+				it.buffer.GetLiquidityPoolChanges(),
+			)
+		}},
+		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
+				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
+					return fmt.Errorf("inserting trustline assets: %w", err)
+				}
+			}
+			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
+		}},
+	}
+}
+
 // persistLedgerData persists a batch of consecutive ledgers in one commit
 // set. The five bulk COPY families — transactions, transactions_accounts,
 // operations, operations_accounts, state_changes — plus the balance
@@ -169,49 +228,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 	// goes through the one state_changes sibling transaction, serialized by
 	// stateChangesMu because pgx.Tx is not safe for concurrent use.
 	var stateChangesMu sync.Mutex
-	siblings := []struct {
-		name string
-		run  func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error
-	}{
-		{"transactions", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactions(ctx, dbTx, it.buffer.GetTransactions())
-		}},
-		{"transactions_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTransactionsAccounts(ctx, dbTx, it.buffer.GetTransactions(), it.buffer.GetTransactionsParticipants())
-		}},
-		{"operations", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperations(ctx, dbTx, it.buffer.GetOperations())
-		}},
-		{"operations_accounts", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertOperationsAccounts(ctx, dbTx, it.buffer.GetOperations(), it.buffer.GetOperationsParticipants())
-		}},
-		{"state_changes", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			stateChangesMu.Lock()
-			defer stateChangesMu.Unlock()
-			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
-		}},
-		// Each balance family rides the transaction that stages its FK parents,
-		// so the coordinating transaction's serial path stays short and every
-		// foreign key is checked within one commit. The SAC balances remain in
-		// stageCoordinatedWrites: their parent (contract_tokens) is also written
-		// by the classification path there, and a same-key insert from two
-		// concurrent transactions could deadlock at the commit barrier.
-		{"balances", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.tokenIngestionService.ProcessNativeAndPoolChanges(ctx, dbTx,
-				it.buffer.GetAccountChanges(),
-				it.buffer.GetLiquidityPoolShareChanges(),
-				it.buffer.GetLiquidityPoolChanges(),
-			)
-		}},
-		{"trustlines", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			if uniqueAssets := it.buffer.GetUniqueTrustlineAssets(); len(uniqueAssets) > 0 {
-				if err := m.models.TrustlineAsset.BatchInsert(ctx, dbTx, uniqueAssets); err != nil {
-					return fmt.Errorf("inserting trustline assets: %w", err)
-				}
-			}
-			return m.tokenIngestionService.ProcessTrustlineChanges(ctx, dbTx, it.buffer.GetTrustlineChanges())
-		}},
-	}
+	siblings := m.persistSiblings(&stateChangesMu)
 	siblingTxs := make([]pgx.Tx, len(siblings))
 	for i, s := range siblings {
 		conn, acquireErr := m.models.DB.Acquire(ctx)

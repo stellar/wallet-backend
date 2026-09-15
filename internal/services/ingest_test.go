@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -3453,4 +3454,17 @@ func Test_prepareBatchClassificationPlan_LastBindingWins(t *testing.T) {
 	require.NotNil(t, plan)
 	assert.Equal(t, map[types.HashBytea]string{w1: "A", w2: "B"}, plan.Matches,
 		"the superseded binding must stay classified for the ledger that saw it")
+}
+
+// Test_persistSiblings_Order pins the commit order persistLedgerData relies
+// on: every bulk-COPY table first, in data.BulkCopyTables order, then the two
+// mutable current-state groups last, right before the coordinating commit.
+func Test_persistSiblings_Order(t *testing.T) {
+	var mu sync.Mutex
+	siblings := (&ingestService{}).persistSiblings(&mu)
+	names := make([]string, len(siblings))
+	for i, s := range siblings {
+		names[i] = s.name
+	}
+	require.Equal(t, append(data.BulkCopyTableNames(), "balances", "trustlines"), names)
 }
