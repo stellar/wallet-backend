@@ -434,7 +434,10 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 	}
 
 	// An ordinary contract invocation — not a create-contract host function — whose auth tree
-	// declares one unstorable deployment alongside one legitimate deployment.
+	// declares an unstorable deployment and a legitimate one as siblings under a common parent.
+	// They are siblings rather than parent and child so this pins only what the guard decides:
+	// whether a rejected node's own descendants should still be emitted is a separate,
+	// pre-existing question about auth declarations that were never executed.
 	op := makeBasicSorobanOp()
 	op.Operation.Body = xdr.OperationBody{
 		Type: xdr.OperationTypeInvokeHostFunction,
@@ -450,8 +453,13 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 			Auth: []xdr.SorobanAuthorizationEntry{{
 				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
 				RootInvocation: xdr.SorobanAuthorizedInvocation{
-					Function:       createHostFn(badPreimage),
-					SubInvocations: []xdr.SorobanAuthorizedInvocation{{Function: createHostFn(goodPreimage)}},
+					Function: xdr.SorobanAuthorizedFunction{
+						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+					},
+					SubInvocations: []xdr.SorobanAuthorizedInvocation{
+						{Function: createHostFn(badPreimage)},
+						{Function: createHostFn(goodPreimage)},
+					},
 				},
 			}},
 		},
@@ -460,7 +468,7 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 	stateChanges, err := proc.ProcessOperation(ctx, op)
 	require.NoError(t, err)
 
-	// The guard skips only the unstorable deployment; the legitimate sibling still lands.
+	// The guard skips only the unstorable deployment; its sibling still lands.
 	wantStateChanges := []types.StateChange{
 		NewStateChangeBuilder(12345, closeTime.Unix(), op.TransactionID(), nil).
 			WithOperationID(op.ID()).
