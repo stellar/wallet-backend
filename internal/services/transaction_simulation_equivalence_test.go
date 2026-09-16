@@ -38,7 +38,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/entities"
@@ -100,20 +99,21 @@ func TestClassicSimulationEquivalence(t *testing.T) {
 			require.NoError(t, err)
 
 			// Derived side: only the envelope, with the fixture's pre-submission
-			// snapshot served through the mocked RPC at the transaction's real
-			// ledger, so operation IDs line up.
-			entries := make([]entities.LedgerEntryResult, 0, len(fixture.LedgerEntries))
+			// snapshot served through a stub RPC at the transaction's real
+			// ledger, so operation IDs line up. The stub returns only the keys
+			// each call asks for, like real RPC: a handler that forgets a
+			// footprint key must NOT find the entry anyway, or the drift guard
+			// would pass over a broken footprint.
+			snapshot := make(map[string]entities.LedgerEntryResult, len(fixture.LedgerEntries))
 			for _, stored := range fixture.LedgerEntries {
-				entries = append(entries, entities.LedgerEntryResult{
+				snapshot[stored.KeyXDR] = entities.LedgerEntryResult{
 					KeyXDR:             stored.KeyXDR,
 					DataXDR:            stored.DataXDR,
 					LastModifiedLedger: stored.LastModifiedLedger,
-				})
+				}
 			}
-			rpcMock := &RPCServiceMock{}
-			rpcMock.On("GetLedgerEntries", mock.Anything).
-				Return(entities.RPCGetLedgerEntriesResult{LatestLedger: uint32(fixture.Ledger), Entries: entries}, nil)
-			derivedService, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+			stub := &snapshotRPCStub{snapshot: snapshot, ledger: uint32(fixture.Ledger)}
+			derivedService, err := NewTransactionSimulationService(stub, nil, network.TestNetworkPassphrase)
 			require.NoError(t, err)
 			derived, err := derivedService.SimulateStateChanges(context.Background(), fixture.EnvelopeXDR)
 			require.NoError(t, err)
@@ -124,6 +124,24 @@ func TestClassicSimulationEquivalence(t *testing.T) {
 				"derived state changes must match what real ingestion produces")
 		})
 	}
+}
+
+// snapshotRPCStub serves GetLedgerEntries from a fixture's snapshot the way
+// real RPC would: only the requested keys, and only those that exist.
+type snapshotRPCStub struct {
+	RPCServiceMock
+	snapshot map[string]entities.LedgerEntryResult
+	ledger   uint32
+}
+
+func (s *snapshotRPCStub) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	entries := make([]entities.LedgerEntryResult, 0, len(keys))
+	for _, key := range keys {
+		if entry, ok := s.snapshot[key]; ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entities.RPCGetLedgerEntriesResult{LatestLedger: s.ledger, Entries: entries}, nil
 }
 
 func ledgerCloseMetaAt(seq uint32) xdr.LedgerCloseMeta {
