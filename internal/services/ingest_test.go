@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -619,6 +620,38 @@ func Test_analyzeBatchResults(t *testing.T) {
 			assert.Equal(t, tc.wantFailures, numFailed)
 		})
 	}
+}
+
+func Test_analyzeBatchResults_summarizesNotStartedBatches(t *testing.T) {
+	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+	results := []BackfillResult{
+		{
+			Batch: BackfillBatch{StartLedger: 100, EndLedger: 109},
+			Error: errors.New("started batch failed"),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 300, EndLedger: 309},
+			Error: fmt.Errorf("%w: %w", errBackfillBatchNotStarted, context.Canceled),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 110, EndLedger: 119},
+			Error: fmt.Errorf("%w: %w", errBackfillBatchNotStarted, context.Canceled),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 400, EndLedger: 409},
+		},
+	}
+
+	numFailed := analyzeBatchResults(context.Background(), results)
+
+	assert.Equal(t, 3, numFailed)
+	entries := getEntries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "Batch [100-109] failed: started batch failed", entries[0].Message)
+	assert.Equal(t,
+		"Backfill batches cancelled before starting: count=2, ledger range=[110-309]",
+		entries[1].Message,
+	)
 }
 
 func Test_ingestService_setupBatchBackend(t *testing.T) {

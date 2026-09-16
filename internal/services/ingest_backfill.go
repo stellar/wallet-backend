@@ -42,12 +42,32 @@ type BackfillResult struct {
 // analyzeBatchResults aggregates backfill batch results and logs any failures.
 func analyzeBatchResults(ctx context.Context, results []BackfillResult) int {
 	numFailed := 0
+	numNotStarted := 0
+	var notStartedMinLedger, notStartedMaxLedger uint32
 	for _, result := range results {
-		if result.Error != nil {
-			numFailed++
-			log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
-				result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+		if result.Error == nil {
+			continue
 		}
+
+		numFailed++
+		if errors.Is(result.Error, errBackfillBatchNotStarted) {
+			if numNotStarted == 0 {
+				notStartedMinLedger = result.Batch.StartLedger
+				notStartedMaxLedger = result.Batch.EndLedger
+			} else {
+				notStartedMinLedger = min(notStartedMinLedger, result.Batch.StartLedger)
+				notStartedMaxLedger = max(notStartedMaxLedger, result.Batch.EndLedger)
+			}
+			numNotStarted++
+			continue
+		}
+
+		log.Ctx(ctx).Errorf("Batch [%d-%d] failed: %v",
+			result.Batch.StartLedger, result.Batch.EndLedger, result.Error)
+	}
+	if numNotStarted > 0 {
+		log.Ctx(ctx).Errorf("Backfill batches cancelled before starting: count=%d, ledger range=[%d-%d]",
+			numNotStarted, notStartedMinLedger, notStartedMaxLedger)
 	}
 	log.Ctx(ctx).Infof("Backfilling completed: %d/%d batches failed", numFailed, len(results))
 	return numFailed
