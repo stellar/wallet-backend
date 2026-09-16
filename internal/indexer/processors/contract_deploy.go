@@ -57,21 +57,8 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	seen := map[string]struct{}{}
 
 	processCreate := func(fromAddr xdr.ContractIdPreimageFromAddress) error {
-		// The deployer address is raw transaction-envelope data. stellar-core admits an
-		// operation carrying any ScAddress arm here — doCheckValidForSoroban validates
-		// isAssetValid only for the from-asset preimage, and never inspects a from-address one —
-		// and the auth tree walked below is not semantically validated at all, so an address kind
-		// this indexer cannot store still reaches it inside a closed ledger, on a transaction
-		// that merely failed at apply.
-		//
-		// Skip the deployment entirely rather than emitting a state change with an unstorable
-		// creator. Per CAP-0067 the host refuses to convert a claimable-balance or
-		// liquidity-pool address to a host object, so a deploy from one can only ever fail:
-		// there is no contract to record. Emitting it anyway would put a B... strkey in
-		// creator_account_id, whose 33-byte payload fails AddressBytea.Value(); that failure is
-		// wrapped as data.ErrRowEncoding, which isPermanentPersistError treats as permanent, so
-		// it aborts the ledger's persist transaction without advancing the cursor and repeats
-		// identically on every retry and restart.
+		// The host rejects a deployer address it can't convert to a host object, so a deploy
+		// from one never creates a contract and there is nothing to record.
 		if !isStorableAccountAddress(fromAddr.Address) {
 			return nil
 		}

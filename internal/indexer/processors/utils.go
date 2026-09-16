@@ -298,17 +298,6 @@ func ConvertOperation(
 // isStorableAccountAddress reports whether an ScAddress can be persisted in one of the
 // state-change account columns (types.AddressBytea), which store a version byte followed by a
 // 32-byte account or contract key.
-//
-// CAP-0067 (protocol 23) widened the ScAddress union with SC_ADDRESS_TYPE_CLAIMABLE_BALANCE and
-// SC_ADDRESS_TYPE_LIQUIDITY_POOL. Neither is an account, and they fail differently: a
-// claimable-balance strkey (B...) carries a 33-byte payload that AddressBytea.Value() rejects
-// outright, while a liquidity-pool strkey (L...) is 32 bytes and would encode silently into a
-// column meant to hold an account or contract. The classic path already refuses both (see
-// isClaimableBalance / isLiquidityPool above, "we dont track them as accounts").
-//
-// This is an allowlist rather than a claimable-balance/liquidity-pool denylist so that any arm a
-// later protocol adds to the union is excluded until it is handled explicitly: an address kind
-// these columns do not recognize is, by definition, one they cannot store.
 func isStorableAccountAddress(addr xdr.ScAddress) bool {
 	switch addr.Type {
 	case xdr.ScAddressTypeScAddressTypeAccount,
