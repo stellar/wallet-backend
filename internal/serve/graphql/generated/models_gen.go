@@ -317,6 +317,29 @@ func (this SimulatedAccountFlagsChange) GetReason() types.StateChangeReason { re
 // Address of the account whose state would change.
 func (this SimulatedAccountFlagsChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Simulated mirror of AccountMergedChange.
+// Pair: (ACCOUNT, MERGE).
+type SimulatedAccountMergedChange struct {
+	Category       types.StateChangeCategory `json:"category"`
+	Reason         types.StateChangeReason   `json:"reason"`
+	AccountAddress string                    `json:"accountAddress"`
+	// Account that would receive the merged account's balance.
+	DestinationAddress string `json:"destinationAddress"`
+}
+
+func (SimulatedAccountMergedChange) IsBaseSimulatedStateChange() {}
+
+// Category of account state this change affects.
+func (this SimulatedAccountMergedChange) GetCategory() types.StateChangeCategory {
+	return this.Category
+}
+
+// Why the change occurred. Each concrete type documents its valid reasons.
+func (this SimulatedAccountMergedChange) GetReason() types.StateChangeReason { return this.Reason }
+
+// Address of the account whose state would change.
+func (this SimulatedAccountMergedChange) GetAccountAddress() string { return this.AccountAddress }
+
 // Simulated mirror of AllowanceChange.
 // Pair: (ALLOWANCE, UPDATE).
 type SimulatedAllowanceChange struct {
