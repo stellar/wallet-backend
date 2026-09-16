@@ -42,22 +42,36 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		}
 		keys = append(keys, opKeys...)
 	}
-	working, latestLedger, err := s.fetchLedgerEntries(keys)
-	if err != nil {
-		return ingest.LedgerTransaction{}, 0, err
-	}
 	// A claim's credited asset lives inside the claimable-balance entry, so the
-	// claimant's trustline key is only knowable after the first fetch; fetch
-	// those in a second round.
-	if extraKeys := claimantTrustlineKeys(envelope, working); len(extraKeys) > 0 {
-		extra, _, err := s.fetchLedgerEntries(extraKeys)
+	// claimant's trustline key is only knowable after the first fetch. Both
+	// rounds must observe the same ledger, or the working state would combine
+	// entries that never coexisted; when a ledger closes in between, refetch.
+	var working map[string]xdr.LedgerEntry
+	var latestLedger uint32
+	for attempt := 0; ; attempt++ {
+		var err error
+		working, latestLedger, err = s.fetchLedgerEntries(keys)
 		if err != nil {
 			return ingest.LedgerTransaction{}, 0, err
 		}
-		for key, entry := range extra {
-			if _, dup := working[key]; !dup {
-				working[key] = entry
+		extraKeys := claimantTrustlineKeys(envelope, working)
+		if len(extraKeys) == 0 {
+			break
+		}
+		extra, extraLedger, err := s.fetchLedgerEntries(extraKeys)
+		if err != nil {
+			return ingest.LedgerTransaction{}, 0, err
+		}
+		if extraLedger == latestLedger {
+			for key, entry := range extra {
+				if _, dup := working[key]; !dup {
+					working[key] = entry
+				}
 			}
+			break
+		}
+		if attempt == 2 {
+			return ingest.LedgerTransaction{}, 0, fmt.Errorf("ledger kept advancing while fetching the footprint; retry the simulation")
 		}
 	}
 
@@ -71,6 +85,10 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	if envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
 		// Core charges a fee-bump as one extra operation.
 		feeCharged += baseFeeStroops
+	}
+	if feeBid < feeCharged {
+		// The network refuses bids below the minimum charge (txINSUFFICIENT_FEE).
+		return ingest.LedgerTransaction{}, 0, wouldFail("fee bid %d is below the %d stroop minimum for this transaction", feeBid, feeCharged)
 	}
 	feeSource, ok := lookupAccount(working, feeAccount)
 	if !ok {
@@ -224,11 +242,15 @@ func validateClassicOperation(op xdr.Operation) error {
 		}
 		seen := map[string]bool{}
 		for _, claimant := range cb.Claimants {
-			dest := claimant.MustV0().Destination.Address()
+			v0 := claimant.MustV0()
+			dest := v0.Destination.Address()
 			if seen[dest] {
 				return wouldFail("claimant %s is listed twice", dest)
 			}
 			seen[dest] = true
+			if err := validateClaimPredicate(v0.Predicate, 1); err != nil {
+				return err
+			}
 		}
 	default:
 		// createAccount's starting balance is validated against the minimum
@@ -820,6 +842,12 @@ func computeTrustlineFlagChanges(issuer, trustor xdr.AccountId, asset xdr.Asset,
 	}
 
 	newFlags := (line.Flags &^ clear) | set
+	authBoth := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
+	if newFlags&authBoth == authBoth {
+		// Core rejects a trustline holding both authorization bits at once
+		// (SET_TRUST_LINE_FLAGS_INVALID_STATE).
+		return nil, wouldFail("a trustline cannot be both fully authorized and maintain-liabilities-only")
+	}
 	if trustlineAuthLevel(newFlags) < trustlineAuthLevel(line.Flags) &&
 		issuerAccount.Flags&xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag) == 0 {
 		return nil, wouldFail("issuer %s cannot revoke authorization without the AUTH_REVOCABLE flag", issuer.Address())
@@ -901,11 +929,19 @@ func computeCreateClaimableBalanceChanges(cb xdr.CreateClaimableBalanceOp, opSou
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
 	}
 
+	// The creator sponsors one base reserve per claimant, paid in XLM whatever
+	// the escrowed asset is. The counters themselves (numSponsoring, the
+	// entry's sponsor) are bookkeeping no processor reads and are not modeled.
+	reserve := int64(len(cb.Claimants)) * baseReserveStroops
+	if int64(source.Balance)-accountMinBalance(source)-accountSellingLiabilities(source) < reserve {
+		return nil, wouldFail("source account %s cannot afford the %d stroop reserve for the claimable balance", opSource.Address(), reserve)
+	}
+
 	var changes xdr.LedgerEntryChanges
 	clawbackEnabled := false
 	switch {
 	case cb.Asset.Type == xdr.AssetTypeAssetTypeNative:
-		available := int64(source.Balance) - accountMinBalance(source) - accountSellingLiabilities(source)
+		available := int64(source.Balance) - accountMinBalance(source) - accountSellingLiabilities(source) - reserve
 		if available < int64(cb.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, escrowing %d", opSource.Address(), available, cb.Amount)
 		}
@@ -1085,6 +1121,52 @@ func claimantTrustlineKeys(envelope xdr.TransactionEnvelope, working map[string]
 	return keys
 }
 
+// validateClaimPredicate rejects predicate shapes Core refuses at creation:
+// AND/OR need exactly two children, NOT needs one, nesting is capped at four
+// levels, and time bounds cannot be negative.
+func validateClaimPredicate(p xdr.ClaimPredicate, depth int) error {
+	if depth > 4 {
+		return wouldFail("claim predicates cannot nest more than four levels deep")
+	}
+	switch p.Type {
+	case xdr.ClaimPredicateTypeClaimPredicateUnconditional:
+		return nil
+	case xdr.ClaimPredicateTypeClaimPredicateAnd, xdr.ClaimPredicateTypeClaimPredicateOr:
+		var children []xdr.ClaimPredicate
+		if p.Type == xdr.ClaimPredicateTypeClaimPredicateAnd {
+			children = *p.AndPredicates
+		} else {
+			children = *p.OrPredicates
+		}
+		if len(children) != 2 {
+			return wouldFail("AND/OR claim predicates need exactly two children, got %d", len(children))
+		}
+		for _, child := range children {
+			if err := validateClaimPredicate(child, depth+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	case xdr.ClaimPredicateTypeClaimPredicateNot:
+		if p.NotPredicate == nil || *p.NotPredicate == nil {
+			return wouldFail("a NOT claim predicate needs a child predicate")
+		}
+		return validateClaimPredicate(**p.NotPredicate, depth+1)
+	case xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime:
+		if *p.AbsBefore < 0 {
+			return wouldFail("claim predicate time bounds cannot be negative")
+		}
+		return nil
+	case xdr.ClaimPredicateTypeClaimPredicateBeforeRelativeTime:
+		if *p.RelBefore < 0 {
+			return wouldFail("claim predicate time bounds cannot be negative")
+		}
+		return nil
+	default:
+		return wouldFail("unknown claim predicate type %d", p.Type)
+	}
+}
+
 // absolutePredicate mirrors Core's creation-time normalization: relative time
 // bounds become absolute deadlines anchored at the creating ledger's close
 // time, so stored predicates never carry relative clocks.
@@ -1098,7 +1180,12 @@ func absolutePredicate(p xdr.ClaimPredicate, now time.Time) xdr.ClaimPredicate {
 	}
 	switch p.Type {
 	case xdr.ClaimPredicateTypeClaimPredicateBeforeRelativeTime:
-		abs := xdr.Int64(now.Unix() + int64(*p.RelBefore))
+		// Core saturates the conversion at INT64_MAX, so a far-future relative
+		// deadline must not wrap into the past.
+		abs := xdr.Int64(math.MaxInt64)
+		if int64(*p.RelBefore) < math.MaxInt64-now.Unix() {
+			abs = xdr.Int64(now.Unix() + int64(*p.RelBefore))
+		}
 		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime, AbsBefore: &abs}
 	case xdr.ClaimPredicateTypeClaimPredicateAnd:
 		return xdr.ClaimPredicate{Type: p.Type, AndPredicates: convertAll(*p.AndPredicates)}
