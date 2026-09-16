@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -1281,6 +1283,107 @@ func TestTransactionSimulationService_classicFeeBidVersusCharge(t *testing.T) {
 			&txnbuild.Payment{Destination: dst, Amount: "0.00001", Asset: txnbuild.NativeAsset{}},
 		))
 		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+// TestTransactionSimulationService_classicReviewChecks pins the validity
+// checks added from review: minimum fee bids, malformed claim predicates,
+// invalid trustline authorization states, claimable-balance reserves, and
+// relative-deadline saturation.
+func TestTransactionSimulationService_classicReviewChecks(t *testing.T) {
+	ctx := context.Background()
+	src := keypair.MustRandom().Address()
+	dst := keypair.MustRandom().Address()
+
+	t.Run("🔴 a bid below the minimum charge is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		dstAID := xdr.MustAddress(dst)
+		// A fee-bump wrapper bidding 150 stroops: below the 200 minimum for one
+		// inner operation plus the bump.
+		_, err := svc.SimulateStateChanges(ctx, buildFeeBumpTxXDRFrom(t, src, src, 150, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: dstAID.ToMuxedAccount(),
+				Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				Amount:      1_0000000,
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 an AND predicate with one child is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		one := []xdr.ClaimPredicate{{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional}}
+		claimantAID := xdr.MustAddress(dst)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type: xdr.OperationTypeCreateClaimableBalance,
+			CreateClaimableBalanceOp: &xdr.CreateClaimableBalanceOp{
+				Asset:  xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				Amount: 1_0000000,
+				Claimants: []xdr.Claimant{{Type: xdr.ClaimantTypeClaimantTypeV0, V0: &xdr.ClaimantV0{
+					Destination: claimantAID,
+					Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateAnd, AndPredicates: &one},
+				}}},
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 authorizing a maintain-liabilities line without clearing it is a would-fail", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		trustor := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		svc := classicFixture(t,
+			accountEntryResult(t, issuer, 100_0000000),
+			trustlineEntryResultWithFlags(t, trustor, asset, 0, xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)),
+		)
+		// The final state would carry both authorization bits, which Core
+		// rejects as SET_TRUST_LINE_FLAGS_INVALID_STATE.
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: trustor, Asset: txnbuild.CreditAsset{Code: "USDC", Issuer: issuer},
+			SetFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a creator that cannot afford the claimant reserve is a would-fail", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		// Balance sits exactly at the minimum: the trustline holds plenty of
+		// USDC, but there is no XLM headroom for the claimant's base reserve.
+		id := xdr.MustAddress(src)
+		atMinimum := ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+				AccountId:     id,
+				Balance:       3 * baseReserveStroops, // (2 + 1 trustline subentry) reserves
+				SeqNum:        1,
+				NumSubEntries: 1,
+				Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			}},
+		)
+		svc := classicFixture(t,
+			atMinimum,
+			trustlineEntryResult(t, src, asset, 50_0000000, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.CreateClaimableBalance{
+			Amount: "1", Asset: txnbuild.CreditAsset{Code: "USDC", Issuer: issuer},
+			Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(dst, nil)},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🟢 a far-future relative deadline saturates instead of wrapping", func(t *testing.T) {
+		rel := xdr.Int64(math.MaxInt64)
+		converted := absolutePredicate(xdr.ClaimPredicate{
+			Type:      xdr.ClaimPredicateTypeClaimPredicateBeforeRelativeTime,
+			RelBefore: &rel,
+		}, time.Now())
+		require.Equal(t, xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime, converted.Type)
+		assert.Equal(t, xdr.Int64(math.MaxInt64), *converted.AbsBefore, "the deadline must saturate, not wrap into the past")
 	})
 }
 
