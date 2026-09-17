@@ -17,6 +17,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -621,6 +622,38 @@ func Test_analyzeBatchResults(t *testing.T) {
 	}
 }
 
+func Test_analyzeBatchResults_summarizesNotStartedBatches(t *testing.T) {
+	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
+	results := []BackfillResult{
+		{
+			Batch: BackfillBatch{StartLedger: 100, EndLedger: 109},
+			Error: errors.New("started batch failed"),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 300, EndLedger: 309},
+			Error: fmt.Errorf("%w: %w", errBackfillBatchNotStarted, context.Canceled),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 110, EndLedger: 119},
+			Error: fmt.Errorf("%w: %w", errBackfillBatchNotStarted, context.Canceled),
+		},
+		{
+			Batch: BackfillBatch{StartLedger: 400, EndLedger: 409},
+		},
+	}
+
+	numFailed := analyzeBatchResults(context.Background(), results)
+
+	assert.Equal(t, 3, numFailed)
+	entries := getEntries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "Batch [100-109] failed: started batch failed", entries[0].Message)
+	assert.Equal(t,
+		"Backfill batches cancelled before starting: count=2, ledger range=[110-309]",
+		entries[1].Message,
+	)
+}
+
 func Test_ingestService_setupBatchBackend(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -1198,7 +1231,8 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 			})
 			require.NoError(t, svcErr)
 
-			results := svc.processBackfillBatchesParallel(ctx, tc.batches, nil)
+			results, groupErr := svc.processBackfillBatchesParallel(ctx, tc.batches, nil)
+			require.NoError(t, groupErr)
 
 			// Verify results
 			require.Len(t, results, len(tc.batches))
@@ -1432,7 +1466,8 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 	require.NoError(t, svcErr)
 
 	// Process both batches in parallel
-	results := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	results, groupErr := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	require.NoError(t, groupErr)
 
 	// Verify we got results for both batches
 	require.Len(t, results, 2)
@@ -1839,7 +1874,8 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 		{StartLedger: 101, EndLedger: 101},
 	}
 
-	results := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	results, groupErr := svc.processBackfillBatchesParallel(ctx, batches, nil)
+	require.NoError(t, groupErr)
 
 	// All batches should succeed
 	require.Len(t, results, 2)
