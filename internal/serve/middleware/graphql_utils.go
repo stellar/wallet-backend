@@ -10,10 +10,18 @@ import (
 )
 
 // GetOperationIdentifier extracts a metrics-safe operation identifier from a GraphQL operation
-// context. It always derives the identifier from the root field name(s) in the selection set — a
-// fixed, schema-bounded set — and never from the client-controlled OperationName: that value
-// becomes a Prometheus label on several metric families, and using it directly would give clients
-// control over label cardinality.
+// context. It derives the identifier from the shape of the query — the first root field name, plus
+// the name of that field's first object-typed sub-field when it has one, joined by a "." — and
+// never from the client-controlled OperationName: that value becomes a Prometheus label on several
+// metric families, and using it directly would give clients control over label cardinality.
+//
+// The sub-field leg separates queries that share a root field. The four wallet queries all select
+// accountByAddress and differ only one level down, so they resolve to accountByAddress.balances,
+// accountByAddress.transactions, accountByAddress.operations and accountByAddress.stateChanges.
+// Each drives a different set of database reads, and a single merged series averages the slow one
+// away. A sub-field counts as object-typed when it carries a selection set of its own, which is
+// what skips scalars such as address. Both legs come from the schema, so cardinality stays bounded
+// by the root-field/sub-field pairs the schema permits.
 func GetOperationIdentifier(oc *graphql.OperationContext) string {
 	if oc == nil {
 		return "<unnamed>"
@@ -21,13 +29,31 @@ func GetOperationIdentifier(oc *graphql.OperationContext) string {
 
 	if oc.Operation != nil && len(oc.Operation.SelectionSet) > 0 {
 		for _, sel := range oc.Operation.SelectionSet {
-			if field, ok := sel.(*ast.Field); ok {
-				return field.Name
+			field, ok := sel.(*ast.Field)
+			if !ok {
+				continue
 			}
+			if subField := firstObjectSubField(field.SelectionSet); subField != "" {
+				return field.Name + "." + subField
+			}
+			return field.Name
 		}
 	}
 
 	return "<unnamed>"
+}
+
+// firstObjectSubField returns the name of the first object-typed field in a selection set, i.e. the
+// first field carrying a selection set of its own. It returns "" when the set holds only scalar
+// fields or no fields at all.
+func firstObjectSubField(selectionSet ast.SelectionSet) string {
+	for _, sel := range selectionSet {
+		if field, ok := sel.(*ast.Field); ok && len(field.SelectionSet) > 0 {
+			return field.Name
+		}
+	}
+
+	return ""
 }
 
 // GetFieldPath extracts the full field path from a FieldContext, excluding array indices.
