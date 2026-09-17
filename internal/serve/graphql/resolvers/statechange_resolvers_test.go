@@ -699,6 +699,16 @@ func TestBalanceAuthorizationChangeResolver_Flags(t *testing.T) {
 		assert.Nil(t, flags)
 	})
 
+	t.Run("empty list when a classic trustline has no flags set", func(t *testing.T) {
+		obj := &types.BalanceAuthorizationChangeModel{StateChange: types.StateChange{
+			Flags: sql.NullInt16{Int16: 0, Valid: true},
+		}}
+		flags, err := r.Flags(ctx, obj)
+		require.NoError(t, err)
+		assert.NotNil(t, flags)
+		assert.Empty(t, flags)
+	})
+
 	t.Run("decodes only the trustline bits in fixed order", func(t *testing.T) {
 		// authorized (1) | clawback_enabled (32) = 33
 		obj := &types.BalanceAuthorizationChangeModel{StateChange: types.StateChange{

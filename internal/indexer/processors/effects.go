@@ -315,7 +315,7 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		return types.StateChange{}, nil
 	}
 
-	var defaultFlags []string
+	var trustlineFlags *xdr.TrustLineFlags
 	if assetType == "liquidity_pool_shares" {
 		poolID, err := safeStringFromDetails(effect.Details, "liquidity_pool_id")
 		if err != nil {
@@ -330,21 +330,26 @@ func (p *EffectsProcessor) generateBalanceAuthorizationForNewTrustline(baseBuild
 		baseBuilder = baseBuilder.WithToken(assetContractID)
 
 		// Extract trustline flags directly from the transaction changes
-		trustlineFlags, err := p.getTrustlineFlagsFromChanges(effect.Address, assetCode, assetIssuer, changes)
+		flags, err := p.getTrustlineFlagsFromChanges(effect.Address, assetCode, assetIssuer, changes)
 		if err != nil {
 			return types.StateChange{}, fmt.Errorf("getting trustline flags from changes: %w", err)
 		}
-
-		// Map XDR trustline flags to our internal flag representation
-		defaultFlags = p.mapTrustlineFlagsToStrings(trustlineFlags)
+		trustlineFlags = &flags
 	}
 
-	// Generate state changes for each flag that should be set
-	return baseBuilder.Clone().
+	return BuildBalanceAuthorizationForNewTrustline(baseBuilder, trustlineFlags), nil
+}
+
+// BuildBalanceAuthorizationForNewTrustline builds the initial authorization state from a new trustline's flags.
+// A nil flags value represents a trustline type without classic authorization flags.
+func BuildBalanceAuthorizationForNewTrustline(baseBuilder *StateChangeBuilder, flags *xdr.TrustLineFlags) types.StateChange {
+	builder := baseBuilder.Clone().
 		WithCategory(types.StateChangeCategoryBalanceAuthorization).
-		WithReason(types.StateChangeReasonSet).
-		WithFlags(defaultFlags).
-		Build(), nil
+		WithReason(types.StateChangeReasonSet)
+	if flags != nil {
+		builder = builder.WithFlags(mapTrustlineFlagsToStrings(*flags))
+	}
+	return builder.Build()
 }
 
 func (p *EffectsProcessor) buildAssetContractIDFromTrustlineEffect(effect *EffectOutput) (string, string, string, error) {
@@ -427,8 +432,8 @@ func (p *EffectsProcessor) getTrustlineFlagsFromChanges(trustorAddress, assetCod
 	return 0, fmt.Errorf("trustline not found in changes for trustor: %s, asset: %s:%s", trustorAddress, assetCode, assetIssuer)
 }
 
-// mapTrustlineFlagsToStrings converts XDR trustline flags to our internal string representation
-func (p *EffectsProcessor) mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) []string {
+// mapTrustlineFlagsToStrings converts XDR trustline flags to the internal string representation.
+func mapTrustlineFlagsToStrings(flags xdr.TrustLineFlags) []string {
 	var flagStrings []string
 
 	if flags.IsAuthorized() {

@@ -743,9 +743,10 @@ func DecodeAccountFlags(bitmask int16) []AccountFlag {
 }
 
 // DecodeTrustlineFlags decodes only the trustline authorization bits of bitmask into
-// TrustlineFlag values, in fixed order. Returns nil when no trustline bits are set.
+// TrustlineFlag values, in fixed order. Returns an empty, non-nil slice when no
+// trustline bits are set, distinguishing an explicit zero bitmask from SQL NULL.
 func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
-	var flags []TrustlineFlag
+	flags := make([]TrustlineFlag, 0)
 	for _, fb := range trustlineFlagBits {
 		if bitmask&fb.bit != 0 {
 			flags = append(flags, fb.flag)
