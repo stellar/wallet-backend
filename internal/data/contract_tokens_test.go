@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -683,4 +685,32 @@ func TestContractModel_BatchUpdateMetadata(t *testing.T) {
 
 		cleanUpDB()
 	})
+}
+
+// TestContractModel_BatchInsert_rejectsSACWithoutAsset pins the schema invariant behind
+// #695: a SAC's asset is bound to its contract id, so a SAC row without code and issuer
+// is a classification error and must not be storable.
+func TestContractModel_BatchInsert_rejectsSACWithoutAsset(t *testing.T) {
+	ctx := context.Background()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &ContractModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	const contractAddr = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return m.BatchInsert(ctx, dbTx, []*Contract{{
+			ID:         DeterministicContractID(contractAddr),
+			ContractID: contractAddr,
+			Type:       string(types.ContractTypeSAC),
+			Decimals:   7,
+		}})
+	})
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23514", pgErr.Code, "expected check_violation")
+	require.Equal(t, "contract_tokens_sac_has_asset", pgErr.ConstraintName)
 }
