@@ -45,6 +45,10 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	if op.OperationType() != xdr.OperationTypeInvokeHostFunction {
 		return nil, ErrInvalidOpType
 	}
+	// A failed transaction deploys nothing, whatever its host function declares.
+	if !op.Transaction.Successful() {
+		return nil, nil
+	}
 	invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
 
 	opID := op.ID()
@@ -70,7 +74,7 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	}
 
 	// The top-level host function is authenticated: the host calls require_auth on the
-	// FromAddress, so a successful operation proves this deploy and its deployer.
+	// FromAddress, so this (successful) operation proves the deploy and its deployer.
 	hf := invokeHostOp.HostFunction
 	switch hf.Type {
 	case xdr.HostFunctionTypeHostFunctionTypeCreateContract:

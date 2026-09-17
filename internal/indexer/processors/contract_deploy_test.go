@@ -379,3 +379,18 @@ func Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored(t *testing
 	require.NoError(t, err)
 	assert.Empty(t, stateChanges)
 }
+
+// Test_ContractDeployProcessor_Process_failedTxDeploysNothing: a failed transaction creates
+// no contract, so a CreateContract host function in it produces no record.
+func Test_ContractDeployProcessor_Process_failedTxDeploysNothing(t *testing.T) {
+	const fromSourceAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+
+	op := makeBasicSorobanOp()
+	setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContract, fromSourceAccount)
+	op.Transaction.Result = xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxFailed}}}
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
+}
