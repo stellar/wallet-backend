@@ -873,10 +873,12 @@ func lagLedgers(backendTip, latestIngested uint32) (float64, bool) {
 	return float64(backendTip - latestIngested), true
 }
 
-// fetchedLedger is the fetch→process handoff: one ledger's raw close meta.
+// fetchedLedger is the fetch→process handoff: one ledger's raw close meta
+// and the instant the fetch completed, which anchors the Freshness metric.
 type fetchedLedger struct {
-	seq  uint32
-	meta xdr.LedgerCloseMeta
+	seq       uint32
+	meta      xdr.LedgerCloseMeta
+	fetchedAt time.Time
 }
 
 // processedLedger is the process→persist handoff. The buffer carries
@@ -884,12 +886,14 @@ type fetchedLedger struct {
 // changes, and the close time is extracted at the end of the staging pass,
 // so the decoded close meta itself never rides the queue. processDuration
 // rides along so the per-ledger Duration metric can sum the ledger's stage
-// times instead of counting the time it sat queued between stages.
+// times instead of counting the time it sat queued between stages; fetchedAt
+// rides along so Freshness can count exactly that queue time.
 type processedLedger struct {
 	seq             uint32
 	closeTime       int64
 	buffer          *indexer.IndexerBuffer
 	processDuration time.Duration
+	fetchedAt       time.Time
 }
 
 // ingestLiveLedgers runs live ingestion as a three-stage pipeline — fetch ‖
@@ -997,10 +1001,11 @@ func (m *ingestService) fetchLedgers(ctx context.Context, startLedger uint32, fe
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("fetching ledger %d: %w", seq, err)
 		}
-		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(time.Since(fetchStart).Seconds())
+		fetchedAt := time.Now()
+		m.appMetrics.Ingestion.LedgerFetchDuration.Observe(fetchedAt.Sub(fetchStart).Seconds())
 
 		select {
-		case fetched <- fetchedLedger{seq: seq, meta: ledgerMeta}:
+		case fetched <- fetchedLedger{seq: seq, meta: ledgerMeta, fetchedAt: fetchedAt}:
 		case <-ctx.Done():
 			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
 		}
@@ -1057,6 +1062,7 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 			closeTime:       fl.meta.LedgerCloseTime(),
 			buffer:          buffer,
 			processDuration: processDuration,
+			fetchedAt:       fl.fetchedAt,
 		}:
 		case <-ctx.Done():
 			return fmt.Errorf("pipeline cancelled: %w", ctx.Err())
@@ -1236,7 +1242,8 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			m.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live").Inc()
 			return fmt.Errorf("persisting %s: %w", batchLabel(items), err)
 		}
-		persistDuration := time.Since(dbStart)
+		committedAt := time.Now()
+		persistDuration := committedAt.Sub(dbStart)
 		m.appMetrics.Ingestion.PersistBatchSize.Observe(float64(len(batch)))
 		// The seen-sets only feed persistBatchCut, and the cut can only ever
 		// exceed 1 when batching is enabled — at the default cap of 1 the
@@ -1250,19 +1257,29 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 		// Per-ledger counts keep the series comparable with process_ledger
 		// and gradeable against the ledger close time, while the undivided
 		// value keeps slow commits visible: batching engages exactly when
-		// persist has fallen behind, which amortized shares would report as
-		// healthy. persist_batch_size carries the batch size alongside.
+		// persist has fallen behind, which the amortized shares in
+		// wallet_ingestion_phase_duration_per_ledger_seconds smooth over.
+		// persist_batch_size carries the batch size alongside.
 		for range batch {
 			m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").Observe(persistDuration.Seconds())
 		}
 
-		// The per-ledger total keeps amortized shares so ledger durations
-		// stay comparable across batch sizes.
+		// The per-ledger total and the per-ledger phase shares keep amortized
+		// shares so ledger durations stay comparable across batch sizes: a
+		// commit that carried N ledgers cost each of them 1/N of its wall
+		// time, and the mean of that share over the ledger close time is the
+		// phase's utilisation. Freshness spans fetch completion to this
+		// commit, so it includes every queue wait between stages.
 		classifyShare := classifyDuration / time.Duration(len(batch))
 		persistShare := persistDuration / time.Duration(len(batch))
+		perLedger := m.appMetrics.Ingestion.PhaseDurationPerLedger
 		for _, pl := range batch {
 			ledgerDuration := pl.processDuration + classifyShare + persistShare
 			m.appMetrics.Ingestion.Duration.Observe(ledgerDuration.Seconds())
+			perLedger.WithLabelValues("process_ledger").Observe(pl.processDuration.Seconds())
+			perLedger.WithLabelValues("prepare_classification").Observe(classifyShare.Seconds())
+			perLedger.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
+			m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
 			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 			m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
 			// The per-reason/category fold runs here, off the persist

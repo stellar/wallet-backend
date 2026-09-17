@@ -18,7 +18,10 @@ func TestIngestionMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.OldestLedger)
 	require.NotNil(t, m.Duration)
 	require.NotNil(t, m.PhaseDuration)
+	require.NotNil(t, m.PhaseDurationPerLedger)
+	require.NotNil(t, m.Freshness)
 	require.NotNil(t, m.LedgersProcessed)
+	require.NotNil(t, m.PersistBatchSize)
 	require.NotNil(t, m.TransactionsTotal)
 	require.NotNil(t, m.OperationsTotal)
 	require.NotNil(t, m.ParticipantsCount)
@@ -127,6 +130,51 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 	}
 }
 
+func TestIngestionMetrics_PhaseDurationPerLedger_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.PhaseDurationPerLedger.WithLabelValues("insert_into_db").Observe(0.1)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	found := false
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_phase_duration_per_ledger_seconds" {
+			found = true
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 16) // 16 custom boundaries
+
+			bounds := make([]float64, 0, len(h.GetBucket()))
+			for _, b := range h.GetBucket() {
+				bounds = append(bounds, b.GetUpperBound())
+			}
+			// The utilisation edges: 0.8x the 0.6s, 1s and 2s ledger close times.
+			assert.Subset(t, bounds, []float64{0.48, 0.8, 1.6})
+		}
+	}
+	require.True(t, found, "wallet_ingestion_phase_duration_per_ledger_seconds was not gathered")
+}
+
+func TestIngestionMetrics_Freshness_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.Freshness.Observe(0.5)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	found := false
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_freshness_seconds" {
+			found = true
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 10) // 10 custom boundaries
+		}
+	}
+	require.True(t, found, "wallet_ingestion_freshness_seconds was not gathered")
+}
+
 func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newIngestionMetrics(reg)
@@ -229,8 +277,9 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 
 	for _, c := range []prometheus.Collector{
 		m.LatestLedger, m.OldestLedger, m.Duration, m.PhaseDuration,
+		m.PhaseDurationPerLedger, m.Freshness,
 		m.LedgersProcessed, m.TransactionsTotal, m.OperationsTotal,
-		m.ParticipantsCount,
+		m.ParticipantsCount, m.PersistBatchSize,
 		m.LagLedgers, m.LedgerFetchDuration,
 		m.RetriesTotal, m.RetryExhaustionsTotal, m.ErrorsTotal,
 		m.StateChangeProcessingDuration, m.StateChangesTotal,

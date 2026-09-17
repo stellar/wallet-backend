@@ -1657,6 +1657,54 @@ func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("ingestLiveLedgers did not return after context cancellation")
 	}
+
+	// With the pipeline stopped the histograms are stable, and with the mean
+	// batch above 1 the amortised metrics differ from the raw ones, so the
+	// identities below pin the share arithmetic rather than a degenerate
+	// batch-of-1 run.
+	perLedgerPersist := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("insert_into_db"))
+	perLedgerProcess := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("process_ledger"))
+	perLedgerClassify := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("prepare_classification"))
+	rawPersist := histogramOf(t, m.Ingestion.PhaseDuration.WithLabelValues("insert_into_db"))
+	freshness := histogramOf(t, m.Ingestion.Freshness)
+	total := histogramOf(t, m.Ingestion.Duration)
+
+	var ledgers dto.Metric
+	require.NoError(t, m.Ingestion.LedgersProcessed.Write(&ledgers))
+	ledgersProcessed := uint64(ledgers.GetCounter().GetValue())
+	require.Positive(t, ledgersProcessed)
+
+	// One observation per ledger, on every per-ledger series.
+	assert.Equal(t, ledgersProcessed, freshness.GetSampleCount(), "freshness observes once per ledger")
+	assert.Equal(t, ledgersProcessed, perLedgerPersist.GetSampleCount(), "per-ledger insert_into_db observes once per ledger")
+	assert.Equal(t, ledgersProcessed, rawPersist.GetSampleCount(), "raw insert_into_db observes once per ledger")
+
+	// The raw series records the full commit for each ledger the commit
+	// carried, so its sum is the per-ledger share sum weighted by batch size.
+	assert.Greater(t, rawPersist.GetSampleSum(), perLedgerPersist.GetSampleSum(),
+		"amortised persist sum must fall below the raw sum once commits coalesce")
+
+	// Duration observes process + classifyShare + persistShare per ledger, the
+	// same three terms the per-ledger phase series observe separately.
+	assert.InDelta(t, total.GetSampleSum(),
+		perLedgerProcess.GetSampleSum()+perLedgerClassify.GetSampleSum()+perLedgerPersist.GetSampleSum(), 1e-3,
+		"per-ledger phase shares must sum to the per-ledger duration")
+
+	// Freshness spans fetch completion to commit, so per ledger it is at
+	// least the ledger's own processing plus its share of the commit.
+	assert.GreaterOrEqual(t, freshness.GetSampleSum(), perLedgerProcess.GetSampleSum()+perLedgerPersist.GetSampleSum(),
+		"freshness cannot be shorter than the stages it spans")
+}
+
+// histogramOf snapshots a histogram collector (or a HistogramVec child) into
+// its protobuf form for assertions on sample count and sum.
+func histogramOf(t *testing.T, o prometheus.Observer) *dto.Histogram {
+	t.Helper()
+	metric, ok := o.(prometheus.Metric)
+	require.True(t, ok, "observer %T does not expose its metric", o)
+	var mt dto.Metric
+	require.NoError(t, metric.Write(&mt))
+	return mt.GetHistogram()
 }
 
 // oneLedger wraps a single ledger's persist payload as the batch slice
