@@ -50,6 +50,26 @@ func makeScContract(contractID string) xdr.ScAddress {
 	}
 }
 
+// makeScClaimableBalance creates a CAP-0067 SC_ADDRESS_TYPE_CLAIMABLE_BALANCE ScAddress. The
+// referenced balance need not exist: nothing validates it before the indexer sees it.
+func makeScClaimableBalance(hash xdr.Hash) xdr.ScAddress {
+	return xdr.ScAddress{
+		Type: xdr.ScAddressTypeScAddressTypeClaimableBalance,
+		ClaimableBalanceId: &xdr.ClaimableBalanceId{
+			Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
+			V0:   &hash,
+		},
+	}
+}
+
+// makeScLiquidityPool creates a CAP-0067 SC_ADDRESS_TYPE_LIQUIDITY_POOL ScAddress.
+func makeScLiquidityPool(hash xdr.Hash) xdr.ScAddress {
+	return xdr.ScAddress{
+		Type:            xdr.ScAddressTypeScAddressTypeLiquidityPool,
+		LiquidityPoolId: utils.PointOf(xdr.PoolId(hash)),
+	}
+}
+
 // makeBasicSorobanOp creates a basic Soroban operation wrapper for testing.
 func makeBasicSorobanOp() *TransactionOperationWrapper {
 	return &TransactionOperationWrapper{
@@ -94,6 +114,19 @@ func setFromAddress(op *TransactionOperationWrapper, hostFnType xdr.HostFunction
 		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
 		FromAddress: &xdr.ContractIdPreimageFromAddress{
 			Address: makeScAddress(fromSourceAccount),
+			Salt:    TestSalt,
+		},
+	})
+}
+
+// setFromScAddress configures a Soroban operation with FromAddress contract creation from an
+// arbitrary ScAddress, including the CAP-0067 arms that setFromAddress (which takes an account ID
+// string) cannot express.
+func setFromScAddress(op *TransactionOperationWrapper, hostFnType xdr.HostFunctionType, addr xdr.ScAddress) {
+	setFrom(op, hostFnType, xdr.ContractIdPreimage{
+		Type: xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+		FromAddress: &xdr.ContractIdPreimageFromAddress{
+			Address: addr,
 			Salt:    TestSalt,
 		},
 	})

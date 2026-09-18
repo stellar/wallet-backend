@@ -294,3 +294,30 @@ func ConvertOperation(
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 	}, nil
 }
+
+// deployerAddressString converts a create-contract preimage's deployer address to its strkey
+// form, reporting ok=false when it is a kind types.AddressBytea cannot store.
+func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
+	switch addr.Type {
+	case xdr.ScAddressTypeScAddressTypeAccount, xdr.ScAddressTypeScAddressTypeContract:
+	case xdr.ScAddressTypeScAddressTypeMuxedAccount:
+		// Reduce to the base account, mirroring the SEP-41 path and the classic path's
+		// MuxedAccount.ToAccountId(): the multiplexing id is off-chain routing metadata, not
+		// account identity. Returning the M... form would let one account enter a participant
+		// set as two distinct strings, which AddressBytea.Value() then collapses to the same
+		// key — duplicate rows that violate the operations_accounts primary key.
+		muxed := addr.MustMuxedAccount()
+		addrStr, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
+		if err != nil {
+			return "", false, fmt.Errorf("encoding muxed account base address: %w", err)
+		}
+		return addrStr, true, nil
+	default:
+		return "", false, nil
+	}
+	addrStr, err := addr.String()
+	if err != nil {
+		return "", false, fmt.Errorf("encoding address strkey: %w", err)
+	}
+	return addrStr, true, nil
+}

@@ -57,16 +57,22 @@ func (p *ContractDeployProcessor) ProcessOperation(_ context.Context, op *Transa
 	seen := map[string]struct{}{}
 
 	processCreate := func(fromAddr xdr.ContractIdPreimageFromAddress) error {
+		// The host rejects a deployer address it can't convert to a host object, so a deploy
+		// from one never creates a contract and there is nothing to record.
+		deployerAddr, storable, err := deployerAddressString(fromAddr.Address)
+		if err != nil {
+			return fmt.Errorf("deployer address to string: %w", err)
+		}
+		if !storable {
+			return nil
+		}
+
 		contractID, err := calculateContractID(p.networkPassphrase, fromAddr)
 		if err != nil {
 			return fmt.Errorf("calculating contract ID: %w", err)
 		}
 		if _, ok := seen[contractID]; ok {
 			return nil
-		}
-		deployerAddr, err := fromAddr.Address.String()
-		if err != nil {
-			return fmt.Errorf("deployer address to string: %w", err)
 		}
 
 		seen[contractID] = struct{}{}

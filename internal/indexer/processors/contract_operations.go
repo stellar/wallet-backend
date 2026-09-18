@@ -210,9 +210,12 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 			return nil, fmt.Errorf("calculating contract ID: %w", err)
 		}
 
-		fromAccountID, err := preimage.MustFromAddress().Address.String()
+		fromAccountID, storable, err := deployerAddressString(preimage.MustFromAddress().Address)
 		if err != nil {
 			return nil, fmt.Errorf("getting from address' string representation: %w", err)
+		}
+		if !storable {
+			return set.NewThreadUnsafeSet(contractID), nil
 		}
 		return set.NewThreadUnsafeSet(contractID, fromAccountID), nil
 
