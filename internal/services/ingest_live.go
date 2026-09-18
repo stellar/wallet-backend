@@ -1279,7 +1279,11 @@ func (m *ingestService) persistProcessedLedgers(ctx context.Context, processed <
 			perLedger.WithLabelValues("process_ledger").Observe(pl.processDuration.Seconds())
 			perLedger.WithLabelValues("prepare_classification").Observe(classifyShare.Seconds())
 			perLedger.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
-			m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
+			// A ledger that never passed through fetchLedgers carries no
+			// fetch instant; observing it would add the Unix epoch to the sum.
+			if !pl.fetchedAt.IsZero() {
+				m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
+			}
 			m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 			m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
 			// The per-reason/category fold runs here, off the persist
