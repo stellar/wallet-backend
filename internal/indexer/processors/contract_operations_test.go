@@ -594,10 +594,19 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 // Test_participants_unstorableAddressInAuthEntry pins that every participant collected from a
 // Soroban operation can be encoded for the operation-address COPY.
 //
-// An auth entry that no one consumes is silently ignored by the host, so the transaction closes
-// as txSUCCESS — which means the failed-transaction gate on Soroban participant collection does
-// not apply, and the auth tree is walked. A CAP-0067 claimable-balance address declared there
-// would otherwise reach the participants set and fail to encode, aborting the ledger insert.
+// Only the first case below is reachable on a transaction the network actually produces. The
+// host keeps a create-contract auth invocation's ContractIdPreimage as XDR and compares it raw,
+// so it never converts the declared deployer address; an auth entry nobody consumes is ignored
+// entirely and the transaction closes as txSUCCESS. That clears the failed-transaction gate on
+// Soroban participant collection, the auth tree is walked, and a claimable-balance deployer
+// lands in the participants set, where it fails to encode and aborts the ledger insert.
+//
+// The remaining cases are defence in depth, and their fixtures are counterfactual. The host
+// converts a credentials address and an invocation tree's contract address eagerly while it
+// builds its auth trackers, so a CAP-0067 arm in either one traps at apply and the transaction
+// fails — and Soroban participants are dropped for failed transactions, so nothing reaches the
+// encoder. They share the same guard so that a change in what the host converts eagerly, or a
+// new reader of the same fields, cannot quietly reintroduce the wedge.
 func Test_participants_unstorableAddressInAuthEntry(t *testing.T) {
 	const deployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
 
@@ -618,11 +627,13 @@ func Test_participants_unstorableAddressInAuthEntry(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name string
-		auth []xdr.SorobanAuthorizationEntry
+		name      string
+		auth      []xdr.SorobanAuthorizationEntry
+		reachable bool // false: the host traps at apply, so this fixture cannot close as txSUCCESS
 	}{
 		{
-			name: "createContractHostFn/fromAddress",
+			name:      "createContractHostFn/fromAddress",
+			reachable: true,
 			auth: []xdr.SorobanAuthorizationEntry{{
 				Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
 				RootInvocation: xdr.SorobanAuthorizedInvocation{Function: createFromCB},
@@ -661,7 +672,9 @@ func Test_participants_unstorableAddressInAuthEntry(t *testing.T) {
 			op := makeBasicSorobanOp()
 			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, deployer)
 			op.Operation.Body.InvokeHostFunctionOp.Auth = tc.auth
-			require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+			if tc.reachable {
+				require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+			}
 
 			participants, err := participantsForSorobanOp(op)
 			require.NoError(t, err)
