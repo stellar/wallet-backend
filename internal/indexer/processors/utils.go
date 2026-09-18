@@ -297,14 +297,6 @@ func ConvertOperation(
 
 // deployerAddressString converts a create-contract preimage's deployer address to its strkey
 // form, reporting ok=false when it is a kind types.AddressBytea cannot store.
-//
-// The host keeps a create-contract auth invocation's ContractIdPreimage as XDR and compares it
-// raw, so it never converts the declared deployer address. An auth entry nobody consumes is
-// therefore ignored, and a CAP-0067 claimable-balance or liquidity-pool address declared as the
-// deployer reaches ingestion — on a failed transaction via the contract-deploy state changes, and
-// on a successful one via the operation's participants. The allowlist mirrors what
-// AddressBytea.Value() accepts: a version byte plus a 32-byte account or contract key, with a
-// muxed (M...) payload reduced to its base account.
 func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
 	switch addr.Type {
 	case xdr.ScAddressTypeScAddressTypeAccount, xdr.ScAddressTypeScAddressTypeContract:
