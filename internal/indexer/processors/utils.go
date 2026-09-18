@@ -295,6 +295,21 @@ func ConvertOperation(
 	}, nil
 }
 
+// storableAddressString converts addr to its strkey form for storage in an account column,
+// reporting ok=false when addr is a kind that column cannot hold. Every site that turns an
+// ScAddress from a transaction envelope into a stored address should go through this, so a kind
+// that cannot be encoded is dropped at the point it is read rather than failing the ledger write.
+func storableAddressString(addr xdr.ScAddress) (string, bool, error) {
+	if !isStorableAccountAddress(addr) {
+		return "", false, nil
+	}
+	addrStr, err := addr.String()
+	if err != nil {
+		return "", false, fmt.Errorf("encoding address strkey: %w", err)
+	}
+	return addrStr, true, nil
+}
+
 // isStorableAccountAddress reports whether an ScAddress can be persisted in one of the
 // state-change account columns (types.AddressBytea), which store a version byte followed by a
 // 32-byte account or contract key.

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -586,6 +587,89 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
+		})
+	}
+}
+
+// Test_participants_unstorableAddressInAuthEntry pins that every participant collected from a
+// Soroban operation can be encoded for the operation-address COPY.
+//
+// An auth entry that no one consumes is silently ignored by the host, so the transaction closes
+// as txSUCCESS — which means the failed-transaction gate on Soroban participant collection does
+// not apply, and the auth tree is walked. A CAP-0067 claimable-balance address declared there
+// would otherwise reach the participants set and fail to encode, aborting the ledger insert.
+func Test_participants_unstorableAddressInAuthEntry(t *testing.T) {
+	const deployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+
+	var h xdr.Hash
+	for i := range h {
+		h[i] = byte(i)
+	}
+	cbAddr := makeScClaimableBalance(h)
+
+	createFromCB := xdr.SorobanAuthorizedFunction{
+		Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+		CreateContractHostFn: &xdr.CreateContractArgs{
+			ContractIdPreimage: xdr.ContractIdPreimage{
+				Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+				FromAddress: &xdr.ContractIdPreimageFromAddress{Address: cbAddr, Salt: TestSalt},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name string
+		auth []xdr.SorobanAuthorizationEntry
+	}{
+		{
+			name: "createContractHostFn/fromAddress",
+			auth: []xdr.SorobanAuthorizationEntry{{
+				Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{Function: createFromCB},
+			}},
+		},
+		{
+			name: "addressCredentials",
+			auth: []xdr.SorobanAuthorizationEntry{{
+				Credentials: xdr.SorobanCredentials{
+					Type:    xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+					Address: &xdr.SorobanAddressCredentials{Address: cbAddr},
+				},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function: xdr.SorobanAuthorizedFunction{
+						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+					},
+				},
+			}},
+		},
+		{
+			name: "contractFn/contractAddress",
+			auth: []xdr.SorobanAuthorizationEntry{{
+				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function: xdr.SorobanAuthorizedFunction{
+						Type:       xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+						ContractFn: &xdr.InvokeContractArgs{ContractAddress: cbAddr, FunctionName: "noop", Args: []xdr.ScVal{}},
+					},
+				},
+			}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			op := makeBasicSorobanOp()
+			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, deployer)
+			op.Operation.Body.InvokeHostFunctionOp.Auth = tc.auth
+			require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+
+			participants, err := participantsForSorobanOp(op)
+			require.NoError(t, err)
+
+			for _, participant := range participants.ToSlice() {
+				_, encErr := types.AddressBytea(participant).Value()
+				require.NoError(t, encErr, "participant %q must encode for the operation-address COPY", participant)
+			}
 		})
 	}
 }
