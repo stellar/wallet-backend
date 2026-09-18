@@ -63,13 +63,11 @@ func participantsFromInvocationAndSubInvocations(networkPassphrase string, invoc
 			break
 		}
 
-		contractID, storable, err := storableAddressString(contractFn.ContractAddress)
+		contractID, err := contractFn.ContractAddress.String()
 		if err != nil {
 			return nil, fmt.Errorf("converting contract address to string: %w", err)
 		}
-		if storable {
-			participants.Add(contractID)
-		}
+		participants.Add(contractID)
 
 	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn:
 		createContractHostFn, ok := invocation.Function.GetCreateContractHostFn()
@@ -112,13 +110,11 @@ func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.Soro
 	participants := set.NewThreadUnsafeSet[string]()
 	for _, authEntry := range authEntries {
 		if authEntry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
-			participant, storable, err := storableAddressString(authEntry.Credentials.MustAddress().Address)
+			participant, err := authEntry.Credentials.MustAddress().Address.String()
 			if err != nil {
 				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
 			}
-			if storable {
-				participants.Add(participant)
-			}
+			participants.Add(participant)
 		}
 
 		invocationParticipants, err := participantsFromInvocationAndSubInvocations(networkPassphrase, authEntry.RootInvocation)
@@ -214,7 +210,7 @@ func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPre
 			return nil, fmt.Errorf("calculating contract ID: %w", err)
 		}
 
-		fromAccountID, storable, err := storableAddressString(preimage.MustFromAddress().Address)
+		fromAccountID, storable, err := deployerAddressString(preimage.MustFromAddress().Address)
 		if err != nil {
 			return nil, fmt.Errorf("getting from address' string representation: %w", err)
 		}
@@ -351,11 +347,11 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
 
 	// Contract ID
-	contractID, storable, err := storableAddressString(invokeContractOp.ContractAddress)
+	contractID, err := invokeContractOp.ContractAddress.String()
 	if err != nil {
 		return nil, fmt.Errorf("converting contract address to string: %w", err)
 	}
-	if storable && contractID != "" {
+	if contractID != "" {
 		participants.Add(contractID)
 	}
 

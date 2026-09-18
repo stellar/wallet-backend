@@ -295,12 +295,22 @@ func ConvertOperation(
 	}, nil
 }
 
-// storableAddressString converts addr to its strkey form for storage in an account column,
-// reporting ok=false when addr is a kind that column cannot hold. Every site that turns an
-// ScAddress from a transaction envelope into a stored address should go through this, so a kind
-// that cannot be encoded is dropped at the point it is read rather than failing the ledger write.
-func storableAddressString(addr xdr.ScAddress) (string, bool, error) {
-	if !isStorableAccountAddress(addr) {
+// deployerAddressString converts a create-contract preimage's deployer address to its strkey
+// form, reporting ok=false when it is a kind types.AddressBytea cannot store.
+//
+// The host keeps a create-contract auth invocation's ContractIdPreimage as XDR and compares it
+// raw, so it never converts the declared deployer address. An auth entry nobody consumes is
+// therefore ignored, and a CAP-0067 claimable-balance or liquidity-pool address declared as the
+// deployer reaches ingestion — on a failed transaction via the contract-deploy state changes, and
+// on a successful one via the operation's participants. The allowlist mirrors what
+// AddressBytea.Value() accepts: a version byte plus a 32-byte account or contract key, with a
+// muxed (M...) payload reduced to its base account.
+func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
+	switch addr.Type {
+	case xdr.ScAddressTypeScAddressTypeAccount,
+		xdr.ScAddressTypeScAddressTypeContract,
+		xdr.ScAddressTypeScAddressTypeMuxedAccount:
+	default:
 		return "", false, nil
 	}
 	addrStr, err := addr.String()
@@ -308,20 +318,4 @@ func storableAddressString(addr xdr.ScAddress) (string, bool, error) {
 		return "", false, fmt.Errorf("encoding address strkey: %w", err)
 	}
 	return addrStr, true, nil
-}
-
-// isStorableAccountAddress reports whether an ScAddress can be persisted in one of the
-// state-change account columns (types.AddressBytea), which store a version byte followed by a
-// 32-byte account or contract key.
-func isStorableAccountAddress(addr xdr.ScAddress) bool {
-	switch addr.Type {
-	case xdr.ScAddressTypeScAddressTypeAccount,
-		xdr.ScAddressTypeScAddressTypeContract,
-		// Muxed (M...) carries a 40-byte payload, which AddressBytea.Value() reduces to its
-		// base account, mirroring the classic path's MuxedAccount.ToAccountId().
-		xdr.ScAddressTypeScAddressTypeMuxedAccount:
-		return true
-	default:
-		return false
-	}
 }
