@@ -591,46 +591,101 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	}
 }
 
-// Test_participants_unstorableDeployerInAuthEntry pins that a create-contract deployer address
-// collected from an operation's auth tree can be encoded for the operation-address COPY.
+// Test_participants_deployerInAuthEntry pins the exact participant set an operation yields when
+// its auth tree declares a create-contract from each kind of deployer address.
 //
 // The host keeps a create-contract auth invocation's ContractIdPreimage as XDR and compares it
 // raw, so it never converts the declared deployer address. An auth entry nobody consumes is
 // therefore ignored entirely and the transaction closes as txSUCCESS, which clears the
-// failed-transaction gate on Soroban participant collection. A CAP-0067 claimable-balance
-// deployer declared there would otherwise land in the participants set and fail to encode,
-// aborting the ledger insert.
-func Test_participants_unstorableDeployerInAuthEntry(t *testing.T) {
-	const deployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+// failed-transaction gate on Soroban participant collection — so whatever is declared there
+// reaches the participant set and then the operation-address COPY.
+//
+// Asserting the whole set rather than just that each member encodes: a liquidity-pool address
+// already has a 32-byte payload and would encode happily, so only an exact-set assertion catches
+// it being retained. A muxed deployer must appear as its base account, or the M... and G... forms
+// of one account survive as two set members that collapse to the same key and violate the
+// operations_accounts primary key.
+func Test_participants_deployerInAuthEntry(t *testing.T) {
+	const rootDeployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+	const otherAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 
 	var h xdr.Hash
 	for i := range h {
 		h[i] = byte(i)
 	}
+	muxedOverSource := xdr.ScAddress{
+		Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+		MuxedAccount: &xdr.MuxedEd25519Account{Id: 42, Ed25519: *xdr.MustAddress(txSourceAccount).Ed25519},
+	}
+	muxedOverOther := xdr.ScAddress{
+		Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+		MuxedAccount: &xdr.MuxedEd25519Account{Id: 7, Ed25519: *xdr.MustAddress(otherAccount).Ed25519},
+	}
 
-	op := makeBasicSorobanOp()
-	setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, deployer)
-	op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
-		Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
-		RootInvocation: xdr.SorobanAuthorizedInvocation{
-			Function: xdr.SorobanAuthorizedFunction{
-				Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
-				CreateContractHostFn: &xdr.CreateContractArgs{
-					ContractIdPreimage: xdr.ContractIdPreimage{
-						Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
-						FromAddress: &xdr.ContractIdPreimageFromAddress{Address: makeScClaimableBalance(h), Salt: TestSalt},
-					},
-				},
-			},
-		},
-	}}
-	require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
-
-	participants, err := participantsForSorobanOp(op)
+	// The root host function deploys from rootDeployer; the auth entry declares a second deploy
+	// from the address under test.
+	rootContractID, err := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
+		Address: makeScAddress(rootDeployer), Salt: TestSalt,
+	})
 	require.NoError(t, err)
 
-	for _, participant := range participants.ToSlice() {
-		_, encErr := types.AddressBytea(participant).Value()
-		require.NoError(t, encErr, "participant %q must encode for the operation-address COPY", participant)
+	testCases := []struct {
+		name         string
+		deployer     xdr.ScAddress
+		wantDeployer string // the deployer as it should appear, or "" when it must be dropped
+	}{
+		{name: "claimableBalance/dropped", deployer: makeScClaimableBalance(h)},
+		{name: "liquidityPool/dropped", deployer: makeScLiquidityPool(h)},
+		{name: "account/kept", deployer: makeScAddress(otherAccount), wantDeployer: otherAccount},
+		{name: "muxed/reducedToBase", deployer: muxedOverOther, wantDeployer: otherAccount},
+		{name: "muxedOverSource/dedupesWithSource", deployer: muxedOverSource, wantDeployer: txSourceAccount},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			authContractID, idErr := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
+				Address: tc.deployer, Salt: TestSalt,
+			})
+			require.NoError(t, idErr)
+
+			op := makeBasicSorobanOp()
+			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, rootDeployer)
+			op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
+				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function: xdr.SorobanAuthorizedFunction{
+						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+						CreateContractHostFn: &xdr.CreateContractArgs{
+							ContractIdPreimage: xdr.ContractIdPreimage{
+								Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+								FromAddress: &xdr.ContractIdPreimageFromAddress{Address: tc.deployer, Salt: TestSalt},
+							},
+						},
+					},
+				},
+			}}
+			require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+
+			want := set.NewThreadUnsafeSet(txSourceAccount, rootDeployer, rootContractID, authContractID)
+			if tc.wantDeployer != "" {
+				want.Add(tc.wantDeployer)
+			}
+
+			participants, partErr := participantsForSorobanOp(op)
+			require.NoError(t, partErr)
+			assert.Equal(t, want, participants)
+
+			// Nothing in the set may collide once encoded, or the operations_accounts rows
+			// duplicate on their primary key and abort the ledger insert.
+			byKey := map[string]string{}
+			for _, participant := range participants.ToSlice() {
+				value, encErr := types.AddressBytea(participant).Value()
+				require.NoError(t, encErr, "participant %q must encode for the operation-address COPY", participant)
+				key := string(value.([]byte))
+				prior, collides := byKey[key]
+				require.False(t, collides, "participants %q and %q encode to the same operations_accounts row", prior, participant)
+				byKey[key] = participant
+			}
+		})
 	}
 }
