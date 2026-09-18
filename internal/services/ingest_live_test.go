@@ -252,7 +252,6 @@ func Test_concatCopyRows(t *testing.T) {
 			buffer.PushTransaction(testAddr1, &tx)
 		}
 		require.NoError(t, buffer.BuildCopyRows())
-		require.NoError(t, buffer.BuildCopyRows())
 		return persistItem{processedLedger: processedLedger{seq: seq, buffer: buffer}}
 	}
 	get := (*indexer.IndexerBuffer).GetTransactionCopyRows

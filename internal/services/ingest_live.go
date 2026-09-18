@@ -1218,7 +1218,12 @@ func (m *ingestService) recordBatchPersisted(ctx context.Context, batch []proces
 		perLedger.WithLabelValues("process_ledger").Observe(pl.processDuration.Seconds())
 		perLedger.WithLabelValues("prepare_classification").Observe(classifyShare.Seconds())
 		perLedger.WithLabelValues("insert_into_db").Observe(persistShare.Seconds())
-		m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
+		// A processedLedger built without passing through fetchLedgers carries a
+		// zero fetchedAt; observing it would add the Unix epoch to the histogram
+		// sum and poison every mean of the series for the process lifetime.
+		if !pl.fetchedAt.IsZero() {
+			m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
+		}
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 		m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
 		// The per-reason/category fold runs here, off the persist
