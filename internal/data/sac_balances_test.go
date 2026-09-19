@@ -413,6 +413,52 @@ func TestSACBalanceModel_BatchUpsert(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "1500", balance)
 	})
+
+	t.Run("identical re-upsert does not rewrite the row", func(t *testing.T) {
+		cleanUpDB()
+
+		m := &SACBalanceModel{
+			DB:      dbConnectionPool,
+			Metrics: dbMetrics,
+		}
+
+		accountAddr := randomContractAddress(t)
+		upsert := func(bal SACBalance) {
+			pgxTx, err := dbConnectionPool.Begin(ctx)
+			require.NoError(t, err)
+			require.NoError(t, m.BatchUpsert(ctx, pgxTx, []SACBalance{bal}, nil))
+			require.NoError(t, pgxTx.Commit(ctx))
+		}
+		readBack := func() SACBalance {
+			balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
+			require.NoError(t, err)
+			require.Len(t, balances, 1)
+			return balances[0]
+		}
+
+		bal := SACBalance{
+			AccountID:         types.AddressBytea(accountAddr),
+			ContractID:        contractID1,
+			Balance:           "1000",
+			IsAuthorized:      true,
+			IsClawbackEnabled: false,
+			LedgerNumber:      100,
+		}
+		upsert(bal)
+
+		// Re-observing the same values at a later ledger leaves the row untouched.
+		bal.LedgerNumber = 200
+		upsert(bal)
+		require.Equal(t, uint32(100), readBack().LedgerNumber)
+
+		// A changed value writes both the value and the ledger that changed it.
+		bal.Balance = "2000"
+		bal.LedgerNumber = 300
+		upsert(bal)
+		got := readBack()
+		require.Equal(t, "2000", got.Balance)
+		require.Equal(t, uint32(300), got.LedgerNumber)
+	})
 }
 
 func TestSACBalanceModel_BatchCopy(t *testing.T) {

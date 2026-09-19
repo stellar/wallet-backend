@@ -2,6 +2,7 @@ package data
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -59,14 +60,22 @@ func pgtypeTextFromReason(r types.StateChangeReason) pgtype.Text {
 	return pgtype.Text{String: string(r), Valid: true}
 }
 
-// jsonbFromMap converts types.NullableJSONB to any for pgx CopyFrom.
-// pgx automatically handles map[string]any → JSONB conversion.
-func jsonbFromMap(m types.NullableJSONB) any {
+// jsonbBytesFromMap pre-marshals types.NullableJSONB for a binary COPY: pgx's JSONB
+// codec takes []byte verbatim, so marshaling here is byte-equivalent to handing pgx
+// the map and letting it marshal inside the COPY stream — but it happens where the
+// row is built rather than on the streaming goroutine.
+//
+// A nil map is untyped nil (SQL NULL), never a marshaled value: json.Marshal of a nil
+// map yields the JSON literal "null", which stores as a non-NULL jsonb.
+func jsonbBytesFromMap(m types.NullableJSONB) (any, error) {
 	if m == nil {
-		return nil
+		return nil, nil
 	}
-	// Return the map directly; pgx handles JSON marshaling automatically
-	return map[string]any(m)
+	jsonBytes, err := json.Marshal(map[string]any(m))
+	if err != nil {
+		return nil, fmt.Errorf("marshalling key_value: %w", err)
+	}
+	return jsonBytes, nil
 }
 
 // pgtypeInt2FromNullInt16 converts sql.NullInt16 to pgtype.Int2 for efficient binary COPY.

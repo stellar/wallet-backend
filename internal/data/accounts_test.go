@@ -1,9 +1,13 @@
 package data
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
@@ -111,4 +115,61 @@ func TestAccountModelBatchGetByOperationIDs(t *testing.T) {
 	}
 	assert.Equal(t, operationID1, addressSet[address1])
 	assert.Equal(t, operationID2, addressSet[address2])
+}
+
+func TestBuildAccountLinkCopyRows(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	later := now.Add(time.Minute)
+	addresses := []string{keypair.MustRandom().Address(), keypair.MustRandom().Address()}
+	slices.SortFunc(addresses, func(a, b string) int {
+		return bytes.Compare(mustAddressCopyBytes(t, a), mustAddressCopyBytes(t, b))
+	})
+	lowAddr, highAddr := addresses[0], addresses[1]
+
+	txs := []*types.Transaction{
+		{ToID: 4096, LedgerCreatedAt: now},
+		{ToID: 8192, LedgerCreatedAt: later},
+	}
+	idAndCreatedAt := func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt }
+	addressesByID := map[int64]map[string]struct{}{
+		4096: {lowAddr: {}, highAddr: {}},
+		8192: {highAddr: {}},
+	}
+
+	rows, err := BuildAccountLinkCopyRows(nil, txs, idAndCreatedAt, addressesByID, make(types.AddressByteaMemo))
+	require.NoError(t, err)
+
+	// Rows come out in (account_id, id) order — the link table's primary-key order —
+	// regardless of the randomized map iteration that produced them.
+	want := [][]any{
+		{pgtype.Timestamptz{Time: now, Valid: true}, pgtype.Int8{Int64: 4096, Valid: true}, mustAddressCopyBytes(t, lowAddr)},
+		{pgtype.Timestamptz{Time: now, Valid: true}, pgtype.Int8{Int64: 4096, Valid: true}, mustAddressCopyBytes(t, highAddr)},
+		{pgtype.Timestamptz{Time: later, Valid: true}, pgtype.Int8{Int64: 8192, Valid: true}, mustAddressCopyBytes(t, highAddr)},
+	}
+	require.Len(t, rows, len(want))
+	for i := range want {
+		require.Len(t, rows[i], len(accountLinkCopyColumns("tx_to_id")), "row width must match the COPY column list")
+		for j := range want[i] {
+			assert.Equal(t, want[i][j], rows[i][j], "row %d column %s", i, accountLinkCopyColumns("tx_to_id")[j])
+		}
+	}
+}
+
+func TestBuildAccountLinkCopyRows_MissingParentRow(t *testing.T) {
+	txs := []*types.Transaction{{ToID: 4096, LedgerCreatedAt: time.Now()}}
+	idAndCreatedAt := func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt }
+	addressesByID := map[int64]map[string]struct{}{
+		8192: {keypair.MustRandom().Address(): {}},
+	}
+
+	_, err := BuildAccountLinkCopyRows(nil, txs, idAndCreatedAt, addressesByID, make(types.AddressByteaMemo))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no row supplies ledger_created_at for 8192")
+}
+
+func TestBuildAccountLinkCopyRows_EmptyInput(t *testing.T) {
+	idAndCreatedAt := func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt }
+	rows, err := BuildAccountLinkCopyRows(nil, []*types.Transaction{}, idAndCreatedAt, map[int64]map[string]struct{}{}, make(types.AddressByteaMemo))
+	require.NoError(t, err)
+	assert.Empty(t, rows)
 }

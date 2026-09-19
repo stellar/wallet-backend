@@ -82,7 +82,7 @@ func TestGraphQLMetrics_HistogramBuckets(t *testing.T) {
 	require.NoError(t, err)
 
 	bucketCounts := map[string]int{
-		"wallet_graphql_operation_duration_seconds": 11,
+		"wallet_graphql_operation_duration_seconds": 12,
 		"wallet_graphql_complexity":                 11,
 		"wallet_graphql_response_size_bytes":        8,
 	}

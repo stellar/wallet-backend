@@ -130,8 +130,8 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	return stateChanges, nil
 }
 
-// BatchCopy inserts state changes using pgx's binary COPY protocol.
-// Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+// BatchCopy inserts state changes using pgx's binary COPY protocol: it materializes
+// every row up front with BuildStateChangeCopyRows, then streams them with CopyRows.
 //
 // Each StateChange must already carry its final, deterministic StateChangeID
 // (see types.AssignStateChangeOrdinals) — BatchCopy writes it as-is and never
@@ -148,115 +148,131 @@ func (m *StateChangeModel) BatchCopy(
 	pgxTx pgx.Tx,
 	stateChanges []types.StateChange,
 ) (int, error) {
-	if len(stateChanges) == 0 {
+	rows, err := BuildStateChangeCopyRows(nil, stateChanges, make(types.AddressByteaMemo))
+	if err != nil {
+		return 0, fmt.Errorf("building state_changes COPY rows: %w", err)
+	}
+	copyCount, err := m.CopyRows(ctx, pgxTx, rows)
+	if err != nil {
+		return 0, err
+	}
+	return int(copyCount), nil
+}
+
+// stateChangeCopyColumns is the state_changes COPY column order. Its order is the
+// tuple order BuildStateChangeCopyRows appends below — the two must be read together.
+var stateChangeCopyColumns = []string{
+	"to_id", "state_change_id", "state_change_category", "state_change_reason",
+	"ledger_created_at", "ledger_number", "account_id", "operation_id",
+	"token_id", "amount", "signer_account_id", "spender_account_id",
+	"creator_account_id", "destination_account_id",
+	"liquidity_pool_id",
+	"signer_weight_old", "signer_weight_new",
+	"threshold", "threshold_old", "threshold_new",
+	"trustline_limit_old", "trustline_limit_new", "flags",
+	"data_entry_name", "key_value",
+	"to_muxed_id",
+}
+
+// BuildStateChangeCopyRows appends one stateChangeCopyColumns-shaped tuple per state
+// change to rows and returns the extended slice, so callers can reuse one backing array
+// across batches. Values are native pgtype types for the binary COPY protocol (see
+// https://github.com/jackc/pgx/issues/763).
+//
+// memo caches strkey→BYTEA conversions across the appended rows; it is a plain map, so
+// one call must not share it with another goroutine.
+func BuildStateChangeCopyRows(rows [][]any, stateChanges []types.StateChange, memo types.AddressByteaMemo) ([][]any, error) {
+	for i := range stateChanges {
+		sc := stateChanges[i]
+
+		// Convert account_id to BYTEA (required field)
+		accountBytes, err := memo.Bytes(sc.AccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting account_id: %w", err)
+		}
+
+		// Convert nullable account_id fields to BYTEA
+		signerBytes, err := memo.NullBytes(sc.SignerAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting signer_account_id: %w", err)
+		}
+		spenderBytes, err := memo.NullBytes(sc.SpenderAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting spender_account_id: %w", err)
+		}
+		creatorBytes, err := memo.NullBytes(sc.CreatorAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting creator_account_id: %w", err)
+		}
+		destinationBytes, err := memo.NullBytes(sc.DestinationAccountID)
+		if err != nil {
+			return nil, fmt.Errorf("converting destination_account_id: %w", err)
+		}
+		tokenBytes, err := memo.NullBytes(sc.TokenID)
+		if err != nil {
+			return nil, fmt.Errorf("converting token_id: %w", err)
+		}
+		keyValueBytes, err := jsonbBytesFromMap(sc.KeyValue)
+		if err != nil {
+			return nil, fmt.Errorf("converting key_value: %w", err)
+		}
+
+		rows = append(rows, []any{
+			pgtype.Int8{Int64: sc.ToID, Valid: true},
+			pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
+			pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
+			pgtypeTextFromReason(sc.StateChangeReason),
+			pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
+			pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
+			accountBytes,
+			pgtype.Int8{Int64: sc.OperationID, Valid: true},
+			tokenBytes,
+			pgtypeTextFromNullString(sc.Amount),
+			signerBytes,
+			spenderBytes,
+			creatorBytes,
+			destinationBytes,
+			pgtypeTextFromNullString(sc.LiquidityPoolID),
+			pgtypeInt2FromNullInt16(sc.SignerWeightOld),
+			pgtypeInt2FromNullInt16(sc.SignerWeightNew),
+			pgtypeTextFromNullString(sc.Threshold),
+			pgtypeInt2FromNullInt16(sc.ThresholdOld),
+			pgtypeInt2FromNullInt16(sc.ThresholdNew),
+			pgtypeTextFromNullString(sc.TrustlineLimitOld),
+			pgtypeTextFromNullString(sc.TrustlineLimitNew),
+			pgtypeInt2FromNullInt16(sc.Flags),
+			pgtypeTextFromNullString(sc.DataEntryName),
+			keyValueBytes,
+			pgtypeTextFromNullString(sc.ToMuxedID),
+		})
+	}
+	return rows, nil
+}
+
+// CopyRows streams pre-built state_changes tuples (see BuildStateChangeCopyRows) with
+// pgx's binary COPY protocol and returns the number of rows the server accepted. It
+// carries the same duplicate-failure semantics as BatchCopy.
+func (m *StateChangeModel) CopyRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-
-	// One memo shared by every row of this COPY, used only from pgx's single row-callback goroutine.
-	memo := make(types.AddressByteaMemo)
-
-	// COPY state_changes using pgx binary format with native pgtype types
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"state_changes"},
-		[]string{
-			"to_id", "state_change_id", "state_change_category", "state_change_reason",
-			"ledger_created_at", "ledger_number", "account_id", "operation_id",
-			"token_id", "amount", "signer_account_id", "spender_account_id",
-			"creator_account_id", "destination_account_id",
-			"liquidity_pool_id",
-			"signer_weight_old", "signer_weight_new",
-			"threshold", "threshold_old", "threshold_new",
-			"trustline_limit_old", "trustline_limit_new", "flags",
-			"data_entry_name", "key_value",
-			"to_muxed_id",
-		},
-		pgx.CopyFromSlice(len(stateChanges), func(i int) ([]any, error) {
-			sc := stateChanges[i]
-
-			// Convert account_id to BYTEA (required field)
-			accountBytes, err := memo.Bytes(sc.AccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting account_id: %w", err)
-			}
-
-			// Convert nullable account_id fields to BYTEA
-			signerBytes, err := memo.NullBytes(sc.SignerAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting signer_account_id: %w", err)
-			}
-			spenderBytes, err := memo.NullBytes(sc.SpenderAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting spender_account_id: %w", err)
-			}
-			creatorBytes, err := memo.NullBytes(sc.CreatorAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting creator_account_id: %w", err)
-			}
-			destinationBytes, err := memo.NullBytes(sc.DestinationAccountID)
-			if err != nil {
-				return nil, fmt.Errorf("converting destination_account_id: %w", err)
-			}
-			tokenBytes, err := memo.NullBytes(sc.TokenID)
-			if err != nil {
-				return nil, fmt.Errorf("converting token_id: %w", err)
-			}
-
-			return []any{
-				pgtype.Int8{Int64: sc.ToID, Valid: true},
-				pgtype.Int8{Int64: sc.StateChangeID, Valid: true},
-				pgtype.Text{String: string(sc.StateChangeCategory), Valid: true},
-				pgtypeTextFromReason(sc.StateChangeReason),
-				pgtype.Timestamptz{Time: sc.LedgerCreatedAt, Valid: true},
-				pgtype.Int4{Int32: int32(sc.LedgerNumber), Valid: true},
-				accountBytes,
-				pgtype.Int8{Int64: sc.OperationID, Valid: true},
-				tokenBytes,
-				pgtypeTextFromNullString(sc.Amount),
-				signerBytes,
-				spenderBytes,
-				creatorBytes,
-				destinationBytes,
-				pgtypeTextFromNullString(sc.LiquidityPoolID),
-				pgtypeInt2FromNullInt16(sc.SignerWeightOld),
-				pgtypeInt2FromNullInt16(sc.SignerWeightNew),
-				pgtypeTextFromNullString(sc.Threshold),
-				pgtypeInt2FromNullInt16(sc.ThresholdOld),
-				pgtypeInt2FromNullInt16(sc.ThresholdNew),
-				pgtypeTextFromNullString(sc.TrustlineLimitOld),
-				pgtypeTextFromNullString(sc.TrustlineLimitNew),
-				pgtypeInt2FromNullInt16(sc.Flags),
-				pgtypeTextFromNullString(sc.DataEntryName),
-				jsonbFromMap(sc.KeyValue),
-				pgtypeTextFromNullString(sc.ToMuxedID),
-			}, nil
-		}),
-	)
+	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{"state_changes"}, stateChangeCopyColumns, pgx.CopyFromRows(rows))
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
+	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(rows)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 	if err != nil {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom state_changes: %w", err)
 	}
-	if int(copyCount) != len(stateChanges) {
-		duration := time.Since(start).Seconds()
-		m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-		m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
+	if int(copyCount) != len(rows) {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "state_changes", "row_count_mismatch").Inc()
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(stateChanges), copyCount)
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
 
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(stateChanges)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()
-
-	return len(stateChanges), nil
+	return copyCount, nil
 }
 
 // BatchGetByToID gets state changes for a single transaction with pagination support, pinned to

@@ -27,6 +27,20 @@ type IngestionMetrics struct {
 	// coalesced.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_phase_duration_seconds_bucket{phase="process_ledger"}[5m]))
 	PhaseDuration *prometheus.HistogramVec
+	// PhaseDurationPerLedger observes each phase's per-ledger share, labeled by
+	// phase. process_ledger is the ledger's own processing time; the batch
+	// phases (prepare_classification, insert_into_db) are the batch's duration
+	// divided by the ledgers in that batch, observed once per ledger. The mean
+	// of the slowest phase over the ledger close time is that phase's
+	// utilisation and bounds sustained throughput; PhaseDuration keeps the
+	// undivided commit latency.
+	// PromQL: rate(wallet_ingestion_phase_duration_per_ledger_seconds_sum{phase="insert_into_db"}[15m]) / rate(wallet_ingestion_phase_duration_per_ledger_seconds_count{phase="insert_into_db"}[15m])
+	PhaseDurationPerLedger *prometheus.HistogramVec
+	// Freshness observes, per ledger, the time from fetch completion to the
+	// commit that made the ledger queryable, including every inter-stage
+	// queue wait. It excludes tip-wait and datastore publish delay.
+	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_freshness_seconds_bucket[15m]))
+	Freshness prometheus.Histogram
 	// LedgersProcessed counts total ledgers ingested.
 	// PromQL: rate(wallet_ingestion_ledgers_total[5m])
 	LedgersProcessed prometheus.Counter
@@ -106,14 +120,27 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "wallet_ingestion_phase_duration_seconds",
-			Help: "Duration of each ingestion phase.",
-			// The 0.6 and 1 boundaries are the grading bars: the pipeline's
-			// contract is that the slowest stage's p99 stays under the ledger
-			// close time, 600ms at Phase-3 block rates and 1s for the loadtest
-			// rig's 1.67x-sized merged ledgers. 0.5 and 0.75 bracket them so
-			// movement between runs is visible rather than rounded away.
+			Help: "Duration of each ingestion phase. insert_into_db records the full commit wall time for every ledger the commit carried; see wallet_ingestion_phase_duration_per_ledger_seconds for the per-ledger share.",
+			// 0.6 and 1 are the ledger close times the pipeline is graded
+			// against (Phase-3 block rate and the loadtest rig's merged
+			// ledgers); 0.5 and 0.75 bracket them so movement between runs
+			// is visible rather than rounded away.
 			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10},
 		}, []string{"phase"}),
+		PhaseDurationPerLedger: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "wallet_ingestion_phase_duration_per_ledger_seconds",
+			Help: "Per-ledger share of each ingestion phase's duration; batch phases are divided by the ledgers in the batch. The slowest phase's mean share over the ledger close time is its utilisation and bounds sustained throughput.",
+			// PhaseDuration's buckets plus 0.48, 0.8 and 1.6: 0.8x the
+			// 0.6s / 1s / 2s ledger close times, the utilisation bars the
+			// SLA grades the mean against, so the tail can be read on the
+			// same edges.
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.48, 0.5, 0.6, 0.75, 0.8, 1, 1.5, 1.6, 2, 3, 5, 10},
+		}, []string{"phase"}),
+		Freshness: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_freshness_seconds",
+			Help:    "Per-ledger time from fetch completion to the persist commit that made the ledger queryable, including inter-stage queueing. Excludes tip-wait and datastore publish delay.",
+			Buckets: []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10},
+		}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
 			Help: "Total number of ledgers processed during ingestion.",
@@ -185,6 +212,8 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.OldestLedger,
 		m.Duration,
 		m.PhaseDuration,
+		m.PhaseDurationPerLedger,
+		m.Freshness,
 		m.LedgersProcessed,
 		m.PersistBatchSize,
 		m.TransactionsTotal,

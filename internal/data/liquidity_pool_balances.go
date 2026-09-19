@@ -3,8 +3,11 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -114,11 +117,11 @@ func (m *LiquidityPoolBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx
 	start := time.Now()
 
 	if len(upserts) > 0 {
-		accountIDs := make([][]byte, len(upserts))
-		poolIDs := make([]string, len(upserts))
-		shares := make([]int64, len(upserts))
-		ledgerNumbers := make([]int64, len(upserts))
-
+		type upsertRow struct {
+			accountID []byte
+			lpb       LiquidityPoolBalance
+		}
+		rows := make([]upsertRow, len(upserts))
 		for i, lpb := range upserts {
 			raw, err := lpb.AccountID.Value()
 			if err != nil {
@@ -128,12 +131,33 @@ func (m *LiquidityPoolBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx
 			if !ok {
 				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
 			}
-			accountIDs[i] = rawBytes
-			poolIDs[i] = lpb.PoolID
-			shares[i] = lpb.Shares
-			ledgerNumbers[i] = int64(lpb.LedgerNumber)
+			rows[i] = upsertRow{accountID: rawBytes, lpb: lpb}
+		}
+		// Upserts arrive in Go map-iteration order; sorting by the PK columns
+		// descends the btree and touches heap pages in key order instead of
+		// scattering random probes across the relation.
+		slices.SortFunc(rows, func(a, b upsertRow) int {
+			if c := bytes.Compare(a.accountID, b.accountID); c != 0 {
+				return c
+			}
+			return strings.Compare(a.lpb.PoolID, b.lpb.PoolID)
+		})
+
+		accountIDs := make([][]byte, len(rows))
+		poolIDs := make([]string, len(rows))
+		shares := make([]int64, len(rows))
+		ledgerNumbers := make([]int64, len(rows))
+		for i, row := range rows {
+			accountIDs[i] = row.accountID
+			poolIDs[i] = row.lpb.PoolID
+			shares[i] = row.lpb.Shares
+			ledgerNumbers[i] = int64(row.lpb.LedgerNumber)
 		}
 
+		// The WHERE clause compares only the tracked value, so the update fires
+		// only when it differs and last_modified_ledger records the last ledger
+		// that changed it. Re-observing identical shares is a pure no-op: no new
+		// tuple version, no dead tuple, no WAL, no index churn.
 		const upsertQuery = `
 			INSERT INTO liquidity_pool_balances (
 				account_id, pool_id, shares, last_modified_ledger
@@ -141,7 +165,8 @@ func (m *LiquidityPoolBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx
 			SELECT * FROM UNNEST($1::bytea[], $2::text[], $3::bigint[], $4::bigint[])
 			ON CONFLICT (account_id, pool_id) DO UPDATE SET
 				shares = EXCLUDED.shares,
-				last_modified_ledger = EXCLUDED.last_modified_ledger`
+				last_modified_ledger = EXCLUDED.last_modified_ledger
+			WHERE liquidity_pool_balances.shares IS DISTINCT FROM EXCLUDED.shares`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, poolIDs, shares, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "liquidity_pool_balances").Observe(time.Since(start).Seconds())

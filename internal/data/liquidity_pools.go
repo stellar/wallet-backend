@@ -5,6 +5,8 @@ package data
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +56,14 @@ func (m *LiquidityPoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 	start := time.Now()
 
 	if len(upserts) > 0 {
+		// Upserts arrive in Go map-iteration order; sorting by the PK column
+		// descends the btree and touches heap pages in key order instead of
+		// scattering random probes across the relation. Callers build the slice
+		// fresh per call, so sorting it in place is safe.
+		slices.SortFunc(upserts, func(a, b LiquidityPool) int {
+			return strings.Compare(a.PoolID, b.PoolID)
+		})
+
 		poolIDs := make([]string, len(upserts))
 		assetsA := make([]string, len(upserts))
 		amountsA := make([]int64, len(upserts))
@@ -70,6 +80,11 @@ func (m *LiquidityPoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			ledgerNumbers[i] = int64(lp.LedgerNumber)
 		}
 
+		// The WHERE clause compares only the tracked values, so the update fires
+		// only when one of them differs and last_modified_ledger records the last
+		// ledger that changed one. Re-observing a pool with identical reserves is
+		// a pure no-op: no new tuple version, no dead tuple, no WAL, no index
+		// churn.
 		const upsertQuery = `
 			INSERT INTO liquidity_pools (
 				pool_id, asset_a, amount_a, asset_b, amount_b, last_modified_ledger
@@ -80,7 +95,10 @@ func (m *LiquidityPoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 				amount_a = EXCLUDED.amount_a,
 				asset_b = EXCLUDED.asset_b,
 				amount_b = EXCLUDED.amount_b,
-				last_modified_ledger = EXCLUDED.last_modified_ledger`
+				last_modified_ledger = EXCLUDED.last_modified_ledger
+			WHERE (liquidity_pools.asset_a, liquidity_pools.amount_a, liquidity_pools.asset_b, liquidity_pools.amount_b)
+			      IS DISTINCT FROM
+			      (EXCLUDED.asset_a, EXCLUDED.amount_a, EXCLUDED.asset_b, EXCLUDED.amount_b)`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, poolIDs, assetsA, amountsA, assetsB, amountsB, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "liquidity_pools").Observe(time.Since(start).Seconds())

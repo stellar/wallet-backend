@@ -36,10 +36,10 @@ func newDBMetrics(reg prometheus.Registerer) *DBMetrics {
 		QueryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "wallet_db_query_duration_seconds",
 			Help: "Duration of database queries.",
-			// 0.1ms .. ~17.7s: the top buckets must cover multi-second bulk
-			// COPYs (transactions/operations/state_changes at high tx volume),
-			// or histogram_quantile clips every bulk write into +Inf.
-			Buckets: prometheus.ExponentialBuckets(0.0001, 3, 12),
+			// 1ms .. 8s in ~2.5x steps, so a quantile resolves across the range
+			// queries actually take. The top bucket covers bulk COPYs, which
+			// would otherwise clip into +Inf.
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8},
 		}, []string{"query_type", "table"}),
 		QueriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_db_queries_total",

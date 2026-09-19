@@ -57,7 +57,14 @@ CREATE TABLE state_changes (
     tsdb.chunk_interval = '1 day',
     tsdb.orderby = 'ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC',
     tsdb.segmentby = 'account_id',
-    tsdb.sparse_index = 'bloom(state_change_category),bloom(state_change_reason)'
+    -- The two composite blooms prune the lookups that carry no account_id and
+    -- so cannot use the segment index: BatchGetByToID matches
+    -- (ledger_created_at, to_id), BatchGetByOperationID matches
+    -- (ledger_created_at, operation_id). They must be composite -- a
+    -- single-column bloom is rejected on an orderby column, and
+    -- to_id/operation_id stay in orderby so a top-N account page reads the
+    -- first batch of a segment without a sort.
+    tsdb.sparse_index = 'bloom(ledger_created_at, to_id),bloom(ledger_created_at, operation_id),bloom(state_change_category),bloom(state_change_reason)'
 );
 
 SELECT enable_chunk_skipping('state_changes', 'to_id');

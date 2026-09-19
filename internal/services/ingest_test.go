@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1656,6 +1657,54 @@ func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("ingestLiveLedgers did not return after context cancellation")
 	}
+
+	// With the pipeline stopped the histograms are stable, and with the mean
+	// batch above 1 the amortised metrics differ from the raw ones, so the
+	// identities below pin the share arithmetic rather than a degenerate
+	// batch-of-1 run.
+	perLedgerPersist := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("insert_into_db"))
+	perLedgerProcess := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("process_ledger"))
+	perLedgerClassify := histogramOf(t, m.Ingestion.PhaseDurationPerLedger.WithLabelValues("prepare_classification"))
+	rawPersist := histogramOf(t, m.Ingestion.PhaseDuration.WithLabelValues("insert_into_db"))
+	freshness := histogramOf(t, m.Ingestion.Freshness)
+	total := histogramOf(t, m.Ingestion.Duration)
+
+	var ledgers dto.Metric
+	require.NoError(t, m.Ingestion.LedgersProcessed.Write(&ledgers))
+	ledgersProcessed := uint64(ledgers.GetCounter().GetValue())
+	require.Positive(t, ledgersProcessed)
+
+	// One observation per ledger, on every per-ledger series.
+	assert.Equal(t, ledgersProcessed, freshness.GetSampleCount(), "freshness observes once per ledger")
+	assert.Equal(t, ledgersProcessed, perLedgerPersist.GetSampleCount(), "per-ledger insert_into_db observes once per ledger")
+	assert.Equal(t, ledgersProcessed, rawPersist.GetSampleCount(), "raw insert_into_db observes once per ledger")
+
+	// The raw series records the full commit for each ledger the commit
+	// carried, so its sum is the per-ledger share sum weighted by batch size.
+	assert.Greater(t, rawPersist.GetSampleSum(), perLedgerPersist.GetSampleSum(),
+		"amortised persist sum must fall below the raw sum once commits coalesce")
+
+	// Duration observes process + classifyShare + persistShare per ledger, the
+	// same three terms the per-ledger phase series observe separately.
+	assert.InDelta(t, total.GetSampleSum(),
+		perLedgerProcess.GetSampleSum()+perLedgerClassify.GetSampleSum()+perLedgerPersist.GetSampleSum(), 1e-3,
+		"per-ledger phase shares must sum to the per-ledger duration")
+
+	// Freshness spans fetch completion to commit, so per ledger it is at
+	// least the ledger's own processing plus its share of the commit.
+	assert.GreaterOrEqual(t, freshness.GetSampleSum(), perLedgerProcess.GetSampleSum()+perLedgerPersist.GetSampleSum(),
+		"freshness cannot be shorter than the stages it spans")
+}
+
+// histogramOf snapshots a histogram collector (or a HistogramVec child) into
+// its protobuf form for assertions on sample count and sum.
+func histogramOf(t *testing.T, o prometheus.Observer) *dto.Histogram {
+	t.Helper()
+	metric, ok := o.(prometheus.Metric)
+	require.True(t, ok, "observer %T does not expose its metric", o)
+	var mt dto.Metric
+	require.NoError(t, metric.Write(&mt))
+	return mt.GetHistogram()
 }
 
 // oneLedger wraps a single ledger's persist payload as the batch slice
@@ -3326,16 +3375,21 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		return ctx, svc, pool
 	}
 
-	// batchItem builds one ledger's persist payload carrying a transaction
-	// and an operation with ledger-derived TOIDs, so PKs never collide
-	// across the batch.
+	// batchItem builds one ledger's persist payload carrying a transaction,
+	// an operation and a state change with ledger-derived TOIDs, so PKs never
+	// collide across the batch.
 	batchItem := func(seq uint32) persistItem {
 		toID := int64(seq) << 32
 		tx := createTestTransaction(fmt.Sprintf("%064x", seq), toID)
 		op := createTestOperation(toID + 1)
+		sc := createTestStateChange(toID, testAddr1, toID+1)
 		buffer := indexer.NewIndexerBuffer()
 		buffer.PushTransaction(testAddr1, &tx)
 		buffer.PushOperation(testAddr1, &op, &tx)
+		buffer.PushStateChange(&tx, &op, sc)
+		// The process stage prebuilds the COPY rows before handing a buffer to
+		// persist; a test faking that handoff must do the same.
+		require.NoError(t, buffer.BuildCopyRows())
 		return persistItem{seq: seq, buffer: buffer}
 	}
 
@@ -3346,11 +3400,20 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 		err := svc.persistLedgerData(ctx, []persistItem{batchItem(100), batchItem(101), batchItem(102)})
 		require.NoError(t, err)
 
-		var txCount, opCount int
+		var txCount, opCount, scCount int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txCount))
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM operations`).Scan(&opCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM state_changes`).Scan(&scCount))
 		assert.Equal(t, 3, txCount)
 		assert.Equal(t, 3, opCount)
+		assert.Equal(t, 3, scCount)
+
+		// The persist path only writes the rows; the state-change counter is
+		// the persist stage's post-commit business, so no observation may
+		// happen under the state_changes sibling's lock.
+		assert.Zero(t, testutil.ToFloat64(svc.appMetrics.Ingestion.StateChangesTotal.WithLabelValues(
+			string(types.StateChangeReasonCredit), string(types.StateChangeCategoryBalance))),
+			"persistLedgerData must not record state-change metrics")
 
 		var cursor string
 		require.NoError(t, pool.QueryRow(ctx,
@@ -3433,6 +3496,88 @@ func Test_persistLedgerData_Batch(t *testing.T) {
 	})
 }
 
+// Test_persistProcessedLedgers_recordsStateChangeMetricsAfterCommit pins where the state-change
+// counter is observed: the persist stage's post-commit loop, once per committed state change.
+// Folding the counts under the state_changes sibling's lock would put that work inside the
+// persist transaction, which every other ledger of the batch waits behind.
+func Test_persistProcessedLedgers_recordsStateChangeMetricsAfterCommit(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const ledgerSeq = uint32(100)
+	setupDBCursors(t, ctx, pool, ledgerSeq-1, ledgerSeq-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTrustlineChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges",
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:          IngestionModeLive,
+		Models:                 models,
+		OldestLedgerCursorName: "oldest_ledger_cursor",
+		RPCService:             &RPCServiceMock{},
+		LedgerBackend:          &LedgerBackendMock{},
+		TokenIngestionService:  mockTokenIngestionService,
+		Metrics:                m,
+		Network:                network.TestNetworkPassphrase,
+		NetworkPassphrase:      network.TestNetworkPassphrase,
+		Archive:                &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	toID := int64(ledgerSeq) << 32
+	tx := createTestTransaction(fmt.Sprintf("%064x", ledgerSeq), toID)
+	op := createTestOperation(toID + 1)
+	sc1 := createTestStateChange(toID, testAddr1, toID+1)
+	sc2 := createTestStateChange(toID, testAddr2, toID+1)
+	sc2.StateChangeID = 2 // distinct from sc1's within the same operation
+
+	buffer := indexer.NewIndexerBuffer()
+	buffer.PushTransaction(testAddr1, &tx)
+	buffer.PushOperation(testAddr1, &op, &tx)
+	buffer.PushStateChange(&tx, &op, sc1)
+	buffer.PushStateChange(&tx, &op, sc2)
+	// The process stage prebuilds the COPY rows before handing a buffer to
+	// persist; a test faking that handoff must do the same.
+	require.NoError(t, buffer.BuildCopyRows())
+
+	processed := make(chan processedLedger, 1)
+	processed <- processedLedger{seq: ledgerSeq, buffer: buffer}
+	close(processed)
+
+	freeBuffers := make(chan *indexer.IndexerBuffer, 1)
+	var latestIngested atomic.Uint32
+	noopCheckLockSession := func(context.Context) error { return nil }
+	require.NoError(t, svc.persistProcessedLedgers(ctx, processed, freeBuffers, noopCheckLockSession, &latestIngested))
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(svc.appMetrics.Ingestion.StateChangesTotal.WithLabelValues(
+		string(types.StateChangeReasonCredit), string(types.StateChangeCategoryBalance))),
+		"each committed state change must be counted exactly once")
+
+	var scCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM state_changes`).Scan(&scCount))
+	assert.Equal(t, 2, scCount, "the counted state changes must also be durable")
+
+	assert.Equal(t, ledgerSeq, latestIngested.Load())
+	assert.Len(t, freeBuffers, 1, "the buffer returns to the rotation only after its batch persists")
+}
+
 func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -3475,11 +3620,12 @@ func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 	require.NoError(t, err)
 	ingestSvc := svc
 
-	tx := createTestTransaction("collision-hash", 100)
+	tx := createTestTransaction(fmt.Sprintf("%064x", ledgerSeq), 100)
 	op := createTestOperation(101)
 	buffer := indexer.NewIndexerBuffer()
 	buffer.PushTransaction(testAddr1, &tx)
 	buffer.PushOperation(testAddr1, &op, &tx)
+	require.NoError(t, buffer.BuildCopyRows())
 
 	// Pre-insert a row with the transaction's exact primary key (to_id, ledger_created_at) so
 	// the transactions sibling's COPY fails after the other siblings have streamed their rows.

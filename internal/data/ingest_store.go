@@ -123,43 +123,49 @@ func (m *IngestStoreModel) Update(ctx context.Context, dbTx pgx.Tx, cursorName s
 }
 
 // ErrCursorGuardFailed is returned by UpdateGuarded when the cursor's current
-// value is neither ledger-1 nor ledger (see UpdateGuarded), or the row does
-// not exist. Either way, a writer other than the one calling UpdateGuarded
-// has moved the cursor past what it expected — most commonly a second live
-// ingestion instance that acquired the advisory lock after this session's
-// Postgres session died in a failover (see startLiveIngestion's
+// value is neither firstLedger-1 nor firstLedger (see UpdateGuarded), or the
+// row does not exist. Either way, a writer other than the one calling
+// UpdateGuarded has moved the cursor past what it expected — most commonly a
+// second live ingestion instance that acquired the advisory lock after this
+// session's Postgres session died in a failover (see startLiveIngestion's
 // checkLockSession, which is the primary defense; this guard is the backstop
 // for the race window before that probe observes the dead session).
 var ErrCursorGuardFailed = errors.New("ingest_store guarded cursor update refused: cursor value not owned by this writer")
 
-// UpdateGuarded advances cursorName to ledger only if its current value is ledger-1 (the normal
-// sequential case: this writer is the sole owner and is advancing by exactly one ledger) or
-// ledger itself (the self-value case: the first ledger processed immediately after
-// startLiveIngestion's initializeCursors already set the cursor to this same starting ledger).
-// Any other current value — including a missing row — means a writer other than the caller has
-// moved the cursor, so the swap is refused with ErrCursorGuardFailed instead of silently
-// overwriting a value another instance already advanced (which a blind Update would do).
-func (m *IngestStoreModel) UpdateGuarded(ctx context.Context, dbTx pgx.Tx, cursorName string, ledger uint32) error {
+// UpdateGuarded advances cursorName to lastLedger only if its current value is firstLedger-1
+// (the normal sequential case: this writer owns the cursor and the batch starting at firstLedger
+// is the next work) or firstLedger itself (the self-value case: the first batch processed
+// immediately after startLiveIngestion's initializeCursors already set the cursor to this same
+// starting ledger). A single-ledger advance passes firstLedger == lastLedger. The guard checks
+// only the batch's entry point because the caller stages the whole contiguous range
+// [firstLedger, lastLedger] in one transaction: owning the first ledger owns them all, exactly
+// as a chain of per-ledger updates would have concluded (its first step checked these same two
+// values and every later step compared against this transaction's own prior write). Any other
+// current value — including a missing row — means a writer other than the caller has moved the
+// cursor, so the swap is refused with ErrCursorGuardFailed instead of silently overwriting a
+// value another instance already advanced (which a blind Update would do).
+func (m *IngestStoreModel) UpdateGuarded(ctx context.Context, dbTx pgx.Tx, cursorName string, firstLedger, lastLedger uint32) error {
 	const query = `
 		UPDATE ingest_store
 		SET value = $1
 		WHERE key = $2 AND value IN ($3, $4)
 	`
-	newValue := strconv.FormatUint(uint64(ledger), 10)
-	prevValue := strconv.FormatUint(uint64(ledger-1), 10)
+	newValue := strconv.FormatUint(uint64(lastLedger), 10)
+	prevValue := strconv.FormatUint(uint64(firstLedger-1), 10)
+	selfValue := strconv.FormatUint(uint64(firstLedger), 10)
 
 	start := time.Now()
-	tag, err := dbTx.Exec(ctx, query, newValue, cursorName, prevValue, newValue)
+	tag, err := dbTx.Exec(ctx, query, newValue, cursorName, prevValue, selfValue)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("UpdateGuarded", "ingest_store").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("UpdateGuarded", "ingest_store").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, err)
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, lastLedger, err)
 	}
 	if tag.RowsAffected() == 0 {
 		m.Metrics.QueryErrors.WithLabelValues("UpdateGuarded", "ingest_store", "cursor_guard_failed").Inc()
-		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, ledger, ErrCursorGuardFailed)
+		return fmt.Errorf("guarded update for cursor %s to %d: %w", cursorName, lastLedger, ErrCursorGuardFailed)
 	}
 	return nil
 }
