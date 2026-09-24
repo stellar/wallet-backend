@@ -28,6 +28,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
+	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 processor via init() for transaction simulation
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -204,7 +205,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	simulationService, err := services.NewTransactionSimulationService(rpcService, cfg.NetworkPassphrase)
+	simulationService, err := services.NewTransactionSimulationService(rpcService, models, cfg.NetworkPassphrase)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating transaction simulation service: %w", err)
 	}
