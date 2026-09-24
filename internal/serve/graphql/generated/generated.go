@@ -3430,7 +3430,10 @@ interface BaseSimulatedStateChange {
 
 """
 Simulated mirror of BalanceChange. The transaction-fee row is (BALANCE, DEBIT)
-on the fee-paying account, estimated from the simulation's resource fee.
+on the fee-paying account: an estimate of the network's charge (the base fee
+per operation, plus the simulated resource fee for contract transactions). The
+actual charge can be lower once a contract transaction's refundable fees are
+returned, or higher under surge pricing.
 Pairs: (BALANCE, DEBIT), (BALANCE, CREDIT), (BALANCE, MINT), (BALANCE, BURN).
 """
 type SimulatedBalanceChange implements BaseSimulatedStateChange {

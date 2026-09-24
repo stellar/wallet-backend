@@ -73,6 +73,11 @@ func (r *queryResolver) SimulateStateChanges(ctx context.Context, transactionXdr
 				Message:    err.Error(),
 				Extensions: map[string]interface{}{"code": "UNSUPPORTED_TRANSACTION"},
 			}
+		case errors.Is(err, services.ErrSimulationFailed):
+			return nil, &gqlerror.Error{
+				Message:    err.Error(),
+				Extensions: map[string]interface{}{"code": "SIMULATION_FAILED"},
+			}
 		default:
 			return nil, fmt.Errorf("simulating state changes: %w", err)
 		}
