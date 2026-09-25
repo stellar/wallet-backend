@@ -201,6 +201,27 @@ func TestLiquidityPoolBalanceModel_BatchUpsertAndCopy(t *testing.T) {
 		require.False(t, ok)
 	})
 
+	t.Run("drops a share whose pool has no row", func(t *testing.T) {
+		cleanUpDB()
+		account := keypair.MustRandom().Address()
+		orphanPool := poolIDHex(9)
+		seededPool := poolIDHex(1)
+
+		tx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		require.NoError(t, m.BatchUpsert(ctx, tx, []LiquidityPoolBalance{
+			{AccountID: types.AddressBytea(account), PoolID: orphanPool, Shares: 500, LedgerNumber: 20},
+			{AccountID: types.AddressBytea(account), PoolID: seededPool, Shares: 600, LedgerNumber: 20},
+		}, nil))
+		require.NoError(t, tx.Commit(ctx))
+
+		_, ok := sharesFor(account, orphanPool)
+		require.False(t, ok)
+		got, ok := sharesFor(account, seededPool)
+		require.True(t, ok)
+		require.Equal(t, int64(600), got)
+	})
+
 	t.Run("BatchCopy bulk inserts", func(t *testing.T) {
 		cleanUpDB()
 		account := keypair.MustRandom().Address()
