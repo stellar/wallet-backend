@@ -10,15 +10,16 @@ import (
 
 // Common operation result code strings
 const (
-	OpSuccess       = "op_success"
-	OpMalformed     = "op_malformed"
-	OpUnderfunded   = "op_underfunded"
-	OpLowReserve    = "op_low_reserve"
-	OpLineFull      = "op_line_full"
-	OpNoIssuer      = "op_no_issuer"
-	OpNoTrust       = "op_no_trust"
-	OpNotAuthorized = "op_not_authorized"
-	OpDoesNotExist  = "op_does_not_exist"
+	OpSuccess         = "op_success"
+	OpMalformed       = "op_malformed"
+	OpUnderfunded     = "op_underfunded"
+	OpLowReserve      = "op_low_reserve"
+	OpLineFull        = "op_line_full"
+	OpNoIssuer        = "op_no_issuer"
+	OpNoTrust         = "op_no_trust"
+	OpTrustlineFrozen = "op_trustline_frozen"
+	OpNotAuthorized   = "op_not_authorized"
+	OpDoesNotExist    = "op_does_not_exist"
 )
 
 // forOperationResult returns the string representation of an operation result code.
@@ -471,6 +472,8 @@ func stringForClaimClaimableBalanceResult(code xdr.ClaimClaimableBalanceResultCo
 		return OpNoTrust, nil
 	case xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceNotAuthorized:
 		return OpNotAuthorized, nil
+	case xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceTrustlineFrozen:
+		return OpTrustlineFrozen, nil
 	default:
 		return "", fmt.Errorf("unknown claim claimable balance result code: %d", code)
 	}
@@ -590,6 +593,8 @@ func stringForLiquidityPoolDepositResult(code xdr.LiquidityPoolDepositResultCode
 		return "op_bad_price", nil
 	case xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositPoolFull:
 		return "op_pool_full", nil
+	case xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositTrustlineFrozen:
+		return OpTrustlineFrozen, nil
 	default:
 		return "", fmt.Errorf("unknown liquidity pool deposit result code: %d", code)
 	}
@@ -609,6 +614,8 @@ func stringForLiquidityPoolWithdrawResult(code xdr.LiquidityPoolWithdrawResultCo
 		return OpLineFull, nil
 	case xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawUnderMinimum:
 		return "op_under_minimum", nil
+	case xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawTrustlineFrozen:
+		return OpTrustlineFrozen, nil
 	default:
 		return "", fmt.Errorf("unknown liquidity pool withdraw result code: %d", code)
 	}
