@@ -2,6 +2,8 @@ package processors
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -382,7 +384,6 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	const (
 		opSourceAccount       = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
 		fromSourceAccount     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
-		authSignerAccount     = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 		usdcSACContractID     = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
 		constructorAccountID  = "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER"
 		constructorContractID = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
@@ -395,70 +396,51 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	}
 
 	testCases := []TestCase{}
-	for _, withSubinvocations := range []bool{false, true} {
-		for _, feeBump := range []bool{false, true} {
-			for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
-				prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
-				subInvocationsParticipants := set.NewThreadUnsafeSet[string]()
-				if withSubinvocations {
-					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
-					subInvocationsParticipants = set.NewThreadUnsafeSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
-				}
-				if feeBump {
-					prefix = fmt.Sprintf("feeBump(%s)", prefix)
-				}
-				testCases = append(testCases,
-					TestCase{
-						name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
-						op: func() *TransactionOperationWrapper {
-							op := makeBasicSorobanOp()
-							setFromAddress(op, hostFnType, fromSourceAccount)
-							if withSubinvocations {
-								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
-								includeSubInvocations(op)
-							}
-							if feeBump {
-								op = makeFeeBumpOp(txSourceAccount, op)
-							}
-							return op
-						}(),
-						wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
-					},
-					TestCase{
-						name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
-						op: func() *TransactionOperationWrapper {
-							op := makeBasicSorobanOp()
-							op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
-							setFromAddress(op, hostFnType, fromSourceAccount)
-							if withSubinvocations {
-								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
-								includeSubInvocations(op)
-							}
-							if feeBump {
-								op = makeFeeBumpOp(txSourceAccount, op)
-							}
-							return op
-						}(),
-						wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").Union(subInvocationsParticipants),
-					},
-					TestCase{
-						name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
-						op: func() *TransactionOperationWrapper {
-							op := makeBasicSorobanOp()
-							setFromAsset(op, hostFnType, usdcAssetTestnet)
-							if withSubinvocations {
-								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
-								includeSubInvocations(op)
-							}
-							if feeBump {
-								op = makeFeeBumpOp(txSourceAccount, op)
-							}
-							return op
-						}(),
-						wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, usdcSACContractID).Union(subInvocationsParticipants),
-					},
-				)
+	for _, feeBump := range []bool{false, true} {
+		for _, hostFnType := range []xdr.HostFunctionType{xdr.HostFunctionTypeHostFunctionTypeCreateContract, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2} {
+			prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
+			if feeBump {
+				prefix = fmt.Sprintf("feeBump(%s)", prefix)
 			}
+			testCases = append(testCases,
+				TestCase{
+					name: fmt.Sprintf("🟢%s/FromAddress/tx.SourceAccount", prefix),
+					op: func() *TransactionOperationWrapper {
+						op := makeBasicSorobanOp()
+						setFromAddress(op, hostFnType, fromSourceAccount)
+						if feeBump {
+							op = makeFeeBumpOp(txSourceAccount, op)
+						}
+						return op
+					}(),
+					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF"),
+				},
+				TestCase{
+					name: fmt.Sprintf("🟢%s/FromAddress/op.SourceAccount", prefix),
+					op: func() *TransactionOperationWrapper {
+						op := makeBasicSorobanOp()
+						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
+						setFromAddress(op, hostFnType, fromSourceAccount)
+						if feeBump {
+							op = makeFeeBumpOp(txSourceAccount, op)
+						}
+						return op
+					}(),
+					wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, fromSourceAccount, "CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF"),
+				},
+				TestCase{
+					name: fmt.Sprintf("🟢%s/FromAsset/tx.SourceAccount", prefix),
+					op: func() *TransactionOperationWrapper {
+						op := makeBasicSorobanOp()
+						setFromAsset(op, hostFnType, usdcAssetTestnet)
+						if feeBump {
+							op = makeFeeBumpOp(txSourceAccount, op)
+						}
+						return op
+					}(),
+					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, usdcSACContractID),
+				},
+			)
 		}
 	}
 	testCases = append(testCases, TestCase{
@@ -487,44 +469,46 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 	}
 }
 
+// invokedContractID is the contract makeInvokeContractOp invokes.
+const invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
+
+// makeInvokeContractOp builds an InvokeContract operation on invokedContractID whose
+// arguments are the given addresses. Argument addresses are never participants.
+func makeInvokeContractOp(argAddresses ...xdr.ScAddress) *TransactionOperationWrapper {
+	op := makeBasicSorobanOp()
+	op.Operation = xdr.Operation{
+		Body: xdr.OperationBody{
+			Type: xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+				HostFunction: xdr.HostFunction{
+					Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+					InvokeContract: &xdr.InvokeContractArgs{
+						ContractAddress: makeScContract(invokedContractID),
+						FunctionName:    xdr.ScSymbol("authorized_fn"),
+						Args: func() []xdr.ScVal {
+							args := make([]xdr.ScVal, len(argAddresses))
+							for i, argAddress := range argAddresses {
+								args[i] = xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(argAddress)}
+							}
+							return args
+						}(),
+					},
+				},
+				Auth: []xdr.SorobanAuthorizationEntry{},
+			},
+		},
+	}
+	return op
+}
+
 func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.T) {
 	const (
-		opSourceAccount   = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
-		argAccountID1     = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
-		argAccountID2     = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
-		argContractID1    = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
-		argContractID2    = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
-		authSignerAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
-		invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
+		opSourceAccount = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
+		argAccountID1   = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+		argAccountID2   = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
+		argContractID1  = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+		argContractID2  = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE"
 	)
-
-	makeInvokeContractOp := func(argAddresses ...xdr.ScAddress) *TransactionOperationWrapper {
-		op := makeBasicSorobanOp()
-		op.Operation = xdr.Operation{
-			Body: xdr.OperationBody{
-				Type: xdr.OperationTypeInvokeHostFunction,
-				InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
-					HostFunction: xdr.HostFunction{
-						Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
-						InvokeContract: &xdr.InvokeContractArgs{
-							ContractAddress: makeScContract(invokedContractID),
-							FunctionName:    xdr.ScSymbol("authorized_fn"),
-							Args: func() []xdr.ScVal {
-								args := make([]xdr.ScVal, len(argAddresses))
-								for i, argAddress := range argAddresses {
-									args[i] = xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: utils.PointOf(argAddress)}
-								}
-								return args
-							}(),
-						},
-					},
-					Auth: []xdr.SorobanAuthorizationEntry{},
-				},
-			},
-		}
-
-		return op
-	}
 
 	type TestCase struct {
 		name             string
@@ -533,51 +517,36 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	}
 
 	testCases := []TestCase{}
-	for _, withSubinvocations := range []bool{false, true} {
-		for _, feeBump := range []bool{false, true} {
-			prefix := ""
-			subInvocationsParticipants := set.NewThreadUnsafeSet[string]()
-			if withSubinvocations {
-				prefix = "🔄WithSubinvocations🔄"
-				subInvocationsParticipants = set.NewThreadUnsafeSet(deployerAccountID, contractID1, deployedContractID, contractID3, xlmSACID, authSignerAccount)
-			}
-			if feeBump {
-				prefix = fmt.Sprintf("feeBump(%s)", prefix)
-			}
-			testCases = append(testCases,
-				TestCase{
-					name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
-					op: func() *TransactionOperationWrapper {
-						op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
-						if withSubinvocations {
-							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
-							includeSubInvocations(op)
-						}
-						if feeBump {
-							op = makeFeeBumpOp(txSourceAccount, op)
-						}
-						return op
-					}(),
-					wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, invokedContractID).Union(subInvocationsParticipants),
-				},
-				TestCase{
-					name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
-					op: func() *TransactionOperationWrapper {
-						op := makeInvokeContractOp(makeScContract(argContractID1), makeScContract(argContractID2))
-						op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
-						if withSubinvocations {
-							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
-							includeSubInvocations(op)
-						}
-						if feeBump {
-							op = makeFeeBumpOp(txSourceAccount, op)
-						}
-						return op
-					}(),
-					wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, invokedContractID).Union(subInvocationsParticipants),
-				},
-			)
+	for _, feeBump := range []bool{false, true} {
+		prefix := ""
+		if feeBump {
+			prefix = "feeBump"
 		}
+		testCases = append(testCases,
+			TestCase{
+				name: fmt.Sprintf("🟢%s/tx.SourceAccount", prefix),
+				op: func() *TransactionOperationWrapper {
+					op := makeInvokeContractOp(makeScAddress(argAccountID1), makeScAddress(argAccountID2))
+					if feeBump {
+						op = makeFeeBumpOp(txSourceAccount, op)
+					}
+					return op
+				}(),
+				wantParticipants: set.NewThreadUnsafeSet(txSourceAccount, invokedContractID),
+			},
+			TestCase{
+				name: fmt.Sprintf("🟢%s/op.SourceAccount", prefix),
+				op: func() *TransactionOperationWrapper {
+					op := makeInvokeContractOp(makeScContract(argContractID1), makeScContract(argContractID2))
+					op.Operation.SourceAccount = utils.PointOf(xdr.MustMuxedAddress(opSourceAccount))
+					if feeBump {
+						op = makeFeeBumpOp(txSourceAccount, op)
+					}
+					return op
+				}(),
+				wantParticipants: set.NewThreadUnsafeSet(opSourceAccount, invokedContractID),
+			},
+		)
 	}
 
 	for _, tc := range testCases {
@@ -590,22 +559,15 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 	}
 }
 
-// Test_participants_deployerInAuthEntry pins the exact participant set an operation yields when
-// its auth tree declares a create-contract from each kind of deployer address.
-//
-// The host keeps a create-contract auth invocation's ContractIdPreimage as XDR and compares it
-// raw, so it never converts the declared deployer address. An auth entry nobody consumes is
-// therefore ignored entirely and the transaction closes as txSUCCESS, which clears the
-// failed-transaction gate on Soroban participant collection — so whatever is declared there
-// reaches the participant set and then the operation-address COPY.
+// Test_participantsForSorobanOp_deployerKinds pins the exact participant set a create-contract
+// yields for each kind of deployer address.
 //
 // Asserting the whole set rather than just that each member encodes: a liquidity-pool address
 // already has a 32-byte payload and would encode happily, so only an exact-set assertion catches
 // it being retained. A muxed deployer must appear as its base account, or the M... and G... forms
 // of one account survive as two set members that collapse to the same key and violate the
 // operations_accounts primary key.
-func Test_participants_deployerInAuthEntry(t *testing.T) {
-	const rootDeployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+func Test_participantsForSorobanOp_deployerKinds(t *testing.T) {
 	const otherAccount = "GDG2KKXC62BINMUZNBTLG235323N6BOIR33JBF4ELTOUKUG5BDE6HJZT"
 
 	var h xdr.Hash
@@ -621,13 +583,6 @@ func Test_participants_deployerInAuthEntry(t *testing.T) {
 		MuxedAccount: &xdr.MuxedEd25519Account{Id: 7, Ed25519: *xdr.MustAddress(otherAccount).Ed25519},
 	}
 
-	// The root host function deploys from rootDeployer; the auth entry declares a second deploy
-	// from the address under test.
-	rootContractID, err := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
-		Address: makeScAddress(rootDeployer), Salt: TestSalt,
-	})
-	require.NoError(t, err)
-
 	testCases := []struct {
 		name         string
 		deployer     xdr.ScAddress
@@ -642,30 +597,15 @@ func Test_participants_deployerInAuthEntry(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			authContractID, idErr := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
+			contractID, idErr := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
 				Address: tc.deployer, Salt: TestSalt,
 			})
 			require.NoError(t, idErr)
 
 			op := makeBasicSorobanOp()
-			setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, rootDeployer)
-			op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
-				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
-				RootInvocation: xdr.SorobanAuthorizedInvocation{
-					Function: xdr.SorobanAuthorizedFunction{
-						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
-						CreateContractHostFn: &xdr.CreateContractArgs{
-							ContractIdPreimage: xdr.ContractIdPreimage{
-								Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
-								FromAddress: &xdr.ContractIdPreimageFromAddress{Address: tc.deployer, Salt: TestSalt},
-							},
-						},
-					},
-				},
-			}}
-			require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+			setFromScAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContractV2, tc.deployer)
 
-			want := set.NewThreadUnsafeSet(txSourceAccount, rootDeployer, rootContractID, authContractID)
+			want := set.NewThreadUnsafeSet(txSourceAccount, contractID)
 			if tc.wantDeployer != "" {
 				want.Add(tc.wantDeployer)
 			}
@@ -765,4 +705,107 @@ func Test_participantsForSorobanOp_muxedSource(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Test_participantsForSorobanOp_authorizersFromNonceEntries: an address that authorised the
+// invocation is a participant because the host wrote its nonce entry, whether it is an
+// account (G) or a custom-account contract (C).
+func Test_participantsForSorobanOp_authorizersFromNonceEntries(t *testing.T) {
+	op := makeInvokeContractOp()
+	setOperationMeta(op, xdr.LedgerEntryChanges{
+		nonceEntryCreated(makeScAddress(accountID1), 1),
+		nonceEntryCreated(makeScContract(contractID1), 2),
+	}, nil)
+
+	participants, err := participantsForSorobanOp(op)
+	require.NoError(t, err)
+	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, invokedContractID, accountID1, contractID1), participants)
+}
+
+// Test_participantsForSorobanOp_eventEmittingContracts: a nested contract that ran is a
+// participant because it emitted an event; the declared tree is not consulted.
+func Test_participantsForSorobanOp_eventEmittingContracts(t *testing.T) {
+	op := makeInvokeContractOp()
+	setOperationMeta(op, nil, []xdr.ContractEvent{contractEventFrom(invokedContractID), contractEventFrom(contractID2)})
+
+	participants, err := participantsForSorobanOp(op)
+	require.NoError(t, err)
+	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, invokedContractID, contractID2), participants)
+}
+
+// Test_participantsForSorobanOp_ignoresDeclaredAuthTree is the regression test for
+// forged participant attribution. The submitter declares an Address-credential entry
+// naming a victim account (unsigned, unmatched, so no nonce entry) and a SOURCE_ACCOUNT
+// entry whose invocation tree names contracts and a deployer. None of them executed, so
+// none may become a participant.
+func Test_participantsForSorobanOp_ignoresDeclaredAuthTree(t *testing.T) {
+	const (
+		victimAccount = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7"
+	)
+
+	op := makeInvokeContractOp()
+	// One unmatched Address-credential entry naming the victim, one SOURCE_ACCOUNT entry.
+	op.Operation.Body.InvokeHostFunctionOp.Auth = append(
+		makeAuthEntries(t, op, makeScAddress(victimAccount)),
+		xdr.SorobanAuthorizationEntry{
+			Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+			RootInvocation: xdr.SorobanAuthorizedInvocation{Function: xdr.SorobanAuthorizedFunction{Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn, ContractFn: &xdr.InvokeContractArgs{ContractAddress: makeScContract(invokedContractID)}}},
+		},
+	)
+	includeSubInvocations(op) // names deployerAccountID, deployedContractID, contractID1, contractID3, xlmSACID
+	// Meta records only what executed: the invoked contract emitted one event.
+	setOperationMeta(op, nil, []xdr.ContractEvent{contractEventFrom(invokedContractID)})
+
+	participants, err := participantsForSorobanOp(op)
+	require.NoError(t, err)
+	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, invokedContractID), participants)
+}
+
+// Test_participantsForSorobanOp_realTestnetMeta replays testnet transaction
+// 803030e1931f4297c88098089f440349c48b9940d847ef1b3afb668d540a0e11 (ledger 4679347,
+// protocol 28, TransactionMeta V4). One Address-credential auth entry was matched and
+// authenticated, so the host wrote its nonce entry; a second contract ran and emitted an
+// event but appears nowhere in the operation body. The auth entry's address is the
+// invoked contract itself (a custom account), so the nonce leg adds no new address here;
+// the fixture proves the real nonce entry parses and the event leg finds the nested contract.
+func Test_participantsForSorobanOp_realTestnetMeta(t *testing.T) {
+	const (
+		source         = "GBKDL6ZOWLBYFFMWP5NL22HDQ7SR4WCZ5PY3LVOYLKNQJ5BF3WGJAZSS"
+		invoked        = "CBBRS7XLNIGUYYFUEFOL5KGYH4QHE7LVT2YWOARN3VGGQCDVIWNAU4EJ" // also the authorizer
+		nestedContract = "CABXBYJNZ7IUW4G3D6BND5YCAQF3ASSDMDAOKQQ63UYFSO7WUU2TIP5G" // only visible via its event
+	)
+	readB64 := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", name))
+		require.NoError(t, err)
+		return string(b)
+	}
+	var envelope xdr.TransactionEnvelope
+	require.NoError(t, xdr.SafeUnmarshalBase64(readB64("testnet_4679347_803030e1_envelope.b64"), &envelope))
+	var meta xdr.TransactionMeta
+	require.NoError(t, xdr.SafeUnmarshalBase64(readB64("testnet_4679347_803030e1_meta.b64"), &meta))
+	require.EqualValues(t, 4, meta.V)
+
+	op := &TransactionOperationWrapper{
+		Index:          0,
+		Network:        network.TestNetworkPassphrase,
+		LedgerSequence: 4679347,
+		LedgerClosed:   closeTime,
+		Operation:      envelope.Operations()[0],
+		Transaction: ingest.LedgerTransaction{
+			Index:      1,
+			Envelope:   envelope,
+			Result:     xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxSuccess, Results: &[]xdr.OperationResult{}}}},
+			UnsafeMeta: meta,
+			Ledger:     xdr.LedgerCloseMeta{V: 1, V1: &xdr.LedgerCloseMetaV1{LedgerHeader: xdr.LedgerHeaderHistoryEntry{Header: xdr.LedgerHeader{LedgerSeq: 4679347}}}},
+		},
+	}
+
+	participants, err := participantsForSorobanOp(op)
+	require.NoError(t, err)
+	assert.Equal(t, set.NewThreadUnsafeSet(source, invoked, nestedContract), participants)
+
+	// The nonce leg on its own: exactly one created nonce entry, under the authorizer.
+	nonceOnly := set.NewThreadUnsafeSet[string]()
+	require.NoError(t, addExecutedParticipants(nonceOnly, op))
+	assert.True(t, nonceOnly.Contains(invoked))
 }
