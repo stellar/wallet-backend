@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -675,17 +674,95 @@ func Test_participants_deployerInAuthEntry(t *testing.T) {
 			require.NoError(t, partErr)
 			assert.Equal(t, want, participants)
 
-			// Nothing in the set may collide once encoded, or the operations_accounts rows
-			// duplicate on their primary key and abort the ledger insert.
-			byKey := map[string]string{}
-			for _, participant := range participants.ToSlice() {
-				value, encErr := types.AddressBytea(participant).Value()
-				require.NoError(t, encErr, "participant %q must encode for the operation-address COPY", participant)
-				key := string(value.([]byte))
-				prior, collides := byKey[key]
-				require.False(t, collides, "participants %q and %q encode to the same operations_accounts row", prior, participant)
-				byKey[key] = participant
-			}
+			requireNoEncodedKeyCollision(t, participants)
 		})
+	}
+}
+
+func Test_participantsForSorobanOp_muxedSource(t *testing.T) {
+	const invokedContractID = "CBL6KD2LFMLAUKFFWNNXWOXFN73GAXLEA4WMJRLQ5L76DMYTM3KWQVJN"
+	muxedSource := makeMuxedAccount(txSourceAccount, 42)
+
+	createContractBody := func(hostFnType xdr.HostFunctionType) xdr.OperationBody {
+		op := makeBasicSorobanOp()
+		setFromAddress(op, hostFnType, txSourceAccount)
+		return op.Operation.Body
+	}
+	createdContractID, idErr := calculateContractID(network.TestNetworkPassphrase, xdr.ContractIdPreimageFromAddress{
+		Address: makeScAddress(txSourceAccount), Salt: TestSalt,
+	})
+	require.NoError(t, idErr)
+
+	bodies := []struct {
+		name string
+		body xdr.OperationBody
+		want []string
+	}{
+		{
+			name: "createContractV1",
+			body: createContractBody(xdr.HostFunctionTypeHostFunctionTypeCreateContract),
+			want: []string{txSourceAccount, createdContractID},
+		},
+		{
+			name: "createContractV2",
+			body: createContractBody(xdr.HostFunctionTypeHostFunctionTypeCreateContractV2),
+			want: []string{txSourceAccount, createdContractID},
+		},
+		{
+			name: "invokeContract",
+			body: xdr.OperationBody{
+				Type: xdr.OperationTypeInvokeHostFunction,
+				InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+					HostFunction: xdr.HostFunction{
+						Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+						InvokeContract: &xdr.InvokeContractArgs{
+							ContractAddress: makeScContract(invokedContractID),
+							FunctionName:    xdr.ScSymbol("fn"),
+						},
+					},
+				},
+			},
+			want: []string{txSourceAccount, invokedContractID},
+		},
+		{
+			name: "extendFootprintTtl",
+			body: xdr.OperationBody{Type: xdr.OperationTypeExtendFootprintTtl, ExtendFootprintTtlOp: &xdr.ExtendFootprintTtlOp{}},
+			want: []string{txSourceAccount},
+		},
+		{
+			name: "restoreFootprint",
+			body: xdr.OperationBody{Type: xdr.OperationTypeRestoreFootprint, RestoreFootprintOp: &xdr.RestoreFootprintOp{}},
+			want: []string{txSourceAccount},
+		},
+	}
+	sources := []struct {
+		name  string
+		apply func(op *TransactionOperationWrapper)
+	}{
+		{
+			name:  "muxedOpSource",
+			apply: func(op *TransactionOperationWrapper) { op.Operation.SourceAccount = &muxedSource },
+		},
+		{
+			name:  "muxedTxSource",
+			apply: func(op *TransactionOperationWrapper) { op.Transaction.Envelope.V1.Tx.SourceAccount = muxedSource },
+		},
+	}
+
+	for _, b := range bodies {
+		for _, s := range sources {
+			t.Run(b.name+"/"+s.name, func(t *testing.T) {
+				op := makeBasicSorobanOp()
+				op.Operation = xdr.Operation{Body: b.body}
+				s.apply(op)
+				require.Equal(t, muxedSource.Address(), op.SourceAccount().Address(), "the op source must resolve to the muxed account")
+
+				participants, err := participantsForSorobanOp(op)
+				require.NoError(t, err)
+				assert.Equal(t, set.NewThreadUnsafeSet(b.want...), participants)
+
+				requireNoEncodedKeyCollision(t, participants)
+			})
+		}
 	}
 }

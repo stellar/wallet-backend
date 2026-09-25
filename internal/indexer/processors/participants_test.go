@@ -621,3 +621,19 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 		})
 	}
 }
+
+func TestParticipantsProcessor_GetOperationParticipants_muxedSorobanSource(t *testing.T) {
+	op := makeBasicSorobanOp()
+	op.Operation = xdr.Operation{
+		SourceAccount: utils.PointOf(makeMuxedAccount(txSourceAccount, 42)),
+		Body:          xdr.OperationBody{Type: xdr.OperationTypeExtendFootprintTtl, ExtendFootprintTtlOp: &xdr.ExtendFootprintTtlOp{}},
+	}
+	op.Transaction.UnsafeMeta = xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{Operations: []xdr.OperationMeta{{}}}}
+	require.True(t, op.Transaction.Successful(), "Soroban participants are only collected for successful transactions")
+
+	participants, err := NewParticipantsProcessor(network.TestNetworkPassphrase).GetOperationParticipants(op)
+	require.NoError(t, err)
+	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
+
+	requireNoEncodedKeyCollision(t, participants)
+}
