@@ -44,6 +44,7 @@ func TestRetryWithBackoff_ExhaustsRetries(t *testing.T) {
 		}, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
+	assert.ErrorIs(t, err, ErrRetriesExhausted)
 	assert.Contains(t, err.Error(), "failed after 3 attempts")
 	assert.Equal(t, 3, attempts)
 }
@@ -58,6 +59,28 @@ func TestRetryWithBackoff_RespectsContextCancellation(t *testing.T) {
 		}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "context cancelled")
+	assert.NotErrorIs(t, err, ErrRetriesExhausted,
+		"a cancelled context exits early — attempts were never exhausted")
+}
+
+func TestRetryWithBackoff_CancelledDuringAttempt(t *testing.T) {
+	// A cancellation that lands while fn runs must exit as cancellation, not
+	// exhaustion, and must not reach onRetry — on the first attempt or the last.
+	for _, maxRetries := range []int{3, 1} {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls, retries := 0, 0
+		_, err := RetryWithBackoff(ctx, maxRetries, 10*time.Second,
+			func(ctx context.Context) (string, error) {
+				calls++
+				cancel()
+				return "", errors.New("attempt failed as the context was cancelled")
+			},
+			func(int, error, time.Duration) { retries++ })
+		require.ErrorIs(t, err, context.Canceled)
+		assert.NotErrorIs(t, err, ErrRetriesExhausted, "maxRetries=%d", maxRetries)
+		assert.Equal(t, 1, calls, "maxRetries=%d", maxRetries)
+		assert.Zero(t, retries, "maxRetries=%d: onRetry must not run for a cancelled attempt", maxRetries)
+	}
 }
 
 func TestRetryWithBackoff_CallsOnRetry(t *testing.T) {
@@ -111,6 +134,8 @@ func TestRetryWithBackoff_StopsOnPermanentError(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sentinel)
+	assert.NotErrorIs(t, err, ErrRetriesExhausted,
+		"a permanent error exits early — attempts were never exhausted")
 	assert.Contains(t, err.Error(), "permanent error on attempt 1")
 	assert.Equal(t, 1, attempts, "a permanent error must not be retried")
 	assert.Equal(t, 0, onRetryCalls, "onRetry must not fire for a permanent error")
