@@ -580,11 +580,8 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 			wantParticipantsFn: func(t *testing.T, opWrapper *TransactionOperationWrapper) map[int64]OperationParticipants {
 				return map[int64]OperationParticipants{
 					20929375637505: {
-						OpWrapper: opWrapper,
-						Participants: set.NewThreadUnsafeSet(
-							"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
-							"CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD",
-						),
+						OpWrapper:    opWrapper,
+						Participants: set.NewThreadUnsafeSet("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"),
 					},
 				}
 			},
@@ -695,6 +692,17 @@ func TestParticipantsProcessor_GetOperationsParticipants_failedTx(t *testing.T) 
 		require.Len(t, got, 1)
 		for _, opParticipants := range got {
 			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount, feeBumpAccount), opParticipants.Participants)
+		}
+	})
+
+	t.Run("failed payment with its own op source attributes only the tx source", func(t *testing.T) {
+		tx := makeTx(false)
+		tx.Envelope.V1.Tx.Operations[0].SourceAccount = utils.PointOf(xdr.MustMuxedAddress(destination))
+		got, err := processor.GetOperationsParticipants(tx)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		for _, opParticipants := range got {
+			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount), opParticipants.Participants)
 		}
 	})
 }
