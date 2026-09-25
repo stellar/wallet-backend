@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -215,5 +216,31 @@ func assertStateChangesElementsMatch(t *testing.T, want []types.StateChange, got
 			assert.Fail(t, "state change not found", "state change id: %s", key)
 		}
 		assertStateChangeEqual(t, wantMap[key], g)
+	}
+}
+
+// makeMuxedAccount returns the M… form of accountID with the given mux ID.
+func makeMuxedAccount(accountID string, id uint64) xdr.MuxedAccount {
+	return xdr.MuxedAccount{
+		Type: xdr.CryptoKeyTypeKeyTypeMuxedEd25519,
+		Med25519: &xdr.MuxedAccountMed25519{
+			Id:      xdr.Uint64(id),
+			Ed25519: *xdr.MustAddress(accountID).Ed25519,
+		},
+	}
+}
+
+// requireNoEncodedKeyCollision fails if two participants encode to the same address bytes.
+// A collision duplicates an operations_accounts primary key and aborts the ledger insert.
+func requireNoEncodedKeyCollision(t *testing.T, participants set.Set[string]) {
+	t.Helper()
+	byKey := map[string]string{}
+	for _, participant := range participants.ToSlice() {
+		value, err := types.AddressBytea(participant).Value()
+		require.NoError(t, err, "participant %q must encode for the operation-address COPY", participant)
+		key := string(value.([]byte))
+		prior, collides := byKey[key]
+		require.False(t, collides, "participants %q and %q encode to the same operations_accounts row", prior, participant)
+		byKey[key] = participant
 	}
 }

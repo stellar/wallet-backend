@@ -153,7 +153,7 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 		return nil, ErrNotSorobanOperation
 	}
 
-	participants := set.NewThreadUnsafeSet(op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(op.SourceAccount().ToAccountId().Address())
 
 	switch op.Operation.Body.Type {
 	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
@@ -256,7 +256,7 @@ func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
@@ -300,7 +300,7 @@ func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
 
 	// Contract IDs
 	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
@@ -344,7 +344,7 @@ func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
 	}
 
 	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().Address())
+	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
 
 	// Contract ID
 	contractID, err := invokeContractOp.ContractAddress.String()
