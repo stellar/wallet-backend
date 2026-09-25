@@ -104,7 +104,9 @@ func (m *LiquidityPoolBalanceModel) GetByAccount(ctx context.Context, accountAdd
 }
 
 // BatchUpsert performs upserts and deletes using UNNEST for efficiency.
-// For upserts (ADD/UPDATE): inserts or updates the share balance.
+// For upserts (ADD/UPDATE): inserts or updates the share balance. The insert arm
+// joins liquidity_pools, so a balance whose pool has no row is dropped and the
+// deferred liquidity_pool_balances_pool_id_fkey holds at COMMIT.
 // For deletes (REMOVE): removes the balance row.
 func (m *LiquidityPoolBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upserts []LiquidityPoolBalance, deletes []LiquidityPoolBalance) error {
 	if len(upserts) == 0 && len(deletes) == 0 {
@@ -138,7 +140,10 @@ func (m *LiquidityPoolBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx
 			INSERT INTO liquidity_pool_balances (
 				account_id, pool_id, shares, last_modified_ledger
 			)
-			SELECT * FROM UNNEST($1::bytea[], $2::text[], $3::bigint[], $4::bigint[])
+			SELECT u.account_id, u.pool_id, u.shares, u.last_modified_ledger
+			FROM UNNEST($1::bytea[], $2::text[], $3::bigint[], $4::bigint[])
+				AS u(account_id, pool_id, shares, last_modified_ledger)
+			JOIN liquidity_pools lp ON lp.pool_id = u.pool_id
 			ON CONFLICT (account_id, pool_id) DO UPDATE SET
 				shares = EXCLUDED.shares,
 				last_modified_ledger = EXCLUDED.last_modified_ledger`
