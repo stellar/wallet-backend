@@ -860,3 +860,68 @@ func TestNullSignerKeyBytea(t *testing.T) {
 		assert.ErrorContains(t, n.Scan(bytes.Repeat([]byte{0x00}, 32)), "expected at least 33 bytes")
 	})
 }
+
+func TestStorableAddressString(t *testing.T) {
+	kp := keypair.MustRandom()
+	accountAddr := kp.Address()
+	accountID := xdr.MustAddress(accountAddr)
+	var contractID xdr.ContractId
+	copy(contractID[:], bytes.Repeat([]byte{0xcc}, 32))
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, accountAddr))
+	cbHash := xdr.Hash{0xcb}
+	poolID := xdr.PoolId{0x1f}
+
+	testCases := []struct {
+		name   string
+		addr   xdr.ScAddress
+		want   string
+		wantOK bool
+	}{
+		{
+			name:   "account",
+			addr:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeAccount, AccountId: &accountID},
+			want:   accountAddr,
+			wantOK: true,
+		},
+		{
+			name:   "contract",
+			addr:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
+			want:   contractAddr,
+			wantOK: true,
+		},
+		{
+			name: "muxed_reduces_to_base",
+			addr: xdr.ScAddress{
+				Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+				MuxedAccount: &xdr.MuxedEd25519Account{Id: 9, Ed25519: ed},
+			},
+			want:   accountAddr,
+			wantOK: true,
+		},
+		{
+			name: "claimable_balance_rejected",
+			addr: xdr.ScAddress{
+				Type: xdr.ScAddressTypeScAddressTypeClaimableBalance,
+				ClaimableBalanceId: &xdr.ClaimableBalanceId{
+					Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
+					V0:   &cbHash,
+				},
+			},
+		},
+		{
+			name: "liquidity_pool_rejected",
+			addr: xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeLiquidityPool, LiquidityPoolId: &poolID},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := StorableAddressString(tc.addr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

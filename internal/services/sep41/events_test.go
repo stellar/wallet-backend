@@ -499,3 +499,78 @@ func muxedStrkey(t *testing.T, baseG string, id uint64) string {
 	require.NoError(t, err)
 	return addr
 }
+
+// claimableBalanceScVal builds an ScVal holding a claimable-balance ScAddress.
+func claimableBalanceScVal() xdr.ScVal {
+	hash := xdr.Hash{0xcb}
+	scAddr := xdr.ScAddress{
+		Type: xdr.ScAddressTypeScAddressTypeClaimableBalance,
+		ClaimableBalanceId: &xdr.ClaimableBalanceId{
+			Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
+			V0:   &hash,
+		},
+	}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+// liquidityPoolScVal builds an ScVal holding a liquidity-pool ScAddress.
+func liquidityPoolScVal() xdr.ScVal {
+	poolID := xdr.PoolId{0x1f}
+	scAddr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeLiquidityPool, LiquidityPoolId: &poolID}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+func TestExtractAddressFromScVal(t *testing.T) {
+	const contractAddr = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	var contractID xdr.ContractId
+	copy(contractID[:], strkey.MustDecode(strkey.VersionByteContract, contractAddr))
+	contractScAddr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID}
+
+	testCases := []struct {
+		name    string
+		val     xdr.ScVal
+		want    string
+		wantErr string
+	}{
+		{name: "account", val: mustAddressScVal(t, testAccountA), want: testAccountA},
+		{name: "contract", val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &contractScAddr}, want: contractAddr},
+		{name: "muxed_reduces_to_base", val: mustMuxedAddressScVal(t, testAccountB, 9), want: testAccountB},
+		{name: "claimable_balance_rejected", val: claimableBalanceScVal(), wantErr: "ScAddressTypeScAddressTypeClaimableBalance"},
+		{name: "liquidity_pool_rejected", val: liquidityPoolScVal(), wantErr: "ScAddressTypeScAddressTypeLiquidityPool"},
+		{name: "not_an_address", val: symScVal("x"), wantErr: "invalid address"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := extractAddressFromScVal(tc.val)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseTransferEvent_RejectsUnstorableAddressKinds(t *testing.T) {
+	testCases := []struct {
+		name string
+		to   xdr.ScVal
+	}{
+		{name: "claimable_balance", to: claimableBalanceScVal()},
+		{name: "liquidity_pool", to: liquidityPoolScVal()},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			event := contractEvent(
+				[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountA), tc.to},
+				i128ScVal(500),
+			)
+			_, err := ParseTransferEvent(event)
+			require.Error(t, err)
+		})
+	}
+}
