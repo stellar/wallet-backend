@@ -4,17 +4,24 @@ import (
 	"fmt"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
-// extractAddressFromScVal helps extract a string representation of an address from a ScVal
+// extractAddressFromScVal extracts the strkey form of an address ScVal, rejecting any kind
+// an account column cannot store so the caller skips the event. Muxed addresses reduce to
+// their base account (see types.StorableAddressString).
 func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {
 		return "", fmt.Errorf("invalid address")
 	}
-	addrStr, err := addr.String()
+	addrStr, storable, err := types.StorableAddressString(addr)
 	if err != nil {
 		return "", fmt.Errorf("failed to convert address to string: %w", err)
+	}
+	if !storable {
+		return "", fmt.Errorf("unsupported address type %s", addr.Type)
 	}
 	return addrStr, nil
 }

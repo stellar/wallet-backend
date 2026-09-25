@@ -114,6 +114,34 @@ func (a AddressBytea) String() string {
 	return string(a)
 }
 
+// StorableAddressString converts an ScAddress to the strkey form an AddressBytea column
+// stores, reporting ok=false for any kind other than account, contract or muxed account.
+//
+// A muxed account reduces to its base G-address: the multiplexing id is off-chain routing
+// metadata, not account identity. Returning the M-form would let one account enter a
+// participant set as two distinct strings, which AddressBytea.Value() then collapses to one
+// key. Claimable-balance and liquidity-pool addresses have no account row to key on, so
+// callers skip them.
+func StorableAddressString(addr xdr.ScAddress) (string, bool, error) {
+	switch addr.Type {
+	case xdr.ScAddressTypeScAddressTypeAccount, xdr.ScAddressTypeScAddressTypeContract:
+	case xdr.ScAddressTypeScAddressTypeMuxedAccount:
+		muxed := addr.MustMuxedAccount()
+		addrStr, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
+		if err != nil {
+			return "", false, fmt.Errorf("encoding muxed account base address: %w", err)
+		}
+		return addrStr, true, nil
+	default:
+		return "", false, nil
+	}
+	addrStr, err := addr.String()
+	if err != nil {
+		return "", false, fmt.Errorf("encoding address strkey: %w", err)
+	}
+	return addrStr, true, nil
+}
+
 // NullAddressBytea represents a nullable Stellar address stored as BYTEA in the database.
 // Similar to sql.NullString but handles BYTEA encoding/decoding for Stellar addresses.
 type NullAddressBytea struct {

@@ -526,3 +526,37 @@ func TestProcessor_MuxedTransfersOverSameBaseDoNotCollide(t *testing.T) {
 	// Exactly two keys total: the shared base-account credit and testAccountB's debit.
 	assert.Len(t, p.stagedBalanceDelta, 2, "no per-id fragmentation of the base account")
 }
+
+// TestProcessor_SkipsEventWithUnstorableAddress verifies that a transfer to a
+// liquidity-pool address is skipped while the ledger's other events still fold.
+func TestProcessor_SkipsEventWithUnstorableAddress(t *testing.T) {
+	contractID := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	// Hex of the strkey above; indexContracts decodes it and re-encodes to the same address.
+	contractHex := types.HashBytea("25b4fcd859aec2fa6348438c489b3c3c10c98b6d21be4fd3cb30cb68953ef977")
+
+	input := services.ProtocolProcessorInput{
+		LedgerSequence: 42,
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			{TxIdx: 1, OpIdx: 0}: {buildEventForContract(t, contractID, []xdr.ScVal{
+				symScVal(EventTransfer), mustAddressScVal(t, testAccountA), mustAddressScVal(t, testAccountB),
+			}, i128ScVal(500))},
+			{TxIdx: 2, OpIdx: 0}: {buildEventForContract(t, contractID, []xdr.ScVal{
+				symScVal(EventTransfer), mustAddressScVal(t, testAccountB), liquidityPoolScVal(),
+			}, i128ScVal(100))},
+			{TxIdx: 3, OpIdx: 0}: {buildEventForContract(t, contractID, []xdr.ScVal{
+				symScVal(EventMint), mustAddressScVal(t, testAccountA),
+			}, i128ScVal(300))},
+		},
+		ProtocolContracts: []data.ProtocolContracts{{ContractID: contractHex}},
+		StagingMode:       services.StagingModeCurrentState,
+	}
+
+	p := newTestProcessor()
+	p.Reset()
+	require.NoError(t, p.ProcessLedger(context.Background(), input))
+
+	assert.Equal(t, map[balanceKey]*big.Int{
+		{Account: testAccountA, ContractID: contractID}: big.NewInt(-200),
+		{Account: testAccountB, ContractID: contractID}: big.NewInt(500),
+	}, p.stagedBalanceDelta, "the liquidity-pool transfer must be skipped and the other two events must fold")
+}

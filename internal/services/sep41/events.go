@@ -6,6 +6,8 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // SEP-41 event topic symbols (topics[0]).
@@ -350,31 +352,23 @@ func extractAmountAndMuxedID(val xdr.ScVal) (*big.Int, *uint64, error) {
 	}
 }
 
-// extractAddressFromScVal decodes an address ScVal to its strkey-encoded form.
+// extractAddressFromScVal decodes an address ScVal to its strkey-encoded form, rejecting any
+// kind a balance or allowance row cannot key on so the caller skips the event.
 //
-// A muxed address (SC_ADDRESS_TYPE_MUXED_ACCOUNT) is reduced to its base account: the
-// multiplexing id is off-chain routing metadata rather than account identity, so a
-// balance or allowance belongs to the underlying G-account. This mirrors the classic
-// ingestion path (MuxedAccount.ToAccountId()) and keeps every downstream key on the base
-// account. When a token carries a muxed id it travels separately in the event's
-// to_muxed_id data field (see extractAmountAndMuxedID), which is where it is surfaced for
-// history.
+// A muxed address reduces to its base account (see types.StorableAddressString). When a
+// token carries a muxed id it travels separately in the event's to_muxed_id data field (see
+// extractAmountAndMuxedID), which is where it is surfaced for history.
 func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {
 		return "", fmt.Errorf("invalid address")
 	}
-	if addr.Type == xdr.ScAddressTypeScAddressTypeMuxedAccount {
-		muxed := addr.MustMuxedAccount()
-		s, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
-		if err != nil {
-			return "", fmt.Errorf("encoding muxed account base address: %w", err)
-		}
-		return s, nil
-	}
-	s, err := addr.String()
+	s, storable, err := types.StorableAddressString(addr)
 	if err != nil {
 		return "", fmt.Errorf("converting address to string: %w", err)
+	}
+	if !storable {
+		return "", fmt.Errorf("unsupported address type %s", addr.Type)
 	}
 	return s, nil
 }
