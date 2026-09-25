@@ -580,11 +580,8 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 			wantParticipantsFn: func(t *testing.T, opWrapper *TransactionOperationWrapper) map[int64]OperationParticipants {
 				return map[int64]OperationParticipants{
 					20929375637505: {
-						OpWrapper: opWrapper,
-						Participants: set.NewThreadUnsafeSet(
-							"GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U",
-							"CANZKJUEZM22DO2XLJP4ARZAJFG7GJVBIEXJ7T4F2GAIAV4D4RMXMDVD",
-						),
+						OpWrapper:    opWrapper,
+						Participants: set.NewThreadUnsafeSet("GBWAH7AOBZYAYLT76Z7MQDDRRJCCERRVRSCJ4GAEGV2S5W474ZLEOH4U"),
 					},
 				}
 			},
@@ -636,4 +633,76 @@ func TestParticipantsProcessor_GetOperationParticipants_muxedSorobanSource(t *te
 	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
 
 	requireNoEncodedKeyCollision(t, participants)
+}
+
+// TestParticipantsProcessor_GetOperationsParticipants_failedTx: a failed transaction
+// changes no state beyond its fee, so only the tx source (and fee-bump source) is
+// attributed at the operation level. The payment destination is unverified envelope
+// input.
+func TestParticipantsProcessor_GetOperationsParticipants_failedTx(t *testing.T) {
+	const (
+		sourceAccount  = "GAUE24B36YYY3CXTXNFE3IFXU6EE4NUOS5L744IWGTNXVXZAXFGMP6CC"
+		feeBumpAccount = "GBZURSTQQRSU3XB66CHJ3SH2ZWLG663V5SWM6HF3FL72BOMYHDT4QTUF"
+		destination    = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+	)
+
+	makeTx := func(feeBump bool) ingest.LedgerTransaction {
+		inner := xdr.TransactionV1Envelope{Tx: xdr.Transaction{
+			SourceAccount: xdr.MustMuxedAddress(sourceAccount),
+			Operations: []xdr.Operation{{Body: xdr.OperationBody{
+				Type:      xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{Destination: xdr.MustMuxedAddress(destination), Asset: xdr.Asset{Type: xdr.AssetTypeAssetTypeNative}, Amount: 1},
+			}}},
+		}}
+		envelope := xdr.TransactionEnvelope{Type: xdr.EnvelopeTypeEnvelopeTypeTx, V1: &inner}
+		if feeBump {
+			envelope = xdr.TransactionEnvelope{Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump, FeeBump: &xdr.FeeBumpTransactionEnvelope{Tx: xdr.FeeBumpTransaction{
+				FeeSource: xdr.MustMuxedAddress(feeBumpAccount),
+				InnerTx:   xdr.FeeBumpTransactionInnerTx{Type: xdr.EnvelopeTypeEnvelopeTypeTx, V1: &inner},
+			}}}
+		}
+		return ingest.LedgerTransaction{
+			Index:    1,
+			Envelope: envelope,
+			Result: xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{
+				Code: xdr.TransactionResultCodeTxFailed,
+				Results: &[]xdr.OperationResult{{Code: xdr.OperationResultCodeOpInner, Tr: &xdr.OperationResultTr{
+					Type: xdr.OperationTypePayment, PaymentResult: &xdr.PaymentResult{Code: xdr.PaymentResultCodePaymentUnderfunded},
+				}}},
+			}}},
+			UnsafeMeta: xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{Operations: []xdr.OperationMeta{{}}}},
+			Ledger:     xdr.LedgerCloseMeta{V: 1, V1: &xdr.LedgerCloseMetaV1{LedgerHeader: xdr.LedgerHeaderHistoryEntry{Header: xdr.LedgerHeader{LedgerSeq: 12345}}}},
+		}
+	}
+
+	processor := NewParticipantsProcessor(network.TestNetworkPassphrase)
+
+	t.Run("failed payment attributes only the source", func(t *testing.T) {
+		got, err := processor.GetOperationsParticipants(makeTx(false))
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		for _, opParticipants := range got {
+			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount), opParticipants.Participants)
+		}
+	})
+
+	t.Run("failed fee-bump payment attributes source and fee source", func(t *testing.T) {
+		got, err := processor.GetOperationsParticipants(makeTx(true))
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		for _, opParticipants := range got {
+			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount, feeBumpAccount), opParticipants.Participants)
+		}
+	})
+
+	t.Run("failed payment with its own op source attributes only the tx source", func(t *testing.T) {
+		tx := makeTx(false)
+		tx.Envelope.V1.Tx.Operations[0].SourceAccount = utils.PointOf(xdr.MustMuxedAddress(destination))
+		got, err := processor.GetOperationsParticipants(tx)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		for _, opParticipants := range got {
+			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount), opParticipants.Participants)
+		}
+	})
 }

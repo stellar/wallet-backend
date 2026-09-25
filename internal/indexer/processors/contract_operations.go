@@ -8,8 +8,6 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
-
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 var (
@@ -48,320 +46,52 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 	return contractID, nil
 }
 
-// participantsFromInvocationAndSubInvocations recursively collects all ScAddresses from a SorobanAuthorizedInvocation
-// and its subinvocations.
-func participantsFromInvocationAndSubInvocations(networkPassphrase string, invocation xdr.SorobanAuthorizedInvocation) (set.Set[string], error) {
-	participants := set.NewThreadUnsafeSet[string]()
-	if utils.IsEmpty(invocation) {
-		return participants, nil
-	}
-
-	switch invocation.Function.Type {
-	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn:
-		contractFn, ok := invocation.Function.GetContractFn()
-		if !ok {
-			break
-		}
-
-		contractID, err := contractFn.ContractAddress.String()
-		if err != nil {
-			return nil, fmt.Errorf("converting contract address to string: %w", err)
-		}
-		participants.Add(contractID)
-
-	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn:
-		createContractHostFn, ok := invocation.Function.GetCreateContractHostFn()
-		if !ok {
-			break
-		}
-
-		contractIDs, err := contractIDsForPreimage(networkPassphrase, createContractHostFn.ContractIdPreimage)
-		if err != nil {
-			return nil, fmt.Errorf("getting contract ID: %w", err)
-		}
-		participants = participants.Union(contractIDs)
-
-	case xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractV2HostFn:
-		createContractV2HostFn, ok := invocation.Function.GetCreateContractV2HostFn()
-		if !ok {
-			break
-		}
-
-		contractIDs, err := contractIDsForPreimage(networkPassphrase, createContractV2HostFn.ContractIdPreimage)
-		if err != nil {
-			return nil, fmt.Errorf("getting contract ID: %w", err)
-		}
-		participants = participants.Union(contractIDs)
-	}
-
-	for _, sub := range invocation.SubInvocations {
-		subParticipants, err := participantsFromInvocationAndSubInvocations(networkPassphrase, sub)
-		if err != nil {
-			return nil, fmt.Errorf("collecting participants from subinvocation: %w", err)
-		}
-		participants = participants.Union(subParticipants)
-	}
-
-	return participants, nil
-}
-
-// participantsForAuthEntries extracts all participant addresses from a []SorobanAuthorizationEntry.
-func participantsForAuthEntries(networkPassphrase string, authEntries []xdr.SorobanAuthorizationEntry) (set.Set[string], error) {
-	participants := set.NewThreadUnsafeSet[string]()
-	for _, authEntry := range authEntries {
-		if authEntry.Credentials.Type == xdr.SorobanCredentialsTypeSorobanCredentialsAddress {
-			participant, err := authEntry.Credentials.MustAddress().Address.String()
-			if err != nil {
-				return nil, fmt.Errorf("converting ScAddress to string: %w", err)
-			}
-			participants.Add(participant)
-		}
-
-		invocationParticipants, err := participantsFromInvocationAndSubInvocations(networkPassphrase, authEntry.RootInvocation)
-		if err != nil {
-			return nil, fmt.Errorf("getting invocation participants: %w", err)
-		}
-		participants = participants.Union(invocationParticipants)
-	}
-
-	return participants, nil
-}
-
-// participantsForSorobanOp identifies participants (AddressId or ContractId) from Soroban operations.
-// The source account is always included. Additional participants are gathered based on the operation type:
+// participantsForSorobanOp returns the participants of a Soroban operation: the addresses
+// that authorised it. There are two inputs.
 //
-// - For `ExtendFootprintTtl` and `RestoreFootprint` operations: only the source account is included.
-// - For `InvokeHostFunction.UploadWasm` operations: only the source account is included.
-// - For `InvokeHostFunction.InvokeContract`: includes the ContractId being invoked.
-// - For `InvokeHostFunction.CreateContract(V1/V2)`, it includes the fromAddress, and if the subtype is:
-//   - `FromAsset`: includes the SAC ID derived from the classic asset being deployed
-//   - `FromAccount`: includes the fromAccount address and the calculated contract ID (from preimage)
+//   - The operation source account, always. Source-account credentials consume no nonce,
+//     so the meta holds no record of that authorisation.
+//   - The owner of every nonce entry the host created for the operation: a temporary
+//     ContractData entry with key type SCV_LEDGER_KEY_NONCE. The host writes it only after
+//     a signature or a custom account's __check_auth verifies, and only the host can write
+//     such a key. The owner is a G account or a C custom account.
 //
-// For CreateContract (V1/V2) and InvokeContract operations, we also:
-//   - Include all AccountId and ContractId addresses found in AuthEntries
-//   - Recursively include any nested InvokeContract or CreateContract (V1/V2) calls found in subinvocations,
-//     applying the same extraction logic as above
+// Nothing is read from the declared authorization tree: the submitter controls it and the
+// host never checks entries that no require_auth call matched, so any address in it is
+// forgeable. The invoked contract, deployed contracts, deployers and event emitters are
+// not participants. A contract appears only as an authorising custom account.
+// Returns ErrNotSorobanOperation for non-Soroban operations.
 //
-// It can return `ErrNotSorobanOperation` if the operation is not a Soroban operation.
-//
-// Every set on this path is thread-unsafe: they are built and consumed within a single indexer worker
-// goroutine (see Indexer.ProcessLedgerTransactions), so a thread-safe set's mutex would be pure
-// overhead on the hot path. Set.Union type-asserts its argument to the receiver's variant, so these
-// sets — and anything merged with them — must all stay thread-unsafe or the merge panics at runtime.
+// Every set here is thread-unsafe: they are built and consumed within a single indexer
+// worker goroutine (see Indexer.ProcessLedgerTransactions).
 func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string], error) {
 	if !op.Transaction.IsSorobanTx() {
 		return nil, ErrNotSorobanOperation
 	}
 
 	participants := set.NewThreadUnsafeSet(op.SourceAccount().ToAccountId().Address())
-
-	switch op.Operation.Body.Type {
-	case xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint:
-		break
-
-	case xdr.OperationTypeInvokeHostFunction:
-		invokeHostOp := op.Operation.Body.MustInvokeHostFunctionOp()
-
-		switch invokeHostOp.HostFunction.Type {
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			createContractOpProcessor := CreateContractV1OpProcessor{op: op}
-			createContractOpParticipants, err := createContractOpProcessor.Participants()
-			if err != nil {
-				return nil, fmt.Errorf("getting create contract participants: %w", err)
-			}
-			participants = participants.Union(createContractOpParticipants)
-
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			createContractV2OpProcessor := CreateContractV2OpProcessor{op: op}
-			createContractV2OpParticipants, err := createContractV2OpProcessor.Participants()
-			if err != nil {
-				return nil, fmt.Errorf("getting create contract participants: %w", err)
-			}
-			participants = participants.Union(createContractV2OpParticipants)
-
-		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
-			invokeContractOpProcessor := InvokeContractOpProcessor{op: op}
-			invokeContractOpParticipants, err := invokeContractOpProcessor.Participants()
-			if err != nil {
-				return nil, fmt.Errorf("getting invoke contract participants: %w", err)
-			}
-			participants = participants.Union(invokeContractOpParticipants)
-
-		case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm:
-			break
-		}
-
-	default:
-		break
+	if op.Operation.Body.Type != xdr.OperationTypeInvokeHostFunction {
+		return participants, nil
 	}
 
-	return participants, nil
-}
-
-// contractIDsForPreimage returns the contract IDs for a ContractIdPreimage.
-// if the preimage is FromAsset, it returns the SAC contract ID.
-// if the preimage is FromAddress, it returns the contract ID calculated from the deployer address, salt and the network passphrase.
-// It also returns the deployer account ID.
-func contractIDsForPreimage(networkPassphrase string, preimage xdr.ContractIdPreimage) (set.Set[string], error) {
-	switch preimage.Type {
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
-		contractID, err := calculateContractID(networkPassphrase, preimage.MustFromAddress())
+	changes, err := op.Transaction.GetOperationChanges(op.Index)
+	if err != nil {
+		return nil, fmt.Errorf("getting operation changes: %w", err)
+	}
+	for _, change := range changes {
+		// The host only ever creates nonce entries (consume_nonce errors if the key exists).
+		if change.Type != xdr.LedgerEntryTypeContractData || change.ChangeType != xdr.LedgerEntryChangeTypeLedgerEntryCreated || change.Post == nil {
+			continue
+		}
+		contractData := change.Post.Data.MustContractData()
+		if contractData.Key.Type != xdr.ScValTypeScvLedgerKeyNonce {
+			continue
+		}
+		authorizer, err := contractData.Contract.String()
 		if err != nil {
-			return nil, fmt.Errorf("calculating contract ID: %w", err)
+			return nil, fmt.Errorf("converting nonce entry address to string: %w", err)
 		}
-
-		fromAccountID, storable, err := deployerAddressString(preimage.MustFromAddress().Address)
-		if err != nil {
-			return nil, fmt.Errorf("getting from address' string representation: %w", err)
-		}
-		if !storable {
-			return set.NewThreadUnsafeSet(contractID), nil
-		}
-		return set.NewThreadUnsafeSet(contractID, fromAccountID), nil
-
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
-		fromAsset := preimage.MustFromAsset()
-		assetContractID, err := fromAsset.ContractID(networkPassphrase)
-		if err != nil {
-			return nil, fmt.Errorf("getting asset contract ID: %w", err)
-		}
-		return set.NewThreadUnsafeSet(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])), nil
-
-	default:
-		return nil, fmt.Errorf("invalid contract id preimage type")
+		participants.Add(authorizer)
 	}
-}
-
-type CreateContractV1OpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-func (p *CreateContractV1OpProcessor) GetCreateContract() (xdr.CreateContractArgs, bool) {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return xdr.CreateContractArgs{}, false
-	}
-
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeCreateContract {
-		return xdr.CreateContractArgs{}, false
-	}
-
-	return invokeHostFunctionOp.HostFunction.MustCreateContract(), true
-}
-
-func (p *CreateContractV1OpProcessor) Participants() (set.Set[string], error) {
-	createContractOp, ok := p.GetCreateContract()
-	if !ok {
-		return nil, fmt.Errorf("not a create contract operation: %w", ErrInvalidOpType)
-	}
-
-	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
-
-	// Contract IDs
-	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
-	if err != nil {
-		return nil, fmt.Errorf("getting contract ID: %w", err)
-	}
-	participants = participants.Union(contractIDs)
-
-	// Auth participants
-	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
-	authParticipants, err := participantsForAuthEntries(p.op.Network, authEntries)
-	if err != nil {
-		return nil, fmt.Errorf("getting auth participants: %w", err)
-	}
-	participants = participants.Union(authParticipants)
-
-	return participants, nil
-}
-
-type CreateContractV2OpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-func (p *CreateContractV2OpProcessor) GetCreateContract() (xdr.CreateContractArgsV2, bool) {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return xdr.CreateContractArgsV2{}, false
-	}
-
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeCreateContractV2 {
-		return xdr.CreateContractArgsV2{}, false
-	}
-
-	return invokeHostFunctionOp.HostFunction.MustCreateContractV2(), true
-}
-
-func (p *CreateContractV2OpProcessor) Participants() (set.Set[string], error) {
-	createContractOp, ok := p.GetCreateContract()
-	if !ok {
-		return nil, fmt.Errorf("not a create contract v2 operation: %w", ErrInvalidOpType)
-	}
-
-	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
-
-	// Contract IDs
-	contractIDs, err := contractIDsForPreimage(p.op.Network, createContractOp.ContractIdPreimage)
-	if err != nil {
-		return nil, fmt.Errorf("getting contract ID: %w", err)
-	}
-	participants = participants.Union(contractIDs)
-
-	// Auth participants
-	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
-	authParticipants, err := participantsForAuthEntries(p.op.Network, authEntries)
-	if err != nil {
-		return nil, fmt.Errorf("getting auth participants: %w", err)
-	}
-	participants = participants.Union(authParticipants)
-
-	return participants, nil
-}
-
-type InvokeContractOpProcessor struct {
-	op *TransactionOperationWrapper
-}
-
-func (p *InvokeContractOpProcessor) GetInvokeContract() (xdr.InvokeContractArgs, bool) {
-	if p.op.OperationType() != xdr.OperationTypeInvokeHostFunction {
-		return xdr.InvokeContractArgs{}, false
-	}
-
-	invokeHostFunctionOp := p.op.Operation.Body.MustInvokeHostFunctionOp()
-	if invokeHostFunctionOp.HostFunction.Type != xdr.HostFunctionTypeHostFunctionTypeInvokeContract {
-		return xdr.InvokeContractArgs{}, false
-	}
-
-	return invokeHostFunctionOp.HostFunction.MustInvokeContract(), true
-}
-
-func (p *InvokeContractOpProcessor) Participants() (set.Set[string], error) {
-	invokeContractOp, ok := p.GetInvokeContract()
-	if !ok {
-		return nil, fmt.Errorf("not a invoke contract operation: %w", ErrInvalidOpType)
-	}
-
-	// Source account
-	participants := set.NewThreadUnsafeSet(p.op.SourceAccount().ToAccountId().Address())
-
-	// Contract ID
-	contractID, err := invokeContractOp.ContractAddress.String()
-	if err != nil {
-		return nil, fmt.Errorf("converting contract address to string: %w", err)
-	}
-	if contractID != "" {
-		participants.Add(contractID)
-	}
-
-	// Auth participants
-	authEntries := p.op.Operation.Body.MustInvokeHostFunctionOp().Auth
-	authParticipants, err := participantsForAuthEntries(p.op.Network, authEntries)
-	if err != nil {
-		return nil, fmt.Errorf("getting auth participants: %w", err)
-	}
-	participants = participants.Union(authParticipants)
-
 	return participants, nil
 }
