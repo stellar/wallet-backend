@@ -293,3 +293,23 @@ func contractEventFrom(contractID string) xdr.ContractEvent {
 		Body:       xdr.ContractEventBody{V: 0, V0: &xdr.ContractEventV0{Topics: []xdr.ScVal{{Type: xdr.ScValTypeScvVoid}}, Data: xdr.ScVal{Type: xdr.ScValTypeScvVoid}}},
 	}
 }
+
+// contractInstanceCreated builds the created ContractData change the host writes when a
+// contract with the given C-address is deployed (key type SCV_LEDGER_KEY_CONTRACT_INSTANCE).
+func contractInstanceCreated(contractID string) xdr.LedgerEntryChange {
+	return xdr.LedgerEntryChange{
+		Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
+		Created: &xdr.LedgerEntry{
+			LastModifiedLedgerSeq: 12345,
+			Data: xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeContractData,
+				ContractData: &xdr.ContractDataEntry{
+					Contract:   makeScContract(contractID),
+					Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+					Durability: xdr.ContractDataDurabilityPersistent,
+					Val:        xdr.ScVal{Type: xdr.ScValTypeScvContractInstance, Instance: &xdr.ScContractInstance{Executable: xdr.ContractExecutable{Type: xdr.ContractExecutableTypeContractExecutableWasm, WasmHash: &xdr.Hash{}}}},
+				},
+			},
+		},
+	}
+}

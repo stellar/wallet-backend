@@ -79,6 +79,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -101,6 +102,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -122,6 +124,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -211,6 +214,8 @@ func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t 
 			},
 		},
 	}
+
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(contractB), contractInstanceCreated(contractC)}, nil)
 
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 	stateChanges, err := proc.ProcessOperation(ctx, op)
@@ -315,6 +320,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -331,6 +337,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -420,6 +427,8 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 
 	goodContractID, err := calculateContractID(network.TestNetworkPassphrase, goodPreimage)
 	require.NoError(t, err)
+	badContractID, err := calculateContractID(network.TestNetworkPassphrase, badPreimage)
+	require.NoError(t, err)
 
 	createHostFn := func(preimage xdr.ContractIdPreimageFromAddress) xdr.SorobanAuthorizedFunction {
 		return xdr.SorobanAuthorizedFunction{
@@ -465,6 +474,9 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 		},
 	}
 
+	// The meta shows both instances created, so only the guard decides which deploy is recorded.
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(badContractID), contractInstanceCreated(goodContractID)}, nil)
+
 	stateChanges, err := proc.ProcessOperation(ctx, op)
 	require.NoError(t, err)
 
@@ -488,4 +500,42 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 		_, encErr := sc.CreatorAccountID.Value()
 		require.NoError(t, encErr, "emitted creator_account_id %q must encode for the state_changes COPY", sc.CreatorAccountID.String())
 	}
+}
+
+// Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored is the regression test
+// for fabricated deploy records: a CreateContract declared in an unmatched auth
+// entry's invocation tree produces no record unless the meta holds the created instance
+// entry for that exact contract. The meta here carries an unrelated created instance, so
+// an implementation that accepted any created instance would fail this test.
+func Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored(t *testing.T) {
+	const unrelatedCreatedContract = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE" // absent from the declared tree
+
+	op := makeInvokeContractOp()
+	op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
+		Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+		RootInvocation: xdr.SorobanAuthorizedInvocation{Function: xdr.SorobanAuthorizedFunction{Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn, ContractFn: &xdr.InvokeContractArgs{ContractAddress: makeScContract(invokedContractID)}}},
+	}}
+	includeSubInvocations(op) // declares deployedContractID created by deployerAccountID
+	// Meta: a different contract was created; deployedContractID was not.
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(unrelatedCreatedContract)}, nil)
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
+}
+
+// Test_ContractDeployProcessor_Process_failedTxDeploysNothing: a failed transaction creates
+// no contract, so a CreateContract host function in it produces no record.
+func Test_ContractDeployProcessor_Process_failedTxDeploysNothing(t *testing.T) {
+	const fromSourceAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+
+	op := makeBasicSorobanOp()
+	setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContract, fromSourceAccount)
+	op.Transaction.Result = xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxFailed}}}
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
 }
