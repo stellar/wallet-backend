@@ -46,24 +46,20 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 	return contractID, nil
 }
 
-// participantsForSorobanOp identifies participants (account or contract addresses) of a
-// Soroban operation. Every address comes from the operation body or from what the host
-// recorded in the transaction meta. Nothing is read from the declared authorization tree:
-// the submitter controls it and the host never checks entries that no require_auth call
-// matched, so any address in it is forgeable.
+// participantsForSorobanOp returns the participants of a Soroban operation: the addresses
+// that authorised it. There are two inputs.
 //
-//   - The operation source account is always included.
-//   - InvokeContract: the invoked contract.
-//   - CreateContract(V1/V2): the deployer address and the derived contract ID (FromAddress),
-//     or the SAC ID derived from the asset (FromAsset). The host calls require_auth on the
-//     FromAddress, so a successful top-level deploy is authenticated.
-//   - Every address that authorised the invocation. After a signature verifies, the host
-//     writes a temporary ContractData entry with key type SCV_LEDGER_KEY_NONCE under the
-//     authorising address; only the host can write such a key. Source-account credentials
-//     consume no nonce, and that account is already included.
-//   - Every contract that emitted an event while executing.
+//   - The operation source account, always. Source-account credentials consume no nonce,
+//     so the meta holds no record of that authorisation.
+//   - The owner of every nonce entry the host created for the operation: a temporary
+//     ContractData entry with key type SCV_LEDGER_KEY_NONCE. The host writes it only after
+//     a signature or a custom account's __check_auth verifies, and only the host can write
+//     such a key. The owner is a G account or a C custom account.
 //
-// ExtendFootprintTtl, RestoreFootprint and UploadContractWasm contribute only the source.
+// Nothing is read from the declared authorization tree: the submitter controls it and the
+// host never checks entries that no require_auth call matched, so any address in it is
+// forgeable. The invoked contract, deployed contracts, deployers and event emitters are
+// not participants. A contract appears only as an authorising custom account.
 // Returns ErrNotSorobanOperation for non-Soroban operations.
 //
 // Every set here is thread-unsafe: they are built and consumed within a single indexer
@@ -78,71 +74,9 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 		return participants, nil
 	}
 
-	hostFn := op.Operation.Body.MustInvokeHostFunctionOp().HostFunction
-	switch hostFn.Type {
-	case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
-		contractID, err := hostFn.MustInvokeContract().ContractAddress.String()
-		if err != nil {
-			return nil, fmt.Errorf("converting contract address to string: %w", err)
-		}
-		participants.Add(contractID)
-	case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-		if err := addContractIDsForPreimage(participants, op.Network, hostFn.MustCreateContract().ContractIdPreimage); err != nil {
-			return nil, err
-		}
-	case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-		if err := addContractIDsForPreimage(participants, op.Network, hostFn.MustCreateContractV2().ContractIdPreimage); err != nil {
-			return nil, err
-		}
-	case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm:
-		// only the source account
-	}
-
-	if err := addExecutedParticipants(participants, op); err != nil {
-		return nil, err
-	}
-	return participants, nil
-}
-
-// addContractIDsForPreimage adds the contract ID a ContractIdPreimage resolves to. For a
-// FromAddress preimage it also adds the deployer address.
-func addContractIDsForPreimage(participants set.Set[string], networkPassphrase string, preimage xdr.ContractIdPreimage) error {
-	switch preimage.Type {
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
-		fromAddress := preimage.MustFromAddress()
-		contractID, err := calculateContractID(networkPassphrase, fromAddress)
-		if err != nil {
-			return fmt.Errorf("calculating contract ID: %w", err)
-		}
-		deployer, storable, err := deployerAddressString(fromAddress.Address)
-		if err != nil {
-			return fmt.Errorf("getting from address' string representation: %w", err)
-		}
-		participants.Add(contractID)
-		if storable {
-			participants.Add(deployer)
-		}
-		return nil
-
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
-		assetContractID, err := preimage.MustFromAsset().ContractID(networkPassphrase)
-		if err != nil {
-			return fmt.Errorf("getting asset contract ID: %w", err)
-		}
-		participants.Add(strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		return nil
-
-	default:
-		return fmt.Errorf("invalid contract id preimage type %d", preimage.Type)
-	}
-}
-
-// addExecutedParticipants adds the addresses the host recorded in the operation meta:
-// authorising addresses via their created nonce entries, and event-emitting contracts.
-func addExecutedParticipants(participants set.Set[string], op *TransactionOperationWrapper) error {
 	changes, err := op.Transaction.GetOperationChanges(op.Index)
 	if err != nil {
-		return fmt.Errorf("getting operation changes: %w", err)
+		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
 	for _, change := range changes {
 		// The host only ever creates nonce entries (consume_nonce errors if the key exists).
@@ -155,20 +89,9 @@ func addExecutedParticipants(participants set.Set[string], op *TransactionOperat
 		}
 		authorizer, err := contractData.Contract.String()
 		if err != nil {
-			return fmt.Errorf("converting nonce entry address to string: %w", err)
+			return nil, fmt.Errorf("converting nonce entry address to string: %w", err)
 		}
 		participants.Add(authorizer)
 	}
-
-	events, err := op.Transaction.GetContractEventsForOperation(op.Index)
-	if err != nil {
-		return fmt.Errorf("getting contract events: %w", err)
-	}
-	for _, event := range events {
-		if event.ContractId == nil {
-			continue
-		}
-		participants.Add(strkey.MustEncode(strkey.VersionByteContract, event.ContractId[:]))
-	}
-	return nil
+	return participants, nil
 }

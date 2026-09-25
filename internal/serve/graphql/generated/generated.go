@@ -3155,7 +3155,7 @@ type Query {
     """Look up a transaction by its hex-encoded hash."""
     transactionByHash(hash: String!): Transaction
 
-    """Look up an account or contract by its address (G... or C...)."""
+    """Look up an account (G...) or contract (C...) by address. A contract's history holds the operations it authorised and the state changes applied to it."""
     accountByAddress(address: String!): Account
 
     """Look up an operation by its ID (TOID)."""
