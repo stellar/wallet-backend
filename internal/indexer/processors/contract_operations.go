@@ -59,8 +59,9 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 // Nothing is read from the declared authorization tree: the submitter controls it and the
 // host never checks entries that no require_auth call matched, so any address in it is
 // forgeable. The invoked contract, deployed contracts, deployers and event emitters are
-// not participants. A contract appears only as an authorising custom account.
-// Returns ErrNotSorobanOperation for non-Soroban operations.
+// not participants by default; any of them is included when it also authorised the
+// operation, as a signing account or as a custom account. Returns ErrNotSorobanOperation
+// for non-Soroban operations.
 //
 // Every set here is thread-unsafe: they are built and consumed within a single indexer
 // worker goroutine (see Indexer.ProcessLedgerTransactions).
