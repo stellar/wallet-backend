@@ -887,8 +887,11 @@ func computeAccountMergeChanges(dest, opSource xdr.AccountId, before map[string]
 	if !ok {
 		return nil, wouldFail("destination account %s does not exist", dest.Address())
 	}
-	if source.NumSubEntries > 0 {
-		return nil, wouldFail("account %s still owns %d subentries (trustlines, offers, data entries, or extra signers) and cannot be merged", opSource.Address(), source.NumSubEntries)
+	// Signers count toward NumSubEntries but vanish with the account, so they
+	// do not block a merge. Anything beyond them (trustlines, offers, data
+	// entries) does.
+	if int64(source.NumSubEntries) > int64(len(source.Signers)) {
+		return nil, wouldFail("account %s still owns %d subentries (trustlines, offers, or data entries) and cannot be merged", opSource.Address(), int64(source.NumSubEntries)-int64(len(source.Signers)))
 	}
 	if v1, ok := source.Ext.GetV1(); ok {
 		if v2, ok := v1.Ext.GetV2(); ok && v2.NumSponsoring > 0 {

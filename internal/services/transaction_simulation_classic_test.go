@@ -647,6 +647,33 @@ func TestTransactionSimulationService_classicAccountMerge(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🟢 extra signers do not block a merge", func(t *testing.T) {
+		// Signers count toward NumSubEntries but are deleted with the account,
+		// so the network allows this merge. Found by the equivalence sweep:
+		// real testnet merges of one-signer accounts were falsely rejected.
+		id := xdr.MustAddress(src)
+		signer := xdr.MustSigner(keypair.MustRandom().Address())
+		withSigner := ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+				AccountId:     id,
+				Balance:       100_0000000,
+				SeqNum:        1,
+				NumSubEntries: 1,
+				Signers:       []xdr.Signer{{Key: signer, Weight: 1}},
+				Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			}},
+		)
+		svc := classicFixture(t, withSigner, accountEntryResult(t, dst, 50_0000000))
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{
+			Destination: dst,
+		}))
+		require.NoError(t, err)
+		_, opByReason := balanceChangesByReasonAndOp(result.StateChanges)
+		_, ok := opByReason[types.StateChangeReasonCredit]
+		assert.True(t, ok, "expected the merged balance CREDIT")
+	})
+
 	t.Run("🔴 a source with subentries is a would-fail", func(t *testing.T) {
 		id := xdr.MustAddress(src)
 		withTrustline := ledgerEntryResult(t,
