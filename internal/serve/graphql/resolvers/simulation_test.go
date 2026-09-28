@@ -164,12 +164,26 @@ func TestConvertToSimulatedStateChange(t *testing.T) {
 		require.ErrorContains(t, err, "amount")
 	})
 
+	t.Run("🟢 account merged change", func(t *testing.T) {
+		converted, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory:  types.StateChangeCategoryAccount,
+			StateChangeReason:    types.StateChangeReasonMerge,
+			AccountID:            types.AddressBytea(testSimAccount),
+			DestinationAccountID: validAddress(testSimSpender),
+		})
+		require.NoError(t, err)
+		merged, ok := converted.(graphql1.SimulatedAccountMergedChange)
+		require.True(t, ok, "expected SimulatedAccountMergedChange, got %T", converted)
+		assert.Equal(t, testSimAccount, merged.AccountAddress)
+		assert.Equal(t, testSimSpender, merged.DestinationAddress)
+	})
+
 	t.Run("🔴 variant not exposed in the simulated schema errors", func(t *testing.T) {
-		// accountMerge is not derivable yet, so (ACCOUNT, MERGE) has no
-		// simulated type until its classic handler lands.
+		// The simulation pipeline never emits (ACCOUNT, ADD); a change like it
+		// means a processor drifted from the simulated schema.
 		_, err := r.convertToSimulatedStateChange(types.StateChange{
 			StateChangeCategory: types.StateChangeCategoryAccount,
-			StateChangeReason:   types.StateChangeReasonMerge,
+			StateChangeReason:   types.StateChangeReasonAdd,
 			AccountID:           types.AddressBytea(testSimAccount),
 		})
 		require.ErrorContains(t, err, "no simulated GraphQL type")
