@@ -31,6 +31,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -325,10 +326,92 @@ func sweepSkipReason(tx ingest.LedgerTransaction) string {
 	return ""
 }
 
+// sweepFailureCheckable reports whether a failed transaction's failure is one
+// the simulation could have predicted: a classic transaction at the standard
+// fee whose operations are all supported and whose result says an operation
+// failed. Sequence, signature, and fee-bid failures never qualify; the sweep
+// cannot reconstruct those.
+func sweepFailureCheckable(tx ingest.LedgerTransaction) bool {
+	if tx.Result.Result.Result.Code != xdr.TransactionResultCodeTxFailed {
+		return false
+	}
+	if tx.Envelope.Type == xdr.EnvelopeTypeEnvelopeTypeTxFeeBump {
+		return false
+	}
+	if isSorobanTransaction(tx.Envelope) {
+		return false
+	}
+	ops := tx.Envelope.Operations()
+	for _, op := range ops {
+		if !sweepSupportedOps[op.Body.Type] {
+			return false
+		}
+	}
+	return int64(tx.Result.Result.FeeCharged) == int64(len(ops))*baseFeeStroops
+}
+
+// sweepInnerOpCode names an operation result's specific code.
+func sweepInnerOpCode(tr xdr.OperationResultTr) string {
+	switch tr.Type {
+	case xdr.OperationTypePayment:
+		return tr.MustPaymentResult().Code.String()
+	case xdr.OperationTypeCreateAccount:
+		return tr.MustCreateAccountResult().Code.String()
+	case xdr.OperationTypeChangeTrust:
+		return tr.MustChangeTrustResult().Code.String()
+	case xdr.OperationTypeSetOptions:
+		return tr.MustSetOptionsResult().Code.String()
+	case xdr.OperationTypeManageData:
+		return tr.MustManageDataResult().Code.String()
+	case xdr.OperationTypeSetTrustLineFlags:
+		return tr.MustSetTrustLineFlagsResult().Code.String()
+	case xdr.OperationTypeAllowTrust:
+		return tr.MustAllowTrustResult().Code.String()
+	case xdr.OperationTypeClawback:
+		return tr.MustClawbackResult().Code.String()
+	case xdr.OperationTypeBumpSequence:
+		return tr.MustBumpSeqResult().Code.String()
+	case xdr.OperationTypeAccountMerge:
+		return tr.MustAccountMergeResult().Code.String()
+	case xdr.OperationTypeCreateClaimableBalance:
+		return tr.MustCreateClaimableBalanceResult().Code.String()
+	case xdr.OperationTypeClaimClaimableBalance:
+		return tr.MustClaimClaimableBalanceResult().Code.String()
+	case xdr.OperationTypeClawbackClaimableBalance:
+		return tr.MustClawbackClaimableBalanceResult().Code.String()
+	default:
+		return tr.Type.String()
+	}
+}
+
+// sweepFailedOpCodes summarizes which operations failed and how.
+func sweepFailedOpCodes(tx ingest.LedgerTransaction) string {
+	results, ok := tx.Result.Result.Result.GetResults()
+	if !ok || len(results) == 0 {
+		return "no operation results"
+	}
+	var parts []string
+	for i, res := range results {
+		if res.Code == xdr.OperationResultCodeOpInner {
+			code := sweepInnerOpCode(*res.Tr)
+			if strings.HasSuffix(code, "Success") {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("op %d %s", i+1, code))
+		} else {
+			parts = append(parts, fmt.Sprintf("op %d %s", i+1, res.Code.String()))
+		}
+	}
+	if len(parts) == 0 {
+		return "no failing operation"
+	}
+	return strings.Join(parts, ", ")
+}
+
 type sweepMismatch struct {
 	ledger uint32
 	hash   string
-	kind   string // "diff" or "derived-error"
+	kind   string // "diff", "derived-error", or "missed-failure"
 	detail string
 }
 
@@ -461,6 +544,7 @@ func TestBulkEquivalenceSweep(t *testing.T) {
 	mismatchByOp := map[string]int{}
 	var mismatches []sweepMismatch
 	simulated, matched := 0, 0
+	failedChecked, failedAgreed := 0, 0
 
 	for _, ledger := range ledgers {
 		stub.ledger = ledger.seq
@@ -469,7 +553,33 @@ func TestBulkEquivalenceSweep(t *testing.T) {
 		}
 		for _, tx := range ledger.txs {
 			reason := sweepSkipReason(tx)
-			if reason != "" {
+			if reason == "failed-tx" && sweepFailureCheckable(tx) {
+				// The failure direction: a transaction the network rejected
+				// for a reason the simulation models should be refused too.
+				for _, feeChange := range tx.GetFeeChanges() {
+					require.NoError(t, store.shiftFee(feeChange, true))
+				}
+				failedChecked++
+				envB64, err := xdr.MarshalBase64(tx.Envelope)
+				require.NoError(t, err)
+				_, derivedErr := derivedService.SimulateStateChanges(ctx, envB64)
+				switch {
+				case errors.Is(derivedErr, errSweepLiveFill):
+					skips["live-fill-error"]++
+				case errors.Is(derivedErr, ErrUnsupportedTransaction):
+					skips["unsupported-variant"]++
+				case derivedErr != nil:
+					failedAgreed++
+				default:
+					mismatches = append(mismatches, sweepMismatch{
+						ledger: ledger.seq, hash: tx.Result.TransactionHash.HexString(), kind: "missed-failure",
+						detail: "network: " + sweepFailedOpCodes(tx) + "; the simulation said the transaction would succeed",
+					})
+				}
+				for _, feeChange := range tx.GetFeeChanges() {
+					require.NoError(t, store.shiftFee(feeChange, false))
+				}
+			} else if reason != "" {
 				skips[reason]++
 			} else {
 				// The ledger's fee phase already deducted this transaction's own
@@ -563,6 +673,8 @@ func TestBulkEquivalenceSweep(t *testing.T) {
 	t.Logf("==== sweep report ====")
 	t.Logf("ledgers %d, transactions %d, simulated %d, matched %d, mismatched %d, live fills %d",
 		len(ledgers), totalTxs, simulated, matched, len(mismatches), stub.fills)
+	t.Logf("failed transactions checked %d, would-fail agreed %d, missed failures %d",
+		failedChecked, failedAgreed, failedChecked-failedAgreed)
 	var reasons []string
 	for reason := range skips {
 		reasons = append(reasons, reason)
