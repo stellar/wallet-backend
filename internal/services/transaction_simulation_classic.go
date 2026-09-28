@@ -577,17 +577,22 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	}
 
 	if p.Asset.Type == xdr.AssetTypeAssetTypeNative {
+		if opSource.Equals(dst) {
+			// The network applies a payment as a credit followed by a debit,
+			// so a payment to self succeeds even when the amount exceeds the
+			// balance, and moves nothing. It emits no entry changes; emitting
+			// a debit and a credit built from the same snapshot would corrupt
+			// the working state. The token-transfer processor still derives
+			// the debit/credit rows from the operation itself, matching
+			// history.
+			if int64(p.Amount) > math.MaxInt64-int64(srcAccount.Balance) {
+				return nil, wouldFail("payment would overflow the XLM balance of %s", opSource.Address())
+			}
+			return xdr.LedgerEntryChanges{}, nil
+		}
 		available := int64(srcAccount.Balance) - accountMinBalance(srcAccount) - accountSellingLiabilities(srcAccount)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, sending %d", opSource.Address(), available, p.Amount)
-		}
-		if opSource.Equals(dst) {
-			// A self-payment must still pass the checks above but moves
-			// nothing, so it emits no entry changes; emitting a debit and a
-			// credit built from the same snapshot would corrupt the working
-			// state. The token-transfer processor still derives the
-			// debit/credit rows from the operation itself, matching history.
-			return xdr.LedgerEntryChanges{}, nil
 		}
 		dstAccount, _ := lookupAccount(before, dst)
 		srcAfter := cloneAccountEntry(srcAccount)
@@ -605,6 +610,26 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	// from the issuer creates new units and a payment to the issuer destroys
 	// them; the issuer's side of the movement is simply skipped.
 	issuer := p.Asset.GetIssuer()
+	if opSource.Equals(dst) {
+		// Same credit-then-debit rule as the native self-payment above: the
+		// balance never limits a payment to self, only the credit side (the
+		// trustline's limit) can. The issuer paying itself has no trustline
+		// at all, so there is nothing to check.
+		if opSource.Address() == issuer {
+			return xdr.LedgerEntryChanges{}, nil
+		}
+		line, ok := lookupTrustline(before, opSource, p.Asset)
+		if !ok {
+			return nil, wouldFail("source account %s holds no trustline for %s", opSource.Address(), assetString(p.Asset))
+		}
+		if line.Flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag) == 0 {
+			return nil, wouldFail("source trustline for %s is not authorized", assetString(p.Asset))
+		}
+		if int64(line.Limit)-int64(line.Balance)-trustlineBuyingLiabilities(line) < int64(p.Amount) {
+			return nil, wouldFail("payment would exceed destination trustline limit for %s", assetString(p.Asset))
+		}
+		return xdr.LedgerEntryChanges{}, nil
+	}
 	var changes xdr.LedgerEntryChanges
 	if opSource.Address() != issuer {
 		srcLine, ok := lookupTrustline(before, opSource, p.Asset)
@@ -617,10 +642,6 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 		available := int64(srcLine.Balance) - trustlineSellingLiabilities(srcLine)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source trustline for %s has insufficient balance: available %d, sending %d", assetString(p.Asset), available, p.Amount)
-		}
-		if opSource.Equals(dst) {
-			// Same as the native self-payment above: checks pass, nothing moves.
-			return xdr.LedgerEntryChanges{}, nil
 		}
 		srcAfter := srcLine
 		srcAfter.Balance -= p.Amount

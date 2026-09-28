@@ -1574,12 +1574,46 @@ func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 		assert.ErrorContains(t, err, "operation 2")
 	})
 
-	t.Run("🔴 a self-payment above the available balance is a would-fail", func(t *testing.T) {
+	t.Run("🟢 a self-payment above the available balance succeeds", func(t *testing.T) {
+		// The network applies a payment as a credit followed by a debit, so a
+		// payment to self never fails on the balance; only the credit side
+		// can.
 		svc := classicFixture(t, accountEntryResult(t, src, 2*baseReserveStroops+1_0000000))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
 			Destination: src, Amount: "5", Asset: txnbuild.NativeAsset{},
 		}))
-		assert.ErrorIs(t, err, ErrSimulationFailed)
+		require.NoError(t, err)
+	})
+
+	t.Run("🟢 a credit self-payment above the balance succeeds", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			trustlineEntryResult(t, src, asset, 20_0000000, 100_0000000),
+		)
+		// 50 held against a 20 balance, but 20 + 50 still fits the 100 limit.
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: src, Amount: "50", Asset: line,
+		}))
+		require.NoError(t, err)
+	})
+
+	t.Run("🔴 a credit self-payment above the trustline limit is a would-fail", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", issuer)
+		line := txnbuild.CreditAsset{Code: "USDC", Issuer: issuer}
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			trustlineEntryResult(t, src, asset, 20_0000000, 100_0000000),
+		)
+		// The transient credit of 20 + 90 does not fit the 100 limit.
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: src, Amount: "90", Asset: line,
+		}))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.ErrorContains(t, err, "limit")
 	})
 
 	t.Run("🔴 an account created by operation 1 cannot be created again", func(t *testing.T) {
