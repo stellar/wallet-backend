@@ -43,6 +43,11 @@ var ErrRowEncoding = errors.New("encoding row for COPY")
 // to pick the concrete GraphQL type for each row.
 var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason"}
 
+// maxAccountStateChangesPerToID limits how many state changes one transaction can add to an
+// account-history page. Without a limit, a transaction with many state changes for the
+// account loads them all into memory at once. The operations loader uses the same cap.
+const maxAccountStateChangesPerToID = 4096
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
@@ -509,6 +514,9 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 // pruning: compressed chunks read only the batches overlapping the page window (segmentby
 // account_id, orderby ledger_created_at); uncompressed chunks can use index range scans;
 // chunks outside the range are excluded entirely.
+//
+// Each transaction returns at most maxAccountStateChangesPerToID rows. The cap uses a
+// ROW_NUMBER window, not a join, so the flat scan above stays a flat scan.
 func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.StateChange, error) {
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
@@ -528,13 +536,20 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
 	query := fmt.Sprintf(`
 		SELECT %s
-		FROM state_changes sc
-		WHERE sc.account_id = $1
-		  AND sc.to_id = ANY($2::bigint[])
-		  AND sc.ledger_created_at >= $3
-		  AND sc.ledger_created_at <= $4
+		FROM (
+			SELECT sc.*, ROW_NUMBER() OVER (
+				PARTITION BY sc.to_id
+				ORDER BY sc.operation_id DESC, sc.state_change_id DESC
+			) AS row_in_tx
+			FROM state_changes sc
+			WHERE sc.account_id = $1
+			  AND sc.to_id = ANY($2::bigint[])
+			  AND sc.ledger_created_at >= $3
+			  AND sc.ledger_created_at <= $4
+		) sc
+		WHERE sc.row_in_tx <= %d
 		ORDER BY sc.ledger_created_at DESC, sc.to_id DESC, sc.operation_id DESC, sc.state_change_id DESC
-	`, columns)
+	`, columns, maxAccountStateChangesPerToID)
 
 	start := time.Now()
 	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, lo, hi)
