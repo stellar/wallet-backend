@@ -19,6 +19,7 @@ balance queries, and a GraphQL API for accessing blockchain data.
   - [Data Migrations](#data-migrations)
   - [Integration Tests Setup](#integration-tests-setup)
   - [Deployment](#deployment)
+  - [Contributing](#contributing)
 
 ## Overview
 
@@ -1404,3 +1405,9 @@ gh workflow run build-cnpg-timescaledb.yml \
 This pushes to `${ecr-registry}/<environment>/cnpg-timescaledb:pg<pg_major>-tsdb<tsdb_version>`. The CNPG `ImageCatalog` and `Database` resources in the deployment repo must reference that exact tag.
 
 The build fails rather than producing an image whose TimescaleDB version differs from `tsdb_version`. Both the extension bundle and the loader package are pinned to the requested version — the loader is what supplies `timescaledb.control`, and therefore the `default_version` that a bare `CREATE EXTENSION timescaledb` resolves to — and the assembled image is checked before it is tagged.
+
+## Contributing
+
+Bug reports, feature requests, documentation fixes, and code from outside the team are welcome.
+Start by reading [CONTRIBUTING.md](CONTRIBUTING.md), which covers the issue-first workflow, what
+makes a pull request ready for review, and how to use LLMs responsibly here.
