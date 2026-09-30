@@ -16,6 +16,8 @@
 
 ### Checklist
 
+- [ ] I have read [CONTRIBUTING.md](https://github.com/stellar/wallet-backend/blob/main/CONTRIBUTING.md) and this PR meets its requirements.
+
 #### PR Structure
 
 - [ ] It is not possible to break this PR down into smaller PRs.
