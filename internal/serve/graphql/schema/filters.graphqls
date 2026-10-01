@@ -1,9 +1,9 @@
 """Filters for an account's state changes; all conditions are ANDed."""
 input AccountStateChangeFilterInput {
-  """Only state changes from the transaction with this hash."""
+  """Only state changes from the transaction with this hash (64 hex characters). Any other format returns an INVALID_TRANSACTION_HASH error."""
   transactionHash: String
 
-  """Only state changes from the operation with this ID."""
+  """Only state changes from the operation with this ID (TOID)."""
   operationId: Int64
 
   """Only state changes with this category."""

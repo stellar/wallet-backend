@@ -1,11 +1,31 @@
-"""Root queries. Entities not found return null."""
+"""Root queries. All lookups are read-only."""
 type Query {
-    """Look up a transaction by its hex-encoded hash."""
-    transactionByHash(hash: String!): Transaction
+    """
+    Look up a transaction by hash. Returns null, with an error in the response,
+    when no indexed transaction has this hash.
+    """
+    transactionByHash(
+        """Transaction hash: 64 hex characters. For a fee-bump transaction, the outer (fee-bump) hash. Any other format returns an INVALID_TRANSACTION_HASH error."""
+        hash: String!
+    ): Transaction
 
-    """Look up an account (G...) or contract (C...) by address. A contract's history holds the operations it authorised and the state changes applied to it."""
-    accountByAddress(address: String!): Account
+    """
+    Look up an account (G...) or contract (C...) by address. A contract's history
+    holds the operations it authorised and the state changes applied to it. Any
+    valid address returns an Account, even one with no indexed activity; its
+    connections are then empty.
+    """
+    accountByAddress(
+        """Account strkey (G...) or contract strkey (C...). Any other value, including a muxed address (M...), returns an INVALID_ADDRESS error."""
+        address: String!
+    ): Account
 
-    """Look up an operation by its ID (TOID)."""
-    operationById(id: Int64!): Operation
+    """
+    Look up an operation by its ID (TOID). Returns null, with an error in the
+    response, when no indexed operation has this ID.
+    """
+    operationById(
+        """Operation ID (TOID)."""
+        id: Int64!
+    ): Operation
 }

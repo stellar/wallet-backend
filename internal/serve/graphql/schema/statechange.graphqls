@@ -19,7 +19,7 @@ interface BaseStateChange {
   ledgerCreatedAt:            Time!
   """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
-  """Account whose state changed."""
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
   """
   Operation that caused this change. Non-null on every concrete type except
@@ -40,19 +40,30 @@ Clawbacks are recorded as BURN. Transaction-fee rows are (BALANCE, DEBIT) with
 `toMuxedId` null; refunds are netted into the fee charge, never a separate row.
 """
 type BalanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
-  """Operation that caused this change; null on transaction-fee rows."""
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token whose balance moved."""
+  """Contract ID (C...) of the token whose balance moved. For XLM and classic assets, the Stellar Asset Contract ID."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Amount moved, as a decimal string in the token's smallest unit."""
+  """Amount moved, as an integer string in the token's smallest unit (stroops for XLM and classic assets)."""
   amount:                     String! @goField(forceResolver: true)
   """
   CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and
@@ -68,13 +79,25 @@ a classic account creation, a C-address for a smart-contract deployment.
 Pair: (ACCOUNT, CREATE).
 """
 type AccountCreatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """
@@ -89,16 +112,28 @@ An account merge. `account` is the merged (removed) account.
 Pair: (ACCOUNT, MERGE).
 """
 type AccountMergedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Account that received the merged account's balance."""
+  """Account (G...) that received the merged account's XLM balance."""
   destinationAddress:         String! @goField(forceResolver: true)
 }
 
@@ -107,16 +142,28 @@ A signer added to the account.
 Pair: (SIGNER, ADD).
 """
 type SignerAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the added signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight assigned to the new signer (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -127,18 +174,30 @@ An existing signer's weight changed.
 Pair: (SIGNER, UPDATE).
 """
 type SignerUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the updated signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Previous weight (0-255). 0 when the updated signer is the master key previously locked at weight 0."""
+  """Weight before this change (0-255). Can be 0 when the signer is the master key and its weight was 0."""
   oldWeight:                  Int! @goField(forceResolver: true)
   """New weight (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -149,16 +208,28 @@ A signer removed from the account.
 Pair: (SIGNER, REMOVE).
 """
 type SignerRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the removed signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight the signer had before removal (0-255)."""
   oldWeight:                  Int! @goField(forceResolver: true)
@@ -170,13 +241,25 @@ three thresholds changed; one state change is emitted per changed threshold.
 Pair: (SIGNATURE_THRESHOLD, UPDATE).
 """
 type ThresholdChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Which signature threshold changed."""
@@ -193,13 +276,25 @@ Pairs: (FLAGS, SET) lists flags that were turned on, (FLAGS, CLEAR) lists flags
 that were turned off.
 """
 type AccountFlagsChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Flags that were set (reason SET) or cleared (reason CLEAR)."""
@@ -211,13 +306,25 @@ A home domain set on an account that had none.
 Pair: (HOME_DOMAIN, SET).
 """
 type HomeDomainSetChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """The newly set home domain."""
@@ -229,13 +336,25 @@ An existing home domain replaced by a different one.
 Pair: (HOME_DOMAIN, UPDATE).
 """
 type HomeDomainUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Previous home domain."""
@@ -249,13 +368,25 @@ A home domain removed from the account.
 Pair: (HOME_DOMAIN, CLEAR).
 """
 type HomeDomainClearedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Home domain the account had when it was removed."""
@@ -267,13 +398,25 @@ A data entry created on the account.
 Pair: (DATA_ENTRY, ADD).
 """
 type DataEntryAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -287,13 +430,25 @@ An existing data entry's value changed.
 Pair: (DATA_ENTRY, UPDATE).
 """
 type DataEntryUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -309,13 +464,25 @@ A data entry removed from the account.
 Pair: (DATA_ENTRY, REMOVE).
 """
 type DataEntryRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -330,20 +497,32 @@ to transfer up to `amount` of the token on its behalf.
 Pair: (ALLOWANCE, UPDATE).
 """
 type AllowanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token the allowance applies to."""
+  """Contract ID (C...) of the token the allowance applies to."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Address authorized to spend from the holder's balance."""
+  """Address (G... or C...) authorized to spend from the holder's balance."""
   spender:                    String! @goField(forceResolver: true)
-  """Approved allowance, as a decimal string in the token's smallest unit."""
+  """Approved allowance, as an integer string in the token's smallest unit."""
   amount:                     String! @goField(forceResolver: true)
   """Last ledger sequence at which the allowance is live."""
   expirationLedger:           UInt32! @goField(forceResolver: true)
@@ -354,20 +533,32 @@ A trustline created. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, ADD).
 """
 type TrustlineAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Initial trustline limit, as a decimal string in stroops."""
+  """Initial trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   limit:                      String! @goField(forceResolver: true)
 }
 
@@ -376,22 +567,34 @@ A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, UPDATE).
 """
 type TrustlineUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Previous trustline limit, as a decimal string in stroops."""
+  """Previous trustline limit, as an integer string in stroops (for example "1000000000")."""
   oldLimit:                   String! @goField(forceResolver: true)
-  """New trustline limit, as a decimal string in stroops."""
+  """New trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   newLimit:                   String! @goField(forceResolver: true)
 }
 
@@ -400,18 +603,30 @@ A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, REMOVE).
 """
 type TrustlineRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
 }
 
@@ -424,18 +639,30 @@ plain boolean in the contract balance entry, so `flags` is null.
 Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
 """
 type BalanceAuthorizationChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
   """Trustline flags that changed; null for SAC contract-holder authorization, which has no flags."""
   flags:                      [TrustlineFlag!] @goField(forceResolver: true)
