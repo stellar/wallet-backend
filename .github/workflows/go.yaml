@@ -174,9 +174,40 @@ jobs:
         run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m
         shell: bash
 
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.9"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install markdownlint-cli@0.45.0
+        run: npm i -g markdownlint-cli@0.45.0
+
+      - name: Check docs/api/schema.md is up to date
+        run: make gql-docs-check
+
+      - name: Lint markdown
+        run: markdownlint README.md docs CONTRIBUTING.md SUPPORT.md
+
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config .lychee.toml README.md 'docs/**/*.md' CONTRIBUTING.md SUPPORT.md
+          fail: true
+
+      - name: Check configuration docs match CLI flags
+        run: ./scripts/check-config-docs.sh
+
   complete:
     if: always()
-    needs: [check, build, test]
+    needs: [check, build, test, docs-check]
     runs-on: ubuntu-latest
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

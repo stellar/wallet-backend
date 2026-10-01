@@ -1,0 +1,12 @@
+# Link checker config for `make docs-lint` and the docs-check CI job.
+exclude = [
+  "^https://hub.docker.com",
+  "^http://localhost",
+  "^http://127.0.0.1",
+  "^http://db:",
+  "^http://stellar-rpc:",
+]
+exclude_all_private = true
+accept = [200, 206, 429]
+max_retries = 2
+timeout = 20
