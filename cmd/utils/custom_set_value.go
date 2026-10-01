@@ -30,10 +30,11 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 	}
 	*key = logLevel
 
-	// Log for debugging
+	// The logger starts at TRACE so config parsing itself is visible; apply the
+	// configured level whether it came from a flag, an env var, or the default.
+	log.DefaultLogger.SetLevel(*key)
 	if config.IsExplicitlySet(co) {
 		log.Debugf("Setting log level to: %s", logLevel)
-		log.DefaultLogger.SetLevel(*key)
 	} else {
 		log.Debugf("Using default log level: %s", logLevel)
 	}
