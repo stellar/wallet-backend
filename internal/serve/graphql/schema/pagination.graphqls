@@ -1,62 +1,84 @@
 """Relay-style page of operations."""
 type OperationConnection {
+    """Operations in this page, in ledger order (oldest first)."""
     edges: [OperationEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One operation in a page, with its pagination cursor."""
 type OperationEdge {
+    """The operation."""
     node: Operation!
+    """Opaque cursor for this edge. Pass it as `after` or `before`."""
     cursor: String!
 }
 
 """Relay-style page of state changes."""
 type StateChangeConnection {
+    """State changes in this page, in ledger order (oldest first)."""
     edges: [StateChangeEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One state change in a page, with its pagination cursor."""
 type StateChangeEdge {
+    """The state change. Select concrete-type fields with inline fragments."""
     node: BaseStateChange!
+    """Opaque cursor for this edge. Pass it as `after` or `before`."""
     cursor: String!
 }
 
 """Relay-style page of an account's token balances."""
 type BalanceConnection {
+    """Balances in this page, in the token-type order described on `Account.balances`."""
     edges: [BalanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One balance in a page, with its pagination cursor."""
 type BalanceEdge {
+    """The balance. Select type-specific fields with inline fragments."""
     node: Balance!
+    """Opaque cursor for this edge. Pass it as `after` or `before`."""
     cursor: String!
 }
 
 """Relay-style page of SEP-41 allowances."""
 type SEP41AllowanceConnection {
+    """Allowances in this page, ordered by spender."""
     edges: [SEP41AllowanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One SEP-41 allowance in a page, with its pagination cursor."""
 type SEP41AllowanceEdge {
+    """The allowance."""
     node: SEP41Allowance!
+    """Opaque cursor for this edge. Pass it as `after` or `before`."""
     cursor: String!
 }
 
 """Relay-style pagination metadata; cursors are opaque strings."""
 type PageInfo {
+    """Cursor of the first edge in this page; null when the page is empty."""
     startCursor: String
+    """Cursor of the last edge in this page; null when the page is empty."""
     endCursor: String
+    """Forward paging (`first`, or no paging arguments): true when more edges follow this page. Backward paging (`last`): true whenever `before` was given."""
     hasNextPage: Boolean!
+    """Backward paging (`last`): true when more edges precede this page. Forward paging: true whenever `after` was given."""
     hasPreviousPage: Boolean!
 }
 
 """Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
+  """Transactions in this page, in ledger order (oldest first)."""
   edges:    [AccountTransactionEdge!]!
+  """Cursors and page flags for fetching adjacent pages."""
   pageInfo: PageInfo!
 }
 
@@ -65,8 +87,12 @@ One transaction in an account's history, with the transaction's operations and
 state changes inlined so a full account-history page resolves in one query.
 """
 type AccountTransactionEdge {
+  """The transaction."""
   node:         Transaction!
+  """Opaque cursor for this edge. Pass it as `after` or `before`."""
   cursor:       String!
+  """This transaction's operations that the account participated in. Not paginated."""
   operations:   [Operation!]!        @goField(forceResolver: true)
+  """This transaction's state changes that affected the account. Not paginated."""
   stateChanges: [BaseStateChange!]!  @goField(forceResolver: true)
 }
