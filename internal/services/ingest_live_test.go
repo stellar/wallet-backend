@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -54,7 +53,7 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	// Production always wires a checkpoint service, so provide one.
 	checkpointMock := NewCheckpointServiceMock(t)
 
-	const testNetwork = "advisory-lock-release-test"
+	const testPassphrase = "advisory-lock-release-test"
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:     IngestionModeLive,
 		Models:            models,
@@ -62,8 +61,7 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 		LedgerBackend:     mockBackend,
 		CheckpointService: checkpointMock,
 		Metrics:           m,
-		Network:           testNetwork,
-		NetworkPassphrase: network.TestNetworkPassphrase,
+		NetworkPassphrase: testPassphrase,
 		Archive:           &HistoryArchiveMock{},
 	})
 	require.NoError(t, err)
@@ -80,7 +78,7 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	require.NoError(t, err)
 	defer pool2.Close()
 
-	acquired, err := db.AcquireAdvisoryLock(verifyCtx, pool2, generateAdvisoryLockID(testNetwork))
+	acquired, err := db.AcquireAdvisoryLock(verifyCtx, pool2, generateAdvisoryLockID(testPassphrase))
 	require.NoError(t, err)
 	assert.True(t, acquired, "advisory lock should have been released during shutdown despite the cancelled context")
 }

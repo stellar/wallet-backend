@@ -54,7 +54,6 @@ type Configs struct {
 	LogLevel            logrus.Level
 	AppTracker          apptracker.AppTracker
 	RPCURL              string
-	Network             string
 	NetworkPassphrase   string
 	GetLedgersLimit     int
 	AdminPort           int
@@ -71,7 +70,7 @@ type Configs struct {
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillBatchSize int
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
 	// LivePersistMaxBatchSize caps how many consecutive ledgers live
 	// ingestion coalesces into one persist commit when persist falls behind.
@@ -310,7 +309,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
