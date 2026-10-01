@@ -218,6 +218,55 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		assert.Equal(t, 1, count, "expected exactly 1 reconciliation job")
 	})
 
+	t.Run("reconciliation_job_advances_cursor_to_oldest_ledger", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "30 days", "oldest_ledger_cursor", "", "", 0)
+		require.NoError(t, err)
+
+		// One transaction per chunk, inserted out of ledger order, so the lookup inside
+		// reconcile_oldest_cursor has to order across chunks rather than take the first
+		// row it reaches.
+		for _, tx := range []struct {
+			toID         int64
+			ledgerNumber int32
+			createdAt    string
+		}{
+			{toID: 2, ledgerNumber: 150, createdAt: "2026-01-05T00:00:00Z"},
+			{toID: 3, ledgerNumber: 200, createdAt: "2026-01-09T00:00:00Z"},
+			{toID: 1, ledgerNumber: 100, createdAt: "2026-01-01T00:00:00Z"},
+		} {
+			_, err = dbConnectionPool.Exec(ctx,
+				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+				 VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, $4::timestamptz)`,
+				[]byte{byte(tx.toID)}, tx.toID, tx.ledgerNumber, tx.createdAt)
+			require.NoError(t, err)
+		}
+
+		_, err = dbConnectionPool.Exec(ctx,
+			`INSERT INTO ingest_store (key, value) VALUES ('oldest_ledger_cursor', '50')`)
+		require.NoError(t, err)
+
+		jobID, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'reconcile_oldest_cursor'`,
+		)
+		require.NoError(t, err)
+
+		// run_job invokes the job exactly as the background scheduler does.
+		_, err = dbConnectionPool.Exec(ctx, "CALL run_job($1)", jobID)
+		require.NoError(t, err)
+
+		cursor, err := db.QueryOne[string](ctx, dbConnectionPool,
+			`SELECT value FROM ingest_store WHERE key = 'oldest_ledger_cursor'`)
+		require.NoError(t, err)
+		assert.Equal(t, "100", cursor, "cursor should advance to the ledger of the oldest transaction")
+	})
+
 	t.Run("reconciliation_job_idempotent", func(t *testing.T) {
 		dbt := dbtest.Open(t)
 		defer dbt.Close()
@@ -487,6 +536,88 @@ func TestConfigureHypertableSettings(t *testing.T) {
 			)
 			require.NoError(t, err, "querying compression schedule for %s", table)
 			assert.Equal(t, defaultIntervals[table], intervalSecs, "compression schedule interval should remain unchanged for %s", table)
+		}
+	})
+
+	t.Run("compression_schedule_staggered", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		// Each policy job must sit on its own slot of the hour grid: job i's
+		// next_start minus i/5 of the interval lands exactly on an hour
+		// boundary, and the run is in the future.
+		for i, table := range hypertables {
+			onSlot, err := db.QueryOne[bool](ctx, dbConnectionPool,
+				`SELECT j.fixed_schedule
+				    AND js.next_start > now()
+				    AND js.next_start - '1 hour'::interval * $2::float8
+				        = date_bin('1 hour'::interval, js.next_start - '1 hour'::interval * $2::float8, 'epoch'::timestamptz)
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table, float64(i)/float64(len(hypertables)),
+			)
+			require.NoError(t, err, "querying stagger slot for %s", table)
+			assert.True(t, onSlot, "compression job for %s should sit on slot %d of the hour grid", table, i)
+		}
+
+		// All five slots are distinct, so no two policies come due together.
+		distinctStarts, err := db.QueryOne[int](ctx, dbConnectionPool,
+			`SELECT COUNT(DISTINCT js.next_start)
+			 FROM timescaledb_information.jobs j
+			 JOIN timescaledb_information.job_stats js USING (job_id)
+			 WHERE j.proc_name = 'policy_compression'`,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, len(hypertables), distinctStarts, "each compression policy should own a distinct slot")
+	})
+
+	t.Run("compression_schedule_stagger_idempotent", func(t *testing.T) {
+		dbt := dbtest.Open(t)
+		defer dbt.Close()
+		ctx := context.Background()
+		dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+		require.NoError(t, err)
+		defer dbConnectionPool.Close()
+
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		startsBefore := make(map[string]string)
+		for _, table := range hypertables {
+			nextStart, err := db.QueryOne[string](ctx, dbConnectionPool,
+				`SELECT js.next_start::text
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying next_start for %s", table)
+			startsBefore[table] = nextStart
+		}
+
+		// A job already on its slot is left untouched, so a restart must not
+		// move next_start (which would postpone compression by a cycle).
+		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ledger_cursor", "1 hour", "", 0)
+		require.NoError(t, err)
+
+		for _, table := range hypertables {
+			nextStart, err := db.QueryOne[string](ctx, dbConnectionPool,
+				`SELECT js.next_start::text
+				 FROM timescaledb_information.jobs j
+				 JOIN timescaledb_information.job_stats js USING (job_id)
+				 WHERE j.proc_name = 'policy_compression' AND j.hypertable_name = $1`,
+				table,
+			)
+			require.NoError(t, err, "querying next_start for %s", table)
+			assert.Equal(t, startsBefore[table], nextStart, "re-application should not move %s's slot", table)
 		}
 	})
 
