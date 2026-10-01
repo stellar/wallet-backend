@@ -17,8 +17,8 @@ This directory contains pre-compiled Soroban smart contract WASM files used in i
   - **Query**: `balance(address)`, `decimals()`, `name()`, `symbol()`, `allowance(from, spender)`
   - **Admin**: `set_admin(new_admin)`, `approve(from, spender, amount, expiration)`
 - **Token Configuration**:
-  - Name: "USD Coin"
-  - Symbol: "USDC"
+  - Name: "SEP41 Token"
+  - Symbol: "SEP41"
   - Decimals: 7
   - Admin: Master test account
 - **Contract Hash**: `e80840a63de88eda39d2a2525e8f059201e17066e02777e0d410f1959d888c1d`
@@ -60,6 +60,6 @@ These files are copied from the stellar/go SDK to avoid:
 
 ### For other WASM files:
 1. Locate files in stellar/go SDK at:
-   `services/horizon/internal/integration/testdata/`
+   the integration test data directory of github.com/stellar/go-stellar-sdk
 2. Copy updated WASM files to this directory
 3. Update this README with any interface changes
