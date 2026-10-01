@@ -152,8 +152,14 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          if docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" >/dev/null 2>&1; then
+          set -uo pipefail
+          # Fail closed: only an explicit not-found answer lets the publish proceed.
+          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" 2>&1); then
             echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
+            exit 1
+          fi
+          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
+            echo "::error::Could not verify Docker Hub tag ${RELEASE_VERSION}: $out"
             exit 1
           fi
           echo "Docker Hub tag ${RELEASE_VERSION} not present. Proceeding."

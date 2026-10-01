@@ -54,7 +54,11 @@ func SetupCLI(cfg RootConfig) {
 		if cmd.Name() == "version" {
 			return
 		}
-		log.DefaultLogger.Infof("wallet-backend %s (commit %s)", cfg.Version, cfg.GitCommit)
+		commit := cfg.GitCommit
+		if commit == "" {
+			commit = "unknown"
+		}
+		log.DefaultLogger.Infof("wallet-backend %s (commit %s)", cfg.Version, commit)
 	}
 
 	rootCmd.AddCommand(versionCommand(cfg))
