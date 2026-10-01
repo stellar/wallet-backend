@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Stellar Developer Discord
+    url: https://discord.gg/stellardev
+    about: Ask questions and get help from the community.
+  - name: Support
+    url: https://github.com/stellar/wallet-backend/blob/main/SUPPORT.md
+    about: Where to ask, and what to include in a report.
