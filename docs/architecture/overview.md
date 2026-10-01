@@ -1,0 +1,85 @@
+# Architecture overview
+
+For anyone deciding whether to run wallet-backend or about to read the code. After reading it you know what the processes are, what they talk to, and where data flows.
+
+wallet-backend indexes the Stellar ledger for wallets. It keeps every transaction, operation and balance-affecting state change for every account, keeps current balances for every account and token it has seen, and serves them over GraphQL.
+
+## Processes
+
+```mermaid
+flowchart LR
+    RPC[stellar-rpc] --> ING[ingest]
+    LAKE[(S3 data lake)] -.optional.-> ING
+    ARCH[history archive] --> ING
+    ING --> DB[(PostgreSQL + TimescaleDB)]
+    DB --> API[serve]
+    RPC --> API
+    W[wallet] -->|GraphQL| API
+```
+
+One binary, several commands. `ingest` and `serve` run for as long as the deployment does; the others are one-shot.
+
+| Command | Runs | Talks to | Exposes |
+|---|---|---|---|
+| `ingest` | one per network | RPC, history archive, optional data lake, database | `/health`, `/ingest-metrics` |
+| `serve` | as many replicas as you need | database, RPC (health and contract metadata) | `/graphql/query`, `/health`, `/api-metrics` |
+| `migrate up` | before the first start and after each upgrade | database | |
+| `protocol-setup`, `protocol-migrate` | when a protocol is added after history was ingested | database, RPC or data lake | `/metrics` |
+| `version` | | | |
+
+The history archive is read once, on first start, to load current balances at a checkpoint. From then on ledgers come from RPC (`getLedgers`) or from a Galexie-format data lake on S3. RPC is needed in both cases for health checks and for `simulateTransaction` calls that fetch token metadata.
+
+## Data flow for one ledger
+
+```mermaid
+flowchart LR
+    L[ledger close meta] --> IX[indexer]
+    IX --> T[transactions + participants]
+    IX --> O[operations + participants]
+    IX --> SC[state changes]
+    IX --> B[balance updates]
+    IX --> P[protocol events]
+    T & O & SC & B & P --> TX[(one DB transaction)]
+    TX --> CUR[cursor + 1]
+```
+
+The indexer runs the transactions of a ledger in parallel, each producing rows for every table. Everything for the ledger commits in one database transaction with the cursor advance, so a crash never leaves a half-ingested ledger. Details in [ingestion](ingestion.md).
+
+## What is stored
+
+| Data | Shape | Page |
+|---|---|---|
+| Transactions, operations, and which accounts took part | TimescaleDB hypertables, 1-day chunks, columnstore | [database](database.md), [data model](data-model.md) |
+| State changes: every effect of an operation on an account or contract, with a category and reason | hypertable | [state changes](state-changes.md) |
+| Balances: native, classic assets, SAC, SEP-41, liquidity pool shares | plain tables keyed by holder and asset | [token tracking](token-tracking.md) |
+| Protocol data (SEP-41 today) | per-protocol tables | [protocols](protocols.md) |
+
+History can be bounded with `RETENTION_PERIOD`; current state is always complete.
+
+## Serving
+
+`serve` is stateless. It exposes three GraphQL root queries: `accountByAddress`, `transactionByHash`, `operationById`, each with connections for the related rows. Requests can be required to carry a JWT signed with a Stellar key. Details in [GraphQL serving](graphql-serving.md) and the [API guide](../api/graphql.md).
+
+## Boundaries
+
+| Concern | Where it lives |
+|---|---|
+| Building and submitting transactions | not here; use an SDK and RPC |
+| Historical data older than what you ingested | backfill from a data lake, see [running](../operations/running.md) |
+| Leader election for ingest | a database advisory lock; a second live ingester exits |
+| Rate limiting, TLS, caching | your ingress or gateway |
+
+## Repository map
+
+| Path | Contents |
+|---|---|
+| `cmd/` | CLI commands and flag definitions |
+| `internal/ingest/` | Ingest process wiring, ledger sources, TimescaleDB policies |
+| `internal/services/` | Ingest loop, backfill, checkpoint bootstrap, token tracking, protocols, RPC client |
+| `internal/indexer/` | Per-ledger processing and the processors that emit rows |
+| `internal/data/` | Table models and queries |
+| `internal/db/` | Connection pool, migrations |
+| `internal/serve/` | HTTP server, GraphQL schema, resolvers, dataloaders, middleware |
+| `internal/metrics/` | Prometheus metrics |
+| `pkg/wbclient/` | Go client and request signer |
+| `docs/` | This documentation |
