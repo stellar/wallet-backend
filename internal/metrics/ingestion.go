@@ -41,6 +41,13 @@ type IngestionMetrics struct {
 	// queue wait. It excludes tip-wait and datastore publish delay.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_freshness_seconds_bucket[15m]))
 	Freshness prometheus.Histogram
+	// DataAge observes, per ledger, the time from the ledger's close time to
+	// the commit that made it queryable: the staleness a wallet reads. It is
+	// Freshness plus the upstream leg (close → publish → fetch). Close times
+	// are whole seconds, so a reading carries up to one second of
+	// quantisation.
+	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_data_age_seconds_bucket[15m]))
+	DataAge prometheus.Histogram
 	// LedgersProcessed counts total ledgers ingested.
 	// PromQL: rate(wallet_ingestion_ledgers_total[5m])
 	LedgersProcessed prometheus.Counter
@@ -140,6 +147,11 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Help:    "Per-ledger time from fetch completion to the persist commit that made the ledger queryable, including inter-stage queueing. Excludes tip-wait and datastore publish delay.",
 			Buckets: []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10},
 		}),
+		DataAge: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_data_age_seconds",
+			Help:    "Per-ledger time from the ledger close time to the persist commit that made the ledger queryable. Includes the upstream publish and fetch legs; close times are whole seconds, so readings carry up to one second of quantisation.",
+			Buckets: []float64{0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 15, 20, 30, 60},
+		}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
 			Help: "Total number of ledgers processed during ingestion.",
@@ -213,6 +225,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.PhaseDuration,
 		m.PhaseDurationPerLedger,
 		m.Freshness,
+		m.DataAge,
 		m.LedgersProcessed,
 		m.PersistBatchSize,
 		m.TransactionsTotal,

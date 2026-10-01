@@ -1653,6 +1653,9 @@ func Test_ingestLiveLedgers_batchReachesConfiguredCap(t *testing.T) {
 
 	// One observation per ledger, on every per-ledger series.
 	assert.Equal(t, ledgersProcessed, freshness.GetSampleCount(), "freshness observes once per ledger")
+	// dummyLedgerMeta carries no close time, so the data-age observation is
+	// skipped rather than recorded against the Unix epoch.
+	assert.Zero(t, histogramOf(t, m.Ingestion.DataAge).GetSampleCount(), "data age is not observed for a ledger without a close time")
 	assert.Equal(t, ledgersProcessed, perLedgerPersist.GetSampleCount(), "per-ledger insert_into_db observes once per ledger")
 	assert.Equal(t, ledgersProcessed, rawPersist.GetSampleCount(), "raw insert_into_db observes once per ledger")
 
@@ -3743,4 +3746,31 @@ func Test_persistSiblings_Order(t *testing.T) {
 		names[i] = s.name
 	}
 	require.Equal(t, append(data.BulkCopyTableNames(), "balances", "trustlines"), names)
+}
+
+// Test_recordBatchPersisted_dataAge pins the data-age observation: one per
+// ledger with a close time, measured from that close time to the commit
+// instant, so it is never shorter than the same ledger's freshness; a ledger
+// without a close time is skipped.
+func Test_recordBatchPersisted_dataAge(t *testing.T) {
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	svc := &ingestService{appMetrics: m}
+
+	committedAt := time.Date(2026, 10, 1, 12, 0, 10, 0, time.UTC)
+	batch := []processedLedger{
+		{seq: 1, closeTime: committedAt.Add(-5 * time.Second).Unix(), fetchedAt: committedAt.Add(-time.Second), buffer: indexer.NewIndexerBuffer()},
+		{seq: 2, closeTime: 0, fetchedAt: committedAt.Add(-time.Second), buffer: indexer.NewIndexerBuffer()},
+	}
+	freeBuffers := make(chan *indexer.IndexerBuffer, len(batch))
+	var latestIngested atomic.Uint32
+
+	err := svc.recordBatchPersisted(context.Background(), batch, committedAt, 0, 0, freeBuffers, &latestIngested)
+	require.NoError(t, err)
+
+	dataAge := histogramOf(t, m.Ingestion.DataAge)
+	freshness := histogramOf(t, m.Ingestion.Freshness)
+	assert.Equal(t, uint64(1), dataAge.GetSampleCount(), "only the ledger with a close time is observed")
+	assert.Equal(t, uint64(2), freshness.GetSampleCount(), "both ledgers carry a fetch instant")
+	assert.InDelta(t, 5.0, dataAge.GetSampleSum(), 1e-9, "data age is commit minus close time")
+	assert.GreaterOrEqual(t, dataAge.GetSampleSum(), freshness.GetSampleSum()/2, "data age cannot be shorter than the same ledger's freshness")
 }

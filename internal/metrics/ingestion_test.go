@@ -155,6 +155,25 @@ func TestIngestionMetrics_Freshness_Buckets(t *testing.T) {
 	require.True(t, found, "wallet_ingestion_freshness_seconds was not gathered")
 }
 
+func TestIngestionMetrics_DataAge_Buckets(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.DataAge.Observe(0.5)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	found := false
+	for _, f := range families {
+		if f.GetName() == "wallet_ingestion_data_age_seconds" {
+			found = true
+			h := f.GetMetric()[0].GetHistogram()
+			assert.Len(t, h.GetBucket(), 14) // Freshness's 10 boundaries plus 15, 20, 30, 60
+		}
+	}
+	require.True(t, found, "wallet_ingestion_data_age_seconds was not gathered")
+}
+
 func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := newIngestionMetrics(reg)
@@ -257,7 +276,7 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 
 	for _, c := range []prometheus.Collector{
 		m.LatestLedger, m.OldestLedger, m.Duration, m.PhaseDuration,
-		m.PhaseDurationPerLedger, m.Freshness,
+		m.PhaseDurationPerLedger, m.Freshness, m.DataAge,
 		m.LedgersProcessed, m.TransactionsTotal, m.OperationsTotal,
 		m.ParticipantsCount, m.PersistBatchSize,
 		m.LagLedgers, m.LedgerFetchDuration,

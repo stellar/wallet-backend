@@ -1224,6 +1224,12 @@ func (m *ingestService) recordBatchPersisted(ctx context.Context, batch []proces
 		if !pl.fetchedAt.IsZero() {
 			m.appMetrics.Ingestion.Freshness.Observe(committedAt.Sub(pl.fetchedAt).Seconds())
 		}
+		// DataAge adds the upstream leg to Freshness: commit instant minus the
+		// ledger's close time. A zero close time (a header-less ledger, as in
+		// tests) is skipped for the same reason as a zero fetchedAt.
+		if pl.closeTime > 0 {
+			m.appMetrics.Ingestion.DataAge.Observe(committedAt.Sub(time.Unix(pl.closeTime, 0)).Seconds())
+		}
 		m.appMetrics.Ingestion.TransactionsTotal.Add(float64(pl.buffer.GetNumberOfTransactions()))
 		m.appMetrics.Ingestion.OperationsTotal.Add(float64(pl.buffer.GetNumberOfOperations()))
 		// The per-reason/category fold runs here, off the persist
