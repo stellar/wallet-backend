@@ -3,8 +3,10 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,15 +120,11 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 	start := time.Now()
 
 	if len(upserts) > 0 {
-		accountIDs := make([][]byte, len(upserts))
-		assetIDs := make([]uuid.UUID, len(upserts))
-		balances := make([]int64, len(upserts))
-		limits := make([]int64, len(upserts))
-		buyingLiabilities := make([]int64, len(upserts))
-		sellingLiabilities := make([]int64, len(upserts))
-		flags := make([]int32, len(upserts))
-		ledgerNumbers := make([]int64, len(upserts))
-
+		type upsertRow struct {
+			accountID []byte
+			tl        TrustlineBalance
+		}
+		rows := make([]upsertRow, len(upserts))
 		for i, tl := range upserts {
 			raw, err := tl.AccountID.Value()
 			if err != nil {
@@ -136,14 +134,36 @@ func (m *TrustlineBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, up
 			if !ok {
 				return fmt.Errorf("converting account address to bytes for upsert: expected []byte, got %T", raw)
 			}
-			accountIDs[i] = rawBytes
-			assetIDs[i] = tl.AssetID
-			balances[i] = tl.Balance
-			limits[i] = tl.Limit
-			buyingLiabilities[i] = tl.BuyingLiabilities
-			sellingLiabilities[i] = tl.SellingLiabilities
-			flags[i] = int32(tl.Flags)
-			ledgerNumbers[i] = int64(tl.LedgerNumber)
+			rows[i] = upsertRow{accountID: rawBytes, tl: tl}
+		}
+		// Upserts arrive in Go map-iteration order; sorting by the PK's
+		// leading columns descends the btree and touches heap pages in key
+		// order instead of scattering thousands of random probes across the
+		// relation.
+		slices.SortFunc(rows, func(a, b upsertRow) int {
+			if c := bytes.Compare(a.accountID, b.accountID); c != 0 {
+				return c
+			}
+			return bytes.Compare(a.tl.AssetID[:], b.tl.AssetID[:])
+		})
+
+		accountIDs := make([][]byte, len(rows))
+		assetIDs := make([]uuid.UUID, len(rows))
+		balances := make([]int64, len(rows))
+		limits := make([]int64, len(rows))
+		buyingLiabilities := make([]int64, len(rows))
+		sellingLiabilities := make([]int64, len(rows))
+		flags := make([]int32, len(rows))
+		ledgerNumbers := make([]int64, len(rows))
+		for i, row := range rows {
+			accountIDs[i] = row.accountID
+			assetIDs[i] = row.tl.AssetID
+			balances[i] = row.tl.Balance
+			limits[i] = row.tl.Limit
+			buyingLiabilities[i] = row.tl.BuyingLiabilities
+			sellingLiabilities[i] = row.tl.SellingLiabilities
+			flags[i] = int32(row.tl.Flags)
+			ledgerNumbers[i] = int64(row.tl.LedgerNumber)
 		}
 
 		const upsertQuery = `

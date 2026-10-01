@@ -120,6 +120,12 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			stellarAddressesByToID: map[int64]map[string]struct{}{},
 			wantCount:              1,
 		},
+		{
+			name:                   "🔴participant_for_unknown_to_id",
+			txs:                    []*types.Transaction{&txCopy1},
+			stellarAddressesByToID: map[int64]map[string]struct{}{999999: {kp1.Address(): {}}},
+			wantErrContains:        "no transaction supplies ledger_created_at for to_id 999999",
+		},
 	}
 
 	// Create pgx connection for BatchCopy (requires pgx.Tx, not sqlx.Tx)
@@ -145,7 +151,10 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs, tc.stellarAddressesByToID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.txs)
+			if err == nil {
+				err = m.BatchCopyAccounts(ctx, pgxTx, tc.txs, tc.stellarAddressesByToID)
+			}
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -463,10 +472,15 @@ func BenchmarkTransactionModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, txs, addressesByToID)
+				_, err = m.BatchCopy(ctx, pgxTx, txs)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)
+				}
+				err = m.BatchCopyAccounts(ctx, pgxTx, txs, addressesByToID)
+				if err != nil {
+					pgxTx.Rollback(ctx)
+					b.Fatalf("BatchCopyAccounts failed: %v", err)
 				}
 
 				b.StopTimer()
