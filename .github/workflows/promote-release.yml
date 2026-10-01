@@ -1,5 +1,5 @@
-# ABOUTME: Promotes an existing prerelease image from staging ECR to production ECR by re-tagging
-# ABOUTME: (no rebuild — preserves byte digest) and creates a non-prerelease GitHub release.
+# ABOUTME: Promotes a prerelease image from staging ECR to production ECR and Docker Hub by re-tagging
+# ABOUTME: (no rebuild, same digest everywhere) and creates a non-prerelease GitHub release.
 name: Promote Release
 
 on:
@@ -13,6 +13,12 @@ on:
         description: "Release version to publish (e.g., v1.2.3)"
         required: true
         type: string
+
+env:
+  # Versions listed under "Tested with" in the release notes.
+  PG_MAJOR: "17"
+  TSDB_VERSION: "2.28.2"
+  DOCKERHUB_IMAGE: docker.io/stellar/wallet-backend
 
 permissions:
   id-token: write
@@ -112,11 +118,13 @@ jobs:
           echo "ECR tag $RELEASE_VERSION not present. Proceeding."
 
       - name: Re-tag image from staging to production ECR
+        id: retag
         env:
           ECR_REGISTRY: ${{ steps.ecr_login.outputs.ecr-registry }}
           PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
+          set -euo pipefail
           STG_TAG="${ECR_REGISTRY}/stg/wallet-backend:${PRERELEASE_TAG}"
           PRD_TAG="${ECR_REGISTRY}/prd/wallet-backend:${RELEASE_VERSION}"
           echo "Re-tagging $STG_TAG -> $PRD_TAG"
@@ -131,6 +139,46 @@ jobs:
             exit 1
           fi
           echo "Promotion successful — bytes preserved."
+          echo "prd_tag=$PRD_TAG" >> "$GITHUB_OUTPUT"
+          echo "digest=$PRD_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify Docker Hub tag does not exist
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
+            exit 1
+          fi
+          echo "Docker Hub tag ${RELEASE_VERSION} not present. Proceeding."
+
+      # Cross-registry copy of the production ECR digest; no rebuild.
+      - name: Publish to Docker Hub
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          PRD_TAG: ${{ steps.retag.outputs.prd_tag }}
+          PRD_DIGEST: ${{ steps.retag.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "Copying $PRD_TAG -> ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} and :latest"
+          docker buildx imagetools create --prefer-index=false \
+            --tag "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" \
+            --tag "${DOCKERHUB_IMAGE}:latest" \
+            "$PRD_TAG"
+          HUB_DIGEST=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}')
+          echo "PRD digest: $PRD_DIGEST"
+          echo "Docker Hub digest: $HUB_DIGEST"
+          if [[ "$HUB_DIGEST" != "$PRD_DIGEST" ]]; then
+            echo "::error::Digest mismatch after Docker Hub copy: '$PRD_DIGEST' vs '$HUB_DIGEST'."
+            exit 1
+          fi
+          echo "Docker Hub publish successful — bytes preserved."
 
       - name: Create GitHub release
         env:
@@ -138,7 +186,22 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
         run: |
+          set -euo pipefail
+          # Generated notes are appended after --notes. The maintainer fills the
+          # <fill in> placeholders by editing the release after promotion.
+          NOTES=$(cat <<EOF
+          ## Images
+          - \`docker pull stellar/wallet-backend:${RELEASE_VERSION}\`
+
+          ## Tested with
+          - stellar-rpc: <fill in>
+          - Stellar protocol: <fill in>
+          - PostgreSQL: ${PG_MAJOR}
+          - TimescaleDB: ${TSDB_VERSION}
+          EOF
+          )
           gh release create "$RELEASE_VERSION" \
             --target "$COMMIT_SHA" \
             --title "$RELEASE_VERSION" \
+            --notes "$NOTES" \
             --generate-notes

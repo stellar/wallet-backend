@@ -7,6 +7,7 @@ updates:
       day: "sunday"
       time: "02:00"
     open-pull-requests-limit: 2
+    labels: ["dependencies"]
     groups:
       minor-and-patch:
         applies-to: version-updates
@@ -24,6 +25,7 @@ updates:
       day: "sunday"
       time: "02:00"
     open-pull-requests-limit: 2
+    labels: ["dependencies"]
     groups:
       all-actions:
         applies-to: version-updates
@@ -35,6 +37,7 @@ updates:
       day: "sunday"
       time: "02:00"
     open-pull-requests-limit: 2
+    labels: ["dependencies"]
     groups:
       all-docker:
         applies-to: version-updates

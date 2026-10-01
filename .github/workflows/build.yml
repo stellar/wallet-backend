@@ -72,6 +72,8 @@ jobs:
         run: |
           set -eu
           export TAG="${ECR_REGISTRY}/${NAMESPACE}/wallet-backend:${SHA}"
+          # SHA builds report a dev version via `wallet-backend version`.
+          export VERSION="dev-${SHA::7}"
           make docker-build
           ecr-push "$TAG"
 
