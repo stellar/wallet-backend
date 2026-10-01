@@ -26,11 +26,35 @@ var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found
 // TransactionOperationWrapper represents the data for a single operation within a transaction
 type TransactionOperationWrapper struct {
 	Index          uint32
-	Transaction    ingest.LedgerTransaction
+	Transaction    *ingest.LedgerTransaction
 	Operation      xdr.Operation
 	LedgerSequence uint32
 	Network        string
 	LedgerClosed   time.Time
+
+	// Memo backing Changes, valid only for Index.
+	changes    []ingest.Change
+	changesErr error
+	changesSet bool
+}
+
+// Changes returns the ledger entry changes the operation produced, decoding them on
+// the first call and serving the memo on every later one. All of an operation's
+// processors share a single wrapper, so the decode, the allocations, and the sort
+// the SDK accessor performs happen once per operation rather than once per processor.
+//
+// The wrapper is used from a single goroutine — the per-transaction worker walks its
+// operations sequentially — so the memo needs no synchronization.
+//
+// Callers must not mutate the returned slice or the entries it points at: sorting it,
+// filtering it in place, or writing through a change's Pre/Post would corrupt every
+// other processor's view of the operation.
+func (operation *TransactionOperationWrapper) Changes() ([]ingest.Change, error) {
+	if !operation.changesSet {
+		operation.changes, operation.changesErr = operation.Transaction.GetOperationChanges(operation.Index)
+		operation.changesSet = true
+	}
+	return operation.changes, operation.changesErr
 }
 
 // ID returns the ID for the operation.
@@ -53,14 +77,11 @@ func (operation *TransactionOperationWrapper) TransactionID() int64 {
 }
 
 // SourceAccount returns the operation's source account.
-func (operation *TransactionOperationWrapper) SourceAccount() *xdr.MuxedAccount {
-	sourceAccount := operation.Operation.SourceAccount
-	if sourceAccount != nil {
-		return sourceAccount
-	} else {
-		ret := operation.Transaction.Envelope.SourceAccount()
-		return &ret
+func (operation *TransactionOperationWrapper) SourceAccount() xdr.MuxedAccount {
+	if sourceAccount := operation.Operation.SourceAccount; sourceAccount != nil {
+		return *sourceAccount
 	}
+	return operation.Transaction.Envelope.SourceAccount()
 }
 
 // OperationType returns the operation type.
@@ -101,7 +122,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 }
 
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -154,6 +175,9 @@ func (operation *TransactionOperationWrapper) findInitatingBeginSponsoringOp() *
 			result := *operation
 			result.Index = uint32(i)
 			result.Operation = operations[i]
+			// The copy describes a different operation, so it starts with an empty
+			// change memo instead of inheriting one keyed to the source's index.
+			result.changes, result.changesErr, result.changesSet = nil, nil, false
 			return &result
 		}
 	}
@@ -216,7 +240,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 			}
 			details["trustee"] = details["asset_issuer"]
 		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustor"); err != nil {
+		if err := AddAccountAndMuxedAccountDetails(details, source, "trustor"); err != nil {
 			return nil, err
 		}
 		details["limit"] = amount.String(op.Limit)
@@ -225,7 +249,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		if err := AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), ""); err != nil {
 			return nil, err
 		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustee"); err != nil {
+		if err := AddAccountAndMuxedAccountDetails(details, source, "trustee"); err != nil {
 			return nil, err
 		}
 		details["trustor"] = op.Trustor.Address()
@@ -253,7 +277,7 @@ func (operation *TransactionOperationWrapper) Details() (map[string]interface{},
 		beginSponsorshipOp := operation.findInitatingBeginSponsoringOp()
 		if beginSponsorshipOp != nil {
 			beginSponsorshipSource := beginSponsorshipOp.SourceAccount()
-			if err := AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor"); err != nil {
+			if err := AddAccountAndMuxedAccountDetails(details, beginSponsorshipSource, "begin_sponsor"); err != nil {
 				return nil, err
 			}
 		}
@@ -600,17 +624,29 @@ func (operation *TransactionOperationWrapper) Participants() ([]xdr.AccountId, e
 	return dedupeParticipants(participants), nil
 }
 
-// dedupeParticipants remove any duplicate ids from `in`
-func dedupeParticipants(in []xdr.AccountId) (out []xdr.AccountId) {
-	set := map[string]xdr.AccountId{}
-	for _, id := range in {
-		set[id.Address()] = id
+// dedupeParticipants removes duplicate ids from `in`, comparing raw ed25519 keys and
+// keeping first-seen order. An operation carries a handful of participants at most,
+// so a linear scan over the kept prefix beats a map — and by filtering in place it
+// allocates nothing. Callers hand over ownership of `in`.
+func dedupeParticipants(in []xdr.AccountId) []xdr.AccountId {
+	if len(in) <= 1 {
+		return in
 	}
 
-	for _, id := range set {
-		out = append(out, id)
+	out := in[:1]
+	for _, id := range in[1:] {
+		isDuplicate := false
+		for _, kept := range out {
+			if *kept.Ed25519 == *id.Ed25519 {
+				isDuplicate = true
+				break
+			}
+		}
+		if !isDuplicate {
+			out = append(out, id)
+		}
 	}
-	return
+	return out
 }
 
 func serializeParameters(args []xdr.ScVal) ([]map[string]string, []map[string]string) {

@@ -63,21 +63,24 @@ func calculateContractID(networkPassphrase string, fromAddress xdr.ContractIdPre
 // operation, as a signing account or as a custom account. Returns ErrNotSorobanOperation
 // for non-Soroban operations.
 //
-// Every set here is thread-unsafe: they are built and consumed within a single indexer
-// worker goroutine (see Indexer.ProcessLedgerTransactions).
-func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string], error) {
+// The participants are added to the accumulator the caller passes in: one set per
+// operation instead of one per processor, with no Union merges. The accumulator must be
+// thread-unsafe; it is built and consumed within a single indexer worker goroutine (see
+// Indexer.ProcessLedgerTransactions), so a thread-safe set's mutex would be overhead on
+// the hot path.
+func participantsForSorobanOp(op *TransactionOperationWrapper, participants set.Set[string]) error {
 	if !op.Transaction.IsSorobanTx() {
-		return nil, ErrNotSorobanOperation
+		return ErrNotSorobanOperation
 	}
 
-	participants := set.NewThreadUnsafeSet(op.SourceAccount().ToAccountId().Address())
+	participants.Add(op.SourceAccount().ToAccountId().Address())
 	if op.Operation.Body.Type != xdr.OperationTypeInvokeHostFunction {
-		return participants, nil
+		return nil
 	}
 
 	changes, err := op.Transaction.GetOperationChanges(op.Index)
 	if err != nil {
-		return nil, fmt.Errorf("getting operation changes: %w", err)
+		return fmt.Errorf("getting operation changes: %w", err)
 	}
 	for _, change := range changes {
 		// The host only ever creates nonce entries (consume_nonce errors if the key exists).
@@ -90,9 +93,9 @@ func participantsForSorobanOp(op *TransactionOperationWrapper) (set.Set[string],
 		}
 		authorizer, err := contractData.Contract.String()
 		if err != nil {
-			return nil, fmt.Errorf("converting nonce entry address to string: %w", err)
+			return fmt.Errorf("converting nonce entry address to string: %w", err)
 		}
 		participants.Add(authorizer)
 	}
-	return participants, nil
+	return nil
 }

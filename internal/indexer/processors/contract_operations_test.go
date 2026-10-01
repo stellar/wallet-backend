@@ -39,7 +39,7 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 			Operation: xdr.Operation{
 				Body: xdr.OperationBody{Type: xdr.OperationTypePayment},
 			},
-			Transaction: ingest.LedgerTransaction{
+			Transaction: &ingest.LedgerTransaction{
 				Envelope: xdr.TransactionEnvelope{
 					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 					V1: &xdr.TransactionV1Envelope{
@@ -76,7 +76,8 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErrContains)
 			assert.Empty(t, participants)
@@ -98,7 +99,7 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 			Network:      network.TestNetworkPassphrase,
 			LedgerClosed: time.Now(),
 			Operation:    xdr.Operation{},
-			Transaction: ingest.LedgerTransaction{
+			Transaction: &ingest.LedgerTransaction{
 				Envelope: xdr.TransactionEnvelope{
 					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
 					V1: &xdr.TransactionV1Envelope{
@@ -204,7 +205,8 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
@@ -259,7 +261,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_uploadWasm(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
 		})
@@ -457,7 +460,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_createContract(t *testing.
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
@@ -547,7 +551,8 @@ func Test_participantsForSorobanOp_invokeHostFunction_invokeContract(t *testing.
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForSorobanOp(tc.op)
+			participants := set.NewThreadUnsafeSet[string]()
+			err := participantsForSorobanOp(tc.op, participants)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantParticipants, participants)
@@ -621,9 +626,11 @@ func Test_participantsForSorobanOp_muxedSource(t *testing.T) {
 				op := makeBasicSorobanOp()
 				op.Operation = xdr.Operation{Body: b.body}
 				s.apply(op)
-				require.Equal(t, muxedSource.Address(), op.SourceAccount().Address(), "the op source must resolve to the muxed account")
+				opSource := op.SourceAccount()
+				require.Equal(t, muxedSource.Address(), opSource.Address(), "the op source must resolve to the muxed account")
 
-				participants, err := participantsForSorobanOp(op)
+				participants := set.NewThreadUnsafeSet[string]()
+				err := participantsForSorobanOp(op, participants)
 				require.NoError(t, err)
 				assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
 
@@ -643,7 +650,8 @@ func Test_participantsForSorobanOp_authorizersFromNonceEntries(t *testing.T) {
 		nonceEntryCreated(makeScContract(contractID1), 2),
 	}, nil)
 
-	participants, err := participantsForSorobanOp(op)
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsForSorobanOp(op, participants)
 	require.NoError(t, err)
 	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, accountID1, contractID1), participants)
 }
@@ -654,7 +662,8 @@ func Test_participantsForSorobanOp_ignoresEventEmitters(t *testing.T) {
 	op := makeInvokeContractOp()
 	setOperationMeta(op, nil, []xdr.ContractEvent{contractEventFrom(invokedContractID), contractEventFrom(contractID2)})
 
-	participants, err := participantsForSorobanOp(op)
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsForSorobanOp(op, participants)
 	require.NoError(t, err)
 	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
 }
@@ -682,7 +691,8 @@ func Test_participantsForSorobanOp_ignoresDeclaredAuthTree(t *testing.T) {
 	// Meta records only what executed: the invoked contract emitted one event.
 	setOperationMeta(op, nil, []xdr.ContractEvent{contractEventFrom(invokedContractID)})
 
-	participants, err := participantsForSorobanOp(op)
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsForSorobanOp(op, participants)
 	require.NoError(t, err)
 	assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
 }
@@ -716,7 +726,7 @@ func Test_participantsForSorobanOp_realTestnetMeta(t *testing.T) {
 		LedgerSequence: 4679347,
 		LedgerClosed:   closeTime,
 		Operation:      envelope.Operations()[0],
-		Transaction: ingest.LedgerTransaction{
+		Transaction: &ingest.LedgerTransaction{
 			Index:      1,
 			Envelope:   envelope,
 			Result:     xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxSuccess, Results: &[]xdr.OperationResult{}}}},
@@ -725,7 +735,8 @@ func Test_participantsForSorobanOp_realTestnetMeta(t *testing.T) {
 		},
 	}
 
-	participants, err := participantsForSorobanOp(op)
+	participants := set.NewThreadUnsafeSet[string]()
+	err := participantsForSorobanOp(op, participants)
 	require.NoError(t, err)
 	assert.Equal(t, set.NewThreadUnsafeSet(source, invoked), participants)
 	assert.NotContains(t, participants.ToSlice(), nestedContract)

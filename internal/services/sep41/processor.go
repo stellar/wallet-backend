@@ -130,7 +130,7 @@ func (p *processor) ProcessLedger(_ context.Context, input services.ProtocolProc
 		// tx walk would have produced.
 		txID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), 0).ToInt64()
 		opID := toid.New(int32(input.LedgerSequence), int32(key.TxIdx), int32(key.OpIdx+1)).ToInt64()
-		opBuilder := processors.NewStateChangeBuilder(input.LedgerSequence, input.LedgerCloseTime, txID, nil).
+		opBuilder := processors.NewStateChangeBuilder(input.LedgerSequence, input.LedgerCloseTime, txID).
 			WithOperationID(opID)
 
 		for _, event := range events {
@@ -177,7 +177,7 @@ func sortedEventKeys(events map[indexer.ContractEventKey][]xdr.ContractEvent) []
 	return keys
 }
 
-func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.StateChangeBuilder, mode services.StagingMode) error {
+func (p *processor) processEvent(event xdr.ContractEvent, opBuilder processors.StateChangeBuilder, mode services.StagingMode) error {
 	if event.Type != xdr.ContractEventTypeContract || event.ContractId == nil || event.Body.V != 0 {
 		return fmt.Errorf("unsupported event shape")
 	}
@@ -198,7 +198,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		return fmt.Errorf("topic[0] not a symbol")
 	}
 
-	scBuilder := opBuilder.Clone().
+	scBuilder := opBuilder.
 		WithCategory(types.StateChangeCategoryBalance).
 		WithToken(contractStr)
 
@@ -213,13 +213,13 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
 		if mode.NeedsHistory() {
-			creditBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonCredit).
+			creditBuilder := scBuilder.WithReason(types.StateChangeReasonCredit).
 				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 			if decoded.ToMuxedID != nil {
 				creditBuilder = creditBuilder.WithToMuxedID(*decoded.ToMuxedID)
 			}
 			p.stagedStateChanges = append(p.stagedStateChanges,
-				scBuilder.Clone().WithReason(types.StateChangeReasonDebit).
+				scBuilder.WithReason(types.StateChangeReasonDebit).
 					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
 				creditBuilder.Build(),
 			)
@@ -234,7 +234,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			p.applyBalanceDelta(types.AddressBytea(decoded.To), contractStr, decoded.Amount)
 		}
 		if mode.NeedsHistory() {
-			mintBuilder := scBuilder.Clone().WithReason(types.StateChangeReasonMint).
+			mintBuilder := scBuilder.WithReason(types.StateChangeReasonMint).
 				WithAccount(decoded.To).WithAmount(decoded.Amount.String())
 			if decoded.ToMuxedID != nil {
 				mintBuilder = mintBuilder.WithToMuxedID(*decoded.ToMuxedID)
@@ -252,7 +252,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		}
 		if mode.NeedsHistory() {
 			p.stagedStateChanges = append(p.stagedStateChanges,
-				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+				scBuilder.WithReason(types.StateChangeReasonBurn).
 					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
 			)
 		}
@@ -268,7 +268,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 		if mode.NeedsHistory() {
 			// Reason=BURN reflects supply reduction — no dedicated CLAWBACK reason in the schema enum.
 			p.stagedStateChanges = append(p.stagedStateChanges,
-				scBuilder.Clone().WithReason(types.StateChangeReasonBurn).
+				scBuilder.WithReason(types.StateChangeReasonBurn).
 					WithAccount(decoded.From).WithAmount(decoded.Amount.String()).Build(),
 			)
 		}
@@ -292,7 +292,7 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 			// column (spender_account_id) and amount flows through WithAmount; key_value carries
 			// only live_until_ledger, which expirationLedger is read from.
 			p.stagedStateChanges = append(p.stagedStateChanges,
-				scBuilder.Clone().
+				scBuilder.
 					WithCategory(types.StateChangeCategoryAllowance).
 					WithReason(types.StateChangeReasonUpdate).
 					WithAccount(decoded.From).
