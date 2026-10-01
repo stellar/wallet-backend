@@ -127,6 +127,11 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 			ledgerNumbers[i] = int64(row.nb.LedgerNumber)
 		}
 
+		// The WHERE clause compares only the tracked values, so the update fires
+		// only when one of them differs and last_modified_ledger records the last
+		// ledger that changed one. Re-observing an account with identical values
+		// is a pure no-op: no new tuple version, no dead tuple, no WAL, no index
+		// churn.
 		const upsertQuery = `
 			INSERT INTO native_balances (account_id, balance, minimum_balance, buying_liabilities, selling_liabilities, num_subentries, last_modified_ledger)
 			SELECT * FROM UNNEST($1::bytea[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::int[], $7::bigint[])
@@ -136,7 +141,12 @@ func (m *NativeBalanceModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, upser
 				buying_liabilities = EXCLUDED.buying_liabilities,
 				selling_liabilities = EXCLUDED.selling_liabilities,
 				num_subentries = EXCLUDED.num_subentries,
-				last_modified_ledger = EXCLUDED.last_modified_ledger`
+				last_modified_ledger = EXCLUDED.last_modified_ledger
+			WHERE (native_balances.balance, native_balances.minimum_balance, native_balances.buying_liabilities,
+			       native_balances.selling_liabilities, native_balances.num_subentries)
+			      IS DISTINCT FROM
+			      (EXCLUDED.balance, EXCLUDED.minimum_balance, EXCLUDED.buying_liabilities,
+			       EXCLUDED.selling_liabilities, EXCLUDED.num_subentries)`
 
 		if _, err := dbTx.Exec(ctx, upsertQuery, accountIDs, balances, minimumBalances, buyingLiabilities, sellingLiabilities, numSubentries, ledgerNumbers); err != nil {
 			m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", "native_balances").Observe(time.Since(start).Seconds())

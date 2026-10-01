@@ -8,12 +8,94 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
+// objectSubField builds a sub-field carrying a selection set of its own, i.e. an object-typed one.
+func objectSubField(name string) *ast.Field {
+	return &ast.Field{Name: name, SelectionSet: ast.SelectionSet{&ast.Field{Name: "edges"}}}
+}
+
+// rootFieldQuery builds an operation context whose single root field selects the given sub-fields.
+func rootFieldQuery(rootField string, subFields ...ast.Selection) *graphql.OperationContext {
+	return &graphql.OperationContext{
+		Operation: &ast.OperationDefinition{
+			SelectionSet: ast.SelectionSet{
+				&ast.Field{Name: rootField, SelectionSet: ast.SelectionSet(subFields)},
+			},
+		},
+	}
+}
+
 func TestGetOperationIdentifier(t *testing.T) {
 	tests := []struct {
 		name     string
 		oc       *graphql.OperationContext
 		expected string
 	}{
+		{
+			name:     "account balances query is identified by its sub-field",
+			oc:       rootFieldQuery("accountByAddress", objectSubField("balances")),
+			expected: "accountByAddress.balances",
+		},
+		{
+			name:     "account transactions query is identified by its sub-field",
+			oc:       rootFieldQuery("accountByAddress", objectSubField("transactions")),
+			expected: "accountByAddress.transactions",
+		},
+		{
+			name:     "account operations query is identified by its sub-field",
+			oc:       rootFieldQuery("accountByAddress", objectSubField("operations")),
+			expected: "accountByAddress.operations",
+		},
+		{
+			name:     "account state changes query is identified by its sub-field",
+			oc:       rootFieldQuery("accountByAddress", objectSubField("stateChanges")),
+			expected: "accountByAddress.stateChanges",
+		},
+		{
+			name:     "transaction operations query is identified by its sub-field",
+			oc:       rootFieldQuery("transactionByHash", objectSubField("operations")),
+			expected: "transactionByHash.operations",
+		},
+		{
+			name:     "connection root field is identified by its edges sub-field",
+			oc:       rootFieldQuery("blendPools", objectSubField("edges")),
+			expected: "blendPools.edges",
+		},
+		{
+			name: "scalar sub-fields before the object sub-field are skipped",
+			oc: rootFieldQuery("accountByAddress",
+				&ast.Field{Name: "address"},
+				&ast.Field{Name: "id"},
+				objectSubField("balances"),
+			),
+			expected: "accountByAddress.balances",
+		},
+		{
+			name: "scalar-only selection set keeps the bare root field name",
+			oc: rootFieldQuery("accountByAddress",
+				&ast.Field{Name: "address"},
+				&ast.Field{Name: "id"},
+			),
+			expected: "accountByAddress",
+		},
+		{
+			name: "sub-selection of only fragments keeps the bare root field name",
+			oc: rootFieldQuery("accountByAddress",
+				&ast.FragmentSpread{Name: "AccountFields"},
+			),
+			expected: "accountByAddress",
+		},
+		{
+			name: "first root field wins over a later root field with an object sub-field",
+			oc: &graphql.OperationContext{
+				Operation: &ast.OperationDefinition{
+					SelectionSet: ast.SelectionSet{
+						&ast.Field{Name: "operationById"},
+						&ast.Field{Name: "accountByAddress", SelectionSet: ast.SelectionSet{objectSubField("balances")}},
+					},
+				},
+			},
+			expected: "operationById",
+		},
 		{
 			name:     "nil operation context returns unnamed",
 			oc:       nil,

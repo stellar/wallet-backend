@@ -50,9 +50,11 @@ type GraphQLMetrics struct {
 func NewGraphQLMetrics(reg prometheus.Registerer) *GraphQLMetrics {
 	m := &GraphQLMetrics{
 		OperationDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_graphql_operation_duration_seconds",
-			Help:    "Total duration of GraphQL operations from request start to response.",
-			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
+			Name: "wallet_graphql_operation_duration_seconds",
+			Help: "Total duration of GraphQL operations from request start to response.",
+			// The 10/20/50/100/250 ms SLA targets each sit on a bucket edge, so histogram_quantile
+			// resolves pass/fail against them exactly rather than by interpolation.
+			Buckets: []float64{0.005, 0.01, 0.02, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
 		}, []string{"operation_name", "operation_type"}),
 		OperationsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "wallet_graphql_operations_total",
