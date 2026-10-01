@@ -5,43 +5,94 @@ type Account {
 
   """
   All token balances held by this account: native XLM, classic trustlines,
-  SAC, SEP-41, and liquidity-pool shares.
+  SAC, SEP-41, and liquidity-pool shares. Edges come in a fixed order by token
+  type: native, trustlines, SEP-41, then liquidity pools for a G-address; SAC,
+  then SEP-41 for a C-address.
   """
-  balances(first: Int, after: String, last: Int, before: String): BalanceConnection!
+  balances(
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
+    before: String
+  ): BalanceConnection!
 
   """
-  Transactions this account participated in. Optional since/until bounds
-  enable TimescaleDB chunk pruning on ledger close time.
+  Transactions this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
   transactions(
+    """Only include items whose ledger close time is at or after this time."""
     since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than `since`."""
     until: Time
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
     first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
     after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
     last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
     before: String
   ): AccountTransactionConnection!
 
   """
-  Operations this account participated in. Optional since/until bounds enable
-  TimescaleDB chunk pruning on ledger close time.
+  Operations this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
-  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection!
+  operations(
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than `since`."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
+    before: String
+  ): OperationConnection!
 
   """
-  State changes affecting this account, optionally filtered. Optional
-  since/until bounds enable TimescaleDB chunk pruning on ledger close time.
+  State changes affecting this account, oldest first, optionally filtered. Set
+  since/until to bound the ledger close time; bounded queries on long histories
+  run faster.
   """
   stateChanges(
+    """Conditions the state changes must match; all are ANDed. Omit for no filtering."""
     filter: AccountStateChangeFilterInput
-    since: Time, until: Time
-    first: Int, after: String, last: Int, before: String
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than `since`."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
+    before: String
   ): StateChangeConnection!
 
   """
-  Active SEP-41 allowances granted by this account (as token holder).
-  Allowances whose expiration ledger is below the latest ingested ledger are
-  filtered out server-side.
+  Active SEP-41 allowances granted by this account (as token holder), ordered
+  by spender. Allowances whose expiration ledger is below the latest ingested
+  ledger are filtered out server-side.
   """
-  sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
+  sep41Allowances(
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
+    before: String
+  ): SEP41AllowanceConnection! @goField(forceResolver: true)
 }
