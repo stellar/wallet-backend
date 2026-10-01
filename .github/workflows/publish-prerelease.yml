@@ -83,7 +83,10 @@ jobs:
           VERSION: ${{ inputs.version }}
           COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
         run: |
+          set -euo pipefail
           export TAG="${ECR_REGISTRY}/stg/wallet-backend:${VERSION}"
+          # The binary reports this version via `wallet-backend version`.
+          export VERSION
           export LABEL="${COMMIT_SHA}"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export BUILD_DATE
