@@ -1,0 +1,69 @@
+name: Bug report
+description: Report something that does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: wallet-backend version
+      placeholder: Output of `wallet-backend version`
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - testnet
+        - pubnet
+        - standalone/other
+    validations:
+      required: true
+  - type: input
+    id: rpc-version
+    attributes:
+      label: stellar-rpc version
+  - type: dropdown
+    id: ledger-backend
+    attributes:
+      label: Ledger backend
+      description: Value of LEDGER_BACKEND_TYPE.
+      options:
+        - rpc
+        - datastore
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines captured with LOG_LEVEL=DEBUG. Remove secrets first.
+      render: shell
+  - type: textarea
+    id: graphql-query
+    attributes:
+      label: GraphQL query
+      description: The query and variables, if the problem is in the API.
+      render: graphql
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched existing issues
+          required: true
