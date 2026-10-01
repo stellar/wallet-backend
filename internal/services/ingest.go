@@ -50,7 +50,6 @@ type IngestServiceConfig struct {
 	Metrics       *metrics.Metrics
 
 	// === Stellar Network ===
-	Network           string
 	NetworkPassphrase string
 	Archive           historyarchive.ArchiveInterface
 	RPCService        RPCService
@@ -91,10 +90,10 @@ type IngestServiceConfig struct {
 	LivePersistMaxBatchSize   int
 }
 
-// generateAdvisoryLockID creates a deterministic advisory lock ID based on the network name.
-// This ensures different networks (mainnet, testnet) get separate locks while being consistent across restarts.
-func generateAdvisoryLockID(network string) int {
-	return advisoryLockID("wallet-backend-ingest-" + network)
+// generateAdvisoryLockID derives the live-ingest advisory lock ID from the network passphrase,
+// so each network gets its own lock and the ID is stable across restarts.
+func generateAdvisoryLockID(networkPassphrase string) int {
+	return advisoryLockID("wallet-backend-ingest-" + networkPassphrase)
 }
 
 type IngestService interface {
@@ -180,7 +179,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
 		models:                    cfg.Models,
-		advisoryLockID:            generateAdvisoryLockID(cfg.Network),
+		advisoryLockID:            generateAdvisoryLockID(cfg.NetworkPassphrase),
 		rpcService:                cfg.RPCService,
 		ledgerBackend:             cfg.LedgerBackend,
 		ledgerBackendFactory:      cfg.LedgerBackendFactory,

@@ -33,10 +33,8 @@ func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, name, co
 		"RPC_URL":                 "http://stellar-rpc:8000",
 		"DATABASE_URL":            "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
 		"LOG_LEVEL":               "DEBUG",
-		"NETWORK":                 "standalone",
 		"NETWORK_PASSPHRASE":      networkPassphrase,
 		"CLIENT_AUTH_PUBLIC_KEYS": s.clientAuthKeyPair.Address(),
-		"STELLAR_ENVIRONMENT":     "integration-test",
 	}
 	maps.Copy(env, extraEnv)
 
@@ -47,7 +45,7 @@ func (s *SharedContainers) RunWalletBackendCommand(ctx context.Context, name, co
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",
 		},
 		Entrypoint: []string{"sh", "-c"},
-		Cmd:        []string{"./wallet-backend " + command},
+		Cmd:        []string{"wallet-backend " + command},
 		Env:        env,
 		Networks:   []string{s.TestNetwork.Name},
 		WaitingFor: wait.ForExit().WithExitTimeout(commandContainerExitTimeout),
