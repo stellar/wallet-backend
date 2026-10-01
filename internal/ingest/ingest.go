@@ -54,7 +54,6 @@ type Configs struct {
 	LogLevel            logrus.Level
 	AppTracker          apptracker.AppTracker
 	RPCURL              string
-	Network             string
 	NetworkPassphrase   string
 	GetLedgersLimit     int
 	AdminPort           int
@@ -71,7 +70,7 @@ type Configs struct {
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillBatchSize int
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
@@ -290,7 +289,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
 		GetLedgersLimit:           cfg.GetLedgersLimit,
-		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,

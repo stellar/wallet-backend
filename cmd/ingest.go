@@ -21,13 +21,11 @@ func (c *ingestCmd) Command() *cobra.Command {
 	var sentryDSN string
 	var stellarEnvironment string
 	var ledgerBackendType string
-	var deprecatedLatestLedgerCursorName string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.SentryDSNOption(&sentryDSN),
 		utils.StellarEnvironmentOption(&stellarEnvironment),
-		utils.NetworkOption(&cfg.Network),
 		utils.RPCURLOption(&cfg.RPCURL),
 		utils.StartLedgerOption(&cfg.StartLedger),
 		utils.EndLedgerOption(&cfg.EndLedger),
@@ -42,14 +40,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			ConfigKey:   &cfg.IngestionMode,
 			FlagDefault: services.IngestionModeLive,
 			Required:    true,
-		},
-		{
-			Name:        "latest-ledger-cursor-name",
-			Usage:       "DEPRECATED: ignored. The latest ledger cursor name is now hard-coded and no longer configurable.",
-			OptType:     types.String,
-			ConfigKey:   &deprecatedLatestLedgerCursorName,
-			FlagDefault: "",
-			Required:    false,
 		},
 		{
 			Name:        "backfill-workers",
@@ -93,10 +83,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
+			Usage:       "Where ledgers are read from. 'rpc' (default) streams them from the RPC at rpc-url; 'datastore' reads them from the S3 data lake at datastore-bucket-path.",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
+			FlagDefault: string(ingest.LedgerBackendTypeRPC),
 			Required:    false,
 		},
 		{
@@ -155,18 +145,31 @@ func (c *ingestCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			if deprecatedLatestLedgerCursorName != "" {
-				log.Warnf("--latest-ledger-cursor-name (LATEST_LEDGER_CURSOR_NAME) is deprecated and ignored; the cursor name is now hard-coded.")
-			}
-
-			// Convert ledger backend type string to typed value
 			switch ledgerBackendType {
 			case string(ingest.LedgerBackendTypeRPC):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+				if cfg.Datastore.BucketPath == "" {
+					return fmt.Errorf("--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore")
+				}
 			default:
 				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
+			}
+
+			switch cfg.IngestionMode {
+			case services.IngestionModeLive:
+				// Live mode resumes from the stored cursor; a start or end ledger would be
+				// silently ignored, so reject it instead.
+				if cfg.StartLedger != 0 || cfg.EndLedger != 0 {
+					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
+				}
+			case services.IngestionModeBackfill:
+				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
+					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got %d..%d)", cfg.StartLedger, cfg.EndLedger)
+				}
+			default:
+				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)
 			}
 
 			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
