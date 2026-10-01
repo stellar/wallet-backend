@@ -45,8 +45,9 @@ var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_chang
 
 // maxAccountStateChangesPerToID limits how many state changes one transaction can add to an
 // account-history page. Without a limit, a transaction with many state changes for the
-// account loads them all into memory at once. The operations loader uses the same cap.
-const maxAccountStateChangesPerToID = 4096
+// account loads them all into memory at once. The value is a ceiling chosen from mainnet
+// data: observed transactions stay well under it. Rows beyond the cap are dropped.
+const maxAccountStateChangesPerToID = 2000
 
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
