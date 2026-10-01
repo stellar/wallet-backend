@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"go/types"
+	"math"
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
@@ -175,6 +176,9 @@ func (c *ingestCmd) Command() *cobra.Command {
 			case services.IngestionModeBackfill:
 				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
 					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got %d..%d)", cfg.StartLedger, cfg.EndLedger)
+				}
+				if cfg.EndLedger > math.MaxUint32 {
+					return fmt.Errorf("--end-ledger %d exceeds the maximum ledger sequence %d", cfg.EndLedger, uint32(math.MaxUint32))
 				}
 			default:
 				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)
