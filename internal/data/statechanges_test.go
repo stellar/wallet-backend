@@ -1174,6 +1174,29 @@ func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
 		assert.Equal(t, int64(4096), scs[2].ToID)
 		assert.Equal(t, int64(1), scs[2].StateChangeID)
 	})
+
+	t.Run("caps rows per transaction so one dense transaction cannot flood the page", func(t *testing.T) {
+		// A transaction with more state changes than the cap must come back trimmed to the cap.
+		const denseToID = int64(12288)
+		const denseRows = maxAccountStateChangesPerToID + 500
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+			SELECT $1, 1, 'BALANCE', 'CREDIT', $2, 1, $3, g
+			FROM generate_series(1, $4) AS g
+		`, denseToID, now, types.AddressBytea(acct), denseRows)
+		require.NoError(t, err)
+
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, acct, []int64{denseToID}, []time.Time{now}, "")
+		require.NoError(t, err)
+		require.Len(t, scs, maxAccountStateChangesPerToID, "one transaction is capped at the per-transaction limit")
+		for _, sc := range scs {
+			assert.Equal(t, denseToID, sc.ToID)
+			assert.Equal(t, acct, sc.AccountID.String())
+		}
+		// The window keeps the highest operation_ids (ORDER BY operation_id DESC).
+		assert.Equal(t, int64(denseRows), scs[0].OperationID, "highest operation_id retained")
+		assert.Equal(t, int64(denseRows-maxAccountStateChangesPerToID+1), scs[len(scs)-1].OperationID, "cap boundary retained")
+	})
 }
 
 // A client selecting no time fields must still get state changes whose LedgerCreatedAt is
