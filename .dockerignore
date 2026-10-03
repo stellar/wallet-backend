@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+docs
+specs
+*.md
+/wallet-backend
+coverage*
+.env*
+docker-compose*.yaml

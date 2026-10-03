@@ -412,7 +412,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend migrate up && ./wallet-backend ingest",
+			"wallet-backend migrate up && wallet-backend ingest",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerIngestPort)},
 		Env: map[string]string{
@@ -420,16 +420,12 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 			"DATABASE_URL":            "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
 			"PORT":                    walletBackendContainerIngestPort,
 			"LOG_LEVEL":               "DEBUG",
-			"NETWORK":                 "standalone",
 			"ARCHIVE_URL":             "http://stellar-core:1570",
 			"CHECKPOINT_FREQUENCY":    "8",
 			"GET_LEDGERS_LIMIT":       "200",
 			"LEDGER_BACKEND_TYPE":     "rpc",
-			"START_LEDGER":            "0",
-			"END_LEDGER":              "0",
 			"NETWORK_PASSPHRASE":      networkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS": clientAuthKeyPair.Address(),
-			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks: []string{testNetwork.Name},
 	}
@@ -476,7 +472,7 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend serve",
+			"wallet-backend serve",
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
@@ -485,10 +481,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 			"PORT":                     walletBackendContainerAPIPort,
 			"GRAPHQL_COMPLEXITY_LIMIT": "5000",
 			"LOG_LEVEL":                "DEBUG",
-			"NETWORK":                  "standalone",
 			"NETWORK_PASSPHRASE":       networkPassphrase,
 			"CLIENT_AUTH_PUBLIC_KEYS":  clientAuthKeyPair.Address(),
-			"STELLAR_ENVIRONMENT":      "integration-test",
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
@@ -538,7 +532,7 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 		},
 		Entrypoint: []string{"sh", "-c"},
 		Cmd: []string{
-			"./wallet-backend ingest", // No migrations needed, DB already set up
+			"wallet-backend ingest", // No migrations needed, DB already set up
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerIngestPort)},
 		Env: map[string]string{
@@ -546,7 +540,6 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			"DATABASE_URL":         "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
 			"PORT":                 walletBackendContainerIngestPort,
 			"LOG_LEVEL":            "DEBUG",
-			"NETWORK":              "standalone",
 			"ARCHIVE_URL":          "http://stellar-core:1570",
 			"CHECKPOINT_FREQUENCY": "8",
 			"GET_LEDGERS_LIMIT":    "5",
@@ -557,7 +550,6 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			"START_LEDGER":            fmt.Sprintf("%d", startLedger),
 			"END_LEDGER":              fmt.Sprintf("%d", endLedger),
 			"CLIENT_AUTH_PUBLIC_KEYS": s.clientAuthKeyPair.Address(),
-			"STELLAR_ENVIRONMENT":     "integration-test",
 		},
 		Networks: []string{s.TestNetwork.Name},
 	}

@@ -376,7 +376,6 @@ func Test_ingestService_calculateBackfillGaps(t *testing.T) {
 				LedgerBackend:     mockLedgerBackend,
 				Metrics:           m,
 				GetLedgersLimit:   defaultGetLedgersLimit,
-				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           mockArchive,
 			})
@@ -489,7 +488,6 @@ func Test_startBackfilling_Validation(t *testing.T) {
 				LedgerBackendFactory: mockBackendFactory,
 				Metrics:              m,
 				GetLedgersLimit:      defaultGetLedgersLimit,
-				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              mockArchive,
 				BackfillBatchSize:    100,
@@ -726,7 +724,6 @@ func Test_ingestService_setupBatchBackend(t *testing.T) {
 				LedgerBackendFactory: tc.setupFactory(),
 				Metrics:              m,
 				GetLedgersLimit:      defaultGetLedgersLimit,
-				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
 			})
@@ -801,7 +798,6 @@ func Test_ingestService_updateOldestCursor(t *testing.T) {
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
 				GetLedgersLimit:   defaultGetLedgersLimit,
-				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
 			})
@@ -868,7 +864,6 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
 				GetLedgersLimit:   defaultGetLedgersLimit,
-				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
 			})
@@ -929,7 +924,6 @@ func Test_ingestService_Run(t *testing.T) {
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
 				GetLedgersLimit:   defaultGetLedgersLimit,
-				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
 			})
@@ -1067,7 +1061,6 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 				LedgerBackend:     &LedgerBackendMock{},
 				Metrics:           m,
 				GetLedgersLimit:   defaultGetLedgersLimit,
-				Network:           network.TestNetworkPassphrase,
 				NetworkPassphrase: network.TestNetworkPassphrase,
 				Archive:           &HistoryArchiveMock{},
 			})
@@ -1224,7 +1217,6 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 				LedgerBackendFactory: factory,
 				Metrics:              m,
 				GetLedgersLimit:      defaultGetLedgersLimit,
-				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
 				BackfillBatchSize:    10,
@@ -1361,7 +1353,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 				LedgerBackendFactory: factory,
 				Metrics:              m,
 				GetLedgersLimit:      defaultGetLedgersLimit,
-				Network:              network.TestNetworkPassphrase,
 				NetworkPassphrase:    network.TestNetworkPassphrase,
 				Archive:              &HistoryArchiveMock{},
 				BackfillBatchSize:    int(tc.batchSize),
@@ -1457,7 +1448,6 @@ func Test_ingestService_processBackfillBatches_PartialFailure_OnlySuccessfulBatc
 		LedgerBackendFactory:      factory,
 		Metrics:                   m,
 		GetLedgersLimit:           defaultGetLedgersLimit,
-		Network:                   network.TestNetworkPassphrase,
 		NetworkPassphrase:         network.TestNetworkPassphrase,
 		Archive:                   &HistoryArchiveMock{},
 		BackfillBatchSize:         10,
@@ -1540,7 +1530,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 		LedgerBackendFactory: factory,
 		Metrics:              m,
 		GetLedgersLimit:      defaultGetLedgersLimit,
-		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
 		BackfillBatchSize:    10,
@@ -1615,7 +1604,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
 			GetLedgersLimit:       defaultGetLedgersLimit,
-			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
 		})
@@ -1695,7 +1683,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
 			GetLedgersLimit:       defaultGetLedgersLimit,
-			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
 		})
@@ -1784,7 +1771,6 @@ func Test_ingestProcessedDataWithRetry(t *testing.T) {
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
 			GetLedgersLimit:       defaultGetLedgersLimit,
-			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
 		})
@@ -1862,7 +1848,6 @@ func Test_ingestService_processBackfillBatchesParallel_Success(t *testing.T) {
 		LedgerBackendFactory: factory,
 		Metrics:              m,
 		GetLedgersLimit:      defaultGetLedgersLimit,
-		Network:              network.TestNetworkPassphrase,
 		NetworkPassphrase:    network.TestNetworkPassphrase,
 		Archive:              &HistoryArchiveMock{},
 		BackfillBatchSize:    10,
@@ -1986,7 +1971,6 @@ func Test_persistLedgerData_ProtocolCASGating(t *testing.T) {
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
 			GetLedgersLimit:       defaultGetLedgersLimit,
-			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
 			ProtocolProcessors:    processors,
@@ -2712,7 +2696,6 @@ func Test_persistLedgerData_ClassificationPlan(t *testing.T) {
 			TokenIngestionService: mockTokenIngestionService,
 			Metrics:               m,
 			GetLedgersLimit:       defaultGetLedgersLimit,
-			Network:               network.TestNetworkPassphrase,
 			NetworkPassphrase:     network.TestNetworkPassphrase,
 			Archive:               &HistoryArchiveMock{},
 			ProtocolProcessors:    processors,
@@ -2898,7 +2881,6 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 		TokenIngestionService: mockTokenIngestionService,
 		Metrics:               m,
 		GetLedgersLimit:       defaultGetLedgersLimit,
-		Network:               network.TestNetworkPassphrase,
 		NetworkPassphrase:     network.TestNetworkPassphrase,
 		Archive:               &HistoryArchiveMock{},
 	})
@@ -2963,7 +2945,6 @@ func Test_ingestService_ingestLiveLedgers_DeadLockSessionExitsFatally(t *testing
 		LedgerBackend:     mockBackend,
 		Metrics:           m,
 		GetLedgersLimit:   defaultGetLedgersLimit,
-		Network:           network.TestNetworkPassphrase,
 		NetworkPassphrase: network.TestNetworkPassphrase,
 		Archive:           &HistoryArchiveMock{},
 	})

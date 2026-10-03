@@ -168,6 +168,7 @@ jobs:
           load: true
           build-args: |
             GIT_COMMIT=${{ steps.git.outputs.short_sha }}
+            VERSION=integration-test
 
       - name: Run Integration Tests
         run: ENABLE_INTEGRATION_TESTS=true go test -v ./internal/integrationtests/... -timeout 30m

@@ -19,7 +19,6 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -56,12 +55,10 @@ type Configs struct {
 	// listener. Mirrors the ingest admin server.
 	AdminPort                   int
 	DatabaseURL                 string
-	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
 	ClientAuthMaxTimeoutSeconds int
 	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
-	SupportedAssets             []entities.Asset
 	NetworkPassphrase           string
 
 	// RPC
@@ -106,7 +103,6 @@ type handlerDeps struct {
 	Port                int
 	DatabaseURL         string
 	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 
 	// Services
@@ -206,7 +202,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	return handlerDeps{
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
-		SupportedAssets:             cfg.SupportedAssets,
 		Metrics:                     m,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,

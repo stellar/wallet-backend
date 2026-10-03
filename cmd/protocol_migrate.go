@@ -87,10 +87,10 @@ func buildMigrationCommand(
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching historical ledgers. Options: 'rpc' or 'datastore' (default). Datastore is recommended for migrations because it can reach ledgers outside the RPC retention window.",
+			Usage:       "Where historical ledgers are read from: 'rpc' (default) or 'datastore'. Use datastore with datastore-bucket-path for ranges outside the RPC retention window.",
 			OptType:     types.String,
 			ConfigKey:   &opts.ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
+			FlagDefault: string(ingest.LedgerBackendTypeRPC),
 			Required:    false,
 		},
 		{
@@ -129,7 +129,9 @@ func buildMigrationCommand(
 					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
 				}
 			case string(ingest.LedgerBackendTypeDatastore):
-				// datastore-bucket-path is validated via Required:true in DatastoreOptions.
+				if opts.datastore.BucketPath == "" {
+					return fmt.Errorf("--datastore-bucket-path is required when --ledger-backend-type=datastore")
+				}
 			default:
 				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
 			}

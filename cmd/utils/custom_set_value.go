@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,8 +11,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
-
-	"github.com/stellar/wallet-backend/internal/entities"
 )
 
 func unexpectedTypeError(key any, co *config.ConfigOption) error {
@@ -33,10 +30,11 @@ func SetConfigOptionLogLevel(co *config.ConfigOption) error {
 	}
 	*key = logLevel
 
-	// Log for debugging
+	// The logger starts at TRACE so config parsing itself is visible; apply the
+	// configured level whether it came from a flag, an env var, or the default.
+	log.DefaultLogger.SetLevel(*key)
 	if config.IsExplicitlySet(co) {
 		log.Debugf("Setting log level to: %s", logLevel)
-		log.DefaultLogger.SetLevel(*key)
 	} else {
 		log.Debugf("Using default log level: %s", logLevel)
 	}
@@ -82,28 +80,6 @@ func SetConfigOptionStellarPublicKeyList(co *config.ConfigOption) error {
 	}
 	sort.Strings(pbks)
 	*key = pbks
-
-	return nil
-}
-
-func SetConfigOptionAssets(co *config.ConfigOption) error {
-	assetsJSON := viper.GetString(co.Name)
-
-	if assetsJSON == "" {
-		return fmt.Errorf("assets cannot be empty")
-	}
-
-	var assets []entities.Asset
-	err := json.NewDecoder(strings.NewReader(assetsJSON)).Decode(&assets)
-	if err != nil {
-		return fmt.Errorf("decoding assets JSON: %w", err)
-	}
-
-	key, ok := co.ConfigKey.(*[]entities.Asset)
-	if !ok {
-		return unexpectedTypeError(key, co)
-	}
-	*key = assets
 
 	return nil
 }

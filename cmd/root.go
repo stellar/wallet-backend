@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ var rootCmd = &cobra.Command{
 	Use:           "wallet-backend",
 	Short:         "Wallet Backend Server",
 	SilenceErrors: true,
+	SilenceUsage:  true,
 	Run: func(cmd *cobra.Command, args []string) {
 		err := cmd.Help()
 		if err != nil {
@@ -30,9 +32,9 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(cfg RootConfig) {
 	SetupCLI(cfg)
-	err := rootCmd.Execute()
-	if err != nil {
-		panic(fmt.Errorf("executing root command: %w", err))
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -43,9 +45,23 @@ func preConfigureLogger() {
 
 func SetupCLI(cfg RootConfig) {
 	preConfigureLogger()
-	log.DefaultLogger.Infof("📦 Git Commit: %s", cfg.GitCommit)
-	log.DefaultLogger.Infof("📦 Version: %s", cfg.Version)
+	// Subcommands define their own PersistentPreRunE; without this, cobra would
+	// run only the nearest hook and skip the root one below.
+	cobra.EnableTraverseRunHooks = true
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		// Every service command logs its build identity on startup. The version
+		// command prints it as its output instead.
+		if cmd.Name() == "version" {
+			return
+		}
+		commit := cfg.GitCommit
+		if commit == "" {
+			commit = "unknown"
+		}
+		log.DefaultLogger.Infof("wallet-backend %s (commit %s)", cfg.Version, commit)
+	}
 
+	rootCmd.AddCommand(versionCommand(cfg))
 	rootCmd.AddCommand((&serveCmd{}).Command())
 	rootCmd.AddCommand((&ingestCmd{}).Command())
 	rootCmd.AddCommand((&migrateCmd{}).Command())
