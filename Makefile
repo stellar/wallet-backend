@@ -106,6 +106,22 @@ gql-validate: ## Validate GraphQL schema
 	$(shell go env GOPATH)/bin/gqlgen validate
 	@echo "✅ GraphQL schema is valid"
 
+gql-docs: ## Generate docs/api/schema.md from the GraphQL schema
+	go run ./tools/gqldocs -out docs/api/schema.md
+
+gql-docs-check: ## Fail if docs/api/schema.md is out of date
+	@tmp=$$(mktemp) && go run ./tools/gqldocs -out $$tmp && diff -u docs/api/schema.md $$tmp; status=$$?; rm -f $$tmp; \
+	if [ $$status -ne 0 ]; then echo "docs/api/schema.md is stale: run make gql-docs"; exit 1; fi
+
+docs-lint: ## Lint markdown and check links in README.md and docs/
+	@command -v markdownlint >/dev/null 2>&1 || { echo "ERROR: markdownlint not found (npm i -g markdownlint-cli)"; exit 1; }
+	markdownlint README.md docs CONTRIBUTING.md SUPPORT.md
+	@command -v lychee >/dev/null 2>&1 || { echo "ERROR: lychee not found (brew install lychee)"; exit 1; }
+	lychee --config .lychee.toml README.md 'docs/**/*.md' CONTRIBUTING.md SUPPORT.md
+
+docs-check: gql-docs-check docs-lint ## All docs checks
+	./scripts/check-config-docs.sh
+
 # ==================================================================================== #
 # TESTING
 # ==================================================================================== #

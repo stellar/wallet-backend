@@ -6,7 +6,7 @@ type Operation {
   type:            OperationType! @goField(name: "operationType")
   """The operation body, base64-encoded XDR."""
   operationXdr:    String! @goField(forceResolver: true)
-  """Operation result code from transaction execution."""
+  """Operation result code in snake case (for example op_success, op_underfunded, op_bad_auth)."""
   resultCode:      String!
   """Whether the operation succeeded."""
   successful:      Boolean!
@@ -20,9 +20,18 @@ type Operation {
   """Transaction that contains this operation."""
   transaction: Transaction! @goField(forceResolver: true)
 
-  """Accounts that participated in this operation."""
+  """Accounts and contracts that participated in this operation. Each one has this operation in its `operations` history."""
   accounts:        [Account!]! @goField(forceResolver: true)
 
-  """State changes produced by this operation."""
-  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
+  """State changes produced by this operation, in ledger order."""
+  stateChanges(
+    """Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
+    before: String
+  ): StateChangeConnection!
 }

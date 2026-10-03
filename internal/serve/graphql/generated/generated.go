@@ -2691,52 +2691,103 @@ type Account {
 
   """
   All token balances held by this account: native XLM, classic trustlines,
-  SAC, SEP-41, and liquidity-pool shares.
+  SAC, SEP-41, and liquidity-pool shares. Edges come in a fixed order by token
+  type: native, trustlines, SEP-41, then liquidity pools for a G-address; SAC,
+  then SEP-41 for a C-address.
   """
-  balances(first: Int, after: String, last: Int, before: String): BalanceConnection!
+  balances(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): BalanceConnection!
 
   """
-  Transactions this account participated in. Optional since/until bounds
-  enable TimescaleDB chunk pruning on ledger close time.
+  Transactions this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
   transactions(
+    """Only include items whose ledger close time is at or after this time."""
     since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
     until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
     first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
     after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
     last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
     before: String
   ): AccountTransactionConnection!
 
   """
-  Operations this account participated in. Optional since/until bounds enable
-  TimescaleDB chunk pruning on ledger close time.
+  Operations this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
-  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection!
+  operations(
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): OperationConnection!
 
   """
-  State changes affecting this account, optionally filtered. Optional
-  since/until bounds enable TimescaleDB chunk pruning on ledger close time.
+  State changes affecting this account, oldest first, optionally filtered. Set
+  since/until to bound the ledger close time; bounded queries on long histories
+  run faster.
   """
   stateChanges(
+    """Conditions the state changes must match; all are ANDed. Omit for no filtering."""
     filter: AccountStateChangeFilterInput
-    since: Time, until: Time
-    first: Int, after: String, last: Int, before: String
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
   ): StateChangeConnection!
 
   """
-  Active SEP-41 allowances granted by this account (as token holder).
-  Allowances whose expiration ledger is below the latest ingested ledger are
-  filtered out server-side.
+  Active SEP-41 allowances granted by this account (as token holder), ordered
+  by spender. Allowances whose expiration ledger is below the latest ingested
+  ledger are filtered out server-side.
   """
-  sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
+  sep41Allowances(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): SEP41AllowanceConnection! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `"""Common contract for every token balance held by an account."""
 interface Balance {
-    """Balance amount, as a decimal string."""
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
-    """Identifier of the token: a contract ID, or the liquidity pool ID for pool shares."""
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
     """Classification of the token."""
     tokenType: TokenType!
@@ -2744,19 +2795,23 @@ interface Balance {
 
 """The account's native XLM balance."""
 type NativeBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """
-    Base reserve requirement (excludes liabilities):
+    Minimum XLM balance the account must hold, with 7 decimal places. It is the
+    base reserve requirement and excludes liabilities:
     (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
     Spendable balance = balance - minimumBalance - sellingLiabilities.
     """
     minimumBalance: String!
-    """XLM locked in open buy offers."""
+    """XLM locked in open buy offers, with 7 decimal places."""
     buyingLiabilities: String!
-    """XLM locked in open sell offers."""
+    """XLM locked in open sell offers, with 7 decimal places."""
     sellingLiabilities: String!
     """Number of subentries on the account (trustlines, offers, data entries, signers)."""
     numSubentries: UInt32!
@@ -2766,21 +2821,24 @@ type NativeBalance implements Balance {
 
 """A classic Stellar asset held via a trustline."""
 type TrustlineBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
-    """Asset code."""
+    """Asset code (1-12 characters)."""
     code: String!
-    """Asset issuer address."""
+    """Issuer account address (G...)."""
     issuer: String!
     """Classic asset type, determined by the asset code length."""
     assetType: AssetType!
-    """Trustline limit, as a decimal string."""
+    """Trustline limit, with 7 decimal places."""
     limit: String!
-    """Amount locked in open buy offers."""
+    """Amount locked in open buy offers, with 7 decimal places."""
     buyingLiabilities: String!
-    """Amount locked in open sell offers."""
+    """Amount locked in open sell offers, with 7 decimal places."""
     sellingLiabilities: String!
     """Ledger in which this trustline was last modified."""
     lastModifiedLedger: UInt32!
@@ -2792,13 +2850,16 @@ type TrustlineBalance implements Balance {
 
 """A Stellar Asset Contract balance held by a contract address."""
 type SACBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """Asset code of the wrapped classic asset."""
     code: String!
-    """Issuer address of the wrapped classic asset."""
+    """Issuer account address (G...) of the wrapped classic asset."""
     issuer: String!
     """Number of decimal places in the balance amount."""
     decimals: Int!
@@ -2810,9 +2871,9 @@ type SACBalance implements Balance {
 
 """One constituent asset of a liquidity pool and its reserve amount."""
 type LiquidityPoolReserve {
-    """Canonical asset name (code:issuer, or 'native')."""
+    """Canonical asset name: CODE:ISSUER, or native for XLM."""
     asset: String!
-    """Reserve amount, as a decimal string."""
+    """Amount of this asset in the pool, with 7 decimal places."""
     amount: String!
 }
 
@@ -2822,8 +2883,11 @@ shares and ` + "`" + `tokenId` + "`" + ` is the pool ID; ` + "`" + `reserves` + 
 assets and amounts.
 """
 type LiquidityPoolBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """The pool's constituent assets and reserve amounts."""
@@ -2834,8 +2898,11 @@ type LiquidityPoolBalance implements Balance {
 
 """A pure SEP-41 (non-SAC) contract token balance."""
 type SEP41Balance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """Token name reported by the contract; null when the contract does not expose one."""
@@ -2850,13 +2917,13 @@ type SEP41Balance implements Balance {
 
 """An approve() grant issued by a SEP-41 token holder."""
 type SEP41Allowance {
-    """Token holder that granted the allowance."""
+    """Token holder (G... or C...) that granted the allowance."""
     owner: String!
-    """Address authorized to spend from the holder's balance."""
+    """Address (G... or C...) authorized to spend from the holder's balance."""
     spender: String!
-    """Contract ID of the token."""
+    """Contract ID (C...) of the token."""
     tokenId: String!
-    """Approved allowance, as a decimal string in the token's smallest unit."""
+    """Approved allowance, as an integer string in the token's smallest unit."""
     amount: String!
     """Last ledger sequence at which the allowance is live."""
     expirationLedger: UInt32!
@@ -2864,27 +2931,18 @@ type SEP41Allowance {
     lastModifiedLedger: UInt32!
 }
 `, BuiltIn: false},
-	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
-# Directives are like annotations that modify how GraphQL processes fields
-
-# @goField directive - controls how gqlgen generates Go code for fields
-# This is a gqlgen-specific directive for customizing field resolution
+	{Name: "../schema/directives.graphqls", Input: `"""Server code-generation hint. It has no effect on query results."""
 directive @goField(
-	# forceResolver: Boolean - forces gqlgen to generate a resolver function
-	# even if the Go struct has a matching field name
-	# Useful when you need custom logic for field resolution
+	"""Always resolve this field through a resolver function."""
 	forceResolver: Boolean
-	
-	# name: String - specifies the Go struct field name to map to
-	# Allows mapping GraphQL field names to different Go field names
+
+	"""Go struct field that backs this GraphQL field."""
 	name: String
-	
-	# omittable: Boolean - indicates if the field can be omitted from queries
-	# Used for optional fields in input types
+
+	"""Generate the input field as omittable."""
 	omittable: Boolean
-	
-	# type: String - specifies the Go type for the field
-	# Overrides gqlgen's default type inference
+
+	"""Go type for this field."""
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
 `, BuiltIn: false},
@@ -2893,32 +2951,59 @@ Stellar operation type, one value per operation defined by the Stellar
 protocol (matching the XDR OperationType names).
 """
 enum OperationType {
+  """Creates and funds a new account."""
   CREATE_ACCOUNT
+  """Sends an asset to a destination account."""
   PAYMENT
+  """Path payment where the destination receives an exact amount."""
   PATH_PAYMENT_STRICT_RECEIVE
+  """Path payment where the source sends an exact amount."""
   PATH_PAYMENT_STRICT_SEND
+  """Creates, updates, or deletes an offer to sell an asset."""
   MANAGE_SELL_OFFER
+  """Creates a passive sell offer, which does not take offers at the same price."""
   CREATE_PASSIVE_SELL_OFFER
+  """Creates, updates, or deletes an offer to buy an asset."""
   MANAGE_BUY_OFFER
+  """Sets account options: flags, thresholds, signers, home domain, inflation destination."""
   SET_OPTIONS
+  """Creates, updates, or removes a trustline."""
   CHANGE_TRUST
+  """Issuer authorizes or deauthorizes a trustline to its asset."""
   ALLOW_TRUST
+  """Merges the source account into a destination account and removes it."""
   ACCOUNT_MERGE
+  """Inflation operation. Fails on protocol 12 and later."""
   INFLATION
+  """Sets, updates, or deletes an account data entry."""
   MANAGE_DATA
+  """Raises the source account's sequence number."""
   BUMP_SEQUENCE
+  """Creates a claimable balance."""
   CREATE_CLAIMABLE_BALANCE
+  """Claims a claimable balance."""
   CLAIM_CLAIMABLE_BALANCE
+  """Starts sponsoring reserves for another account."""
   BEGIN_SPONSORING_FUTURE_RESERVES
+  """Ends a sponsorship started by BEGIN_SPONSORING_FUTURE_RESERVES."""
   END_SPONSORING_FUTURE_RESERVES
+  """Removes or transfers sponsorship of a ledger entry or signer."""
   REVOKE_SPONSORSHIP
+  """Issuer claws back an asset from a holder's trustline."""
   CLAWBACK
+  """Issuer claws back a claimable balance."""
   CLAWBACK_CLAIMABLE_BALANCE
+  """Issuer sets or clears authorization flags on a trustline."""
   SET_TRUST_LINE_FLAGS
+  """Deposits assets into a liquidity pool in exchange for pool shares."""
   LIQUIDITY_POOL_DEPOSIT
+  """Withdraws assets from a liquidity pool by redeeming pool shares."""
   LIQUIDITY_POOL_WITHDRAW
+  """Soroban: invokes a contract function, uploads Wasm, or creates a contract."""
   INVOKE_HOST_FUNCTION
+  """Soroban: extends the time to live of ledger entries in the footprint."""
   EXTEND_FOOTPRINT_TTL
+  """Soroban: restores archived ledger entries in the footprint."""
   RESTORE_FOOTPRINT
 }
 
@@ -3035,10 +3120,10 @@ enum AssetType {
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `"""Filters for an account's state changes; all conditions are ANDed."""
 input AccountStateChangeFilterInput {
-  """Only state changes from the transaction with this hash."""
+  """Only state changes from the transaction with this hash (64 hex characters). Any other format returns an INVALID_TRANSACTION_HASH error."""
   transactionHash: String
 
-  """Only state changes from the operation with this ID."""
+  """Only state changes from the operation with this ID (TOID)."""
   operationId: Int64
 
   """Only state changes with this category."""
@@ -3056,7 +3141,7 @@ type Operation {
   type:            OperationType! @goField(name: "operationType")
   """The operation body, base64-encoded XDR."""
   operationXdr:    String! @goField(forceResolver: true)
-  """Operation result code from transaction execution."""
+  """Operation result code in snake case (for example op_success, op_underfunded, op_bad_auth)."""
   resultCode:      String!
   """Whether the operation succeeded."""
   successful:      Boolean!
@@ -3070,72 +3155,103 @@ type Operation {
   """Transaction that contains this operation."""
   transaction: Transaction! @goField(forceResolver: true)
 
-  """Accounts that participated in this operation."""
+  """Accounts and contracts that participated in this operation. Each one has this operation in its ` + "`" + `operations` + "`" + ` history."""
   accounts:        [Account!]! @goField(forceResolver: true)
 
-  """State changes produced by this operation."""
-  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
+  """State changes produced by this operation, in ledger order."""
+  stateChanges(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): StateChangeConnection!
 }
 `, BuiltIn: false},
 	{Name: "../schema/pagination.graphqls", Input: `"""Relay-style page of operations."""
 type OperationConnection {
+    """Operations in this page, in ledger order (oldest first)."""
     edges: [OperationEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One operation in a page, with its pagination cursor."""
 type OperationEdge {
+    """The operation."""
     node: Operation!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of state changes."""
 type StateChangeConnection {
+    """State changes in this page, in ledger order (oldest first)."""
     edges: [StateChangeEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One state change in a page, with its pagination cursor."""
 type StateChangeEdge {
+    """The state change. Select concrete-type fields with inline fragments."""
     node: BaseStateChange!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of an account's token balances."""
 type BalanceConnection {
+    """Balances in this page, in the token-type order described on ` + "`" + `Account.balances` + "`" + `."""
     edges: [BalanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One balance in a page, with its pagination cursor."""
 type BalanceEdge {
+    """The balance. Select type-specific fields with inline fragments."""
     node: Balance!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of SEP-41 allowances."""
 type SEP41AllowanceConnection {
+    """Allowances in this page, ordered by spender."""
     edges: [SEP41AllowanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One SEP-41 allowance in a page, with its pagination cursor."""
 type SEP41AllowanceEdge {
+    """The allowance."""
     node: SEP41Allowance!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style pagination metadata; cursors are opaque strings."""
 type PageInfo {
+    """Cursor of the first edge in this page; null when the page is empty."""
     startCursor: String
+    """Cursor of the last edge in this page; null when the page is empty."""
     endCursor: String
+    """Forward paging (` + "`" + `first` + "`" + `, or no paging arguments): true when more edges follow this page. Backward paging (` + "`" + `last` + "`" + `): true whenever ` + "`" + `before` + "`" + ` was given."""
     hasNextPage: Boolean!
+    """Backward paging (` + "`" + `last` + "`" + `): true when more edges precede this page. Forward paging: true whenever ` + "`" + `after` + "`" + ` was given."""
     hasPreviousPage: Boolean!
 }
 
 """Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
+  """Transactions in this page, in ledger order (oldest first)."""
   edges:    [AccountTransactionEdge!]!
+  """Cursors and page flags for fetching adjacent pages."""
   pageInfo: PageInfo!
 }
 
@@ -3144,22 +3260,46 @@ One transaction in an account's history, with the transaction's operations and
 state changes inlined so a full account-history page resolves in one query.
 """
 type AccountTransactionEdge {
+  """The transaction."""
   node:         Transaction!
+  """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
   cursor:       String!
+  """This transaction's operations that the account participated in. Not paginated."""
   operations:   [Operation!]!        @goField(forceResolver: true)
+  """This transaction's state changes that affected the account. Not paginated."""
   stateChanges: [BaseStateChange!]!  @goField(forceResolver: true)
 }
 `, BuiltIn: false},
-	{Name: "../schema/queries.graphqls", Input: `"""Root queries. Entities not found return null."""
+	{Name: "../schema/queries.graphqls", Input: `"""Root queries. All lookups are read-only."""
 type Query {
-    """Look up a transaction by its hex-encoded hash."""
-    transactionByHash(hash: String!): Transaction
+    """
+    Look up a transaction by hash. Returns null, with an error in the response,
+    when no indexed transaction has this hash.
+    """
+    transactionByHash(
+        """Transaction hash: 64 hex characters. For a fee-bump transaction, the outer (fee-bump) hash. Any other format returns an INVALID_TRANSACTION_HASH error."""
+        hash: String!
+    ): Transaction
 
-    """Look up an account (G...) or contract (C...) by address. A contract's history holds the operations it authorised and the state changes applied to it."""
-    accountByAddress(address: String!): Account
+    """
+    Look up an account (G...) or contract (C...) by address. A contract's history
+    holds the operations it authorised and the state changes applied to it. Any
+    valid address returns an Account, even one with no indexed activity; its
+    connections are then empty.
+    """
+    accountByAddress(
+        """Account strkey (G...) or contract strkey (C...). Any other value, including a muxed address (M...), returns an INVALID_ADDRESS error."""
+        address: String!
+    ): Account
 
-    """Look up an operation by its ID (TOID)."""
-    operationById(id: Int64!): Operation
+    """
+    Look up an operation by its ID (TOID). Returns null, with an error in the
+    response, when no indexed operation has this ID.
+    """
+    operationById(
+        """Operation ID (TOID)."""
+        id: Int64!
+    ): Operation
 }
 `, BuiltIn: false},
 	{Name: "../schema/scalars.graphqls", Input: `"""RFC 3339 timestamp."""
@@ -3199,7 +3339,7 @@ interface BaseStateChange {
   ledgerCreatedAt:            Time!
   """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
-  """Account whose state changed."""
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
   """
   Operation that caused this change. Non-null on every concrete type except
@@ -3220,19 +3360,30 @@ Clawbacks are recorded as BURN. Transaction-fee rows are (BALANCE, DEBIT) with
 ` + "`" + `toMuxedId` + "`" + ` null; refunds are netted into the fee charge, never a separate row.
 """
 type BalanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
-  """Operation that caused this change; null on transaction-fee rows."""
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token whose balance moved."""
+  """Contract ID (C...) of the token whose balance moved. For XLM and classic assets, the Stellar Asset Contract ID."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Amount moved, as a decimal string in the token's smallest unit."""
+  """Amount moved, as an integer string in the token's smallest unit (stroops for XLM and classic assets)."""
   amount:                     String! @goField(forceResolver: true)
   """
   CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and
@@ -3248,13 +3399,25 @@ a classic account creation, a C-address for a smart-contract deployment.
 Pair: (ACCOUNT, CREATE).
 """
 type AccountCreatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """
@@ -3269,16 +3432,28 @@ An account merge. ` + "`" + `account` + "`" + ` is the merged (removed) account.
 Pair: (ACCOUNT, MERGE).
 """
 type AccountMergedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Account that received the merged account's balance."""
+  """Account (G...) that received the merged account's XLM balance."""
   destinationAddress:         String! @goField(forceResolver: true)
 }
 
@@ -3287,16 +3462,28 @@ A signer added to the account.
 Pair: (SIGNER, ADD).
 """
 type SignerAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the added signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight assigned to the new signer (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -3307,18 +3494,30 @@ An existing signer's weight changed.
 Pair: (SIGNER, UPDATE).
 """
 type SignerUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the updated signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Previous weight (0-255). 0 when the updated signer is the master key previously locked at weight 0."""
+  """Weight before this change (0-255). Can be 0 when the signer is the master key and its weight was 0."""
   oldWeight:                  Int! @goField(forceResolver: true)
   """New weight (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -3329,16 +3528,28 @@ A signer removed from the account.
 Pair: (SIGNER, REMOVE).
 """
 type SignerRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the removed signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight the signer had before removal (0-255)."""
   oldWeight:                  Int! @goField(forceResolver: true)
@@ -3350,13 +3561,25 @@ three thresholds changed; one state change is emitted per changed threshold.
 Pair: (SIGNATURE_THRESHOLD, UPDATE).
 """
 type ThresholdChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Which signature threshold changed."""
@@ -3373,13 +3596,25 @@ Pairs: (FLAGS, SET) lists flags that were turned on, (FLAGS, CLEAR) lists flags
 that were turned off.
 """
 type AccountFlagsChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Flags that were set (reason SET) or cleared (reason CLEAR)."""
@@ -3391,13 +3626,25 @@ A home domain set on an account that had none.
 Pair: (HOME_DOMAIN, SET).
 """
 type HomeDomainSetChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """The newly set home domain."""
@@ -3409,13 +3656,25 @@ An existing home domain replaced by a different one.
 Pair: (HOME_DOMAIN, UPDATE).
 """
 type HomeDomainUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Previous home domain."""
@@ -3429,13 +3688,25 @@ A home domain removed from the account.
 Pair: (HOME_DOMAIN, CLEAR).
 """
 type HomeDomainClearedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Home domain the account had when it was removed."""
@@ -3447,13 +3718,25 @@ A data entry created on the account.
 Pair: (DATA_ENTRY, ADD).
 """
 type DataEntryAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -3467,13 +3750,25 @@ An existing data entry's value changed.
 Pair: (DATA_ENTRY, UPDATE).
 """
 type DataEntryUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -3489,13 +3784,25 @@ A data entry removed from the account.
 Pair: (DATA_ENTRY, REMOVE).
 """
 type DataEntryRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -3510,20 +3817,32 @@ to transfer up to ` + "`" + `amount` + "`" + ` of the token on its behalf.
 Pair: (ALLOWANCE, UPDATE).
 """
 type AllowanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token the allowance applies to."""
+  """Contract ID (C...) of the token the allowance applies to."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Address authorized to spend from the holder's balance."""
+  """Address (G... or C...) authorized to spend from the holder's balance."""
   spender:                    String! @goField(forceResolver: true)
-  """Approved allowance, as a decimal string in the token's smallest unit."""
+  """Approved allowance, as an integer string in the token's smallest unit."""
   amount:                     String! @goField(forceResolver: true)
   """Last ledger sequence at which the allowance is live."""
   expirationLedger:           UInt32! @goField(forceResolver: true)
@@ -3534,20 +3853,32 @@ A trustline created. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, ADD).
 """
 type TrustlineAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Initial trustline limit, as a decimal string in stroops."""
+  """Initial trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   limit:                      String! @goField(forceResolver: true)
 }
 
@@ -3556,22 +3887,34 @@ A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, UPDATE).
 """
 type TrustlineUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Previous trustline limit, as a decimal string in stroops."""
+  """Previous trustline limit, as an integer string in stroops (for example "1000000000")."""
   oldLimit:                   String! @goField(forceResolver: true)
-  """New trustline limit, as a decimal string in stroops."""
+  """New trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   newLimit:                   String! @goField(forceResolver: true)
 }
 
@@ -3580,18 +3923,30 @@ A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, REMOVE).
 """
 type TrustlineRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
 }
 
@@ -3604,18 +3959,30 @@ plain boolean in the contract balance entry, so ` + "`" + `flags` + "`" + ` is n
 Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
 """
 type BalanceAuthorizationChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
   """Trustline flags that changed; null for SAC contract-holder authorization, which has no flags."""
   flags:                      [TrustlineFlag!] @goField(forceResolver: true)
@@ -3623,11 +3990,11 @@ type BalanceAuthorizationChange implements BaseStateChange {
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `"""A Stellar transaction."""
 type Transaction {
-  """Transaction hash, hex-encoded."""
+  """Transaction hash, 64 hex characters. For a fee-bump transaction, the outer (fee-bump) hash."""
   hash:            String! @goField(forceResolver: true)
   """Fee charged for the transaction, in stroops."""
   feeCharged:      Int64!
-  """Transaction result code from transaction execution."""
+  """Transaction result code, as the XDR TransactionResultCode name (for example TransactionResultCodeTxSuccess)."""
   resultCode:      String!
   """Sequence number of the ledger that included this transaction."""
   ledgerNumber:    UInt32!
@@ -3638,14 +4005,32 @@ type Transaction {
   """When the indexer persisted this transaction."""
   ingestedAt:      Time!
 
-  """Operations contained in this transaction."""
-  operations(first: Int, after: String, last: Int, before: String): OperationConnection!
+  """Operations contained in this transaction, in application order."""
+  operations(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): OperationConnection!
 
-  """Accounts that participated in this transaction."""
+  """Accounts and contracts that participated in this transaction. Each one has this transaction in its ` + "`" + `transactions` + "`" + ` history."""
   accounts:        [Account!]! @goField(forceResolver: true)
 
-  """State changes produced by this transaction."""
-  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
+  """State changes produced by this transaction, in ledger order."""
+  stateChanges(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): StateChangeConnection!
 }
 `, BuiltIn: false},
 }
