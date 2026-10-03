@@ -334,8 +334,8 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 			if change.Type == xdr.LedgerEntryTypeContractCode {
 				contractCodeEntry := change.Post.Data.MustContractCode()
 				proc.processContractCode(ctx, contractCodeEntry.Hash, contractCodeEntry.Code)
-			} else {
-				proc.processEntry(change)
+			} else if entryErr := proc.processEntry(change); entryErr != nil {
+				return fmt.Errorf("processing checkpoint entry: %w", entryErr)
 			}
 
 			if txErr := proc.flushBatchIfNeeded(ctx); txErr != nil {
@@ -372,7 +372,7 @@ func (s *checkpointService) PopulateFromCheckpoint(ctx context.Context, checkpoi
 }
 
 // processEntry handles Account, Trustline, and ContractData entries from a checkpoint.
-func (p *checkpointProcessor) processEntry(change ingest.Change) {
+func (p *checkpointProcessor) processEntry(change ingest.Change) error {
 	//exhaustive:ignore
 	switch change.Type {
 	case xdr.LedgerEntryTypeAccount:
@@ -391,12 +391,12 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			poolID := processors.PoolIDToString(*trustlineEntry.Asset.LiquidityPoolId)
 			p.batch.addLiquidityPoolShare(trustlineEntry.AccountId.Address(), poolID, int64(trustlineEntry.Balance), p.checkpointLedger)
 			p.entries++
-			return
+			return nil
 		}
 
 		accountAddress, asset, xdrFields, skip := p.service.processTrustlineChange(change)
 		if skip {
-			return
+			return nil
 		}
 		p.entries++
 		p.trustlineCount++
@@ -409,7 +409,13 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		pool := change.Post.Data.MustLiquidityPool()
 		cp, ok := pool.Body.GetConstantProduct()
 		if !ok {
-			return
+			// Unreachable from a decoded archive: LiquidityPoolType admits only
+			// constant-product, so the decoder rejects any other discriminant.
+			// Fail loudly rather than skip, because liquidity_pool_balances
+			// references liquidity_pools: silently dropping a pool would drop
+			// every holder's shares with it.
+			return fmt.Errorf("liquidity pool %s has body type %d, which liquidity_pools cannot represent",
+				processors.PoolIDToString(pool.LiquidityPoolId), pool.Body.Type)
 		}
 		p.batch.addLiquidityPool(wbdata.LiquidityPool{
 			PoolID:       processors.PoolIDToString(pool.LiquidityPoolId),
@@ -426,7 +432,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 
 		contractAddress, ok := contractDataEntry.Contract.GetContractId()
 		if !ok {
-			return
+			return nil
 		}
 		contractAddressStr := strkey.MustEncode(strkey.VersionByteContract, contractAddress[:])
 
@@ -434,7 +440,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 		if contractDataEntry.Key.Type == xdr.ScValTypeScvLedgerKeyContractInstance {
 			result := p.service.processContractInstanceChange(change, contractAddressStr, contractDataEntry)
 			if result.Skip {
-				return
+				return nil
 			}
 			p.data.uniqueContractTokens[result.Contract.ID] = result.Contract
 			p.entries++
@@ -446,12 +452,12 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			}
 
 			if result.IsSAC {
-				return
+				return nil
 			}
 		} else {
 			holderAddress, skip := p.service.processContractBalanceChange(contractDataEntry)
 			if skip {
-				return
+				return nil
 			}
 
 			_, _, ok := sac.ContractBalanceFromContractData(*change.Post, p.service.networkPassphrase)
@@ -475,6 +481,7 @@ func (p *checkpointProcessor) processEntry(change ingest.Change) {
 			}
 		}
 	}
+	return nil
 }
 
 // processContractCode tracks WASM hashes for protocol_wasms persistence.
