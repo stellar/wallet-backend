@@ -2,6 +2,19 @@
 
 For contributors changing the API and operators tuning it. After reading it you can trace a request from the socket to the database, find the code that answers each query, and tell which limit rejected a request.
 
+## Contents
+
+- [Request path](#request-path)
+- [Schema and codegen](#schema-and-codegen)
+- [Root queries](#root-queries)
+- [Dataloaders](#dataloaders)
+- [Limits](#limits)
+- [Persisted queries](#persisted-queries)
+- [Health](#health)
+- [Database access](#database-access)
+- [Metrics](#metrics)
+- [Where in the code](#where-in-the-code)
+
 ## Request path
 
 `wallet-backend serve` runs one HTTP server on `--port` (default `8001`). GraphQL lives at `POST /graphql/query`. The server only reads; ingestion writes everything it returns.

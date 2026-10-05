@@ -2,6 +2,20 @@
 
 For API consumers who read `accountByAddress.balances`, and for contributors who change how balances are ingested. After reading it you can tell which balance kinds an address can return, where each value comes from, and when a field can be empty or missing.
 
+## Contents
+
+- [Balance kinds](#balance-kinds)
+- [How each kind stays current](#how-each-kind-stays-current)
+- [SAC vs SEP-41 classification](#sac-vs-sep-41-classification)
+  - [SAC detection](#sac-detection)
+  - [SEP-41 detection](#sep-41-detection)
+  - [Metadata fetch](#metadata-fetch)
+  - [`contract_tokens.type` values](#contract_tokenstype-values)
+- [Decimals, symbols, and metadata](#decimals-symbols-and-metadata)
+- [What is not tracked](#what-is-not-tracked)
+- [Reading balances](#reading-balances)
+- [Where in the code](#where-in-the-code)
+
 ## Balance kinds
 
 `accountByAddress` accepts a G-address (account) or a C-address (contract). Muxed M-addresses fail address validation and return an `INVALID_ADDRESS` error.

@@ -2,6 +2,18 @@
 
 For an operator standing up wallet-backend outside the compose quickstart. After reading it you can prepare the database, start live ingestion and the API, backfill history, and turn on authentication.
 
+## Contents
+
+- [Requirements](#requirements)
+- [Create the database](#create-the-database)
+- [Start live ingestion](#start-live-ingestion)
+- [Choose a ledger source](#choose-a-ledger-source)
+- [Start the API](#start-the-api)
+- [Backfill history](#backfill-history)
+- [Enable authentication](#enable-authentication)
+- [Run multiple networks](#run-multiple-networks)
+- [Where in the code](#where-in-the-code)
+
 Config names use the environment-variable form. Every variable and its default is in the [configuration reference](../configuration.md).
 
 ## Requirements

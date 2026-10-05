@@ -2,6 +2,15 @@
 
 For a contributor who needs to run, extend or debug the end-to-end tests. After reading it you can run the suite locally, run one suite on its own, and find out why a run failed.
 
+## Contents
+
+- [What they cover](#what-they-cover)
+- [Run them](#run-them)
+- [How the harness works](#how-the-harness-works)
+- [Test data](#test-data)
+- [Debugging a failure](#debugging-a-failure)
+- [Where in the code](#where-in-the-code)
+
 The tests start a private Stellar network, submit real transactions, and check what wallet-backend ingests and serves. Everything runs in Docker through testcontainers-go.
 
 ## What they cover

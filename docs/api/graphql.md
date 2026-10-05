@@ -2,6 +2,24 @@
 
 For wallet developers who call wallet-backend over HTTP. After reading it you can query accounts, balances, transactions, operations, and state changes, page through results, stay inside the server's limits, and handle its errors.
 
+## Contents
+
+- [Endpoint](#endpoint)
+- [Root queries](#root-queries)
+- [Pagination](#pagination)
+  - [Example: page through an account's transactions](#example-page-through-an-accounts-transactions)
+- [Time bounds](#time-bounds)
+- [Balances](#balances)
+  - [Example: all balance types](#example-all-balance-types)
+- [State changes](#state-changes)
+  - [Example: incoming payments to an account](#example-incoming-payments-to-an-account)
+- [Transactions and operations](#transactions-and-operations)
+  - [Example: a transaction with its operations and state changes](#example-a-transaction-with-its-operations-and-state-changes)
+- [Limits](#limits)
+- [Errors](#errors)
+- [Persisted queries](#persisted-queries)
+- [Where in the code](#where-in-the-code)
+
 Every type and field is listed in the [schema reference](schema.md). For request signing, see [Request authentication](authentication.md).
 
 ## Endpoint

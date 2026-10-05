@@ -2,6 +2,18 @@
 
 For operators tuning PostgreSQL and contributors writing queries or migrations. After reading it you know which tables are hypertables, why they are shaped the way they are, what the live ingester changes at runtime, and what the API needs from the connection.
 
+## Contents
+
+- [One database, two kinds of table](#one-database-two-kinds-of-table)
+- [Hypertable layout](#hypertable-layout)
+- [Indexes](#indexes)
+- [Runtime policies](#runtime-policies)
+- [Cursors](#cursors)
+- [Writes](#writes)
+- [Connections](#connections)
+- [Requirements the migrations assume](#requirements-the-migrations-assume)
+- [Where in the code](#where-in-the-code)
+
 Table-by-table columns and keys are in the [data model](data-model.md).
 
 ## One database, two kinds of table

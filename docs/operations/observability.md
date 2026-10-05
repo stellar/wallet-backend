@@ -2,6 +2,27 @@
 
 For operators wiring wallet-backend into Prometheus, dashboards and log shipping. After reading it you can scrape every process, pick health probes, alert on the right series and read the logs.
 
+## Contents
+
+- [Endpoints](#endpoints)
+- [Health](#health)
+- [Metrics](#metrics)
+  - [HTTP](#http)
+  - [GraphQL](#graphql)
+  - [Dataloaders](#dataloaders)
+  - [Auth](#auth)
+  - [Database](#database)
+  - [Connection pool](#connection-pool)
+  - [Worker pools](#worker-pools)
+  - [RPC](#rpc)
+  - [Ingestion](#ingestion)
+  - [Protocol migration](#protocol-migration)
+- [Suggested alerts](#suggested-alerts)
+- [Logs](#logs)
+- [pprof](#pprof)
+- [Error reporting](#error-reporting)
+- [Where in the code](#where-in-the-code)
+
 ## Endpoints
 
 None of these endpoints take authentication, so keep them off the public network.

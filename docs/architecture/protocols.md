@@ -2,6 +2,21 @@
 
 For contributors adding a protocol and operators running a protocol migration. After reading it you can tell how wallet-backend recognizes a protocol's contracts, how it turns their activity into rows, and how a migration fills in history for a protocol added after ingestion started.
 
+## Contents
+
+- [What a protocol is here](#what-a-protocol-is-here)
+- [Registration](#registration)
+- [Classification](#classification)
+- [Processing](#processing)
+  - [Processor contract](#processor-contract)
+  - [ProtocolDeps](#protocoldeps)
+- [Data migrations](#data-migrations)
+  - [How a run proceeds](#how-a-run-proceeds)
+  - [Handoff with live ingestion](#handoff-with-live-ingestion)
+  - [Rebuild](#rebuild)
+- [SEP-41](#sep-41)
+- [Where in the code](#where-in-the-code)
+
 ## What a protocol is here
 
 A protocol is a family of Soroban contracts that share an interface. wallet-backend identifies the family by the WASM each contract runs, not by a list of addresses. Once a WASM hash belongs to a protocol, every contract deployed with that WASM belongs to it too, and the protocol's code decodes those contracts' events into rows.

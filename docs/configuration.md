@@ -2,6 +2,24 @@
 
 For operators and developers who run `wallet-backend`. Lists every flag and environment variable for each command, with defaults and the checks each command runs at startup.
 
+## Contents
+
+- [Shared options](#shared-options)
+- [serve](#serve)
+- [ingest](#ingest)
+  - [Mode and range](#mode-and-range)
+  - [Ledger source](#ledger-source)
+  - [History archive](#history-archive)
+  - [Backfill tuning](#backfill-tuning)
+  - [TimescaleDB policies](#timescaledb-policies)
+- [migrate](#migrate)
+- [protocol-setup](#protocol-setup)
+- [protocol-migrate](#protocol-migrate)
+- [version](#version)
+- [Validation rules](#validation-rules)
+- [Network presets](#network-presets)
+- [Where in the code](#where-in-the-code)
+
 Every option takes a flag or an environment variable. The variable name is the flag name in upper case with `-` replaced by `_`. When both are set, the flag wins. Options marked "no env var" are plain command-line flags.
 
 ```bash

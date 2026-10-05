@@ -2,6 +2,17 @@
 
 For maintainers. After reading it you can cut a release candidate, soak it, promote it to public ECR and GitHub Releases, and write the notes.
 
+## Contents
+
+- [Cadence](#cadence)
+- [Versioning](#versioning)
+- [Cut a release candidate](#cut-a-release-candidate)
+- [Promote](#promote)
+- [Release notes](#release-notes)
+- [Images](#images)
+- [Planning](#planning)
+- [Where in the code](#where-in-the-code)
+
 ## Cadence
 
 | Trigger | Release |

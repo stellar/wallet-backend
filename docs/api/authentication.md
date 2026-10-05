@@ -2,6 +2,17 @@
 
 For anyone writing a client in any language. After reading it you can sign a request so a wallet-backend with `CLIENT_AUTH_PUBLIC_KEYS` set accepts it, and check your signer against a fixed example.
 
+## Contents
+
+- [Token format](#token-format)
+- [Time window](#time-window)
+- [Binding to the request](#binding-to-the-request)
+- [Signing procedure](#signing-procedure)
+- [Worked example](#worked-example)
+- [Responses on failure](#responses-on-failure)
+- [Go client](#go-client)
+- [Where in the code](#where-in-the-code)
+
 Authentication is off unless the operator sets `CLIENT_AUTH_PUBLIC_KEYS`. With it set, every request to `/graphql/query` must carry a JWT signed by one of those Stellar keys. `/health` and `/api-metrics` never need one.
 
 ## Token format

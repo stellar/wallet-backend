@@ -69,11 +69,31 @@ func loadSchema(glob string) (*ast.Schema, error) {
 
 // render returns the Markdown reference for every user-defined part of schema.
 func render(schema *ast.Schema) string {
+	body := renderBody(schema)
+
 	var b strings.Builder
 	b.WriteString("# GraphQL schema reference\n\n")
 	b.WriteString("Every query, type, and field served at `POST /graphql/query`. ")
 	b.WriteString("For auth, pagination, and examples, see [GraphQL API](graphql.md). ")
 	b.WriteString("Generated from the schema files by `make gql-docs`; do not edit by hand.\n")
+	b.WriteString("\n## Contents\n\n")
+	for _, line := range strings.Split(body, "\n") {
+		if title, ok := strings.CutPrefix(line, "## "); ok {
+			b.WriteString("- [" + title + "](#" + anchor(title) + ")\n")
+		}
+	}
+	b.WriteString(body)
+	return b.String()
+}
+
+// anchor turns a heading into the fragment GitHub generates for it.
+func anchor(title string) string {
+	return strings.ReplaceAll(strings.ToLower(title), " ", "-")
+}
+
+// renderBody writes every section after the page header.
+func renderBody(schema *ast.Schema) string {
+	var b strings.Builder
 
 	if schema.Query != nil {
 		b.WriteString("\n## Queries\n")
