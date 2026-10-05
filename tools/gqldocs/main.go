@@ -232,6 +232,9 @@ func writeArgs(b *strings.Builder, schema *ast.Schema, args ast.ArgumentDefiniti
 	}
 }
 
+// gqlgenDirectives are gqlgen's code-generation directives. They shape the Go code, not the API.
+var gqlgenDirectives = map[string]bool{"goField": true, "goModel": true, "goTag": true, "goEnum": true, "goExtraField": true}
+
 // writeDirectives lists user-defined directives, skipping gqlgen's code-generation ones.
 func writeDirectives(b *strings.Builder, schema *ast.Schema) {
 	var names []string
@@ -239,7 +242,7 @@ func writeDirectives(b *strings.Builder, schema *ast.Schema) {
 		if d.Position != nil && d.Position.Src != nil && d.Position.Src.BuiltIn {
 			continue
 		}
-		if strings.HasPrefix(name, "go") {
+		if gqlgenDirectives[name] {
 			continue
 		}
 		names = append(names, name)

@@ -386,7 +386,7 @@ Implements: [Balance](#balance)
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 | `reserves` | \[[LiquidityPoolReserve](#liquiditypoolreserve)!\]! | The pool's constituent assets and reserve amounts. |
@@ -409,7 +409,7 @@ Implements: [Balance](#balance)
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 | `minimumBalance` | `String`! | Minimum XLM balance the account must hold, with 7 decimal places. It is the base reserve requirement and excludes liabilities: (2 + numSubentries + numSponsoring - numSponsored) * baseReserve. Spendable balance = balance - minimumBalance - sellingLiabilities. |
@@ -482,7 +482,7 @@ Implements: [Balance](#balance)
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 | `code` | `String`! | Asset code of the wrapped classic asset. |
@@ -530,7 +530,7 @@ Implements: [Balance](#balance)
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 | `name` | `String` | Token name reported by the contract; null when the contract does not expose one. |
@@ -697,7 +697,7 @@ Implements: [Balance](#balance)
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 | `code` | `String`! | Asset code (1-12 characters). |
@@ -760,7 +760,7 @@ Implemented by: [LiquidityPoolBalance](#liquiditypoolbalance), [NativeBalance](#
 
 | Field | Type | Description |
 |---|---|---|
-| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
+| `balance` | `String`! | Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals. |
 | `tokenId` | `String`! | Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares. |
 | `tokenType` | [TokenType](#tokentype)! | Classification of the token. |
 

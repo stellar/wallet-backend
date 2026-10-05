@@ -15,7 +15,7 @@ import (
 // Common contract for every token balance held by an account.
 type Balance interface {
 	IsBalance()
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	GetBalance() string
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	GetTokenID() string
@@ -93,7 +93,7 @@ type BalanceEdge struct {
 // shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 // assets and amounts.
 type LiquidityPoolBalance struct {
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	Balance string `json:"balance"`
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	TokenID string `json:"tokenId"`
@@ -107,7 +107,7 @@ type LiquidityPoolBalance struct {
 
 func (LiquidityPoolBalance) IsBalance() {}
 
-// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this LiquidityPoolBalance) GetBalance() string { return this.Balance }
 
 // Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
@@ -126,7 +126,7 @@ type LiquidityPoolReserve struct {
 
 // The account's native XLM balance.
 type NativeBalance struct {
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	Balance string `json:"balance"`
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	TokenID string `json:"tokenId"`
@@ -149,7 +149,7 @@ type NativeBalance struct {
 
 func (NativeBalance) IsBalance() {}
 
-// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this NativeBalance) GetBalance() string { return this.Balance }
 
 // Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
@@ -192,7 +192,7 @@ type Query struct {
 
 // A Stellar Asset Contract balance held by a contract address.
 type SACBalance struct {
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	Balance string `json:"balance"`
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	TokenID string `json:"tokenId"`
@@ -212,7 +212,7 @@ type SACBalance struct {
 
 func (SACBalance) IsBalance() {}
 
-// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this SACBalance) GetBalance() string { return this.Balance }
 
 // Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
@@ -255,7 +255,7 @@ type SEP41AllowanceEdge struct {
 
 // A pure SEP-41 (non-SAC) contract token balance.
 type SEP41Balance struct {
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	Balance string `json:"balance"`
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	TokenID string `json:"tokenId"`
@@ -273,7 +273,7 @@ type SEP41Balance struct {
 
 func (SEP41Balance) IsBalance() {}
 
-// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this SEP41Balance) GetBalance() string { return this.Balance }
 
 // Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
@@ -300,7 +300,7 @@ type StateChangeEdge struct {
 
 // A classic Stellar asset held via a trustline.
 type TrustlineBalance struct {
-	// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	Balance string `json:"balance"`
 	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	TokenID string `json:"tokenId"`
@@ -328,7 +328,7 @@ type TrustlineBalance struct {
 
 func (TrustlineBalance) IsBalance() {}
 
-// Balance amount as a decimal string. Native XLM, trustline, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SAC and SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this TrustlineBalance) GetBalance() string { return this.Balance }
 
 // Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
