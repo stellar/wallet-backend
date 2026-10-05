@@ -1,6 +1,7 @@
 # Link checker config for `make docs-lint` and the docs-check CI job.
 exclude = [
   "^https://gallery.ecr.aws",
+  "^https://hub.docker.com",
   "^http://localhost",
   "^http://127.0.0.1",
   "^http://db:",
