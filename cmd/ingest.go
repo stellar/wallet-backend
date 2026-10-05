@@ -19,12 +19,14 @@ type ingestCmd struct{}
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
 	var ledgerBackendType string
+	startLedgerOpt := utils.StartLedgerOption(&cfg.StartLedger)
+	endLedgerOpt := utils.EndLedgerOption(&cfg.EndLedger)
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.RPCURLOption(&cfg.RPCURL),
-		utils.StartLedgerOption(&cfg.StartLedger),
-		utils.EndLedgerOption(&cfg.EndLedger),
+		startLedgerOpt,
+		endLedgerOpt,
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.AdminPortOption(&cfg.AdminPort),
@@ -164,16 +166,16 @@ func (c *ingestCmd) Command() *cobra.Command {
 			switch cfg.IngestionMode {
 			case services.IngestionModeLive:
 				// Live mode resumes from the stored cursor; a start or end ledger would be
-				// silently ignored, so reject it instead.
-				if cfg.StartLedger != 0 || cfg.EndLedger != 0 {
+				// silently ignored, so reject any explicitly supplied value, including 0.
+				if config.IsExplicitlySet(startLedgerOpt) || config.IsExplicitlySet(endLedgerOpt) {
 					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
 				}
 			case services.IngestionModeBackfill:
 				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
 					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got %d..%d)", cfg.StartLedger, cfg.EndLedger)
 				}
-				if cfg.EndLedger > math.MaxUint32 {
-					return fmt.Errorf("--end-ledger %d exceeds the maximum ledger sequence %d", cfg.EndLedger, uint32(math.MaxUint32))
+				if cfg.EndLedger >= math.MaxUint32 {
+					return fmt.Errorf("--end-ledger %d must be below %d", cfg.EndLedger, uint32(math.MaxUint32))
 				}
 			default:
 				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)

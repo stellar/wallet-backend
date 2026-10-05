@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -194,11 +195,18 @@ func (m *ingestService) splitGapsIntoBatches(gaps []data.LedgerRange) []Backfill
 	for _, gap := range gaps {
 		start := gap.GapStart
 		for start <= gap.GapEnd {
-			end := min(start+m.backfillBatchSize-1, gap.GapEnd)
+			// Compute the batch end without overflowing uint32 near the ceiling.
+			end := gap.GapEnd
+			if gap.GapEnd-start >= m.backfillBatchSize {
+				end = start + m.backfillBatchSize - 1
+			}
 			batches = append(batches, BackfillBatch{
 				StartLedger: start,
 				EndLedger:   end,
 			})
+			if end == math.MaxUint32 {
+				break
+			}
 			start = end + 1
 		}
 	}
