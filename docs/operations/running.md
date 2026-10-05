@@ -27,7 +27,7 @@ Config names use the environment-variable form. Every variable and its default i
 | stellar-rpc | 28.x, same network | Used for `getHealth`, `getLedgers`, `getLedgerEntries`, `simulateTransaction` |
 | History archive | any | `ARCHIVE_URL`. First start reads balances from the latest checkpoint |
 | S3 data lake | optional | Only for `LEDGER_BACKEND_TYPE=datastore`. See [Choose a ledger source](#choose-a-ledger-source) |
-| wallet-backend | release image or source build | Image `public.ecr.aws/stellar/wallet-backend:<VERSION>` with entrypoint `wallet-backend`, or `make build` with Go 1.25 (from `go.mod`) |
+| wallet-backend | release image or source build | Image `public.ecr.aws/stellar/wallet-backend:<VERSION>` (also on Docker Hub as `stellar/wallet-backend:<VERSION>`) with entrypoint `wallet-backend`, or `make build` with Go 1.25 (from `go.mod`) |
 
 Commands below call the binary as `wallet-backend`. With the image, run the same arguments through `docker run`:
 
