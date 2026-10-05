@@ -28,7 +28,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: promote-release-${{ inputs.release_version }}
+  # One promotion at a time, so :latest can never move backwards.
+  group: promote-release
   cancel-in-progress: false
 
 jobs:
@@ -109,19 +110,63 @@ jobs:
         with:
           login-public-ecr: 'true'
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Every existence check runs before any tag is created, so a failed check leaves nothing half-promoted.
       - name: Verify production ECR tag does not exist
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          if aws ecr describe-images \
-            --repository-name prd/wallet-backend \
-            --image-ids imageTag="$RELEASE_VERSION" \
-            --region us-east-1 >/dev/null 2>&1; then
+          set -uo pipefail
+          # Fail closed: only ImageNotFoundException lets the promotion proceed.
+          if out=$(aws ecr describe-images --repository-name prd/wallet-backend --image-ids imageTag="$RELEASE_VERSION" --region us-east-1 2>&1); then
             echo "::error::ECR tag prd/wallet-backend:$RELEASE_VERSION already exists."
+            exit 1
+          fi
+          if ! grep -q "ImageNotFoundException" <<<"$out"; then
+            echo "::error::Could not verify ECR tag prd/wallet-backend:$RELEASE_VERSION: $out"
             exit 1
           fi
           echo "ECR tag $RELEASE_VERSION not present. Proceeding."
 
+      - name: Verify public ECR tag does not exist
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -uo pipefail
+          # Fail closed: only an explicit not-found answer lets the publish proceed.
+          if out=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" 2>&1); then
+            echo "::error::Public ECR tag ${PUBLIC_IMAGE}:${RELEASE_VERSION} already exists."
+            exit 1
+          fi
+          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
+            echo "::error::Could not verify public ECR tag ${RELEASE_VERSION}: $out"
+            exit 1
+          fi
+          echo "Public ECR tag ${RELEASE_VERSION} not present. Proceeding."
+
+      # Cross-registry copy of the production ECR digest; no rebuild.
+      - name: Verify Docker Hub tag does not exist
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -uo pipefail
+          # Fail closed: only an explicit not-found answer lets the publish proceed.
+          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" 2>&1); then
+            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
+            exit 1
+          fi
+          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
+            echo "::error::Could not verify Docker Hub tag ${RELEASE_VERSION}: $out"
+            exit 1
+          fi
+          echo "Docker Hub tag ${RELEASE_VERSION} not present. Proceeding."
+
+      # Same digest as production and public ECR; no rebuild.
       - name: Re-tag image from staging to production ECR
         id: retag
         env:
@@ -147,23 +192,6 @@ jobs:
           echo "prd_tag=$PRD_TAG" >> "$GITHUB_OUTPUT"
           echo "digest=$PRD_DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Verify public ECR tag does not exist
-        env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          set -uo pipefail
-          # Fail closed: only an explicit not-found answer lets the publish proceed.
-          if out=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" 2>&1); then
-            echo "::error::Public ECR tag ${PUBLIC_IMAGE}:${RELEASE_VERSION} already exists."
-            exit 1
-          fi
-          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
-            echo "::error::Could not verify public ECR tag ${RELEASE_VERSION}: $out"
-            exit 1
-          fi
-          echo "Public ECR tag ${RELEASE_VERSION} not present. Proceeding."
-
-      # Cross-registry copy of the production ECR digest; no rebuild.
       - name: Publish to public ECR
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -185,29 +213,6 @@ jobs:
           fi
           echo "Public ECR publish successful, bytes preserved."
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Verify Docker Hub tag does not exist
-        env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          set -uo pipefail
-          # Fail closed: only an explicit not-found answer lets the publish proceed.
-          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" 2>&1); then
-            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
-            exit 1
-          fi
-          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
-            echo "::error::Could not verify Docker Hub tag ${RELEASE_VERSION}: $out"
-            exit 1
-          fi
-          echo "Docker Hub tag ${RELEASE_VERSION} not present. Proceeding."
-
-      # Same digest as production and public ECR; no rebuild.
       - name: Publish to Docker Hub
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
