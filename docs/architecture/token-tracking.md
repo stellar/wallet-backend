@@ -44,7 +44,7 @@ Each row reads left to right: the ledger input, the table that holds the current
 
 ## How each kind stays current
 
-Only live ingestion writes balance tables. Backfill writes transactions, operations, and state changes, and never touches balances. On an empty database, live ingestion first loads every balance from the history archive's latest checkpoint, then applies each ledger's changes inside the same database transaction as that ledger's history rows.
+Live ingestion writes the ledger-entry balance tables (native, classic, SAC, liquidity pool) and, once the protocol's cursor exists, the SEP-41 tables. `protocol-migrate current-state` fills the SEP-41 tables for ledgers ingested before that. Backfill writes transactions, operations, and state changes, and never touches balances. On an empty database, live ingestion first loads the ledger-entry balances from the history archive's latest checkpoint (SEP-41 balances are not in the archive), then applies each ledger's changes inside the same database transaction as that ledger's history rows.
 
 | Kind | Live update | Checkpoint bootstrap |
 | --- | --- | --- |

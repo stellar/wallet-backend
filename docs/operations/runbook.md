@@ -73,7 +73,7 @@ A ledger is written in one transaction. A SIGTERM mid-ledger rolls it back and t
 | Datastore backend exits with a buffer error | The data-lake reader died (missing files, credentials, throttling) | This is classified permanent; the process exits. Restart after fixing access. |
 | `migrate up` fails on `tsdb.` or `sparse_index` options | TimescaleDB extension missing, too old, or `timescaledb.enable_sparse_index_bloom` off | See [running](running.md#requirements). |
 | API 401 on every request | `CLIENT_AUTH_PUBLIC_KEYS` set and clients unsigned, or wrong key | See [authentication](../api/authentication.md). |
-| API 500 on auth | Body larger than `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` could not be read | Raise the limit or shrink the request. |
+| API 401 on large signed requests only | Body larger than `CLIENT_AUTH_MAX_BODY_SIZE_BYTES`: the server hashes only that many bytes, so the signature no longer matches | Raise the limit or shrink the request. A 500 on auth means the body could not be read at all. |
 | Disk fills faster than expected | Compression not running (no policy job, `COMPRESSION_COMPRESS_AFTER` too long) or retention off | Check `timescaledb_information.jobs`; set `RETENTION_PERIOD` if you do not need full history. |
 
 ## Retention and compression

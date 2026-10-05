@@ -216,11 +216,11 @@ Each node implements `Balance` with `balance`, `tokenId`, and `tokenType`. Use `
 |---|---|---|---|
 | `NativeBalance` | `NATIVE` | 7 decimal places, for example `"100.0000000"` | `minimumBalance`, `buyingLiabilities`, `sellingLiabilities`, `numSubentries`, `lastModifiedLedger` |
 | `TrustlineBalance` | `CLASSIC` | 7 decimal places | `code`, `issuer`, `assetType`, `limit`, `buyingLiabilities`, `sellingLiabilities`, `lastModifiedLedger`, `isAuthorized`, `isAuthorizedToMaintainLiabilities` |
-| `SACBalance` | `SAC` | Integer in the token's smallest unit | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
+| `SACBalance` | `SAC` | 7 decimal places | `code`, `issuer`, `decimals`, `isAuthorized`, `isClawbackEnabled` |
 | `SEP41Balance` | `SEP41` | Integer in the token's smallest unit | `name`, `symbol`, `decimals`, `lastModifiedLedger` |
 | `LiquidityPoolBalance` | `LIQUIDITY_POOL` | Pool shares, 7 decimal places | `reserves { asset amount }`, `lastModifiedLedger` |
 
-All amounts are strings. For `SACBalance` and `SEP41Balance`, divide `balance` by 10^`decimals` to display it. `tokenId` is the token's contract ID (`C...`). For XLM and classic assets it is the Stellar Asset Contract ID. For pool shares it is the hex pool ID.
+All amounts are strings. Only `SEP41Balance` needs scaling: divide `balance` by 10^`decimals` to display it. `SACBalance.decimals` is always 7 and the string already carries the decimal point. `tokenId` is the token's contract ID (`C...`). For XLM and classic assets it is the Stellar Asset Contract ID. For pool shares it is the hex pool ID.
 
 Spendable XLM is `balance - minimumBalance - sellingLiabilities`.
 
