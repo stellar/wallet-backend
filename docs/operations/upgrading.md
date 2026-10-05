@@ -19,7 +19,7 @@ Releases follow semantic versioning from v1.0.0.
 2. Pull the image.
 
    ```bash
-   docker pull stellar/wallet-backend:<VERSION>
+   docker pull public.ecr.aws/stellar/wallet-backend:<VERSION>
    ```
 
 3. Stop the live ingester. It exits cleanly on SIGTERM and rolls back the ledger in flight. Stop any backfill too.
@@ -27,7 +27,7 @@ Releases follow semantic versioning from v1.0.0.
 4. Apply migrations with the release binary.
 
    ```bash
-   docker run --rm -e DATABASE_URL=<DATABASE_URL> stellar/wallet-backend:<VERSION> migrate up
+   docker run --rm -e DATABASE_URL=<DATABASE_URL> public.ecr.aws/stellar/wallet-backend:<VERSION> migrate up
    ```
 
    Expect `Successfully applied <N> migrations up.` or `No migrations applied.`
@@ -39,7 +39,7 @@ Releases follow semantic versioning from v1.0.0.
 7. Verify.
 
    ```bash
-   docker run --rm stellar/wallet-backend:<VERSION> version
+   docker run --rm public.ecr.aws/stellar/wallet-backend:<VERSION> version
    curl -s localhost:8002/health
    curl -s localhost:8001/health
    ```

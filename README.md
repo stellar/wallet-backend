@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/stellar/wallet-backend/actions/workflows/go.yaml/badge.svg?branch=main)](https://github.com/stellar/wallet-backend/actions/workflows/go.yaml)
 [![Release](https://img.shields.io/github/v/release/stellar/wallet-backend?display_name=tag)](https://github.com/stellar/wallet-backend/releases)
-[![Docker](https://img.shields.io/docker/v/stellar/wallet-backend?label=docker&sort=semver)](https://hub.docker.com/r/stellar/wallet-backend)
+[![Image](https://img.shields.io/badge/image-public.ecr.aws%2Fstellar%2Fwallet--backend-blue?logo=amazonecs)](https://gallery.ecr.aws/stellar/wallet-backend)
 [![Go](https://img.shields.io/github/go-mod/go-version/stellar/wallet-backend)](go.mod)
 [![License](https://img.shields.io/github/license/stellar/wallet-backend)](LICENSE)
 
@@ -20,6 +20,7 @@ Docs on `main` describe unreleased behavior. For the version you run, read the d
 |---|---|
 | PostgreSQL with the TimescaleDB extension | 17 with TimescaleDB 2.28 or newer |
 | stellar-rpc for the same network | 28.x |
+| Container image | `public.ecr.aws/stellar/wallet-backend:<TAG>` |
 | Go (source builds only) | see `go.mod` |
 
 ## Quickstart
