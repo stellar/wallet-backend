@@ -176,6 +176,16 @@ func TestAccountResolver_SEP41AllowancesPaginates(t *testing.T) {
 	require.NotNil(t, rpage2)
 	require.Len(t, rpage2.Edges, 2)
 
+	// A backward page must return the same items in the same ASC order as the forward walk.
+	assert.Equal(t,
+		[]string{sortedSpenders[2], sortedSpenders[3]},
+		[]string{rpage1.Edges[0].Node.Spender, rpage1.Edges[1].Node.Spender},
+		"last:2 should return the final two in ASC order")
+	assert.Equal(t,
+		[]string{sortedSpenders[0], sortedSpenders[1]},
+		[]string{rpage2.Edges[0].Node.Spender, rpage2.Edges[1].Node.Spender},
+		"last:2 before the first page should return the first two in ASC order")
+
 	// Oversize page is rejected with BAD_USER_INPUT.
 	huge := maxAllowancePageLimit + 1
 	_, err = resolver.Sep41Allowances(ctx, parentAccount, &huge, nil, nil, nil)
