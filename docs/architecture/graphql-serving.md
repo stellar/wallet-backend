@@ -25,7 +25,7 @@ Legend, in request order:
 | --- | --- |
 | Shared middleware | The standard Stellar Go mux: request ID, a panic recoverer, request logging, and CORS that allows any origin, header and common method. |
 | HTTP metrics | Counts requests and times them by route pattern and method. Unmatched routes get the label `unmatched`, so client paths never become labels. |
-| Panic recovery | Logs a panic with its stack, reports it to Sentry when `TRACKER_DSN` is set, and returns 500. |
+| Panic recovery | Logs a panic with its stack and returns 500. |
 | 30 s timeout | Cancels the request context after 30 s, so resolvers and database calls stop instead of holding a pooled connection. |
 | JWT auth | Present only when `--client-auth-public-keys` is set. A bad token gets 401. See [Authentication](../api/authentication.md). |
 | Dataloaders | Builds a fresh set of dataloaders for this request and puts it on the context. |

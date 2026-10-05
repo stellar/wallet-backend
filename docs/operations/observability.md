@@ -1,6 +1,6 @@
 # Observability
 
-For operators wiring wallet-backend into Prometheus, dashboards, log shipping and Sentry. After reading it you can scrape every process, pick health probes, alert on the right series and read the logs.
+For operators wiring wallet-backend into Prometheus, dashboards and log shipping. After reading it you can scrape every process, pick health probes, alert on the right series and read the logs.
 
 ## Endpoints
 
@@ -250,17 +250,9 @@ Capture a 30 s CPU profile:
 go tool pprof http://<HOST>:<ADMIN_PORT>/debug/pprof/profile?seconds=30
 ```
 
-## Error tracking
+## Error reporting
 
-`serve` and `ingest` report to Sentry when `TRACKER_DSN` is set. With it empty, nothing is sent. `STELLAR_ENVIRONMENT` sets the Sentry environment tag, for example `production` or `staging`.
-
-| Captured | Source |
-| --- | --- |
-| Exceptions behind every HTTP `500` response | Auth middleware, `/health` |
-| Exceptions behind every HTTP `503` response | `/health` when RPC is unhealthy or ingest lags |
-| Recovered panics | `serve` panic middleware, reported as `500` |
-
-There is no performance tracing. Every failed `/health` probe sends one Sentry event, so a long ingest lag produces one event per probe.
+There is no external error tracker. Every 500 and 503 response, every recovered panic and every ingest error is logged at `error` level with its cause, so ship logs to the system you alert from.
 
 ## Where in the code
 
@@ -278,6 +270,5 @@ There is no performance tracing. Every failed `/health` probe sends one Sentry e
 | `internal/utils/db_errors.go` | DB `error_type` values |
 | `cmd/root.go` | Logger bootstrap and the startup version line |
 | `cmd/utils/custom_set_value.go` | `LOG_LEVEL` parsing |
-| `cmd/utils/global_options.go` | `ADMIN_PORT`, `INGEST_SERVER_PORT`, `LOG_LEVEL`, `TRACKER_DSN`, `STELLAR_ENVIRONMENT` |
-| `internal/apptracker/sentry/sentry_tracker.go` | Sentry client setup |
-| `internal/serve/httperror/errors.go` | Which responses report to Sentry |
+| `cmd/utils/global_options.go` | `ADMIN_PORT`, `INGEST_SERVER_PORT`, `LOG_LEVEL` |
+| `internal/serve/httperror/errors.go` | Error response bodies; each 500 and 503 is logged at error level |
