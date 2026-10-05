@@ -7,7 +7,6 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/httperror"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
@@ -15,7 +14,6 @@ import (
 
 func AuthenticationMiddleware(
 	requestAuthVerifier auth.HTTPRequestVerifier,
-	appTracker apptracker.AppTracker,
 	authMetrics *metrics.AuthMetrics,
 ) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -31,7 +29,7 @@ func AuthenticationMiddleware(
 			log.Ctx(ctx).Errorf("verifying request authentication: %v", err)
 
 			if !errors.Is(err, auth.ErrUnauthorized) {
-				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
+				httperror.InternalServerError(ctx, "", err, nil).Render(rw)
 				return
 			}
 
@@ -46,7 +44,7 @@ func AuthenticationMiddleware(
 }
 
 // RecoverHandler is a middleware that recovers from panics and logs the error.
-func RecoverHandler(appTracker apptracker.AppTracker) func(http.Handler) http.Handler {
+func RecoverHandler() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 			defer func() {
@@ -66,7 +64,7 @@ func RecoverHandler(appTracker apptracker.AppTracker) func(http.Handler) http.Ha
 
 				ctx := req.Context()
 				log.Ctx(ctx).WithStack(err).Error(err)
-				httperror.InternalServerError(ctx, "", err, nil, appTracker).Render(rw)
+				httperror.InternalServerError(ctx, "", err, nil).Render(rw)
 			}()
 
 			next.ServeHTTP(rw, req)

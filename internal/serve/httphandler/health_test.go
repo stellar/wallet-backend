@@ -12,10 +12,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -46,14 +44,10 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
-		mockAppTracker := apptracker.NewMockAppTracker(t)
-		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
-		defer mockAppTracker.AssertExpectations(t)
 
 		handler := &HealthHandler{
 			Models:     models,
 			RPCService: mockRPCService,
-			AppTracker: mockAppTracker,
 		}
 
 		rpcHealthResult := entities.RPCGetHealthResult{
@@ -85,14 +79,10 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
-		mockAppTracker := apptracker.NewMockAppTracker(t)
-		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
-		defer mockAppTracker.AssertExpectations(t)
 
 		handler := &HealthHandler{
 			Models:     models,
 			RPCService: mockRPCService,
-			AppTracker: mockAppTracker,
 		}
 
 		mockRPCService.On("GetHealth").Return(entities.RPCGetHealthResult{}, errors.New("RPC connection failed"))
@@ -116,14 +106,10 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
-		mockAppTracker := apptracker.NewMockAppTracker(t)
-		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
-		defer mockAppTracker.AssertExpectations(t)
 
 		handler := &HealthHandler{
 			Models:     models,
 			RPCService: mockRPCService,
-			AppTracker: mockAppTracker,
 		}
 
 		rpcHealthResult := entities.RPCGetHealthResult{
@@ -150,14 +136,10 @@ func TestHealthHandler_GetHealth(t *testing.T) {
 		require.NoError(t, err)
 
 		mockRPCService := &services.RPCServiceMock{}
-		mockAppTracker := apptracker.NewMockAppTracker(t)
-		mockAppTracker.On("CaptureException", mock.Anything).Return().Maybe()
-		defer mockAppTracker.AssertExpectations(t)
 
 		handler := &HealthHandler{
 			Models:     models,
 			RPCService: mockRPCService,
-			AppTracker: mockAppTracker,
 		}
 
 		rpcHealthResult := entities.RPCGetHealthResult{

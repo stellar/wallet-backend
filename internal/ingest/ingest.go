@@ -18,7 +18,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -52,7 +51,6 @@ type Configs struct {
 	StartLedger         int
 	EndLedger           int
 	LogLevel            logrus.Level
-	AppTracker          apptracker.AppTracker
 	RPCURL              string
 	NetworkPassphrase   string
 	GetLedgersLimit     int
@@ -378,7 +376,6 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	healthHandler := httphandler.HealthHandler{
 		Models:     models,
 		RPCService: rpcService,
-		AppTracker: cfg.AppTracker,
 	}
 	mux.Handle("/ingest-metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))

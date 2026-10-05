@@ -15,7 +15,6 @@ import (
 	supporthttp "github.com/stellar/go-stellar-sdk/support/http"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -68,9 +67,6 @@ type Configs struct {
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
 
-	// Error Tracker
-	AppTracker apptracker.AppTracker
-
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
 	DBMinConns        int
@@ -118,9 +114,6 @@ type handlerDeps struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -210,7 +203,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		LiquidityPoolBalanceModel:   models.LiquidityPoolBalance,
 		SEP41BalanceModel:           models.SEP41.Balances,
 		SEP41AllowanceModel:         models.SEP41.Allowances,
-		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		GraphQLIntrospectionEnabled: cfg.GraphQLIntrospectionEnabled,
@@ -239,12 +231,11 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Add metrics middleware first to capture all requests
 	mux.Use(middleware.MetricsMiddleware(deps.Metrics.HTTP))
-	mux.Use(middleware.RecoverHandler(deps.AppTracker))
+	mux.Use(middleware.RecoverHandler())
 
 	mux.Get("/health", httphandler.HealthHandler{
 		Models:     deps.Models,
 		RPCService: deps.RPCService,
-		AppTracker: deps.AppTracker,
 	}.GetHealth)
 	// Unauthenticated scrape endpoint: bound concurrent scrapes and their duration so a
 	// large registry cannot be scraped in parallel for CPU and allocation cost.
@@ -259,7 +250,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Use(middleware.RequestTimeoutMiddleware(requestContextTimeout))
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
-			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {

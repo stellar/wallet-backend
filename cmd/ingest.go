@@ -10,7 +10,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/cmd/utils"
-	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -19,14 +18,10 @@ type ingestCmd struct{}
 
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
-	var sentryDSN string
-	var stellarEnvironment string
 	var ledgerBackendType string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
-		utils.SentryDSNOption(&sentryDSN),
-		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.RPCURLOption(&cfg.RPCURL),
 		utils.StartLedgerOption(&cfg.StartLedger),
 		utils.EndLedgerOption(&cfg.EndLedger),
@@ -183,12 +178,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			default:
 				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)
 			}
-
-			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
-			if err != nil {
-				return fmt.Errorf("initializing app tracker: %w", err)
-			}
-			cfg.AppTracker = appTracker
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {
