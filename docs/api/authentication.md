@@ -58,7 +58,7 @@ Sign right before sending. A short window (5 to 10 seconds) is enough for one re
 
 `methodAndPath` must equal the server's view of the request: `<METHOD> <path>?<query>`. The server trims surrounding whitespace, nothing else. A proxy that rewrites the path breaks the signature.
 
-`bodyHash` must be the SHA-256 of the bytes the server reads. The server reads at most `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` (default 102400). A larger body is hashed truncated and fails verification, so keep requests under that size or raise the limit on the server.
+`bodyHash` must be the SHA-256 of the bytes the server reads. The server reads at most `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` (default 102400) and discards the rest before hashing and before the request is processed. A client that hashed the full, larger body gets a 401. A request cannot smuggle bytes past the limit either: whatever is not hashed is also not processed. Keep requests under the limit or raise it on the server.
 
 Same body bytes means the same JSON serialization. Serialize once, hash those bytes, send those bytes.
 

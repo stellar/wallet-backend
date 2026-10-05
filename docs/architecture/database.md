@@ -33,8 +33,9 @@ Ingest writes every ledger into the history hypertables and upserts balances int
 | Kind | Tables | Grows with | Written by |
 |---|---|---|---|
 | History hypertables | `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes` | ledgers retained | live ingest, backfill |
-| Current state | `native_balances`, `trustline_balances`, `sac_balances`, `sep41_balances`, `sep41_allowances`, `liquidity_pools`, `liquidity_pool_balances`, `trustline_assets`, `contract_tokens`, `protocol_wasms`, `protocol_contracts` | accounts and tokens on the network | checkpoint bootstrap once, then live ingest |
-| Bookkeeping | `ingest_store`, `protocols`, `gorp_migrations` | constant | ingest, `migrate up` |
+| Current state from ledger entries | `native_balances`, `trustline_balances`, `sac_balances`, `liquidity_pools`, `liquidity_pool_balances`, `trustline_assets`, `contract_tokens`, `protocol_wasms`, `protocol_contracts` | accounts and tokens on the network | checkpoint bootstrap once, then live ingest; `protocol-setup` also classifies `protocol_wasms` and writes `contract_tokens` metadata |
+| Current state from protocol events | `sep41_balances`, `sep41_allowances` | SEP-41 holders | `protocol-migrate current-state` for ledgers already ingested, then live ingest once the protocol cursor exists |
+| Bookkeeping | `ingest_store`, `protocols`, `gorp_migrations` | constant | ingest and `protocol-migrate` (cursors), `migrate up` and `protocol-setup` (`protocols`), sql-migrate (`gorp_migrations`) |
 
 ## Hypertable layout
 

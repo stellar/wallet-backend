@@ -63,7 +63,7 @@ The indexer runs the transactions of a ledger in parallel, each producing rows f
 | Balances: native, classic assets, SAC, SEP-41, liquidity pool shares | plain tables keyed by holder and asset | [token tracking](token-tracking.md) |
 | Protocol data (SEP-41 today) | per-protocol tables | [protocols](protocols.md) |
 
-History can be bounded with `RETENTION_PERIOD`; current state is always complete.
+History can be bounded with `RETENTION_PERIOD`. Current state is complete for ledger-entry balances from the first start on; a protocol's tables (SEP-41) are complete only after its data migration has run, see [protocols](protocols.md).
 
 ## Serving
 
