@@ -2,6 +2,16 @@
 
 For Go developers who call wallet-backend from a Go service. After reading it you can add the client, create it with or without request signing, fetch history and balances page by page, and tell the error types apart.
 
+## Contents
+
+- [Install](#install)
+- [Create a client](#create-a-client)
+- [Methods](#methods)
+- [Paginate](#paginate)
+- [Query options](#query-options)
+- [Errors](#errors)
+- [Where in the code](#where-in-the-code)
+
 The client wraps the queries described in the [GraphQL API guide](graphql.md). Field meanings are in the [schema reference](schema.md).
 
 ## Install

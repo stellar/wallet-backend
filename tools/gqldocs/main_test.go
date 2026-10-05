@@ -61,6 +61,7 @@ func TestRender(t *testing.T) {
 		assert.Contains(t, out, want)
 	}
 
+	assert.Contains(t, out, "## Contents\n\n- [Queries](#queries)\n- [Objects](#objects)\n")
 	assert.NotContains(t, out, "__schema")
 	assert.NotContains(t, out, "goField")
 	assert.NotContains(t, out, "### Query\n")

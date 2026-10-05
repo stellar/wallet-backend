@@ -2,6 +2,16 @@
 
 For the person on call for a wallet-backend deployment. After reading it you can size a deployment, read the metrics that matter, and handle the failures that happen.
 
+## Contents
+
+- [Sizing](#sizing)
+- [Metrics to alert on](#metrics-to-alert-on)
+- [Restarts and cursors](#restarts-and-cursors)
+- [Failure modes](#failure-modes)
+- [Retention and compression](#retention-and-compression)
+- [Database maintenance](#database-maintenance)
+- [Where in the code](#where-in-the-code)
+
 Config names use the environment-variable form. Every one has a flag twin in the [configuration reference](../configuration.md).
 
 ## Sizing

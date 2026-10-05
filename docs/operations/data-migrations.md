@@ -2,6 +2,17 @@
 
 For an operator whose database holds ledgers ingested before a protocol was registered. After reading it you can classify that protocol's contracts and fill its history and current state for the ledgers already in the database.
 
+## Contents
+
+- [When you need one](#when-you-need-one)
+- [Order of operations](#order-of-operations)
+- [protocol-setup](#protocol-setup)
+- [protocol-migrate history](#protocol-migrate-history)
+- [protocol-migrate current-state](#protocol-migrate-current-state)
+- [Monitoring](#monitoring)
+- [Resuming and failures](#resuming-and-failures)
+- [Where in the code](#where-in-the-code)
+
 Config names use the environment-variable form. The flags `--protocol-id`, `--window-size`, `--metrics-port`, `--rebuild`, and the `--start-ledger` of `protocol-migrate current-state` have no environment variable. Pass them on the command line.
 
 ## When you need one

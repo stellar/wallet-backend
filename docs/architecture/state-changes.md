@@ -2,6 +2,16 @@
 
 For API consumers who read `stateChanges` fields, and for contributors who add or change a processor. After reading it you can tell which state change a ledger event produces, how rows are ordered, and who counts as a participant.
 
+## Contents
+
+- [What a state change is](#what-a-state-change-is)
+- [Categories and reasons](#categories-and-reasons)
+- [Processors](#processors)
+- [Participants](#participants)
+- [Fee and refund changes](#fee-and-refund-changes)
+- [Querying](#querying)
+- [Where in the code](#where-in-the-code)
+
 ## What a state change is
 
 A state change is one row per effect on one account or contract. A payment produces two rows: a debit on the sender and a credit on the receiver. Every row lives in the `state_changes` hypertable. One wide row shape covers all categories, and each category fills only its own columns.

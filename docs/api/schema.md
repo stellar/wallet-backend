@@ -2,6 +2,15 @@
 
 Every query, type, and field served at `POST /graphql/query`. For auth, pagination, and examples, see [GraphQL API](graphql.md). Generated from the schema files by `make gql-docs`; do not edit by hand.
 
+## Contents
+
+- [Queries](#queries)
+- [Objects](#objects)
+- [Interfaces](#interfaces)
+- [Enums](#enums)
+- [Input objects](#input-objects)
+- [Scalars](#scalars)
+
 ## Queries
 
 Root queries. All lookups are read-only.
