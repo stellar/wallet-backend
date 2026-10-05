@@ -1,6 +1,6 @@
 # Releasing
 
-For maintainers. After reading it you can cut a release candidate, soak it, promote it to Docker Hub and GitHub Releases, and write the notes.
+For maintainers. After reading it you can cut a release candidate, soak it, promote it to public ECR and GitHub Releases, and write the notes.
 
 ## Cadence
 
@@ -34,7 +34,7 @@ A GraphQL field is removed only after it has carried `@deprecated(reason: ...)` 
 ## Promote
 
 1. Run the **Promote Release** workflow with `prerelease_tag` (the rc) and `release_version` (`vX.Y.Z`).
-   It re-tags the exact staging digest into the production registry and into Docker Hub as `stellar/wallet-backend:vX.Y.Z` and `:latest`, verifies the digests match, and creates the GitHub release.
+   It re-tags the exact staging digest into the production registry and into public ECR as `public.ecr.aws/stellar/wallet-backend:vX.Y.Z` and `:latest`, verifies the digests match, and creates the GitHub release.
 2. Open the release and fill the two `<fill in>` lines under **Tested with** (stellar-rpc version and protocol number). PostgreSQL and TimescaleDB versions are filled from the workflow.
 3. Add an **Upgrade notes** section when operators must do anything beyond pulling the image and running `migrate up`.
 
@@ -60,7 +60,7 @@ A PR title is therefore a changelog line: imperative, specific, under 72 charact
 
 | Registry | Tags | Who |
 |---|---|---|
-| `docker.io/stellar/wallet-backend` | `vX.Y.Z`, `latest` | public |
+| `public.ecr.aws/stellar/wallet-backend` | `vX.Y.Z`, `latest` | public; the repository is declared in `stellar/terraform` |
 | staging registry | `vX.Y.Z-rc.N`, commit SHA | internal |
 | production registry | `vX.Y.Z` | internal |
 
@@ -75,7 +75,7 @@ Open a GitHub milestone named for the next version when work for it starts. Clos
 | Path | Role |
 |---|---|
 | `.github/workflows/publish-prerelease.yml` | Build and tag an rc |
-| `.github/workflows/promote-release.yml` | Re-tag, Docker Hub push, GitHub release |
+| `.github/workflows/promote-release.yml` | Re-tag, public ECR push, GitHub release |
 | `.github/workflows/build.yml` | Commit-SHA builds for every push to `main` |
 | `.github/release.yml` | Release-notes categories |
 | `Makefile` (`docker-build`, `VERSION`) | Build args and labels |
