@@ -2,6 +2,15 @@
 
 For anyone deciding whether to run wallet-backend or about to read the code. After reading it you know what the processes are, what they talk to, and where data flows.
 
+## Contents
+
+- [Processes](#processes)
+- [Data flow for one ledger](#data-flow-for-one-ledger)
+- [What is stored](#what-is-stored)
+- [Serving](#serving)
+- [Boundaries](#boundaries)
+- [Repository map](#repository-map)
+
 wallet-backend indexes the Stellar ledger for wallets. It keeps every transaction, operation and balance-affecting state change for every account, keeps current balances for every account and token it has seen, and serves them over GraphQL.
 
 ## Processes

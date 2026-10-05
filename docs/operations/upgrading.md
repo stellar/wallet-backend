@@ -2,6 +2,14 @@
 
 For an operator moving a running deployment to a later wallet-backend release. After reading it you can upgrade in the right order, check the result, and know what to do when an upgrade goes wrong.
 
+## Contents
+
+- [Compatibility promise](#compatibility-promise)
+- [Procedure](#procedure)
+- [Version skew](#version-skew)
+- [Rolling back](#rolling-back)
+- [Where in the code](#where-in-the-code)
+
 ## Compatibility promise
 
 Releases follow semantic versioning from v1.0.0.

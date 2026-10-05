@@ -2,6 +2,20 @@
 
 For operators and contributors who need to know how a Stellar ledger becomes rows in the database. After reading, you can tell what the `ingest` process does at startup, what each cursor means, and why a process exited.
 
+## Contents
+
+- [Processes](#processes)
+- [Live mode](#live-mode)
+  - [Shutdown](#shutdown)
+- [Backfill mode](#backfill-mode)
+- [Ledger sources](#ledger-sources)
+- [Cursors](#cursors)
+- [Checkpoint bootstrap](#checkpoint-bootstrap)
+- [Indexer](#indexer)
+- [TimescaleDB policies the live ingester applies](#timescaledb-policies-the-live-ingester-applies)
+- [Failure modes](#failure-modes)
+- [Where in the code](#where-in-the-code)
+
 ## Processes
 
 | Process | Command | Writes to the database | Instances |

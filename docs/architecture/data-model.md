@@ -2,6 +2,17 @@
 
 For operators sizing storage and contributors writing queries. After reading, you can name every table, its keys, which process writes it, and which index serves which read.
 
+## Contents
+
+- [Hypertables](#hypertables)
+- [Current-state tables](#current-state-tables)
+- [Protocol tables](#protocol-tables)
+- [Bookkeeping](#bookkeeping)
+- [Indexes](#indexes)
+- [Foreign keys and constraints](#foreign-keys-and-constraints)
+- [Compression and retention](#compression-and-retention)
+- [Where in the code](#where-in-the-code)
+
 wallet-backend uses one PostgreSQL database with the TimescaleDB extension, and every table lives in the `public` schema. History tables are TimescaleDB hypertables partitioned by ledger close time. Current-state tables are plain PostgreSQL tables whose rows change in place as ledgers close. The SQL files in `internal/db/migrations/` define the schema. `wallet-backend migrate up` applies them; nothing applies them automatically.
 
 ```mermaid

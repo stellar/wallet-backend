@@ -2,6 +2,16 @@
 
 For anyone sending a change to wallet-backend. After reading you can set up a local stack, run the checks, and open a pull request that is ready for review.
 
+## Contents
+
+- [Before you start](#before-you-start)
+- [Set up](#set-up)
+- [Pull requests](#pull-requests)
+- [Commits](#commits)
+- [Schema and interface changes](#schema-and-interface-changes)
+- [Docs](#docs)
+- [Where in the code](#where-in-the-code)
+
 ## Before you start
 
 - Pull requests target `main`.
