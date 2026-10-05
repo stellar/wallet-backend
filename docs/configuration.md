@@ -19,8 +19,6 @@ Required options reject an empty value. A required option with a default passes 
 | `--log-level` | `LOG_LEVEL` | `INFO` | no | One of `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`, `PANIC` |
 | `--network-passphrase` | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | yes | Stellar network passphrase |
 | `--rpc-url` | `RPC_URL` | `http://localhost:8000` | yes | Stellar RPC URL |
-| `--tracker-dsn` | `TRACKER_DSN` | (none) | no | Sentry DSN. Empty disables error reporting |
-| `--stellar-environment` | `STELLAR_ENVIRONMENT` | (none) | no | Environment tag on Sentry events. Used only with `--tracker-dsn` |
 | `--admin-port` | `ADMIN_PORT` | `0` | no | Port for pprof at `/debug/pprof`. `0` disables it |
 | `--db-max-conns` | `DB_MAX_CONNS` | `10` | no | Maximum connections in the pool |
 | `--db-min-conns` | `DB_MIN_CONNS` | `5` | no | Minimum idle connections kept in the pool |
@@ -35,7 +33,6 @@ Which commands take each shared option:
 | `--log-level` | yes | yes | | yes | yes |
 | `--network-passphrase` | yes | yes | | yes | yes |
 | `--rpc-url` | yes | yes | | yes | own version |
-| `--tracker-dsn`, `--stellar-environment` | yes | yes | | | |
 | `--admin-port` | yes | yes | | | |
 | `--db-*` pool options | yes | yes | | | |
 

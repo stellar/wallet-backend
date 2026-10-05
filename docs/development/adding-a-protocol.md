@@ -269,7 +269,7 @@ SEP-41 is the reference implementation. Every code block below is trimmed from i
 
    For the integration suite, deploy a contract of your protocol in `internal/integrationtests/infrastructure/main_setup.go` and add a test method next to `TestProtocolSetupThenCurrentStateMigration`. See [Integration tests](integration-tests.md).
 
-   Mocks for the data-model interfaces are hand-written with `testify/mock` in `mocks.go` inside the package, following `internal/data/sep41/mocks.go`. `.mockery.yml` covers only the `AppTracker` interface. If you change an interface, update its mock in the same commit.
+   Mocks for the data-model interfaces are hand-written with `testify/mock` in `mocks.go` inside the package, following `internal/data/sep41/mocks.go`. `.mockery.yml` lists no interfaces today. If you change an interface, update its mock in the same commit.
 
    Verify: `make unit-test` passes.
 

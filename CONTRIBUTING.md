@@ -53,7 +53,7 @@ For anyone sending a change to wallet-backend. After reading you can set up a lo
 | Change | What to do |
 | --- | --- |
 | GraphQL schema | Edit the `.graphqls` file, then run `make gql-generate` and `make gql-docs`. |
-| Go interface | Regenerate its mock with `mockery`. Config lives in `.mockery.yml`. |
+| Go interface | Update its hand-written `testify/mock` in the package's `mocks.go` in the same commit. |
 | Database schema | Add a file under `internal/db/migrations/` with both a `-- +migrate Up` and a `-- +migrate Down` block. |
 | Applied migration | Never edit it. Add a migration that changes it. |
 
