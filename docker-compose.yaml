@@ -49,7 +49,7 @@ services:
       start_period: 10s
 
   migrate:
-    image: stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
+    image: public.ecr.aws/stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
     command: ["migrate", "up"]
     environment:
       <<: *wallet-backend-env
@@ -59,7 +59,7 @@ services:
     restart: "no"
 
   ingest:
-    image: stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
+    image: public.ecr.aws/stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
     command: ["ingest"]
     environment:
       <<: *wallet-backend-env
@@ -74,7 +74,7 @@ services:
         condition: service_healthy
 
   api:
-    image: stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
+    image: public.ecr.aws/stellar/wallet-backend:${WALLET_BACKEND_VERSION:-latest}
     command: ["serve"]
     environment:
       <<: *wallet-backend-env
