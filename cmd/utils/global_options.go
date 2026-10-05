@@ -79,26 +79,6 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
-func SentryDSNOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:      "tracker-dsn",
-		Usage:     "The Sentry DSN",
-		OptType:   types.String,
-		ConfigKey: configKey,
-		Required:  false,
-	}
-}
-
-func StellarEnvironmentOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:      "stellar-environment",
-		Usage:     "Environment tag attached to Sentry events (e.g. production, staging). Only used when tracker-dsn is set.",
-		OptType:   types.String,
-		ConfigKey: configKey,
-		Required:  false,
-	}
-}
-
 func StartLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "start-ledger",

@@ -9,7 +9,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/cmd/utils"
-	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/serve"
 )
 
@@ -18,15 +17,11 @@ type serveCmd struct{}
 func (c *serveCmd) Command() *cobra.Command {
 	cfg := serve.Configs{}
 
-	var sentryDSN string
-	var stellarEnvironment string
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.RPCURLOption(&cfg.RPCURL),
-		utils.SentryDSNOption(&sentryDSN),
-		utils.StellarEnvironmentOption(&stellarEnvironment),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.GraphQLIntrospectionEnabledOption(&cfg.GraphQLIntrospectionEnabled),
 		utils.AdminPortOption(&cfg.AdminPort),
@@ -76,13 +71,6 @@ func (c *serveCmd) Command() *cobra.Command {
 			if err := cfgOpts.SetValues(); err != nil {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
-
-			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
-			if err != nil {
-				return fmt.Errorf("initializing App Tracker: %w", err)
-			}
-			cfg.AppTracker = appTracker
-
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {

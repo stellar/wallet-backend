@@ -34,12 +34,10 @@ func Memo(memo xdr.Memo, txHash string) (*string, string) {
 		}
 	default:
 		// TODO: track in Sentry
-		// sentry.CaptureException(fmt.Errorf("unknown memo type %q for transaction %s", memoType.String(), txHash))
 		return nil, ""
 	}
 
 	// TODO: track in Sentry
-	// sentry.CaptureException(fmt.Errorf("failed to parse memo for type %q and transaction %s", memoType.String(), txHash))
 	return nil, memoType.String()
 }
 
