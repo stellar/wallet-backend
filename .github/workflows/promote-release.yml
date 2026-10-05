@@ -1,4 +1,4 @@
-# ABOUTME: Promotes a prerelease image from staging ECR to production ECR and Docker Hub by re-tagging
+# ABOUTME: Promotes a prerelease image from staging ECR to production ECR and public ECR by re-tagging
 # ABOUTME: (no rebuild, same digest everywhere) and creates a non-prerelease GitHub release.
 name: Promote Release
 
@@ -18,7 +18,8 @@ env:
   # Versions listed under "Tested with" in the release notes.
   PG_MAJOR: "17"
   TSDB_VERSION: "2.28.2"
-  DOCKERHUB_IMAGE: docker.io/stellar/wallet-backend
+  # Public image, created by Terraform in stellar/terraform (aws/sdf/ecr/public_repos.auto.tfvars.json).
+  PUBLIC_IMAGE: public.ecr.aws/stellar/wallet-backend
 
 permissions:
   id-token: write
@@ -103,6 +104,8 @@ jobs:
       - name: ECR login via OIDC
         id: ecr_login
         uses: stellar/actions/sdf-ecr-login@main
+        with:
+          login-public-ecr: 'true'
 
       - name: Verify production ECR tag does not exist
         env:
@@ -142,49 +145,43 @@ jobs:
           echo "prd_tag=$PRD_TAG" >> "$GITHUB_OUTPUT"
           echo "digest=$PRD_DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Verify Docker Hub tag does not exist
+      - name: Verify public ECR tag does not exist
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           set -uo pipefail
           # Fail closed: only an explicit not-found answer lets the publish proceed.
-          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" 2>&1); then
-            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
+          if out=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" 2>&1); then
+            echo "::error::Public ECR tag ${PUBLIC_IMAGE}:${RELEASE_VERSION} already exists."
             exit 1
           fi
           if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
-            echo "::error::Could not verify Docker Hub tag ${RELEASE_VERSION}: $out"
+            echo "::error::Could not verify public ECR tag ${RELEASE_VERSION}: $out"
             exit 1
           fi
-          echo "Docker Hub tag ${RELEASE_VERSION} not present. Proceeding."
+          echo "Public ECR tag ${RELEASE_VERSION} not present. Proceeding."
 
       # Cross-registry copy of the production ECR digest; no rebuild.
-      - name: Publish to Docker Hub
+      - name: Publish to public ECR
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
           PRD_TAG: ${{ steps.retag.outputs.prd_tag }}
           PRD_DIGEST: ${{ steps.retag.outputs.digest }}
         run: |
           set -euo pipefail
-          echo "Copying $PRD_TAG -> ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} and :latest"
+          echo "Copying $PRD_TAG -> ${PUBLIC_IMAGE}:${RELEASE_VERSION} and :latest"
           docker buildx imagetools create --prefer-index=false \
-            --tag "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" \
-            --tag "${DOCKERHUB_IMAGE}:latest" \
+            --tag "${PUBLIC_IMAGE}:${RELEASE_VERSION}" \
+            --tag "${PUBLIC_IMAGE}:latest" \
             "$PRD_TAG"
-          HUB_DIGEST=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}')
+          PUBLIC_DIGEST=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}')
           echo "PRD digest: $PRD_DIGEST"
-          echo "Docker Hub digest: $HUB_DIGEST"
-          if [[ "$HUB_DIGEST" != "$PRD_DIGEST" ]]; then
-            echo "::error::Digest mismatch after Docker Hub copy: '$PRD_DIGEST' vs '$HUB_DIGEST'."
+          echo "Public ECR digest: $PUBLIC_DIGEST"
+          if [[ "$PUBLIC_DIGEST" != "$PRD_DIGEST" ]]; then
+            echo "::error::Digest mismatch after public ECR copy: '$PRD_DIGEST' vs '$PUBLIC_DIGEST'."
             exit 1
           fi
-          echo "Docker Hub publish successful — bytes preserved."
+          echo "Public ECR publish successful, bytes preserved."
 
       - name: Create GitHub release
         env:
@@ -197,7 +194,7 @@ jobs:
           # <fill in> placeholders by editing the release after promotion.
           NOTES=$(cat <<EOF
           ## Images
-          - \`docker pull stellar/wallet-backend:${RELEASE_VERSION}\`
+          - \`docker pull public.ecr.aws/stellar/wallet-backend:${RELEASE_VERSION}\`
 
           ## Tested with
           - stellar-rpc: <fill in>

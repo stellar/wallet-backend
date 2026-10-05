@@ -10,7 +10,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # Docker build mode: release (optimized, stripped) or debug (delve, no optimizations).
 BUILD_MODE ?= release
 
-# Releases publish to stellar/wallet-backend on Docker Hub. The default tag is for local builds.
+# Releases publish to public.ecr.aws/stellar/wallet-backend. The default tag is for local builds.
 TAG ?= stellar/wallet-backend:$(LABEL)
 
 # https://github.com/opencontainers/image-spec/blob/master/annotations.md
