@@ -3344,3 +3344,47 @@ func Test_prepareBatchClassificationPlan_LastBindingWins(t *testing.T) {
 	assert.Equal(t, map[types.HashBytea]string{w1: "A", w2: "B"}, plan.Matches,
 		"the superseded binding must stay classified for the ledger that saw it")
 }
+
+// Test_prepareBatchClassificationPlan_SupersededBindingIsClaimed pins the
+// validator-side half of the rebind rule: the earlier ledger of the batch
+// stages its protocol events against the superseded binding, so that binding
+// must reach the validators as a contract candidate too, or Apply never writes
+// the contract_tokens row those events' current-state rows reference.
+func Test_prepareBatchClassificationPlan_SupersededBindingIsClaimed(t *testing.T) {
+	ctx := context.Background()
+
+	var w1Raw, w2Raw, cRaw [32]byte
+	w1Raw[0], w2Raw[0], cRaw[0] = 0xB4, 0xB5, 0xD3
+	w1 := types.HashBytea(hex.EncodeToString(w1Raw[:]))
+	w2 := types.HashBytea(hex.EncodeToString(w2Raw[:]))
+	contractID := types.HashBytea(hex.EncodeToString(cRaw[:]))
+
+	first := indexer.NewIndexerBuffer()
+	first.PushProtocolContracts(data.ProtocolContracts{ContractID: contractID, WasmHash: w1})
+	second := indexer.NewIndexerBuffer()
+	second.PushProtocolContracts(data.ProtocolContracts{ContractID: contractID, WasmHash: w2})
+
+	wasmsMock := data.NewProtocolWasmsModelMock(t)
+	wasmsMock.On("GetClassifiedByHashes", mock.Anything, mock.Anything, mock.Anything).
+		Return(map[types.HashBytea]string{w1: "A"}, nil).Once()
+
+	rv := newRecordingValidator("A")
+	svc := &ingestService{
+		models:             &data.Models{ProtocolWasms: wasmsMock},
+		appMetrics:         metrics.NewMetrics(prometheus.NewRegistry()),
+		protocolValidators: []ProtocolValidator{rv},
+		wasmSpecExtractor:  NewWasmSpecExtractorMock(t),
+		rpcService:         &RPCServiceMock{},
+	}
+
+	plan, err := svc.prepareBatchClassificationPlan(ctx, []processedLedger{
+		{seq: 100, buffer: first},
+		{seq: 101, buffer: second},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.ElementsMatch(t, []ContractCandidate{
+		{ContractID: contractID, WasmHash: w1, KnownProtocolID: "A"},
+		{ContractID: contractID, WasmHash: w2},
+	}, rv.lastContracts, "the validator must see the superseded binding as a candidate")
+}
