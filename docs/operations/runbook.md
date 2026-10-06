@@ -16,7 +16,7 @@ Config names use the environment-variable form. Every one has a flag twin in the
 
 ## Sizing
 
-Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28.2, three 8-CPU / 32 GiB database nodes on gp3 storage, 1-day chunks, ingest pod 4 CPU / 8 GiB request. Treat the figures as a starting point and measure your own.
+Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28.2, a three-instance database on 8 CPU / 32 GiB hosts with SSD storage, 1-day chunks, and an ingest process allotted 4 CPU / 8 GiB. Treat the figures as a starting point and measure your own.
 
 | What | Measured | Notes |
 |---|---|---|
@@ -26,13 +26,13 @@ Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28
 | Compression ratio | 5.6x to 17.4x per table | `operations` compresses least, `operations_accounts` most |
 | Open (uncompressed) chunk | up to about 18 GB per day | the current day's chunk sits uncompressed until `COMPRESSION_COMPRESS_AFTER` elapses |
 | Current-state tables, pubnet | about 11 GB | `trustline_balances` 8.2 GB, `native_balances` 2.4 GB, the rest under 200 MB; filled at first start from the history archive |
-| Live ingest, per ledger | mean 0.16 s, p99 0.44 s | ingest pod used 0.06 CPU and 0.37 GiB on average |
+| Live ingest, per ledger | mean 0.16 s, p99 0.44 s | the ingest process used 0.06 CPU and 0.37 GiB on average |
 | Ingest lag | 0 ledgers at p50, 1 at p99 over 48 hours | `wallet_ingestion_lag_ledgers` |
 | API latency | p99 50 ms | near-zero load; measure under yours |
 
 Disk plan for pubnet: about 11 GB fixed, plus about 1.7 GB per retained day compressed, plus headroom for one uncompressed day (about 20 GB). A year of history is roughly 0.6 TB compressed. Testnet is a fraction of this.
 
-Backfill is CPU-bound in the ingest process (`BACKFILL_WORKERS` defaults to one per CPU) and write-bound in the database. Run it on a bigger pod than live ingest and set `COMPRESSION_MAX_CHUNKS` (around 10) so the compression job does not overlap itself while chunks fill fast.
+Backfill is CPU-bound in the ingest process (`BACKFILL_WORKERS` defaults to one per CPU) and write-bound in the database. Give it more CPU and memory than live ingest and set `COMPRESSION_MAX_CHUNKS` (around 10) so the compression job does not overlap itself while chunks fill fast.
 
 ## Metrics to alert on
 
@@ -49,7 +49,7 @@ Scrape `/ingest-metrics` on the ingest port (default 8002) and `/api-metrics` on
 | API errors | `rate(wallet_http_requests_total{status_code=~"5.."}[5m]) > 0` | check API logs and database health |
 | Auth rejections | `rate(wallet_auth_expired_signatures_total[5m])` | clients signing with a window beyond `CLIENT_AUTH_MAX_TIMEOUT_SECONDS` or with clock skew |
 
-`/health` on both processes returns 500 when the RPC cannot be reached, 503 when the RPC reports itself unhealthy, and 503 when the RPC's latest ledger is more than 50 ahead of `latest_ingest_ledger`. A Kubernetes liveness probe on the API that uses `/health` restarts API pods when ingest lags; use a readiness probe or a plain TCP check for liveness instead.
+`/health` on both processes returns 500 when the RPC cannot be reached, 503 when the RPC reports itself unhealthy, and 503 when the RPC's latest ledger is more than 50 ahead of `latest_ingest_ledger`. Use `/health` to decide whether an API instance should receive traffic, not whether to restart it: a restart policy keyed on `/health` restarts healthy API instances whenever ingest lags. For restart decisions use a TCP or process check.
 
 ## Restarts and cursors
 
@@ -65,7 +65,7 @@ A ledger is written in one transaction. A SIGTERM mid-ledger rolls it back and t
 
 | Symptom | Cause | Action |
 |---|---|---|
-| Ingest exits with `advisory lock not acquired` | Another live ingester for the same network passphrase holds the lock on this database | Run one live ingester per network. After a database failover the new pod takes the lock once the old session is gone. |
+| Ingest exits with `advisory lock not acquired` | Another live ingester for the same network passphrase holds the lock on this database | Run one live ingester per network. After a database failover the new ingester takes the lock once the old session is gone. |
 | Ingest exits with `--start-ledger and --end-ledger apply to --ingestion-mode=backfill only` | `START_LEDGER` or `END_LEDGER` set on a live process | Unset them. |
 | Backfill exits with `end ledger ... cannot be greater than latest ingested ledger` | Range extends past what live ingest has written | Set `END_LEDGER` at or below `latest_ingest_ledger`. |
 | First start takes a long time with no ledgers ingested | Checkpoint bootstrap is downloading the history archive and filling balance tables | Wait. Watch the ingest log for the checkpoint completion line, then `wallet_ingestion_latest_ledger` starts moving. |

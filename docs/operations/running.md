@@ -222,7 +222,7 @@ Live ingestion starts at the checkpoint ledger it bootstrapped from. To serve ol
 
 3. Verify. Each batch logs `Batch <I>/<N> [<START> - <END>] completed`, and the run ends with `Backfilling completed in <DURATION>: <N> batches`. `wallet_ingestion_oldest_ledger` on the live ingester's `/ingest-metrics` drops toward `START_LEDGER`.
 
-Measure the backfill rate on your hardware. No backfill rate has been measured yet. As a floor: live pubnet ingest on 2026-10-01 averaged 0.16 s per ledger (p99 0.44 s) on a 4 CPU / 8 GiB pod against PostgreSQL 17.6 and TimescaleDB 2.28.2 on 8 CPU / 32 GiB nodes.
+Measure the backfill rate on your hardware. No backfill rate has been measured yet. As a floor: live pubnet ingest on 2026-10-01 averaged 0.16 s per ledger (p99 0.44 s) with 4 CPU / 8 GiB for the ingest process, against PostgreSQL 17.6 and TimescaleDB 2.28.2 on 8 CPU / 32 GiB hosts.
 
 ## Enable authentication
 
