@@ -80,8 +80,8 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `--ingestion-mode` | `INGESTION_MODE` | `live` | yes | `live` follows the chain tip. `backfill` fills a fixed range |
-| `--start-ledger` | `START_LEDGER` | `0` | when backfill | First ledger of the backfill range. Rejected in live mode |
-| `--end-ledger` | `END_LEDGER` | `0` | when backfill | Last ledger of the backfill range. Rejected in live mode |
+| `--start-ledger` | `START_LEDGER` | `0` | when backfill | First ledger of the backfill range. Any explicit value, even `0`, is rejected in live mode |
+| `--end-ledger` | `END_LEDGER` | `0` | when backfill | Last ledger of the backfill range, below 4294967295. Any explicit value, even `0`, is rejected in live mode |
 | `--ingest-server-port` | `INGEST_SERVER_PORT` | `8002` | no | Port for `/health` and `/ingest-metrics` |
 
 ### Ledger source
@@ -176,8 +176,10 @@ Each command checks these at startup and exits with the quoted error.
 
 - **Required option empty.** Any option marked required fails with `Invalid config: <name> is blank. Please specify --<name> on the command line or set the <ENV_VAR> environment variable.`
 - **Unknown ingestion mode.** `ingest` rejects a mode other than `live` or `backfill` with `invalid ingestion-mode '<value>', must be 'live' or 'backfill'`.
-- **Range in live mode.** `ingest` in live mode rejects a non-zero start or end ledger with `--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor`.
+- **Range in live mode.** `ingest` in live mode rejects an explicitly set start or end ledger, including `0`, whether it came as a flag or an environment variable: `--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor`.
 - **Bad backfill range.** `ingest` in backfill mode needs a start above zero and an end at or above the start: `--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got <start>..<end>)`.
+- **End ledger at the ceiling.** Backfill rejects an end ledger of 4294967295 or more: `--end-ledger <value> must be below 4294967295`.
+- **Bad backfill tuning.** Backfill needs `--backfill-batch-size` and `--backfill-db-insert-batch-size` between 1 and 4294967295, and `--backfill-workers` of 0 or more: `--backfill-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-db-insert-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-workers must be 0 (one per CPU) or positive (got <value>)`.
 - **Unknown backend in ingest.** `ingest` fails with `invalid ledger-backend-type '<value>', must be 'rpc' or 'datastore'`.
 - **Datastore without bucket in ingest.** `ingest` fails with `--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore`.
 - **No protocol given.** `protocol-setup` and `protocol-migrate` fail with `at least one --protocol-id is required`.
