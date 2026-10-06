@@ -79,10 +79,10 @@ func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
 // orphaned rows above the committed cursor before ingestion resumes.
 var ErrPartialPersist = errors.New("ledger persist partially committed")
 
-// persistItem is one ledger's persist payload: its classification plan
-// (computed by prepareClassificationPlan before any transaction opens, RPC
-// calls already resolved; nil when the ledger had nothing to classify) and
-// its ContractData extraction memo. Both are shared verbatim across
+// persistItem is one ledger's persist payload. The classification plan is
+// not part of it: one plan covers the whole batch (see
+// prepareBatchClassificationPlan) and travels alongside the items. It holds
+// the ledger's ContractData extraction memo, shared verbatim across
 // persistLedgerDataWithRetry's attempts, so a retry never re-issues RPC
 // calls or re-runs the extraction walk.
 type persistItem struct {
@@ -137,9 +137,9 @@ func batchLabel(items []persistItem) string {
 // commit rolls everything back and the whole batch is cleanly retryable; a
 // failure after it wraps ErrPartialPersist and is fatal.
 //
-// Only the first ledger of a batch may carry a classification plan: a
-// plan's pool reads see exactly the state the previous batch committed (see
-// the batch cut in persistProcessedLedgers).
+// plan is the batch's single classification plan (prepareBatchClassificationPlan);
+// its pool reads see exactly the state the previous batch committed, because
+// the plan is built before any transaction of this batch opens.
 func (m *ingestService) persistLedgerData(ctx context.Context, items []persistItem, plan *ClassificationPlan) error {
 	label := batchLabel(items)
 
@@ -735,9 +735,7 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	// ledger in hand keeps process fed across a refill that would otherwise
 	// stall it.
 	fetched := make(chan fetchedLedger, 1)
-	// NewIngestService clamps the batch cap to ≥1; the max here keeps the
-	// channel math valid for a zero-valued service constructed directly.
-	batchCap := max(1, m.livePersistMaxBatchSize)
+	batchCap := m.livePersistMaxBatchSize // clamped to ≥1 by NewIngestService
 	// The processed channel is where a persist backlog queues, so its depth
 	// caps how large a persist batch can form: the batch cap minus the one
 	// ledger the persist stage blocks on. The floor of 1 keeps a cap of 1
