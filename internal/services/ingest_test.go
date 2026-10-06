@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -3401,6 +3402,90 @@ func Test_persistLedgerData_SiblingFailureRollsBackEverything(t *testing.T) {
 		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
 	assert.Equal(t, strconv.FormatUint(uint64(ledgerSeq-1), 10), cursor,
 		"the coordinating transaction (and its cursor update) must roll back with the siblings")
+}
+
+// Test_persistLedgerData_FKParentsCommitWithTheirChildren pins the grouping rule
+// behind persistSiblings: each balance table rides the transaction that also
+// writes its foreign-key parent. The FKs are DEFERRABLE INITIALLY DEFERRED and
+// are checked at COMMIT against committed state, so a parent staged on any
+// other transaction fails the child's commit with SQLSTATE 23503. The real
+// token ingestion service is used so the FK is actually exercised.
+func Test_persistLedgerData_FKParentsCommitWithTheirChildren(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	const ledgerSeq = uint32(100)
+	setupDBCursors(t, ctx, pool, ledgerSeq-1, ledgerSeq-1)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode: IngestionModeLive,
+		Models:        models,
+		RPCService:    &RPCServiceMock{},
+		LedgerBackend: &LedgerBackendMock{},
+		TokenIngestionService: NewTokenIngestionService(TokenIngestionServiceConfig{
+			TrustlineBalanceModel:     models.TrustlineBalance,
+			NativeBalanceModel:        models.NativeBalance,
+			SACBalanceModel:           models.SACBalance,
+			LiquidityPoolModel:        models.LiquidityPool,
+			LiquidityPoolBalanceModel: models.LiquidityPoolBalance,
+			NetworkPassphrase:         network.TestNetworkPassphrase,
+		}),
+		Metrics:           m,
+		Network:           network.TestNetworkPassphrase,
+		NetworkPassphrase: network.TestNetworkPassphrase,
+		Archive:           &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	tx := createTestTransaction(strings.Repeat("cd", 32), 100)
+	op := createTestOperation(101)
+	buffer := indexer.NewIndexerBuffer()
+	buffer.PushTransaction(testAddr1, &tx)
+	buffer.PushOperation(testAddr1, &op, &tx)
+
+	// Both parents are new to this ledger: neither trustline_assets nor
+	// liquidity_pools holds a row before the persist.
+	poolID := strings.Repeat("ab", 32)
+	buffer.PushTrustlineChange(types.TrustlineChange{
+		AccountID: testAddr1, Asset: "USDC:" + testAddr2, OperationID: op.ID,
+		LedgerNumber: ledgerSeq, Operation: types.TrustlineOpAdd, Balance: 10, Limit: 100,
+	})
+	buffer.PushLiquidityPoolChange(types.LiquidityPoolChange{
+		PoolID: poolID, OperationID: op.ID, LedgerNumber: ledgerSeq, Operation: types.LiquidityPoolOpAdd,
+		AssetA: "native", ReserveA: 5, AssetB: "USDC:" + testAddr2, ReserveB: 7,
+	})
+	buffer.PushLiquidityPoolShareChange(types.LiquidityPoolShareChange{
+		AccountID: testAddr1, PoolID: poolID, OperationID: op.ID,
+		LedgerNumber: ledgerSeq, Operation: types.LiquidityPoolShareOpAdd, Shares: 3,
+	})
+
+	err = svc.persistLedgerData(ctx, oneLedger(ledgerSeq, dummyLedgerMeta(1), newContractDataMemo(nil, ledgerSeq), buffer), nil)
+	require.NoError(t, err)
+
+	count := func(query string, args ...any) int {
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, query, args...).Scan(&n))
+		return n
+	}
+	assetID := data.DeterministicAssetID("USDC", testAddr2)
+	assert.Equal(t, 1, count(`SELECT count(*) FROM trustline_assets WHERE id = $1`, assetID))
+	assert.Equal(t, 1, count(`SELECT count(*) FROM trustline_balances WHERE asset_id = $1`, assetID))
+	assert.Equal(t, 1, count(`SELECT count(*) FROM liquidity_pools WHERE pool_id = $1`, poolID))
+	assert.Equal(t, 1, count(`SELECT count(*) FROM liquidity_pool_balances WHERE pool_id = $1`, poolID))
+
+	var cursor string
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&cursor))
+	assert.Equal(t, strconv.FormatUint(uint64(ledgerSeq), 10), cursor)
 }
 
 // Test_prepareBatchClassificationPlan_MergesBatchInputs pins the property that
