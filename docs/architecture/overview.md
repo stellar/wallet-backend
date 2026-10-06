@@ -33,7 +33,8 @@ One binary, several commands. `ingest` and `serve` run for as long as the deploy
 | `ingest` | one per network | RPC, history archive, optional data lake, database | `/health`, `/ingest-metrics` |
 | `serve` | as many replicas as you need | database, RPC (health and contract metadata) | `/graphql/query`, `/health`, `/api-metrics` |
 | `migrate up` | before the first start and after each upgrade | database | |
-| `protocol-setup`, `protocol-migrate` | when a protocol is added after history was ingested | database, RPC or data lake | `/metrics` |
+| `protocol-setup` | when a protocol is added after history was ingested | database, RPC | |
+| `protocol-migrate` | after `protocol-setup`, to fill the protocol's history and current state | database, RPC or data lake | `/metrics` on `--metrics-port` |
 | `version` | | | |
 
 The history archive is read once, on first start, to load current balances at a checkpoint. From then on ledgers come from RPC (`getLedgers`) or from a Galexie-format data lake on S3. RPC is needed in both cases for health checks and for `simulateTransaction` calls that fetch token metadata.
