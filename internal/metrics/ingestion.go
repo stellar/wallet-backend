@@ -111,7 +111,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		PersistBatchSize: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_persist_batch_size",
 			Help:    "Ledgers coalesced into one persist commit. 1 while the pipeline keeps pace; larger under backlog.",
-			Buckets: []float64{1, 2, 3, 4, 5, 8, 12, 16},
+			Buckets: []float64{1, 2, 3, 4, 5, 8, 12, 16, 24, 32, 48, 64},
 		}),
 		TransactionsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_transactions_total",
