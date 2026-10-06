@@ -4,6 +4,7 @@ For the person on call for a wallet-backend deployment. After reading it you can
 
 ## Contents
 
+- [Hardware](#hardware)
 - [Sizing](#sizing)
 - [Metrics to alert on](#metrics-to-alert-on)
 - [Restarts and cursors](#restarts-and-cursors)
@@ -13,6 +14,21 @@ For the person on call for a wallet-backend deployment. After reading it you can
 - [Where in the code](#where-in-the-code)
 
 Config names use the environment-variable form. Every one has a flag twin in the [configuration reference](../configuration.md).
+
+## Hardware
+
+Figures come from the same pubnet and testnet deployments measured in [Sizing](#sizing), peaks over seven days ending 2026-10-06. "Minimum" is what the process needs to run through its heaviest phase; "Recommended" is what we run. Each process can live on its own host or share one; the ingester and the database do the work, the API is light.
+
+| Component | Pubnet minimum | Pubnet recommended | Testnet | What drives it |
+| --- | --- | --- | --- | --- |
+| Live ingester (one per network) | 2 CPU, 12 GiB RAM | 4 CPU, 16 GiB RAM | 1 CPU, 4 GiB RAM | The first start loads every balance from the history archive checkpoint: it peaked at 1.8 cores and 9.4 GiB on pubnet, 0.8 cores and 1.9 GiB on testnet. Steady state is 0.1 cores and 0.4 GiB |
+| Backfill (optional, runs alongside) | 2 CPU, 4 GiB RAM | as many CPUs as you want speed; 1 GiB per worker | same | CPU-bound; `BACKFILL_WORKERS` defaults to one per CPU and memory grows with workers × `BACKFILL_BATCH_SIZE` |
+| API (per instance) | 0.5 CPU, 512 MiB RAM | 1 CPU, 1 GiB RAM, two or more instances | same | Stateless; near zero at low traffic (20 MiB resident). Scale out for throughput, not up |
+| PostgreSQL + TimescaleDB | 4 CPU, 16 GiB RAM, SSD | 8 CPU, 32 GiB RAM, SSD | 2 CPU, 4 GiB RAM, SSD | Working set of about 20 GiB on pubnet (shared buffers and the current-state tables), 1.5 GiB on testnet; CPU peaks under 1 core |
+| Disk for PostgreSQL | 11 GB + 1.7 GB per retained day + 20 GB headroom | 1 TB for a year of pubnet history | 1 GB + 0.12 GB per retained day | See [Sizing](#sizing) |
+| stellar-rpc | its own host | | | Sized by the [stellar-rpc documentation](https://developers.stellar.org/docs/data/apis/rpc); the ingester only needs it reachable and synced |
+
+Checked against a different network or a later protocol, every number here can move. Measure your own after the first day.
 
 ## Sizing
 
