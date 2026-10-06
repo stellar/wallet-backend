@@ -22,6 +22,7 @@ Docs on `main` describe unreleased behavior. For the version you run, read the d
 | stellar-rpc for the same network | 28.x |
 | Container image | `public.ecr.aws/stellar/wallet-backend:<TAG>` |
 | Go (source builds only) | see `go.mod` |
+| Hardware | [runbook](docs/operations/runbook.md#hardware): 4 CPU / 16 GiB for the pubnet ingester, 8 CPU / 32 GiB and 1 TB SSD for a year of pubnet history in PostgreSQL; a fraction of that for testnet |
 
 ## Quickstart
 
