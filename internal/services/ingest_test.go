@@ -3556,4 +3556,8 @@ func Test_persistSiblings_Order(t *testing.T) {
 		names[i] = s.name
 	}
 	require.Equal(t, append(data.BulkCopyTableNames(), "balances", "trustlines"), names)
+	// The pool floor is the barrier's held connections (every sibling plus the
+	// coordinator) plus the advisory-lock session. Tie it to the sibling list so
+	// adding a sibling cannot leave the floor stale, which wedges silently.
+	require.EqualValues(t, len(siblings)+2, db.MinIngestMaxConns)
 }
