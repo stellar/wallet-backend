@@ -507,8 +507,8 @@ func (m *ingestService) ingestLiveLedgers(ctx context.Context, startLedger uint3
 	// The fetch hand-off carries a slot. The depth is not what creates the
 	// overlap — the process stage receives its ledger before it claims a
 	// buffer, so fetch is free to work ahead even at depth 0. The slot buys
-	// jitter absorption: a backend refills its own prefetch in bursts (the
-	// datastore backend's is only a couple of ledgers deep), so one ready
+	// jitter absorption: a backend refills its own prefetch in bursts, even
+	// when that prefetch runs to hundreds of ledgers or files, so one ready
 	// ledger in hand keeps process fed across a refill that would otherwise
 	// stall it.
 	fetched := make(chan fetchedLedger, 1)

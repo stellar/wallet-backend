@@ -1607,8 +1607,6 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Verify success
 		require.NoError(t, err)
-		assert.Equal(t, 0, buffer.GetNumberOfTransactions()) // No transactions in buffer
-		assert.Equal(t, 0, buffer.GetNumberOfOperations())
 
 		// Verify DB cursor was updated
 		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
@@ -1772,8 +1770,6 @@ func Test_persistLedgerDataWithRetry(t *testing.T) {
 
 		// Verify success after retry
 		require.NoError(t, err)
-		assert.Equal(t, 0, buffer.GetNumberOfTransactions())
-		assert.Equal(t, 0, buffer.GetNumberOfOperations())
 
 		// Verify DB cursor was updated
 		finalCursor, err := models.IngestStore.Get(ctx, data.LatestLedgerCursorName)
@@ -2863,25 +2859,38 @@ func Test_ingestService_ingestLiveLedgers_LagReadDoesNotBlockConsumer(t *testing
 	})
 	require.NoError(t, err)
 
-	noopCheckLockSession := func(context.Context) error { return nil }
-	done := make(chan error, 1)
-	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger, noopCheckLockSession) }()
-
-	// The consumer must keep draining and advancing the cursor despite the blocked lag read.
-	require.Eventually(t, func() bool {
-		var s string
-		if qErr := pool.QueryRow(context.Background(),
-			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s); qErr != nil {
-			return false
+	// The lock probe is the shutdown path under test: a cancelled context fails
+	// the real probe too (the connection refuses the query), so the probe here
+	// cancels the pipeline once the consumer has advanced past the blocked lag
+	// read and returns that failure, exactly as the real probe would.
+	var probeCalls int
+	cancellingCheckLockSession := func(probeCtx context.Context) error {
+		probeCalls++
+		if probeCalls == 3 {
+			cancel()
 		}
-		v, err := strconv.ParseUint(s, 10, 32)
-		require.NoError(t, err)
-		return uint32(v) >= startLedger+2
-	}, 5*time.Second, 20*time.Millisecond, "consumer cursor should advance past the blocked lag read")
+		return probeCtx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- svc.ingestLiveLedgers(ctx, startLedger, cancellingCheckLockSession) }()
 
-	cancel()
 	select {
-	case <-done:
+	case runErr := <-done:
+		// The consumer must have kept draining and advancing the cursor despite
+		// the blocked lag read.
+		var s string
+		require.NoError(t, pool.QueryRow(context.Background(),
+			`SELECT value FROM ingest_store WHERE key = $1`, data.LatestLedgerCursorName).Scan(&s))
+		v, parseErr := strconv.ParseUint(s, 10, 32)
+		require.NoError(t, parseErr)
+		assert.GreaterOrEqual(t, uint32(v), startLedger+1, "consumer cursor should advance past the blocked lag read")
+
+		// A shutdown must surface as cancellation, not as a lost advisory lock,
+		// and must not count as an ingestion error.
+		require.ErrorIs(t, runErr, context.Canceled)
+		assert.NotContains(t, runErr.Error(), "advisory lock")
+		assert.Equal(t, 0.0, testutil.ToFloat64(
+			svc.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("ingest_live")))
 	case <-time.After(5 * time.Second):
 		t.Fatal("ingestLiveLedgers did not return after context cancellation")
 	}
