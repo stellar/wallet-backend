@@ -375,7 +375,8 @@ func (m *ingestService) processLedgersInBatch(
 	ledgersProcessed := 0
 	var startTime, endTime time.Time
 
-	for ledgerSeq := batch.StartLedger; ledgerSeq <= batch.EndLedger; ledgerSeq++ {
+	// The loop ends after EndLedger is processed; a plain `<=` with a uint32 counter would wrap at the ceiling.
+	for ledgerSeq := batch.StartLedger; ; ledgerSeq++ {
 		ledgerMeta, err := utils.RetryWithBackoff(ctx, maxLedgerFetchRetries, maxRetryBackoff,
 			func(ctx context.Context) (xdr.LedgerCloseMeta, error) {
 				return backend.GetLedger(ctx, ledgerSeq)
@@ -409,6 +410,10 @@ func (m *ingestService) processLedgersInBatch(
 			}
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
+		}
+
+		if ledgerSeq == batch.EndLedger {
+			break
 		}
 	}
 

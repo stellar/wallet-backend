@@ -28,7 +28,7 @@ permissions:
   contents: write
 
 concurrency:
-  # One promotion at a time, so :latest can never move backwards.
+  # One promotion at a time. Together with the :latest ordering check below, :latest never moves backwards.
   group: promote-release
   cancel-in-progress: false
 
@@ -116,6 +116,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # :latest follows the highest released version. Promoting an older version later (a patch for a
+      # previous line) publishes its tag without touching :latest.
+      - name: Decide whether this release moves :latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          HIGHEST=$(gh release list --exclude-pre-releases --exclude-drafts --limit 200 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          if [[ -z "$HIGHEST" || "$(printf '%s\n%s\n' "$HIGHEST" "$RELEASE_VERSION" | sort -V | tail -1)" == "$RELEASE_VERSION" ]]; then
+            echo "move=true" >> "$GITHUB_OUTPUT"
+            echo "$RELEASE_VERSION is the highest release; :latest will move."
+          else
+            echo "move=false" >> "$GITHUB_OUTPUT"
+            echo "$HIGHEST is newer than $RELEASE_VERSION; :latest stays put."
+          fi
+
       # Every existence check runs before any tag is created, so a failed check leaves nothing half-promoted.
       - name: Verify production ECR tag does not exist
         env:
@@ -197,12 +215,14 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           PRD_TAG: ${{ steps.retag.outputs.prd_tag }}
           PRD_DIGEST: ${{ steps.retag.outputs.digest }}
+          MOVE_LATEST: ${{ steps.latest.outputs.move }}
         run: |
           set -euo pipefail
-          echo "Copying $PRD_TAG -> ${PUBLIC_IMAGE}:${RELEASE_VERSION} and :latest"
+          echo "Copying $PRD_TAG -> ${PUBLIC_IMAGE}:${RELEASE_VERSION} (move latest: $MOVE_LATEST)"
+          LATEST_ARG=()
+          if [[ "$MOVE_LATEST" == "true" ]]; then LATEST_ARG=(--tag "${PUBLIC_IMAGE}:latest"); fi
           docker buildx imagetools create --prefer-index=false \
-            --tag "${PUBLIC_IMAGE}:${RELEASE_VERSION}" \
-            --tag "${PUBLIC_IMAGE}:latest" \
+            --tag "${PUBLIC_IMAGE}:${RELEASE_VERSION}" "${LATEST_ARG[@]}" \
             "$PRD_TAG"
           PUBLIC_DIGEST=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}')
           echo "PRD digest: $PRD_DIGEST"
@@ -218,12 +238,14 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           PRD_TAG: ${{ steps.retag.outputs.prd_tag }}
           PRD_DIGEST: ${{ steps.retag.outputs.digest }}
+          MOVE_LATEST: ${{ steps.latest.outputs.move }}
         run: |
           set -euo pipefail
-          echo "Copying $PRD_TAG -> ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} and :latest"
+          echo "Copying $PRD_TAG -> ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} (move latest: $MOVE_LATEST)"
+          LATEST_ARG=()
+          if [[ "$MOVE_LATEST" == "true" ]]; then LATEST_ARG=(--tag "${DOCKERHUB_IMAGE}:latest"); fi
           docker buildx imagetools create --prefer-index=false \
-            --tag "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" \
-            --tag "${DOCKERHUB_IMAGE}:latest" \
+            --tag "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" "${LATEST_ARG[@]}" \
             "$PRD_TAG"
           HUB_DIGEST=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}')
           echo "PRD digest: $PRD_DIGEST"
