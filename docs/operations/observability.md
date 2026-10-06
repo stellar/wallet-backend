@@ -72,7 +72,7 @@ Out-of-sync response:
 }
 ```
 
-Warning: the API's `/health` fails when ingest lags, so a liveness probe on it restarts healthy API pods during an ingest stall. Use it as a readiness probe.
+The API's `/health` fails when ingest lags. Use it to route traffic (a readiness or load-balancer check), not to restart the process: a restart policy keyed on it restarts healthy API instances during an ingest stall.
 
 ## Metrics
 

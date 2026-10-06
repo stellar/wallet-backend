@@ -42,7 +42,7 @@ Releases follow semantic versioning from v1.0.0.
 
 5. Start the live ingester on the release image. It resumes from `latest_ingest_ledger`.
 
-6. Roll the API pods to the release image.
+6. Restart the API instances on the release image.
 
 7. Verify.
 
@@ -61,14 +61,14 @@ If the release adds a protocol, run its data migration after step 5. See [protoc
 | Rule | Why |
 | --- | --- |
 | Run the API and the ingester on the same version | The schema, the ingest code, and the GraphQL resolvers ship together |
-| Run `migrate up` with the release binary before any pod of that release starts | Nothing applies migrations automatically |
+| Run `migrate up` with the release binary before any instance of that release starts | Nothing applies migrations automatically |
 | Skipping releases is fine | `migrate up` applies every pending migration in order. A release note that says otherwise wins |
 
 ## Rolling back
 
 Rolling back after `migrate up` is not supported. To return to an earlier release, restore the database from a backup taken before the upgrade and run the earlier image against it.
 
-Lower the risk by running each release candidate on staging for at least a day before it reaches production. The release flow is in [releasing](../releasing.md).
+Lower the risk by running a new release against a copy of your data, or in a non-production environment, before it reaches production.
 
 ## Where in the code
 
