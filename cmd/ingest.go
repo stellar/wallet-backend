@@ -177,6 +177,15 @@ func (c *ingestCmd) Command() *cobra.Command {
 				if cfg.EndLedger >= math.MaxUint32 {
 					return fmt.Errorf("--end-ledger %d must be below %d", cfg.EndLedger, uint32(math.MaxUint32))
 				}
+				if cfg.BackfillBatchSize <= 0 || cfg.BackfillBatchSize > math.MaxUint32 {
+					return fmt.Errorf("--backfill-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillBatchSize)
+				}
+				if cfg.BackfillDBInsertBatchSize <= 0 || cfg.BackfillDBInsertBatchSize > math.MaxUint32 {
+					return fmt.Errorf("--backfill-db-insert-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillDBInsertBatchSize)
+				}
+				if cfg.BackfillWorkers < 0 {
+					return fmt.Errorf("--backfill-workers must be 0 (one per CPU) or positive (got %d)", cfg.BackfillWorkers)
+				}
 			default:
 				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)
 			}
