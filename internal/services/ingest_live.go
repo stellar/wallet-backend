@@ -865,24 +865,27 @@ func (m *ingestService) processFetchedLedgers(ctx context.Context, fetched <-cha
 // a contract rebound mid-batch ends up bound to its final wasm. Each ledger
 // still writes its own protocol_contracts row from its own buffer, in order,
 // and stages its own protocol events against the binding it saw — so the
-// plan's Matches must also resolve the wasm hashes the merge superseded, or
-// the earlier ledger's contract would silently drop out of its protocol.
+// superseded bindings stay in the plan as contract candidates too: their
+// wasm hashes resolve in Matches, or the earlier ledger's contract would
+// silently drop out of its protocol, and the validators claim the contract
+// under them, or Apply would never write the contract_tokens row that
+// ledger's current-state rows reference.
 func (m *ingestService) prepareBatchClassificationPlan(ctx context.Context, batch []processedLedger) (*ClassificationPlan, error) {
 	wasms := make(map[string]data.ProtocolWasms)
 	bytecodes := make(map[string][]byte)
 	contracts := make(map[string]data.ProtocolContracts)
-	var supersededHashes []types.HashBytea
+	var superseded []data.ProtocolContracts
 	for _, pl := range batch {
 		maps.Copy(wasms, pl.buffer.GetProtocolWasms())
 		maps.Copy(bytecodes, pl.buffer.GetProtocolWasmBytecodes())
 		for id, c := range pl.buffer.GetProtocolContracts() {
 			if prev, rebound := contracts[id]; rebound && prev.WasmHash != c.WasmHash {
-				supersededHashes = append(supersededHashes, prev.WasmHash)
+				superseded = append(superseded, prev)
 			}
 			contracts[id] = c
 		}
 	}
-	return m.prepareClassificationPlan(ctx, wasms, bytecodes, contracts, supersededHashes)
+	return m.prepareClassificationPlan(ctx, wasms, bytecodes, contracts, superseded)
 }
 
 // persistProcessedLedgers is the pipeline's persist stage and the only stage
@@ -1310,7 +1313,7 @@ func (m *ingestService) prepareClassificationPlan(
 	bufferedWasms map[string]data.ProtocolWasms,
 	bufferedBytecodes map[string][]byte,
 	bufferedContracts map[string]data.ProtocolContracts,
-	supersededHashes []types.HashBytea,
+	superseded []data.ProtocolContracts,
 ) (*ClassificationPlan, error) {
 	if len(bufferedWasms) == 0 && len(bufferedContracts) == 0 {
 		return nil, nil
@@ -1324,10 +1327,15 @@ func (m *ingestService) prepareClassificationPlan(
 		thisBatch[h] = struct{}{}
 	}
 
-	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts))
+	// superseded are bindings an earlier ledger of the batch saw before a
+	// later one rebound the contract (see prepareBatchClassificationPlan).
+	// They are candidates like any other, so the validators claim the
+	// contract under the wasm that ledger's events were staged against.
+	contractSlice := make([]data.ProtocolContracts, 0, len(bufferedContracts)+len(superseded))
 	for _, c := range bufferedContracts {
 		contractSlice = append(contractSlice, c)
 	}
+	contractSlice = append(contractSlice, superseded...)
 
 	// Each buffered contract carries the wasm hash its instance points at. That
 	// hash may name a wasm uploaded in an earlier ledger (Soroban contract-code
@@ -1335,21 +1343,12 @@ func (m *ingestService) prepareClassificationPlan(
 	// this ledger's buffer — resolve those from the verdict already stored in
 	// protocol_wasms. Hashes uploaded this ledger (thisBatch) are skipped here
 	// because PrepareClassification classifies them from their buffered bytecode below.
-	// supersededHashes are bindings an earlier ledger of the batch saw before a
-	// later one rebound the contract; they are resolved too, so that ledger's
-	// events still classify (see prepareBatchClassificationPlan).
-	knownHashes := make([]types.HashBytea, 0, len(contractSlice)+len(supersededHashes))
+	knownHashes := make([]types.HashBytea, 0, len(contractSlice))
 	for _, c := range contractSlice {
 		if _, inBatch := thisBatch[c.WasmHash]; inBatch {
 			continue
 		}
 		knownHashes = append(knownHashes, c.WasmHash)
-	}
-	for _, h := range supersededHashes {
-		if _, inBatch := thisBatch[h]; inBatch {
-			continue
-		}
-		knownHashes = append(knownHashes, h)
 	}
 	known, err := utils.RetryWithBackoff(ctx, maxClassificationReadRetries, maxRetryBackoff,
 		func(ctx context.Context) (map[types.HashBytea]string, error) {
