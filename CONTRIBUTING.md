@@ -95,7 +95,7 @@ Maintainers may close pull requests that do not meet these requirements without 
 
 3. Run `make unit-test`. Verify: no `FAIL` lines.
 4. Run `make integration-test` when your change touches ingestion, the database or the API. It needs Docker and takes about 30 minutes.
-5. Run `make check` before you push. Verify: it exits 0 and `git status` shows no files it rewrote.
+5. Run `make check` before you push. It is not read-only: it formats code with `gofmt` and `gofumpt`, fixes imports with `goimports`, then runs vet, lint, shadow and deadcode. Verify: it exits 0, then commit anything it rewrote, since CI runs the read-only variants and fails on unformatted code.
 
 [Getting started](docs/getting-started.md) walks through the stack, and [Integration tests](docs/development/integration-tests.md) explains the harness.
 
