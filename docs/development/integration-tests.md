@@ -19,7 +19,7 @@ The tests start a private Stellar network, submit real transactions, and check w
 
 | Order | Suite | Checks |
 | --- | --- | --- |
-| 1 | `AccountBalancesAfterCheckpointTestSuite` | Balances loaded from the history archive checkpoint on first start: native, trustline, SAC, SEP-41, contract holders and pool shares, plus balance pagination. |
+| 1 | `AccountBalancesAfterCheckpointTestSuite` | Balances loaded from the history archive checkpoint on first start: native, trustline, SAC, contract holders and pool shares, plus balance pagination. It expects no SEP-41 balance yet; SEP-41 balances appear after suite 3 runs the current-state migration. |
 | 2 | `BackfillTestSuite` | A backfill container fills a ledger range while live ingestion keeps running. |
 | 3 | `DataMigrationTestSuite` | `protocol-setup` classifies the SEP-41 WASM, then `protocol-migrate current-state` builds SEP-41 balances from the object-store datastore. |
 | 4 | `DataValidationTestSuite` | Transactions, operations and state changes for each fixture: payments, sponsorships, custom assets, auth flags, merges, contract calls and deploys, claimable balances, liquidity pools. |

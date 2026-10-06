@@ -97,7 +97,7 @@ Nothing runs migrations automatically. Run `migrate up` before the first start a
    wallet-backend ingest
    ```
 
-   On an empty database the first start reads every balance from the archive's latest checkpoint before it ingests any ledger. How long that takes depends on the archive download and the size of the network's ledger state. Watch for these log lines in order:
+   On an empty database the first start loads the ledger-entry balances (native, classic, SAC, liquidity pool) from the archive's latest checkpoint before it ingests any ledger. SEP-41 balances are not in the archive; see [protocol data migrations](data-migrations.md). How long that takes depends on the archive download and the size of the network's ledger state. Watch for these log lines in order:
 
    ```text
    Populating from checkpoint ledger = <LEDGER>
