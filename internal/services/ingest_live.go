@@ -79,6 +79,10 @@ func (c *contractDataMemo) get() (map[string][]ingest.Change, error) {
 // orphaned rows above the committed cursor before ingestion resumes.
 var ErrPartialPersist = errors.New("ledger persist partially committed")
 
+// ErrLedgerZero rejects a batch carrying ledger 0, which has no predecessor
+// for the protocol CAS or the guarded cursor update to expect.
+var ErrLedgerZero = errors.New("ledger sequence 0 is not persistable")
+
 // persistItem is one ledger's persist payload. The classification plan is
 // not part of it: one plan covers the whole batch (see
 // prepareBatchClassificationPlan) and travels alongside the items. It holds
@@ -214,7 +218,7 @@ func (m *ingestService) persistLedgerData(ctx context.Context, items []persistIt
 		// per-protocol CAS expects ledgerSeq-1 and the guarded cursor update
 		// accepts it, both of which underflow on an unsigned zero.
 		if items[i].seq == 0 {
-			return fmt.Errorf("persisting %s: ledger sequence 0 is not persistable", label)
+			return fmt.Errorf("persisting %s: %w", label, ErrLedgerZero)
 		}
 		// Materialize the buffer's rows once per ledger: the transactions and
 		// transactions_accounts siblings share one transaction slice, and the
@@ -1365,9 +1369,11 @@ func (m *ingestService) persistLedgerDataWithRetry(ctx context.Context, items []
 // ErrPartialPersist (see persistLedgerData) is permanent by definition: part of the ledger is
 // already durable, so re-running it collides on primary keys; the process must exit and let
 // startup reconciliation repair.
+// ErrLedgerZero (see persistLedgerData) is permanent: no retry can change the sequence.
 func isPermanentPersistError(err error) bool {
 	if errors.Is(err, data.ErrCursorGuardFailed) || errors.Is(err, data.ErrCASCursorMissing) ||
-		errors.Is(err, data.ErrRowEncoding) || errors.Is(err, ErrPartialPersist) {
+		errors.Is(err, data.ErrRowEncoding) || errors.Is(err, ErrPartialPersist) ||
+		errors.Is(err, ErrLedgerZero) {
 		return true
 	}
 	var pgErr *pgconn.PgError

@@ -1651,7 +1651,59 @@ func Test_persistLedgerData_rejectsLedgerZero(t *testing.T) {
 		{processedLedger: processedLedger{seq: 0, buffer: indexer.NewIndexerBuffer()}},
 	}
 	err := (&ingestService{}).persistLedgerData(context.Background(), items, nil)
-	assert.ErrorContains(t, err, "ledger sequence 0 is not persistable")
+	require.ErrorIs(t, err, ErrLedgerZero)
+}
+
+// Test_persistBatch_observesInsertIntoDBOncePerBatch pins insert_into_db to
+// one observation per persist commit carrying the batch's wall time. One
+// observation per ledger would dilute a slow batched commit into shares that
+// read as healthy exactly when persist has fallen behind.
+func Test_persistBatch_observesInsertIntoDBOncePerBatch(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+	setupDBCursors(t, ctx, pool, 99, 99)
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	mockTokenIngestionService := NewTokenIngestionServiceMock(t)
+	mockTokenIngestionService.On("ProcessTrustlineChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessSACBalanceChanges", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockTokenIngestionService.On("ProcessNativeAndPoolChanges",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	svc, err := NewIngestService(IngestServiceConfig{
+		IngestionMode:         IngestionModeLive,
+		Models:                models,
+		RPCService:            &RPCServiceMock{},
+		LedgerBackend:         &LedgerBackendMock{},
+		TokenIngestionService: mockTokenIngestionService,
+		Metrics:               m,
+		Network:               network.TestNetworkPassphrase,
+		NetworkPassphrase:     network.TestNetworkPassphrase,
+		Archive:               &HistoryArchiveMock{},
+	})
+	require.NoError(t, err)
+
+	sampleCount := func() uint64 {
+		var dm dto.Metric
+		require.NoError(t, m.Ingestion.PhaseDuration.WithLabelValues("insert_into_db").(prometheus.Histogram).Write(&dm))
+		return dm.GetHistogram().GetSampleCount()
+	}
+
+	before := sampleCount()
+	batch := []processedLedger{
+		{seq: 100, contractData: newContractDataMemo(nil, 100), buffer: indexer.NewIndexerBuffer()},
+		{seq: 101, contractData: newContractDataMemo(nil, 101), buffer: indexer.NewIndexerBuffer()},
+	}
+	_, err = svc.persistBatch(ctx, batch, nil)
+	require.NoError(t, err)
+	assert.Equal(t, before+1, sampleCount(), "a %d-ledger batch must observe insert_into_db once", len(batch))
 }
 
 func Test_persistLedgerDataWithRetry(t *testing.T) {
