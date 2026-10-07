@@ -731,12 +731,13 @@ type fetchedLedger struct {
 	meta xdr.LedgerCloseMeta
 }
 
-// processedLedger is the process→persist handoff. The close time and the
-// ContractData memo over the staging pass's materialized transactions are
-// both derived at the end of that pass, so the decoded close meta itself
-// never rides the queue. processDuration rides along so the per-ledger
-// Duration metric can sum the ledger's stage times instead of counting the
-// time it sat queued between stages.
+// processedLedger is the process→persist handoff. It carries the close time
+// and the ContractData memo over the staging pass's materialized
+// transactions, both derived at the end of that pass, rather than its own
+// copy of the decoded close meta; the memo's transactions still reference
+// that meta, so it stays reachable until the ledger persists. processDuration
+// rides along so the per-ledger Duration metric can sum the ledger's stage
+// times instead of counting the time it sat queued between stages.
 type processedLedger struct {
 	seq             uint32
 	closeTime       int64
@@ -1313,8 +1314,8 @@ func getEffectiveProtocolContracts(
 // persistLedgerDataWithRetry wraps persistLedgerData with retry logic. The
 // batch's classification plan was computed once by the caller before this
 // call and is reused verbatim across every attempt, so a retried attempt
-// never re-issues the classification RPC calls the plan already resolved; the ContractData
-// extraction memos likewise ride along unchanged, so a retry never re-runs
+// never re-issues the classification RPC calls the plan already resolved; the
+// ContractData extraction memos likewise ride along unchanged, so a retry never re-runs
 // the extraction walk over a ledger's transactions. A failed attempt rolled
 // everything back, so the retry replays the whole batch.
 func (m *ingestService) persistLedgerDataWithRetry(ctx context.Context, items []persistItem, plan *ClassificationPlan) error {

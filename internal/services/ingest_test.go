@@ -1654,23 +1654,6 @@ func Test_persistLedgerData_rejectsLedgerZero(t *testing.T) {
 	assert.ErrorContains(t, err, "ledger sequence 0 is not persistable")
 }
 
-// Test_persistSiblings_coversBulkCopyTables pins the persist path's sibling set
-// to data.BulkCopyTables, the list startup reconciliation deletes orphans
-// from. A bulk table streamed by a sibling but absent from that list keeps its
-// rows above the cursor after a crash, and re-ingesting those ledgers collides
-// on primary keys COPY cannot resolve.
-func Test_persistSiblings_coversBulkCopyTables(t *testing.T) {
-	var stateChangesMu sync.Mutex
-	siblings := (&ingestService{}).persistSiblings(&stateChangesMu)
-	streamed := make(map[string]bool, len(siblings))
-	for _, sibling := range siblings {
-		streamed[sibling.name] = true
-	}
-	for _, target := range data.BulkCopyTables {
-		assert.True(t, streamed[target.Table], "no persist sibling streams %s", target.Table)
-	}
-}
-
 func Test_persistLedgerDataWithRetry(t *testing.T) {
 	t.Run("success - processes data and updates cursor", func(t *testing.T) {
 		dbt := dbtest.Open(t)
@@ -2627,13 +2610,6 @@ func Test_getEffectiveProtocolContracts_RemovesContractsUpgradedAwayFromProtocol
 	assert.Empty(t, contracts)
 }
 
-// Test_getEffectiveProtocolContracts_NilClassificationKeepsCommitted pins the
-// mid-batch semantics: ledgers riding behind a batch head run with no
-// classification plan (classification == nil), and their buffered contracts
-// are pure re-observations — every binding was already seen committed, the
-// batch cut guarantees it. Committed membership must stand untouched;
-// dropping a re-observed contract here silently discards that ledger's
-// events for it.
 // Test_getEffectiveProtocolContracts_ReObservationKeepsMembership pins the case
 // a re-observed contract must survive. Any instance change (TTL bump, restore,
 // storage write) buffers a committed contract again with its binding unchanged;
@@ -3728,6 +3704,10 @@ func Test_prepareBatchClassificationPlan_SupersededBindingIsClaimed(t *testing.T
 // Test_persistSiblings_Order pins the commit order persistLedgerData relies
 // on: every bulk-COPY table first, in data.BulkCopyTables order, then the two
 // mutable current-state groups last, right before the coordinating commit.
+// Equality with BulkCopyTableNames also pins the sibling SET to the list
+// startup reconciliation deletes orphans from: a bulk table streamed by a
+// sibling but absent from it keeps rows above the cursor after a crash, and
+// re-ingesting collides on primary keys COPY cannot resolve.
 func Test_persistSiblings_Order(t *testing.T) {
 	var mu sync.Mutex
 	siblings := (&ingestService{}).persistSiblings(&mu)
