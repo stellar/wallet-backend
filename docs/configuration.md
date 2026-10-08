@@ -38,7 +38,7 @@ Required options reject an empty value. A required option with a default passes 
 | `--network-passphrase` | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | yes | Stellar network passphrase |
 | `--rpc-url` | `RPC_URL` | `http://localhost:8000` | yes | Stellar RPC URL |
 | `--admin-port` | `ADMIN_PORT` | `0` | no | Port for pprof at `/debug/pprof`. `0` disables it |
-| `--db-max-conns` | `DB_MAX_CONNS` | `10` | no | Maximum connections in the pool |
+| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 9 |
 | `--db-min-conns` | `DB_MIN_CONNS` | `5` | no | Minimum idle connections kept in the pool |
 | `--db-max-conn-lifetime` | `DB_MAX_CONN_LIFETIME` | `5m` | no | Maximum connection lifetime, as a Go duration |
 | `--db-max-conn-idle-time` | `DB_MAX_CONN_IDLE_TIME` | `10s` | no | Maximum connection idle time, as a Go duration |
@@ -101,6 +101,12 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 | `--datastore-files-per-partition` | `DATASTORE_FILES_PER_PARTITION` | `0` | no | Files per partition. `0` reads it from the datastore manifest |
 
 `ingest` always needs `--rpc-url`, even with the `datastore` backend.
+
+### Live persist
+
+| Flag | Env var | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--live-persist-max-batch-size` | `LIVE_PERSIST_MAX_BATCH_SIZE` | `1` | no | Consecutive ledgers coalesced into one commit set when live ingestion falls behind. `1` commits every ledger. The pipeline holds up to `2 × value + 1` ledger buffers in memory |
 
 ### History archive
 
@@ -180,6 +186,7 @@ Each command checks these at startup and exits with the quoted error.
 - **Bad backfill range.** `ingest` in backfill mode needs a start above zero and an end at or above the start: `--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got <start>..<end>)`.
 - **End ledger at the ceiling.** Backfill rejects an end ledger of 4294967295 or more: `--end-ledger <value> must be below 4294967295`.
 - **Bad backfill tuning.** Backfill needs `--backfill-batch-size` and `--backfill-db-insert-batch-size` between 1 and 4294967295, and `--backfill-workers` of 0 or more: `--backfill-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-db-insert-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-workers must be 0 (one per CPU) or positive (got <value>)`.
+- **Pool too small for live mode.** `ingest` in live mode fails with `db-max-conns is <n>, below the 9 connections live persist requires`.
 - **Unknown backend in ingest.** `ingest` fails with `invalid ledger-backend-type '<value>', must be 'rpc' or 'datastore'`.
 - **Datastore without bucket in ingest.** `ingest` fails with `--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore`.
 - **No protocol given.** `protocol-setup` and `protocol-migrate` fail with `at least one --protocol-id is required`.

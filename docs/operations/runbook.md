@@ -61,7 +61,8 @@ Scrape `/ingest-metrics` on the ingest port (default 8002) and `/api-metrics` on
 | Ingest erroring | `increase(wallet_ingestion_errors_total[10m]) > 0` | a ledger failed; the loop retries |
 | Retries exhausted | `increase(wallet_ingestion_retry_exhaustions_total[10m]) > 0` | the process is about to exit |
 | RPC unhealthy | `wallet_rpc_service_health == 0` | `/health` returns 500 (unreachable) or 503 (unhealthy) on both ingest and API |
-| Pool saturated | `rate(wallet_db_pool_acquire_wait_seconds_total[5m])` rising or `wallet_db_pool_total_conns` at `wallet_db_pool_max_conns` | raise `DB_MAX_CONNS` or add PgBouncer |
+| Pool saturated | `rate(wallet_db_pool_acquire_wait_seconds_total[5m])` rising or `wallet_db_pool_total_conns` at `wallet_db_pool_max_conns` | raise `DB_MAX_CONNS` (ingest needs at least 9) or add PgBouncer for the API |
+| Persist falling behind | `histogram_quantile(0.5, rate(wallet_ingestion_persist_batch_size_bucket[5m])) > 1` | the persist stage is coalescing a backlog; look at database write latency |
 | API errors | `rate(wallet_http_requests_total{status_code=~"5.."}[5m]) > 0` | check API logs and database health |
 | Auth rejections | `rate(wallet_auth_expired_signatures_total[5m])` | clients signing with a window beyond `CLIENT_AUTH_MAX_TIMEOUT_SECONDS` or with clock skew |
 
@@ -75,7 +76,7 @@ Scrape `/ingest-metrics` on the ingest port (default 8002) and `/api-metrics` on
 | `oldest_ingest_ledger` | Oldest ledger present. Backfill moves it down; retention moves it up through the reconcile job. |
 | `protocol_<ID>_history_cursor`, `protocol_<ID>_current_state_cursor` | Progress of protocol data migrations. |
 
-A ledger is written in one transaction. A SIGTERM mid-ledger rolls it back and the next start re-ingests it. Stopping and starting ingest is safe at any point.
+A batch of ledgers (one by default) is written by a set of transactions whose cursor commit is strictly last. A SIGTERM before that commit rolls the batch back and the next start re-ingests it; a crash between the commits leaves only bulk rows above the cursor, which the next start deletes. Stopping and starting ingest is safe at any point.
 
 ## Failure modes
 
