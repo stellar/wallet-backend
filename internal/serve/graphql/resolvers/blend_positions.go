@@ -271,6 +271,7 @@ type blendAssembly struct {
 	backstopPrices             map[string]backstopPricePair
 	blndPrice                  *blenddata.OraclePrice
 	claimedByPool              map[string]string
+	networkPassphrase          string
 	now                        int64
 }
 
@@ -278,6 +279,11 @@ type blendAssembly struct {
 // or nil when the pool's backstop is unknown or has no price group.
 func (d *blendAssembly) lpPriceForPool(poolAddr string) *blenddata.OraclePrice {
 	return d.backstopPrices[string(d.poolByID[poolAddr].BackstopContractID)].lp
+}
+
+// poolVersion returns the BlendVersion of the pool's backstop.
+func (d *blendAssembly) poolVersion(poolAddr string) *graphql1.BlendVersion {
+	return blendVersion(d.networkPassphrase, d.poolByID[poolAddr].BackstopContractID)
 }
 
 func (d *blendAssembly) poolBackstopRate(poolAddr string) int32 {
@@ -811,6 +817,7 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 	out := &graphql1.BlendBackstopPosition{
 		PoolAddress:         poolAddr,
 		PoolName:            d.poolByID[poolAddr].Name,
+		Version:             d.poolVersion(poolAddr),
 		Shares:              bp.Shares,
 		Q4w:                 q4w,
 		EmissionsEarnedBlnd: claimable.String(),
@@ -1059,6 +1066,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		backstopPrices:             backstopPrices,
 		blndPrice:                  newestBLNDPrice(backstopPrices, backstopIDs),
 		claimedByPool:              claimedByPool,
+		networkPassphrase:          passphrase,
 		now:                        now,
 	}
 
