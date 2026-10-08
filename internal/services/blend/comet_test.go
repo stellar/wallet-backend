@@ -146,7 +146,7 @@ func TestCometValuation(t *testing.T) {
 // fetchCometState decodes out of a getLedgerEntries response.
 func cometEntryResult(t *testing.T, poolID string, key, val xdr.ScVal) entities.LedgerEntryResult {
 	t.Helper()
-	keyB64, err := cometLedgerKey(poolID, key)
+	keyB64, err := contractDataLedgerKey(poolID, key)
 	require.NoError(t, err)
 
 	addrVal, err := contractAddressScVal(poolID)
@@ -388,5 +388,60 @@ func TestFetchCometState(t *testing.T) {
 
 		_, err := fetchCometState(ctx, m, cometID)
 		assert.ErrorContains(t, err, "cannot identify BLND leg")
+	})
+}
+
+// backstopInstanceVal builds a backstop's ScvContractInstance value whose
+// instance storage names cometID as its "BToken".
+func backstopInstanceVal(t *testing.T, cometID string) xdr.ScVal {
+	t.Helper()
+	v := cometInstanceVal(t, "0000000000000000000000000000000000000000000000000000000000000000")
+	storage := mapScVal(xdr.ScMapEntry{Key: symScVal("BToken"), Val: contractAddrScVal(t, cometID)})
+	v.Instance.Storage = storage
+	return v
+}
+
+func TestFetchBackstopLPTokens(t *testing.T) {
+	ctx := context.Background()
+	instanceKey := xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}
+	backstopA, backstopB := randomContractAddr(t), randomContractAddr(t)
+	cometA, cometB := randomContractAddr(t), randomContractAddr(t)
+
+	mockRPC := func(t *testing.T, entries []entities.LedgerEntryResult) *services.RPCServiceMock {
+		t.Helper()
+		m := services.NewRPCServiceMock(t)
+		m.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool { return len(keys) == 2 })).
+			Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: entries}, nil).Once()
+		return m
+	}
+
+	t.Run("reads every backstop's BToken in one call", func(t *testing.T) {
+		m := mockRPC(t, []entities.LedgerEntryResult{
+			cometEntryResult(t, backstopA, instanceKey, backstopInstanceVal(t, cometA)),
+			cometEntryResult(t, backstopB, instanceKey, backstopInstanceVal(t, cometB)),
+		})
+
+		got, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{backstopA: cometA, backstopB: cometB}, got)
+	})
+
+	t.Run("a missing instance names the backstop", func(t *testing.T) {
+		m := mockRPC(t, []entities.LedgerEntryResult{
+			cometEntryResult(t, backstopA, instanceKey, backstopInstanceVal(t, cometA)),
+		})
+
+		_, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		assert.ErrorContains(t, err, "backstop "+backstopB+": instance entry not found")
+	})
+
+	t.Run("a missing BToken names the backstop", func(t *testing.T) {
+		m := mockRPC(t, []entities.LedgerEntryResult{
+			cometEntryResult(t, backstopA, instanceKey, backstopInstanceVal(t, cometA)),
+			cometEntryResult(t, backstopB, instanceKey, cometInstanceVal(t, "0000000000000000000000000000000000000000000000000000000000000000")),
+		})
+
+		_, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		assert.ErrorContains(t, err, "backstop "+backstopB+": BToken not in instance storage")
 	})
 }

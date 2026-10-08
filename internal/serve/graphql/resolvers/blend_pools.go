@@ -142,7 +142,7 @@ func (d *blendAssembly) backstopUsdForPool(poolAddr string) (*float64, error) {
 			return nil, nil
 		}
 	}
-	return usdValueOrNil(tokens, backstopLPDecimals, d.lpPrice), nil
+	return usdValueOrNil(tokens, backstopLPDecimals, d.lpPriceForPool(poolAddr)), nil
 }
 
 // blendPoolStatusEnum maps a blend_pools.status value to its schema enum
@@ -301,7 +301,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 	}
 
 	// Pool-keyed reads plus oracle prices (oracleIDs are known from the input
-	// pools) and the backstop LP pair (no input) are all mutually independent, so
+	// pools) and the pinned backstops' price groups are all mutually independent, so
 	// fetch them concurrently.
 	var (
 		reserves         []blenddata.Reserve
@@ -310,6 +310,8 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		oraclePrices     []blenddata.OraclePrice
 		backstopLPPrices []blenddata.OraclePrice
 	)
+	passphrase := r.rpcService.NetworkPassphrase()
+	backstopIDs := pinnedBackstopIDs(passphrase)
 	poolGroup, poolCtx := errgroup.WithContext(ctx)
 	poolGroup.Go(func() (err error) {
 		reserves, err = r.models.Blend.Reserves.GetByPools(poolCtx, poolIDs)
@@ -340,7 +342,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		return nil
 	})
 	poolGroup.Go(func() (err error) {
-		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(poolCtx, r.blendBackstopLPContractID)
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(poolCtx, backstopIDs)
 		if err != nil {
 			return fmt.Errorf("getting blend backstop LP prices: %w", err)
 		}
@@ -371,7 +373,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 	}
 
 	now := time.Now().Unix()
-	lpPrice, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
+	backstopPrices := backstopPricesByAddress(ctx, freshPrices(backstopLPPrices, now))
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 
 	reserveEmissionByPoolToken := make(map[string]blenddata.ReserveEmission, len(reserveEmissions))
@@ -390,8 +392,8 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		backstopPoolByID:           backstopPoolByID,
 		priceByOracleAsset:         priceByOracleAsset,
 		metaByContractID:           metaByContractID,
-		lpPrice:                    lpPrice,
-		blndPrice:                  blndPrice,
+		backstopPrices:             backstopPrices,
+		blndPrice:                  newestBLNDPrice(backstopPrices, backstopIDs),
 		now:                        now,
 	}
 

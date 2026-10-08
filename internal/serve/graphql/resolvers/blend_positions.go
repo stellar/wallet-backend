@@ -176,41 +176,74 @@ func freshPrices(rows []blenddata.OraclePrice, now int64) []blenddata.OraclePric
 	return out
 }
 
-// findBackstopPrices picks the (LP, BLND) price pair out of
-// OraclePrices.GetBackstopLPPrices' result set. Those rows are already scoped
-// to the single configured Comet oracle (BLEND_BACKSTOP_LP_CONTRACT_ID) — see
-// GetBackstopLPPrices' doc — so they all share one oracle_contract_id: the
-// self-priced row (asset == oracle) is the Comet LP share's own USD price, and
-// its sole sibling (asset != oracle) is the BLND price quoted under that same
-// oracle.
+// backstopPricePair is one backstop's price group: the self-priced Comet LP
+// share row and the BLND row quoted under the same oracle.
+type backstopPricePair struct {
+	lp, blnd *blenddata.OraclePrice
+}
+
+// backstopPricesByAddress groups OraclePrices.GetBackstopLPPrices' rows by
+// backstop (oracle_contract_id). Each backstop's group is its self-priced LP
+// row (asset == oracle) plus its BLND sibling (asset != oracle); see
+// snapshotComet. A backstop missing either half is left out.
 //
-// The snapshot writer stores exactly those two rows per Comet oracle (the
-// self-priced LP row and the BLND row; see snapshotComet), so more than two
-// rows — or more than one sibling — means an extra asset was stored under the
-// LP's oracle key, making the BLND row ambiguous; that state is logged loudly
-// and the lowest sibling asset address is kept (rows arrive ordered by asset)
-// so the choice stays deterministic. Returns (nil, nil) when either half is
-// missing (no self-priced LP row, or no BLND sibling).
-func findBackstopPrices(ctx context.Context, rows []blenddata.OraclePrice) (lp, blnd *blenddata.OraclePrice) {
-	var self blenddata.OraclePrice
-	haveSelf := false
-	siblings := make([]blenddata.OraclePrice, 0, len(rows))
+// More than one sibling means an extra asset was stored under the backstop's
+// oracle key, making the BLND row ambiguous; that state is logged loudly and
+// the lowest sibling asset address is kept (rows arrive ordered by asset) so
+// the choice stays deterministic.
+func backstopPricesByAddress(ctx context.Context, rows []blenddata.OraclePrice) map[string]backstopPricePair {
+	type group struct {
+		self     *blenddata.OraclePrice
+		siblings []blenddata.OraclePrice
+	}
+	groups := map[string]*group{}
 	for _, row := range rows {
-		if string(row.OracleContractID) == string(row.AssetContractID) {
-			self = row
-			haveSelf = true
+		addr := string(row.OracleContractID)
+		g, ok := groups[addr]
+		if !ok {
+			g = &group{}
+			groups[addr] = g
+		}
+		if addr == string(row.AssetContractID) {
+			self := row
+			g.self = &self
 		} else {
-			siblings = append(siblings, row)
+			g.siblings = append(g.siblings, row)
 		}
 	}
-	if !haveSelf || len(siblings) == 0 {
-		return nil, nil
+	out := make(map[string]backstopPricePair, len(groups))
+	for addr, g := range groups {
+		if g.self == nil || len(g.siblings) == 0 {
+			continue
+		}
+		if len(g.siblings) > 1 {
+			log.Ctx(ctx).Errorf("blend: backstop LP oracle %s has %d BLND siblings (expected 1 — extra asset stored under the LP's oracle key?); using the lowest sibling asset address", addr, len(g.siblings))
+		}
+		blnd := g.siblings[0]
+		out[addr] = backstopPricePair{lp: g.self, blnd: &blnd}
 	}
-	if len(rows) > 2 || len(siblings) > 1 {
-		log.Ctx(ctx).Errorf("blend: pinned backstop LP oracle %s has %d price rows / %d BLND siblings (expected 1 self-priced LP row + 1 BLND sibling — extra asset stored under the LP's oracle key?); using the lowest sibling asset address", self.OracleContractID, len(rows), len(siblings))
+	return out
+}
+
+// pinnedBackstopIDs returns the network's pinned backstop addresses, newest
+// deployment first (blendrates.BackstopPins' order).
+func pinnedBackstopIDs(networkPassphrase string) []string {
+	pins := blendrates.BackstopPins(networkPassphrase)
+	ids := make([]string, len(pins))
+	for i, pin := range pins {
+		ids[i] = pin.Address
 	}
-	sib := siblings[0]
-	return &self, &sib
+	return ids
+}
+
+// newestBLNDPrice returns the BLND price quoted under the newest pinned
+// backstop, the one every BLND valuation uses. nil when that backstop has no
+// price group or the network pins no backstop.
+func newestBLNDPrice(prices map[string]backstopPricePair, backstopIDs []string) *blenddata.OraclePrice {
+	if len(backstopIDs) == 0 {
+		return nil
+	}
+	return prices[backstopIDs[0]].blnd
 }
 
 // blendAssembly holds every batch-fetched Blend v2 row and derived lookup
@@ -224,10 +257,16 @@ type blendAssembly struct {
 	backstopPoolByID           map[string]blenddata.BackstopPool
 	priceByOracleAsset         map[string]blenddata.OraclePrice
 	metaByContractID           map[string]data.Contract
-	lpPrice                    *blenddata.OraclePrice
+	backstopPrices             map[string]backstopPricePair
 	blndPrice                  *blenddata.OraclePrice
 	claimedByPool              map[string]string
 	now                        int64
+}
+
+// lpPriceForPool returns the Comet LP share price of the pool's own backstop,
+// or nil when the pool's backstop is unknown or has no price group.
+func (d *blendAssembly) lpPriceForPool(poolAddr string) *blenddata.OraclePrice {
+	return d.backstopPrices[string(d.poolByID[poolAddr].BackstopContractID)].lp
 }
 
 func (d *blendAssembly) poolBackstopRate(poolAddr string) int32 {
@@ -747,7 +786,7 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 			queuedLP := blendrates.BackstopLPTokens(queuedShares, poolShares, poolTokens)
 			lp := queuedLP.String()
 			entry.LpTokens = &lp
-			entry.UsdValue = usdValueOrNil(queuedLP, backstopLPDecimals, d.lpPrice)
+			entry.UsdValue = usdValueOrNil(queuedLP, backstopLPDecimals, d.lpPriceForPool(poolAddr))
 		}
 		q4w = append(q4w, entry)
 	}
@@ -770,7 +809,7 @@ func (d *blendAssembly) buildBackstopPosition(bp blenddata.BackstopPosition) (*g
 		lpTokens := blendrates.BackstopLPTokens(totalShares, poolShares, poolTokens)
 		lp := lpTokens.String()
 		out.LpTokens = &lp
-		out.UsdValue = usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPrice)
+		out.UsdValue = usdValueOrNil(lpTokens, backstopLPDecimals, d.lpPriceForPool(poolAddr))
 	}
 	return out, nil
 }
@@ -923,13 +962,15 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	}
 
 	// Oracle prices (by oracleIDs), reserve-asset token metadata (by assetIDs),
-	// and the backstop LP price pair (no input) are mutually independent once
+	// and the pinned backstops' price groups are mutually independent once
 	// oracleIDs and assetIDs are known.
 	var (
 		oraclePrices     []blenddata.OraclePrice
 		backstopLPPrices []blenddata.OraclePrice
 		tokenMeta        []data.Contract
 	)
+	passphrase := r.rpcService.NetworkPassphrase()
+	backstopIDs := pinnedBackstopIDs(passphrase)
 	priceGroup, priceCtx := errgroup.WithContext(ctx)
 	priceGroup.SetLimit(3)
 	priceGroup.Go(func() (err error) {
@@ -940,7 +981,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		return nil
 	})
 	priceGroup.Go(func() (err error) {
-		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(priceCtx, r.blendBackstopLPContractID)
+		backstopLPPrices, err = r.models.Blend.OraclePrices.GetBackstopLPPrices(priceCtx, backstopIDs)
 		if err != nil {
 			return fmt.Errorf("getting blend backstop LP prices: %w", err)
 		}
@@ -957,7 +998,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		return nil, err //nolint:wrapcheck // already wrapped inside the errgroup closures
 	}
 	now := time.Now().Unix()
-	lpPrice, blndPrice := findBackstopPrices(ctx, freshPrices(backstopLPPrices, now))
+	backstopPrices := backstopPricesByAddress(ctx, freshPrices(backstopLPPrices, now))
 	priceByOracleAsset := freshPriceMap(oraclePrices, now)
 	metaByContractID := make(map[string]data.Contract, len(tokenMeta))
 	for _, c := range tokenMeta {
@@ -998,8 +1039,8 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		backstopPoolByID:           backstopPoolByID,
 		priceByOracleAsset:         priceByOracleAsset,
 		metaByContractID:           metaByContractID,
-		lpPrice:                    lpPrice,
-		blndPrice:                  blndPrice,
+		backstopPrices:             backstopPrices,
+		blndPrice:                  newestBLNDPrice(backstopPrices, backstopIDs),
 		claimedByPool:              claimedByPool,
 		now:                        now,
 	}

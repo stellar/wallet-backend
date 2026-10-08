@@ -176,7 +176,6 @@ services:
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
       # ADMIN_PORT: 9094  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
       # BLEND_PRICE_INTERVAL: 60s  # Optional: interval between Blend v2 oracle price snapshot passes. 0 disables it.
-      # BLEND_BACKSTOP_LP_CONTRACT_ID: ""  # Optional: Comet BLND:USDC LP C-address enabling the BLND/LP price leg.
 
   ingest-mainnet:
     container_name: ingest-mainnet
@@ -220,7 +219,6 @@ services:
       STELLAR_ENVIRONMENT: ${STELLAR_ENVIRONMENT:-development}
       # ADMIN_PORT: 9095  # Optional: Port for pprof endpoints at /debug/pprof. WARNING: Do NOT expose publicly!
       # BLEND_PRICE_INTERVAL: 60s  # Optional: interval between Blend v2 oracle price snapshot passes. 0 disables it.
-      # BLEND_BACKSTOP_LP_CONTRACT_ID: ""  # Optional: Comet BLND:USDC LP C-address enabling the BLND/LP price leg.
 volumes:
   postgres-db:
     driver: local
