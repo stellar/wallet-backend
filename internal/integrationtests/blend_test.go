@@ -276,11 +276,11 @@ func (s *BlendMigrationTestSuite) TestProtocolSetupThenMigration() {
 
 	rpcURL, err := s.testEnv.Containers.RPCContainer.GetConnectionString(ctx)
 	s.Require().NoError(err)
-	minioEndpoint, err := s.testEnv.Containers.MinioContainer.GetConnectionString(ctx)
+	objectStoreEndpoint, err := s.testEnv.Containers.ObjectStoreContainer.GetConnectionString(ctx)
 	s.Require().NoError(err)
 	// The exporter must start at the oldest cursor (not stack.StartLedger):
 	// protocol-migrate history reads its own start from oldest_ingest_ledger.
-	stopExporter := infrastructure.StartLedgerExporter(s.T(), rpcURL, minioEndpoint, oldestLedger)
+	stopExporter := infrastructure.StartLedgerExporter(s.T(), rpcURL, objectStoreEndpoint, oldestLedger)
 	defer stopExporter()
 
 	currentStateCmd := fmt.Sprintf("protocol-migrate current-state --protocol-id %s "+
