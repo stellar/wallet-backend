@@ -156,6 +156,8 @@ shares earn no emissions).
 type BlendBackstopPosition {
   poolAddress: String!
   poolName: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
   shares: String!
   """
   The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
@@ -200,6 +202,8 @@ yield would report a number that looks real and isn't.
 type BlendPool {
   address: String!
   name: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
   """
   Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
   (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/

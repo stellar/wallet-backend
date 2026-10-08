@@ -164,7 +164,7 @@ func TestGetAccountBlendPositions(t *testing.T) {
 	t.Run("decodes positions including backstop and q4w", func(t *testing.T) {
 		body := `{"accountByAddress":{"blendPositions":{
 			"pools":[{"poolAddress":"CPOOL1","claimedBlnd":"5","reserves":[]}],
-			"backstop":[{"poolAddress":"CPOOL1","shares":"100","lpTokens":"200","emissionsEarnedBlnd":"1","q4w":[
+			"backstop":[{"poolAddress":"CPOOL1","version":"V2","shares":"100","lpTokens":"200","emissionsEarnedBlnd":"1","q4w":[
 				{"amount":"10","expiration":1735689600,"lpTokens":"20"}
 			]}],
 			"backstopClaimed":[{"version":"V2_1","lpTokens":"42"},{"version":"V2","lpTokens":"7"}]
@@ -181,6 +181,8 @@ func TestGetAccountBlendPositions(t *testing.T) {
 		require.Len(t, positions.Pools, 1)
 		assert.Equal(t, "5", positions.Pools[0].ClaimedBlnd)
 		require.Len(t, positions.Backstop, 1)
+		require.NotNil(t, positions.Backstop[0].Version)
+		assert.Equal(t, types.BlendVersionV2, *positions.Backstop[0].Version)
 		require.Len(t, positions.Backstop[0].Q4W, 1)
 		assert.Equal(t, int64(1735689600), positions.Backstop[0].Q4W[0].Expiration)
 	})
