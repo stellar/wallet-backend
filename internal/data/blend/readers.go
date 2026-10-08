@@ -233,7 +233,8 @@ func scanPools(rows pgx.Rows) ([]Pool, error) {
 		var p Pool
 		if err := rows.Scan(
 			&p.PoolContractID, &p.Name, &p.OracleContractID, &p.BackstopRate,
-			&p.Status, &p.MaxPositions, &p.MinCollateral, &p.Admin, &p.InRewardZone, &p.LastModifiedLedger,
+			&p.Status, &p.MaxPositions, &p.MinCollateral, &p.Admin, &p.BackstopContractID,
+			&p.InRewardZone, &p.LastModifiedLedger,
 		); err != nil {
 			return nil, fmt.Errorf("scanning blend pool row: %w", err)
 		}
@@ -260,7 +261,8 @@ func (m *PoolModel) GetByIDs(ctx context.Context, poolIDs []string) ([]Pool, err
 	start := time.Now()
 	const query = `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
+			status, max_positions, min_collateral, admin, backstop_contract_id,
+			in_reward_zone, last_modified_ledger
 		FROM blend_pools
 		WHERE pool_contract_id = ANY($1::bytea[])
 		ORDER BY pool_contract_id`
@@ -301,7 +303,8 @@ func (m *PoolModel) GetPage(ctx context.Context, limit int32, cursorAddress *str
 	// Built as a string rather than a const: the cursor predicate is conditional.
 	query := `
 		SELECT pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, in_reward_zone, last_modified_ledger
+			status, max_positions, min_collateral, admin, backstop_contract_id,
+			in_reward_zone, last_modified_ledger
 		FROM blend_pools`
 	args := []interface{}{}
 	argIndex := 1

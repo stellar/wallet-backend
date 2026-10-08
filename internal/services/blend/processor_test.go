@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -35,11 +36,11 @@ import (
 
 const testNetworkPassphrase = "Test SDF Network ; September 2015"
 
-// testCanonicalBackstopAddr is the canonical Blend v2 backstop C-address for
+// testPinnedBackstopAddr is the newest pinned Blend backstop C-address for
 // testNetworkPassphrase (== network.TestNetworkPassphrase). Backstop-derived
-// state is folded only from this address (see canonicalBackstopAddress), so
-// tests that exercise the backstop fold must register their backstop under it.
-var testCanonicalBackstopAddr = canonicalBackstopAddress(testNetworkPassphrase)
+// state is folded only from pinned addresses (see BackstopPins), so tests
+// that exercise the backstop fold must register their backstop under it.
+var testPinnedBackstopAddr = BackstopPins(testNetworkPassphrase)[0].Address
 
 // testMocks bundles every data-layer mock the processor can write to.
 type testMocks struct {
@@ -62,7 +63,7 @@ type testMocks struct {
 func newTestProcessor() *processor {
 	return &processor{
 		networkPassphrase: testNetworkPassphrase,
-		canonicalBackstop: canonicalBackstopAddress(testNetworkPassphrase),
+		pinnedBackstops:   pinnedBackstopSet(testNetworkPassphrase),
 	}
 }
 
@@ -86,7 +87,7 @@ func newFullTestProcessor(t *testing.T) (*processor, *testMocks) {
 	}
 	p := &processor{
 		networkPassphrase: testNetworkPassphrase,
-		canonicalBackstop: canonicalBackstopAddress(testNetworkPassphrase),
+		pinnedBackstops:   pinnedBackstopSet(testNetworkPassphrase),
 		pools:             m.pools,
 		positions:         m.positions,
 		reserves:          m.reserves,
@@ -443,7 +444,7 @@ func TestProcessLedger_StagingModes(t *testing.T) {
 func TestProcessLedger_StagesClaims(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	userAddr := randomAccountAddr(t)
 	poolPC := protocolContractFor(t, poolAddr, "aa")
 	backstopPC := protocolContractFor(t, backstopAddr, "bb")
@@ -501,7 +502,7 @@ func TestProcessLedger_StagesClaims(t *testing.T) {
 
 func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
 	ctx := context.Background()
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	poolA := randomContractAddr(t)
 	poolB := randomContractAddr(t)
 	userAddr := randomAccountAddr(t)
@@ -589,7 +590,7 @@ func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
 func TestProcessLedger_ImpostorBackstopEntriesSkipped(t *testing.T) {
 	ctx := context.Background()
 	// An impostor deployed from the real backstop WASM: classified as Blend and
-	// tracked, but not the canonical backstop for this network. Its
+	// tracked, but not a pinned backstop for this network. Its
 	// backstop-shaped entries key their rows under a real pool/user, so folding
 	// them would overwrite the true backstop's rows — the gate must skip them.
 	impostorAddr := randomContractAddr(t)
@@ -621,6 +622,90 @@ func TestProcessLedger_ImpostorBackstopEntriesSkipped(t *testing.T) {
 	assert.Empty(t, p.stagedBackstopPools, "impostor PoolBalance must not stage a backstop pool row")
 
 	// Nothing staged, so PersistCurrentState touches no backstop model.
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
+// pubnetBackstopInput builds one current-state ledger in which each backstop
+// in backstops (keyed by address) emits a reward-zone entry listing its pools
+// and a claim event for user.
+func pubnetBackstopInput(t *testing.T, user string, backstops map[string][]string, claims map[string]int64) services.ProtocolProcessorInput {
+	t.Helper()
+	input := services.ProtocolProcessorInput{
+		LedgerSequence:      9,
+		ContractDataChanges: map[string][]ingest.Change{},
+		ContractEvents:      map[indexer.ContractEventKey][]xdr.ContractEvent{},
+		StagingMode:         services.StagingModeCurrentState,
+	}
+	opIdx := uint32(0)
+	for addr, pools := range backstops {
+		input.ProtocolContracts = append(input.ProtocolContracts, protocolContractFor(t, addr, "bb"))
+		elems := make([]xdr.ScVal, 0, len(pools))
+		for _, pool := range pools {
+			elems = append(elems, contractAddrScVal(t, pool))
+		}
+		input.ContractDataChanges[addr] = []ingest.Change{createdChange(symScVal("RZ"), vecScVal(elems...))}
+		input.ContractEvents[indexer.ContractEventKey{TxIdx: 0, OpIdx: opIdx}] = []xdr.ContractEvent{
+			contractEvent(t, addr, []xdr.ScVal{symScVal("claim"), accountAddrScVal(t, user)}, i128ScVal(claims[addr])),
+		}
+		opIdx++
+	}
+	return input
+}
+
+func TestProcessLedger_SecondPinnedBackstopFolded(t *testing.T) {
+	ctx := context.Background()
+	pins := BackstopPins(network.PublicNetworkPassphrase)
+	require.Len(t, pins, 2)
+	olderBackstop := pins[1].Address
+	unpinned := randomContractAddr(t)
+	user := randomAccountAddr(t)
+	poolA := randomContractAddr(t)
+	poolB := randomContractAddr(t)
+
+	p, _ := newFullTestProcessor(t)
+	p.networkPassphrase = network.PublicNetworkPassphrase
+	p.pinnedBackstops = pinnedBackstopSet(network.PublicNetworkPassphrase)
+	require.NoError(t, p.ProcessLedger(ctx, pubnetBackstopInput(t, user,
+		map[string][]string{olderBackstop: {poolA}, unpinned: {poolB}},
+		map[string]int64{olderBackstop: 100, unpinned: 200},
+	)))
+
+	require.Len(t, p.stagedRewardZones, 1)
+	require.Contains(t, p.stagedRewardZones, olderBackstop, "the second pinned backstop's reward zone is folded")
+	assert.Equal(t, []string{poolA}, p.stagedRewardZones[olderBackstop].pools)
+
+	require.Len(t, p.stagedBackstopClaims, 1)
+	sc, ok := p.stagedBackstopClaims[user]
+	require.True(t, ok, "the second pinned backstop's claim is folded; the unpinned one is dropped")
+	assert.Equal(t, "100", sc.amount.String())
+}
+
+func TestProcessLedger_PersistsPerBackstopRewardZoneAndClaims(t *testing.T) {
+	ctx := context.Background()
+	pins := BackstopPins(network.PublicNetworkPassphrase)
+	require.Len(t, pins, 2)
+	newer, older := pins[0].Address, pins[1].Address
+	user := randomAccountAddr(t)
+	poolNew := randomContractAddr(t)
+	poolOld1 := randomContractAddr(t)
+	poolOld2 := randomContractAddr(t)
+
+	p, m := newFullTestProcessor(t)
+	p.networkPassphrase = network.PublicNetworkPassphrase
+	p.pinnedBackstops = pinnedBackstopSet(network.PublicNetworkPassphrase)
+	require.NoError(t, p.ProcessLedger(ctx, pubnetBackstopInput(t, user,
+		map[string][]string{newer: {poolNew}, older: {poolOld1, poolOld2}},
+		map[string]int64{newer: 300, older: 40},
+	)))
+
+	m.pools.On("SetRewardZone", mock.Anything, mock.Anything, types.AddressBytea(newer),
+		[]types.AddressBytea{types.AddressBytea(poolNew)}, int32(9)).Return(nil).Once()
+	m.pools.On("SetRewardZone", mock.Anything, mock.Anything, types.AddressBytea(older),
+		[]types.AddressBytea{types.AddressBytea(poolOld1), types.AddressBytea(poolOld2)}, int32(9)).Return(nil).Once()
+	m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
+		return len(rows) == 1 && rows[0].User == user && rows[0].ClaimedLp == "340" && rows[0].LedgerNumber == 9
+	})).Return(nil).Once()
+
 	require.NoError(t, p.PersistCurrentState(ctx, nil))
 }
 
@@ -665,7 +750,7 @@ func TestProcessLedger_ImpostorBackstopEventsSkipped(t *testing.T) {
 func TestProcessLedger_StagesEntries(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	assetAddr := randomContractAddr(t)
 	oracleAddr := randomContractAddr(t)
 	userAddr := randomAccountAddr(t)
@@ -794,7 +879,7 @@ func TestProcessLedger_StagesEntries(t *testing.T) {
 func TestProcessLedger_StagesHistory(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	assetAddr := randomContractAddr(t)
 	fromAddr := randomAccountAddr(t)
 	fillerAddr := randomAccountAddr(t)
@@ -1315,7 +1400,7 @@ func TestProcessLedger_StagesAuctions(t *testing.T) {
 
 func TestProcessLedger_StagesRewardZone(t *testing.T) {
 	ctx := context.Background()
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	poolA := randomContractAddr(t)
 	poolB := randomContractAddr(t)
 	poolC := randomContractAddr(t)
@@ -1339,9 +1424,10 @@ func TestProcessLedger_StagesRewardZone(t *testing.T) {
 	require.NoError(t, p.ProcessLedger(ctx, rzInput(1, poolA, poolB)))
 	require.NoError(t, p.ProcessLedger(ctx, rzInput(2, poolC)))
 
-	require.NotNil(t, p.stagedRewardZone)
-	assert.Equal(t, []string{poolC}, p.stagedRewardZone.pools, "a later reward-zone list overwrites the earlier one")
-	assert.Equal(t, uint32(2), p.stagedRewardZone.ledger)
+	rz := p.stagedRewardZones[backstopAddr]
+	require.NotNil(t, rz)
+	assert.Equal(t, []string{poolC}, rz.pools, "a later reward-zone list overwrites the earlier one")
+	assert.Equal(t, uint32(2), rz.ledger)
 }
 
 func TestProcessLedger_StagesPoolAdmin(t *testing.T) {
@@ -1383,7 +1469,7 @@ func TestProcessLedger_PersistsAuctionsAndRewardZone(t *testing.T) {
 	user2 := randomAccountAddr(t)
 	assetA := randomContractAddr(t)
 	assetB := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	poolPC := protocolContractFor(t, poolAddr, "aa")
 	backstopPC := protocolContractFor(t, backstopAddr, "bb")
 
@@ -1417,7 +1503,7 @@ func TestProcessLedger_PersistsAuctionsAndRewardZone(t *testing.T) {
 				rows[0].Bid[assetA] == "1000" && rows[0].Lot[assetB] == "2000" &&
 				rows[0].StartBlock == 12345 && rows[0].LastModifiedLedger == 7
 		})).Run(recordOrder("auctions.BatchUpsert")).Return(nil).Once()
-		m.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.MatchedBy(func(poolIDs []types.AddressBytea) bool {
+		m.pools.On("SetRewardZone", mock.Anything, mock.Anything, types.AddressBytea(backstopAddr), mock.MatchedBy(func(poolIDs []types.AddressBytea) bool {
 			return len(poolIDs) == 1 && poolIDs[0] == types.AddressBytea(poolAddr)
 		}), int32(7)).Run(recordOrder("pools.SetRewardZone")).Return(nil).Once()
 
@@ -1435,7 +1521,7 @@ func TestProcessLedger_PersistsAuctionsAndRewardZone(t *testing.T) {
 			},
 			StagingMode: services.StagingModeCurrentState,
 		}))
-		require.Nil(t, p.stagedRewardZone)
+		require.Empty(t, p.stagedRewardZones)
 
 		// Only the auction upsert is expected; SetRewardZone has no expectation, so a
 		// call would fail AssertExpectations.
@@ -1504,7 +1590,7 @@ func TestBatchEquivalence_AuctionsRewardZone(t *testing.T) {
 	user2 := randomAccountAddr(t)
 	assetA := randomContractAddr(t)
 	assetB := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	poolAPC := protocolContractFor(t, poolA, "aa")
 	poolBPC := protocolContractFor(t, poolB, "cc")
 	backstopPC := protocolContractFor(t, backstopAddr, "bb")
@@ -1539,8 +1625,8 @@ func TestBatchEquivalence_AuctionsRewardZone(t *testing.T) {
 	wireAuctionCaptures(mOne.auctions, &oneOps)
 	mOne.protocolContracts.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
 	mOne.pools.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
-	mOne.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
-		Run(func(args mock.Arguments) { oneRZ = args.Get(2).([]types.AddressBytea) }).Return(nil)
+	mOne.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) { oneRZ = args.Get(3).([]types.AddressBytea) }).Return(nil)
 	require.NoError(t, pOne.ProcessLedger(ctx, l1))
 	require.NoError(t, pOne.ProcessLedger(ctx, l2))
 	require.NoError(t, pOne.PersistCurrentState(ctx, nil))
@@ -1552,8 +1638,8 @@ func TestBatchEquivalence_AuctionsRewardZone(t *testing.T) {
 	wireAuctionCaptures(mTwo.auctions, &twoOps)
 	mTwo.protocolContracts.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
 	mTwo.pools.On("BatchUpsert", mock.Anything, mock.Anything, mock.Anything).Maybe().Return(nil)
-	mTwo.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
-		Run(func(args mock.Arguments) { twoRZ = args.Get(2).([]types.AddressBytea) }).Return(nil)
+	mTwo.pools.On("SetRewardZone", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe().
+		Run(func(args mock.Arguments) { twoRZ = args.Get(3).([]types.AddressBytea) }).Return(nil)
 	require.NoError(t, pTwo.ProcessLedger(ctx, l1))
 	require.NoError(t, pTwo.PersistCurrentState(ctx, nil))
 	pTwo.Reset()
@@ -1587,7 +1673,7 @@ func TestBatchEquivalence_AuctionsRewardZone(t *testing.T) {
 func TestProcessLedger_AuctionsRewardZoneStagingModes(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
-	backstopAddr := testCanonicalBackstopAddr
+	backstopAddr := testPinnedBackstopAddr
 	user := randomAccountAddr(t)
 	assetA := randomContractAddr(t)
 	assetB := randomContractAddr(t)
@@ -1611,7 +1697,7 @@ func TestProcessLedger_AuctionsRewardZoneStagingModes(t *testing.T) {
 		p.Reset()
 		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeHistory)))
 		assert.Empty(t, p.stagedAuctions)
-		assert.Nil(t, p.stagedRewardZone)
+		assert.Empty(t, p.stagedRewardZones)
 	})
 
 	t.Run("current-state mode stages both", func(t *testing.T) {
@@ -1619,7 +1705,7 @@ func TestProcessLedger_AuctionsRewardZoneStagingModes(t *testing.T) {
 		p.Reset()
 		require.NoError(t, p.ProcessLedger(ctx, buildInput(services.StagingModeCurrentState)))
 		assert.Len(t, p.stagedAuctions, 1)
-		assert.NotNil(t, p.stagedRewardZone)
+		assert.NotEmpty(t, p.stagedRewardZones)
 	})
 }
 

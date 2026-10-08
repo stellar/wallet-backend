@@ -10,7 +10,8 @@ CREATE TABLE blend_pools (
     max_positions        INTEGER,
     min_collateral       TEXT,
     admin                BYTEA,              -- pool admin (instance "Admin" key); owned vs standard-pool trust signal
-    in_reward_zone       BOOLEAN NOT NULL DEFAULT FALSE,  -- member of the backstop's RZ list (earns BLND emissions)
+    backstop_contract_id BYTEA,              -- backstop this pool belongs to (instance "Backstop" key)
+    in_reward_zone       BOOLEAN NOT NULL DEFAULT FALSE,  -- member of its backstop's RZ list (earns BLND emissions)
     last_modified_ledger INTEGER NOT NULL DEFAULT 0
 ) WITH (
     fillfactor = 90,
