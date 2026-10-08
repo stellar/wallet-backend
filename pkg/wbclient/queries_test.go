@@ -114,7 +114,7 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 func TestBlendQueryFieldsRequestAllStructFields(t *testing.T) {
 	nested := map[string]bool{
 		"reserves": true, "pools": true, "backstop": true, "q4w": true,
-		"activeAuctions": true, "bid": true, "lot": true,
+		"activeAuctions": true, "bid": true, "lot": true, "backstopClaimed": true,
 	}
 
 	testCases := []struct {
@@ -128,6 +128,7 @@ func TestBlendQueryFieldsRequestAllStructFields(t *testing.T) {
 		{"blendAccountPositionsFields/BlendPoolPosition", blendAccountPositionsFields, types.BlendPoolPosition{}},
 		{"blendAccountPositionsFields/BlendBackstopPosition", blendAccountPositionsFields, types.BlendBackstopPosition{}},
 		{"blendAccountPositionsFields/BlendQ4W", blendAccountPositionsFields, types.BlendQ4W{}},
+		{"blendAccountPositionsFields/BlendBackstopClaimed", blendAccountPositionsFields, types.BlendBackstopClaimed{}},
 		{"blendAccountPositionsFields/BlendAuction", blendAccountPositionsFields, types.BlendAuction{}},
 		{"blendAccountPositionsFields/BlendAuctionAmount", blendAccountPositionsFields, types.BlendAuctionAmount{}},
 		{"blendReservePositionFields/BlendReservePosition", blendReservePositionFields, types.BlendReservePosition{}},

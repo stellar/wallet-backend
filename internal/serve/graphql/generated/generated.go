@@ -180,10 +180,10 @@ type ComplexityRoot struct {
 	}
 
 	BlendAccountPositions struct {
-		ActiveAuctions    func(childComplexity int) int
-		Backstop          func(childComplexity int) int
-		BackstopClaimedLp func(childComplexity int) int
-		Pools             func(childComplexity int) int
+		ActiveAuctions  func(childComplexity int) int
+		Backstop        func(childComplexity int) int
+		BackstopClaimed func(childComplexity int) int
+		Pools           func(childComplexity int) int
 	}
 
 	BlendAuction struct {
@@ -228,6 +228,11 @@ type ComplexityRoot struct {
 		PoolID          func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		Transaction     func(childComplexity int) int
+	}
+
+	BlendBackstopClaimed struct {
+		LpTokens func(childComplexity int) int
+		Version  func(childComplexity int) int
 	}
 
 	BlendBackstopEmissionsClaimChange struct {
@@ -1570,12 +1575,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendAccountPositions.Backstop(childComplexity), true
-	case "BlendAccountPositions.backstopClaimedLp":
-		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimedLp == nil {
+	case "BlendAccountPositions.backstopClaimed":
+		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimed == nil {
 			break
 		}
 
-		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimedLp(childComplexity), true
+		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimed(childComplexity), true
 	case "BlendAccountPositions.pools":
 		if e.ComplexityRoot.BlendAccountPositions.Pools == nil {
 			break
@@ -1778,6 +1783,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendBackstopChange.Transaction(childComplexity), true
+
+	case "BlendBackstopClaimed.lpTokens":
+		if e.ComplexityRoot.BlendBackstopClaimed.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopClaimed.LpTokens(childComplexity), true
+	case "BlendBackstopClaimed.version":
+		if e.ComplexityRoot.BlendBackstopClaimed.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopClaimed.Version(childComplexity), true
 
 	case "BlendBackstopEmissionsClaimChange.account":
 		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Account == nil {
@@ -4297,16 +4315,15 @@ type SEP41Allowance {
 
 """
 BlendAccountPositions aggregates one account's Blend v2 exposure across every
-pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
-Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
-token and re-deposits it, so LP tokens are what the claimer actually receives.
-Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
-pool address, so this total can only ever be reported account-wide.
+pool it has touched. backstopClaimed lists lifetime backstop-emission claims
+per backstop. Unlike claimedBlnd (per pool), the on-chain backstop claim event
+carries no pool address, so these totals are reported per backstop, not per
+pool.
 """
 type BlendAccountPositions {
   pools: [BlendPoolPosition!]!
   backstop: [BlendBackstopPosition!]!
-  backstopClaimedLp: String!
+  backstopClaimed: [BlendBackstopClaimed!]!
   """
   Active Dutch auctions where this account is the auction owner: being
   liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
@@ -4314,6 +4331,18 @@ type BlendAccountPositions {
   Sorted by (poolAddress, auctionType).
   """
   activeAuctions: [BlendAuction!]!
+}
+
+"""
+BlendBackstopClaimed is an account's lifetime backstop-emission claims from
+one backstop, in that backstop's Comet LP tokens (7 decimals): the backstop
+converts claimed BLND into its LP token and re-deposits it, so LP tokens are
+what the claimer receives. Each backstop has its own LP token, so totals from
+different versions are never summed.
+"""
+type BlendBackstopClaimed {
+  version: BlendVersion!
+  lpTokens: String!
 }
 
 """BlendPoolPosition rolls up an account's reserve positions within one pool."""
@@ -4511,6 +4540,17 @@ enum BlendPoolStatus {
   ADMIN_FROZEN
   FROZEN
   SETUP
+}
+
+"""
+BlendVersion is the Blend deployment a backstop belongs to. V2 is the original
+deployment; V2_1 is the 2026-09-30 redeploy with the patched Comet LP token.
+Both are indexed. Values for V2 backstop positions reflect the old Comet
+pool's on-chain state after the 2026-08-25 incident.
+"""
+enum BlendVersion {
+  V2
+  V2_1
 }
 
 """
@@ -6282,8 +6322,8 @@ func (ec *executionContext) fieldContext_Account_blendPositions(_ context.Contex
 				return ec.fieldContext_BlendAccountPositions_pools(ctx, field)
 			case "backstop":
 				return ec.fieldContext_BlendAccountPositions_backstop(ctx, field)
-			case "backstopClaimedLp":
-				return ec.fieldContext_BlendAccountPositions_backstopClaimedLp(ctx, field)
+			case "backstopClaimed":
+				return ec.fieldContext_BlendAccountPositions_backstopClaimed(ctx, field)
 			case "activeAuctions":
 				return ec.fieldContext_BlendAccountPositions_activeAuctions(ctx, field)
 			}
@@ -8900,30 +8940,36 @@ func (ec *executionContext) fieldContext_BlendAccountPositions_backstop(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _BlendAccountPositions_backstopClaimedLp(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+func (ec *executionContext) _BlendAccountPositions_backstopClaimed(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_BlendAccountPositions_backstopClaimedLp,
+		ec.fieldContext_BlendAccountPositions_backstopClaimed,
 		func(ctx context.Context) (any, error) {
-			return obj.BackstopClaimedLp, nil
+			return obj.BackstopClaimed, nil
 		},
 		nil,
-		ec.marshalNString2string,
+		ec.marshalNBlendBackstopClaimed2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimedᚄ,
 		true,
 		true,
 	)
 }
 
-func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimedLp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "BlendAccountPositions",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
+			switch field.Name {
+			case "version":
+				return ec.fieldContext_BlendBackstopClaimed_version(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendBackstopClaimed_lpTokens(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendBackstopClaimed", field.Name)
 		},
 	}
 	return fc, nil
@@ -10041,6 +10087,64 @@ func (ec *executionContext) fieldContext_BlendBackstopChange_poolId(_ context.Co
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopClaimed_version(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopClaimed) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopClaimed_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopClaimed_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopClaimed",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopClaimed_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopClaimed) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopClaimed_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopClaimed_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopClaimed",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -26399,8 +26503,8 @@ func (ec *executionContext) _BlendAccountPositions(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "backstopClaimedLp":
-			out.Values[i] = ec._BlendAccountPositions_backstopClaimedLp(ctx, field, obj)
+		case "backstopClaimed":
+			out.Values[i] = ec._BlendAccountPositions_backstopClaimed(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -27260,6 +27364,50 @@ func (ec *executionContext) _BlendBackstopChange(ctx context.Context, sel ast.Se
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopClaimedImplementors = []string{"BlendBackstopClaimed"}
+
+func (ec *executionContext) _BlendBackstopClaimed(ctx context.Context, sel ast.SelectionSet, obj *BlendBackstopClaimed) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopClaimedImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopClaimed")
+		case "version":
+			out.Values[i] = ec._BlendBackstopClaimed_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendBackstopClaimed_lpTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -35700,6 +35848,32 @@ func (ec *executionContext) marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwa
 	return v
 }
 
+func (ec *executionContext) marshalNBlendBackstopClaimed2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimedᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopClaimed) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendBackstopClaimed2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimed(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendBackstopClaimed2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimed(ctx context.Context, sel ast.SelectionSet, v *BlendBackstopClaimed) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendBackstopClaimed(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopPosition) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -35878,6 +36052,16 @@ func (ec *executionContext) marshalNBlendReservePosition2ᚖgithubᚗcomᚋstell
 		return graphql.Null
 	}
 	return ec._BlendReservePosition(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, v any) (BlendVersion, error) {
+	var res BlendVersion
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, sel ast.SelectionSet, v BlendVersion) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {

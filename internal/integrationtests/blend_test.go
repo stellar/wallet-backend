@@ -883,7 +883,9 @@ func (s *BlendLiveIngestionTestSuite) assertWhaleFinalPositions(positions *wbtyp
 	s.Assert().Empty(bp.Q4W, "the queued withdrawal was dequeued")
 	s.Assert().GreaterOrEqual(parseBigIntStr(s.T(), bp.EmissionsEarnedBlnd).Sign(), 0)
 
-	s.Assert().Greater(parseBigIntStr(s.T(), positions.BackstopClaimedLp).Sign(), 0, "whale claimed backstop emissions in phase 2")
+	s.Require().Len(positions.BackstopClaimed, 1, "one backstop is deployed on standalone")
+	s.Assert().Equal(wbtypes.BlendVersionV2_1, positions.BackstopClaimed[0].Version)
+	s.Assert().Greater(parseBigIntStr(s.T(), positions.BackstopClaimed[0].LpTokens).Sign(), 0, "whale claimed backstop emissions in phase 2")
 }
 
 // assertStateChanges asserts the phase-2 Blend state changes over GraphQL.
@@ -973,7 +975,7 @@ func (s *BlendLiveIngestionTestSuite) assertEmissionsRows(ctx context.Context, m
 	s.Assert().True(tokenIDs[2], "expected reserve emission config for token_id=2 (XLM dToken)")
 
 	// Lifetime claimed totals: the accumulator rows that back the resolver's
-	// claimedBlnd (per pool) and backstopClaimedLp (account-wide). The supplier
+	// claimedBlnd (per pool) and backstopClaimed (per backstop). The supplier
 	// claimed pool-reserve emissions and the whale claimed backstop emissions in
 	// phase 2, so both must have folded a positive total.
 	supplierClaimed, err := models.Blend.PoolClaimed.GetByAccount(ctx, stack.Supplier.Address())
@@ -985,8 +987,9 @@ func (s *BlendLiveIngestionTestSuite) assertEmissionsRows(ctx context.Context, m
 
 	whaleClaimed, err := models.Blend.BackstopClaimed.GetByAccount(ctx, stack.Whale.Address())
 	s.Require().NoError(err)
-	s.Require().NotNil(whaleClaimed, "whale has an account-wide backstop claimed row")
-	s.Assert().Greater(parseBigIntStr(s.T(), whaleClaimed.ClaimedLp).Sign(), 0,
+	s.Require().Len(whaleClaimed, 1, "whale has one backstop claimed row")
+	s.Assert().Equal(stack.BackstopID, string(whaleClaimed[0].BackstopContractID))
+	s.Assert().Greater(parseBigIntStr(s.T(), whaleClaimed[0].ClaimedLp).Sign(), 0,
 		"whale's backstop claim folded into blend_backstop_claimed")
 }
 

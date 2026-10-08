@@ -269,9 +269,11 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		types.AddressBytea(oracleAddr), types.AddressBytea(assetA), types.AddressBytea(assetB),
 		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
 
-	// --- lifetime claimed totals: pool-source 3000 BLND, backstop-source 4000 LP ---
+	// --- lifetime claimed totals: pool-source 3000 BLND, backstop-source 4000
+	// v2.1 LP and 700 v2 LP (never summed: different LP tokens) ---
 	insertPoolClaimed(t, account, poolAddr, "3000")
-	insertBackstopClaimed(t, account, "4000")
+	insertBackstopClaimed(t, account, cometAddr, "4000")
+	insertBackstopClaimed(t, account, v2Backstop, "700")
 
 	t.Cleanup(func() {
 		execTestDB(t, `DELETE FROM blend_positions WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
@@ -292,7 +294,10 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
-	assert.Equal(t, "4000", got.BackstopClaimedLp)
+	assert.ElementsMatch(t, []*graphql1.BlendBackstopClaimed{
+		{Version: graphql1.BlendVersionV2_1, LpTokens: "4000"},
+		{Version: graphql1.BlendVersionV2, LpTokens: "700"},
+	}, got.BackstopClaimed)
 	require.Len(t, got.Pools, 1)
 	require.Len(t, got.Backstop, 1)
 
@@ -756,7 +761,8 @@ func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Empty(t, got.Pools)
 	assert.Empty(t, got.Backstop)
-	assert.Equal(t, "0", got.BackstopClaimedLp)
+	assert.NotNil(t, got.BackstopClaimed, "empty list, not null")
+	assert.Empty(t, got.BackstopClaimed)
 	assert.NotNil(t, got.ActiveAuctions, "empty list, not null")
 	assert.Empty(t, got.ActiveAuctions)
 }
@@ -852,12 +858,12 @@ func insertPoolClaimed(t *testing.T, account, poolAddr, claimedBlnd string) {
 		types.AddressBytea(poolAddr), types.AddressBytea(account), claimedBlnd)
 }
 
-// insertBackstopClaimed seeds an account's account-wide lifetime backstop-source
-// claimed Comet LP total.
-func insertBackstopClaimed(t *testing.T, account, claimedLp string) {
+// insertBackstopClaimed seeds an account's lifetime backstop-source claimed
+// Comet LP total from one backstop.
+func insertBackstopClaimed(t *testing.T, account, backstop, claimedLp string) {
 	t.Helper()
 	execTestDB(t, `
-		INSERT INTO blend_backstop_claimed (user_account_id, claimed_lp, last_modified_ledger)
-		VALUES ($1, $2, 1)`,
-		types.AddressBytea(account), claimedLp)
+		INSERT INTO blend_backstop_claimed (user_account_id, backstop_contract_id, claimed_lp, last_modified_ledger)
+		VALUES ($1, $2, $3, 1)`,
+		types.AddressBytea(account), types.AddressBytea(backstop), claimedLp)
 }

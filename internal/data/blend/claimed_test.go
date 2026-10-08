@@ -52,12 +52,12 @@ func getPoolClaimed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, poolA
 	return claimed, ledger, true
 }
 
-func getBackstopClaimed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userAddr string) (claimed string, ledger int32, ok bool) {
+func getBackstopClaimed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userAddr, backstopAddr string) (claimed string, ledger int32, ok bool) {
 	t.Helper()
 	err := pool.QueryRow(ctx, `
 		SELECT claimed_lp, last_modified_ledger FROM blend_backstop_claimed
-		WHERE user_account_id = $1
-	`, types.AddressBytea(userAddr)).Scan(&claimed, &ledger)
+		WHERE user_account_id = $1 AND backstop_contract_id = $2
+	`, types.AddressBytea(userAddr), types.AddressBytea(backstopAddr)).Scan(&claimed, &ledger)
 	if err != nil {
 		return "", 0, false
 	}
@@ -132,6 +132,8 @@ func TestBackstopClaimedModel_BatchApplyDeltas(t *testing.T) {
 
 	userA := keypair.MustRandom().Address()
 	userB := keypair.MustRandom().Address()
+	backstopX := keypair.MustRandom().Address()
+	backstopY := keypair.MustRandom().Address()
 
 	t.Run("empty input is a no-op", func(t *testing.T) {
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
@@ -139,33 +141,58 @@ func TestBackstopClaimedModel_BatchApplyDeltas(t *testing.T) {
 		})
 	})
 
-	t.Run("accumulates per user account-wide", func(t *testing.T) {
+	t.Run("accumulates per (user, backstop)", func(t *testing.T) {
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, bm.BatchApplyDeltas(ctx, tx, []blend.BackstopClaimedDelta{
-				{User: userA, ClaimedLp: "1000", LedgerNumber: 4},
-				{User: userB, ClaimedLp: "50", LedgerNumber: 4},
+				{User: userA, Backstop: backstopX, ClaimedLp: "1000", LedgerNumber: 4},
+				{User: userA, Backstop: backstopY, ClaimedLp: "7", LedgerNumber: 4},
+				{User: userB, Backstop: backstopX, ClaimedLp: "50", LedgerNumber: 4},
 			}))
 		})
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			require.NoError(t, bm.BatchApplyDeltas(ctx, tx, []blend.BackstopClaimedDelta{
-				{User: userA, ClaimedLp: "250", LedgerNumber: 8},
+				{User: userA, Backstop: backstopX, ClaimedLp: "250", LedgerNumber: 8},
 			}))
 		})
-		claimedA, ledgerA, ok := getBackstopClaimed(t, ctx, pool, userA)
+		claimedAX, ledgerAX, ok := getBackstopClaimed(t, ctx, pool, userA, backstopX)
 		require.True(t, ok)
-		assert.Equal(t, "1250", claimedA)
-		assert.Equal(t, int32(8), ledgerA)
+		assert.Equal(t, "1250", claimedAX)
+		assert.Equal(t, int32(8), ledgerAX)
 
-		claimedB, _, ok := getBackstopClaimed(t, ctx, pool, userB)
+		claimedAY, ledgerAY, ok := getBackstopClaimed(t, ctx, pool, userA, backstopY)
+		require.True(t, ok)
+		assert.Equal(t, "7", claimedAY, "a second backstop's claims stay separate")
+		assert.Equal(t, int32(4), ledgerAY)
+
+		claimedB, _, ok := getBackstopClaimed(t, ctx, pool, userB, backstopX)
 		require.True(t, ok)
 		assert.Equal(t, "50", claimedB)
+	})
+
+	t.Run("GetByAccount returns one row per backstop, ordered by backstop", func(t *testing.T) {
+		got, err := bm.GetByAccount(ctx, userA)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assertOrderedByAddr(t, got, func(c blend.BackstopClaimed) types.AddressBytea { return c.BackstopContractID })
+		byBackstop := map[types.AddressBytea]string{}
+		for _, c := range got {
+			assert.Equal(t, types.AddressBytea(userA), c.UserAccountID)
+			byBackstop[c.BackstopContractID] = c.ClaimedLp
+		}
+		assert.Equal(t, "1250", byBackstop[types.AddressBytea(backstopX)])
+		assert.Equal(t, "7", byBackstop[types.AddressBytea(backstopY)])
+
+		none, err := bm.GetByAccount(ctx, keypair.MustRandom().Address())
+		require.NoError(t, err)
+		require.NotNil(t, none)
+		assert.Empty(t, none)
 	})
 
 	t.Run("duplicate key in one batch is rejected", func(t *testing.T) {
 		runInTx(t, ctx, pool, func(tx pgx.Tx) {
 			err := bm.BatchApplyDeltas(ctx, tx, []blend.BackstopClaimedDelta{
-				{User: userA, ClaimedLp: "1", LedgerNumber: 9},
-				{User: userA, ClaimedLp: "2", LedgerNumber: 9},
+				{User: userA, Backstop: backstopX, ClaimedLp: "1", LedgerNumber: 9},
+				{User: userA, Backstop: backstopX, ClaimedLp: "2", LedgerNumber: 9},
 			})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "pre-aggregated")
