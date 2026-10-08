@@ -133,16 +133,17 @@ func TestPoolModel_GetByIDs(t *testing.T) {
 	poolB := keypair.MustRandom().Address()
 	poolC := keypair.MustRandom().Address()
 	adminA := keypair.MustRandom().Address()
+	backstop := types.AddressBytea(keypair.MustRandom().Address())
 
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
 		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
-			{PoolContractID: types.AddressBytea(poolA), Name: strPtr("A"), Admin: types.AddressBytea(adminA), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolA), Name: strPtr("A"), Admin: types.AddressBytea(adminA), BackstopContractID: backstop, LastModifiedLedger: 1},
 			{PoolContractID: types.AddressBytea(poolB), Name: strPtr("B"), LastModifiedLedger: 1},
 			{PoolContractID: types.AddressBytea(poolC), Name: strPtr("C"), LastModifiedLedger: 1},
 		}))
 	})
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{types.AddressBytea(poolA)}, 5))
+		require.NoError(t, m.SetRewardZone(ctx, tx, backstop, []types.AddressBytea{types.AddressBytea(poolA)}, 5))
 	})
 
 	got, err := m.GetByIDs(ctx, []string{poolA, poolC, keypair.MustRandom().Address()})
@@ -157,11 +158,13 @@ func TestPoolModel_GetByIDs(t *testing.T) {
 	pA, ok := byID[types.AddressBytea(poolA)]
 	require.True(t, ok)
 	assert.Equal(t, types.AddressBytea(adminA), pA.Admin, "admin round-trips through the reader")
+	assert.Equal(t, backstop, pA.BackstopContractID, "backstop round-trips through the reader")
 	assert.True(t, pA.InRewardZone, "in_reward_zone round-trips through the reader")
 
 	pC, ok := byID[types.AddressBytea(poolC)]
 	require.True(t, ok)
 	assert.Equal(t, types.AddressBytea(""), pC.Admin, "no admin observed: empty, not garbage")
+	assert.Equal(t, types.AddressBytea(""), pC.BackstopContractID, "no backstop observed: empty, not garbage")
 	assert.False(t, pC.InRewardZone)
 
 	_, ok = byID[types.AddressBytea(poolB)]
@@ -183,14 +186,15 @@ func TestPoolModel_SetRewardZoneReadBack(t *testing.T) {
 	poolA := keypair.MustRandom().Address()
 	poolB := keypair.MustRandom().Address()
 	adminA := keypair.MustRandom().Address()
+	backstop := types.AddressBytea(keypair.MustRandom().Address())
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
 		require.NoError(t, m.BatchUpsert(ctx, tx, []blend.Pool{
-			{PoolContractID: types.AddressBytea(poolA), Admin: types.AddressBytea(adminA), LastModifiedLedger: 1},
-			{PoolContractID: types.AddressBytea(poolB), LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolA), Admin: types.AddressBytea(adminA), BackstopContractID: backstop, LastModifiedLedger: 1},
+			{PoolContractID: types.AddressBytea(poolB), BackstopContractID: backstop, LastModifiedLedger: 1},
 		}))
 	})
 	runInTx(t, ctx, pool, func(tx pgx.Tx) {
-		require.NoError(t, m.SetRewardZone(ctx, tx, []types.AddressBytea{types.AddressBytea(poolB)}, 5))
+		require.NoError(t, m.SetRewardZone(ctx, tx, backstop, []types.AddressBytea{types.AddressBytea(poolB)}, 5))
 	})
 
 	got, err := m.GetPage(ctx, 10, nil, blend.SortASC)

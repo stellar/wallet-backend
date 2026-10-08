@@ -34,7 +34,10 @@ type Pool struct {
 	MinCollateral    *string
 	// Admin is stored as SQL NULL when empty, identically to OracleContractID.
 	Admin types.AddressBytea
-	// InRewardZone mirrors blend_pools.in_reward_zone: membership in the
+	// BackstopContractID is the backstop this pool belongs to, stored as SQL
+	// NULL when empty, identically to OracleContractID.
+	BackstopContractID types.AddressBytea
+	// InRewardZone mirrors blend_pools.in_reward_zone: membership in its
 	// backstop's reward zone (BLND emissions eligibility), maintained by
 	// SetRewardZone rather than BatchUpsert.
 	InRewardZone       bool
@@ -50,11 +53,13 @@ type PoolModelInterface interface {
 	// (GREATEST), so validator enrichment writing ledger 0 never regresses a
 	// ledger recorded by the processor.
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) error
-	// SetRewardZone makes poolIDs the exact reward-zone membership set: listed
-	// pools become members, all other rows non-members. Rows whose membership
-	// already matches are left untouched (their last_modified_ledger keeps its
-	// value). An empty poolIDs is valid and clears membership everywhere.
-	SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []types.AddressBytea, ledger int32) error
+	// SetRewardZone makes poolIDs the exact reward-zone membership set of
+	// backstopID's pools: listed pools become members, its other pools
+	// non-members. Pools of other backstops, and pools with no known backstop,
+	// are never touched. Rows whose membership already matches are left
+	// untouched (their last_modified_ledger keeps its value). An empty poolIDs
+	// is valid and clears membership across backstopID's pools.
+	SetRewardZone(ctx context.Context, dbTx pgx.Tx, backstopID types.AddressBytea, poolIDs []types.AddressBytea, ledger int32) error
 }
 
 // PoolModel implements PoolModelInterface against blend_pools.
@@ -81,6 +86,7 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	maxPositions := make([]*int32, len(rows))
 	minCollaterals := make([]*string, len(rows))
 	admins := make([][]byte, len(rows))
+	backstops := make([][]byte, len(rows))
 	ledgers := make([]int32, len(rows))
 	for i, r := range rows {
 		poolBytes, err := addressToBytes(string(r.PoolContractID))
@@ -107,6 +113,15 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 		}
 		admins[i] = adminBytes
 
+		var backstopBytes []byte
+		if r.BackstopContractID != "" {
+			backstopBytes, err = addressToBytes(string(r.BackstopContractID))
+			if err != nil {
+				return fmt.Errorf("converting backstop address for pool upsert: %w", err)
+			}
+		}
+		backstops[i] = backstopBytes
+
 		names[i] = r.Name
 		backstopRates[i] = r.BackstopRate
 		statuses[i] = r.Status
@@ -118,11 +133,13 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	const upsertQuery = `
 		INSERT INTO blend_pools (
 			pool_contract_id, name, oracle_contract_id, backstop_rate,
-			status, max_positions, min_collateral, admin, last_modified_ledger
+			status, max_positions, min_collateral, admin, backstop_contract_id,
+			last_modified_ledger
 		)
 		SELECT * FROM UNNEST(
 			$1::bytea[], $2::text[], $3::bytea[], $4::integer[],
-			$5::integer[], $6::integer[], $7::text[], $8::bytea[], $9::integer[]
+			$5::integer[], $6::integer[], $7::text[], $8::bytea[], $9::bytea[],
+			$10::integer[]
 		)
 		ON CONFLICT (pool_contract_id) DO UPDATE SET
 			name                 = COALESCE(EXCLUDED.name, blend_pools.name),
@@ -132,9 +149,10 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 			max_positions        = COALESCE(EXCLUDED.max_positions, blend_pools.max_positions),
 			min_collateral       = COALESCE(EXCLUDED.min_collateral, blend_pools.min_collateral),
 			admin                = COALESCE(EXCLUDED.admin, blend_pools.admin),
+			backstop_contract_id = COALESCE(EXCLUDED.backstop_contract_id, blend_pools.backstop_contract_id),
 			last_modified_ledger = GREATEST(blend_pools.last_modified_ledger, EXCLUDED.last_modified_ledger)`
 	if _, err := dbTx.Exec(ctx, upsertQuery,
-		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, admins, ledgers,
+		poolIDs, names, oracleIDs, backstopRates, statuses, maxPositions, minCollaterals, admins, backstops, ledgers,
 	); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", poolsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend pools: %w", err)
@@ -147,10 +165,15 @@ func (m *PoolModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Pool) e
 	return nil
 }
 
-// SetRewardZone makes poolIDs the exact reward-zone membership set. See
-// PoolModelInterface.
-func (m *PoolModel) SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []types.AddressBytea, ledger int32) error {
+// SetRewardZone makes poolIDs the exact reward-zone membership set of
+// backstopID's pools. See PoolModelInterface.
+func (m *PoolModel) SetRewardZone(ctx context.Context, dbTx pgx.Tx, backstopID types.AddressBytea, poolIDs []types.AddressBytea, ledger int32) error {
 	start := time.Now()
+
+	backstopBytes, err := addressToBytes(string(backstopID))
+	if err != nil {
+		return fmt.Errorf("converting backstop address for reward-zone set: %w", err)
+	}
 
 	pools := make([][]byte, len(poolIDs))
 	for i, p := range poolIDs {
@@ -165,8 +188,9 @@ func (m *PoolModel) SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []ty
 		UPDATE blend_pools SET
 			in_reward_zone = (pool_contract_id = ANY($1)),
 			last_modified_ledger = GREATEST(last_modified_ledger, $2)
-		WHERE in_reward_zone <> (pool_contract_id = ANY($1))`
-	if _, err := dbTx.Exec(ctx, setQuery, pools, ledger); err != nil {
+		WHERE backstop_contract_id = $3
+			AND in_reward_zone <> (pool_contract_id = ANY($1))`
+	if _, err := dbTx.Exec(ctx, setQuery, pools, ledger, backstopBytes); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("SetRewardZone", poolsTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("setting blend pool reward zone: %w", err)
 	}

@@ -76,8 +76,8 @@ func (m *PoolModelMock) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Poo
 	return args.Error(0)
 }
 
-func (m *PoolModelMock) SetRewardZone(ctx context.Context, dbTx pgx.Tx, poolIDs []types.AddressBytea, ledger int32) error {
-	args := m.Called(ctx, dbTx, poolIDs, ledger)
+func (m *PoolModelMock) SetRewardZone(ctx context.Context, dbTx pgx.Tx, backstopID types.AddressBytea, poolIDs []types.AddressBytea, ledger int32) error {
+	args := m.Called(ctx, dbTx, backstopID, poolIDs, ledger)
 	return args.Error(0)
 }
 

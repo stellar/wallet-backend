@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math/big"
 	"slices"
 
@@ -158,10 +159,11 @@ type stagedAuction struct {
 	ledger  uint32
 }
 
-// stagedRewardZone is the LWW-staged backstop reward-zone membership list.
+// stagedRewardZone is one backstop's LWW-staged reward-zone membership list.
 // Entries arrive in tx-application order, so a straight overwrite (the later
 // ledger's list wins within the window) is the correct fold. The list is the
-// absolute membership set — see PoolModelInterface.SetRewardZone.
+// absolute membership set for that backstop's pools — see
+// PoolModelInterface.SetRewardZone.
 type stagedRewardZone struct {
 	pools  []string
 	ledger uint32
@@ -171,12 +173,11 @@ type stagedRewardZone struct {
 // protocol.
 type processor struct {
 	networkPassphrase string
-	// canonicalBackstop is the one Blend v2 backstop C-address for this network,
-	// resolved once at construction. Backstop-shaped entries and events are
-	// folded only when their owning/emitting contract equals it — see
-	// canonicalBackstopAddress for why. Empty on an unrecognized network, in
-	// which case no contract matches and all backstop-shaped state is skipped.
-	canonicalBackstop string
+	// pinnedBackstops is the set of pinned Blend backstop C-addresses for this
+	// network (see BackstopPins). Backstop-shaped events and entries are folded
+	// only from these contracts. Empty on an unrecognized network, in which
+	// case all backstop-shaped state is dropped.
+	pinnedBackstops map[string]struct{}
 
 	pools             blenddata.PoolModelInterface
 	positions         blenddata.PositionModelInterface
@@ -196,7 +197,7 @@ type processor struct {
 	// drift. Nil when the caller supplied no metrics service.
 	decodeFailures *prometheus.CounterVec
 
-	// Contracts (pools and the singleton backstop) classified as Blend.
+	// Contracts (pools and backstops) classified as Blend.
 	// Populated from input.ProtocolContracts each ledger.
 	blendContracts map[string]struct{}
 	// contractWasmHash maps a tracked contract's C-address to its wasm hash,
@@ -220,10 +221,11 @@ type processor struct {
 	stagedPoolClaims        map[blenddata.PoolUserKey]*stagedClaim
 	stagedBackstopClaims    map[string]*stagedClaim
 	stagedAuctions          map[auctionStageKey]*stagedAuction
-	stagedRewardZone        *stagedRewardZone
+	// stagedRewardZones is keyed by the emitting backstop's C-address.
+	stagedRewardZones map[string]*stagedRewardZone
 
-	// loggedImpostorBackstops dedups the "skipped non-canonical backstop" debug
-	// log to once per contract per window: it records which non-canonical
+	// loggedImpostorBackstops dedups the "skipped unpinned backstop" debug
+	// log to once per contract per window: it records which unpinned
 	// contracts have already had a backstop-shaped entry or event skipped this
 	// Reset cycle, so a contract emitting many such changes logs a single line.
 	loggedImpostorBackstops map[string]struct{}
@@ -241,7 +243,7 @@ type processor struct {
 func newProcessor(deps services.ProtocolDeps) *processor {
 	p := &processor{
 		networkPassphrase: deps.NetworkPassphrase,
-		canonicalBackstop: canonicalBackstopAddress(deps.NetworkPassphrase),
+		pinnedBackstops:   pinnedBackstopSet(deps.NetworkPassphrase),
 	}
 	if deps.Models != nil {
 		p.pools = deps.Models.Blend.Pools
@@ -372,10 +374,10 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 	}
 
 	// Backstop-shaped events fold into pool/user-keyed tables (backstop history
-	// rows, claimed totals) that carry no backstop contract id, so they are
-	// honored only from the canonical backstop. An impostor sharing the backstop
-	// WASM is tracked but not canonical; drop its backstop-shaped events entirely.
-	if decoded.IsBackstop() && contractStr != p.canonicalBackstop {
+	// rows, claimed totals), so they are honored only from a pinned backstop. An
+	// impostor sharing the backstop WASM is tracked but not pinned; drop its
+	// backstop-shaped events entirely.
+	if decoded.IsBackstop() && !p.isPinnedBackstop(contractStr) {
 		p.logSkippedImpostorBackstop(contractStr)
 		return nil
 	}
@@ -577,12 +579,11 @@ func (p *processor) processContractDataChanges(changes map[string][]ingest.Chang
 // correct pool identity for every kind except the backstop kinds, which
 // carry their own Pool identity field (see DecodedEntry's godoc).
 func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
-	// Backstop-shaped entries stage into pool/user-keyed tables that carry no
-	// backstop contract id, so they are honored only from the canonical
-	// backstop; an impostor sharing the backstop WASM (tracked but not
-	// canonical) is dropped. Pool-shaped entries key rows under their owning
+	// Backstop-shaped entries stage into pool/user-keyed tables, so they are
+	// honored only from a pinned backstop; an impostor sharing the backstop
+	// WASM (tracked but not pinned) is dropped. Pool-shaped entries key rows under their owning
 	// pool address, so a junk pool only corrupts its own rows and stays open.
-	if isBackstopKind(decoded.Kind) && addr != p.canonicalBackstop {
+	if isBackstopKind(decoded.Kind) && !p.isPinnedBackstop(addr) {
 		p.logSkippedImpostorBackstop(addr)
 		return
 	}
@@ -611,15 +612,15 @@ func (p *processor) routeEntry(addr string, decoded DecodedEntry) {
 	case KindAuction:
 		p.stageAuction(addr, decoded)
 	case KindRewardZone:
-		p.stageRewardZone(decoded)
+		p.stageRewardZone(addr, decoded)
 	case KindIgnored:
 		// KindIgnored never has anything to stage.
 	}
 }
 
 // isBackstopKind reports whether kind is one of the backstop-owned entry kinds
-// whose staged rows key on pool and/or user with no backstop contract id — the
-// set gated to the canonical backstop (see canonicalBackstopAddress).
+// whose staged rows key on pool and/or user — the set gated to the pinned
+// backstops (see BackstopPins).
 func isBackstopKind(kind EntryKind) bool {
 	switch kind {
 	case KindBackstopUserBalance, KindBackstopPoolBalance, KindBackstopBEmisData, KindBackstopUEmisData, KindRewardZone:
@@ -629,7 +630,7 @@ func isBackstopKind(kind EntryKind) bool {
 	}
 }
 
-// logSkippedImpostorBackstop emits one debug log per non-canonical contract per
+// logSkippedImpostorBackstop emits one debug log per unpinned contract per
 // window when its backstop-shaped entries/events are dropped, deduped via
 // loggedImpostorBackstops so a contract with many such changes logs once.
 func (p *processor) logSkippedImpostorBackstop(addr string) {
@@ -637,14 +638,21 @@ func (p *processor) logSkippedImpostorBackstop(addr string) {
 		return
 	}
 	p.loggedImpostorBackstops[addr] = struct{}{}
-	log.Debugf("blend: skipping backstop-shaped state from non-canonical contract %s (canonical backstop %q)", addr, p.canonicalBackstop)
+	log.Debugf("blend: skipping backstop-shaped state from unpinned contract %s", addr)
+}
+
+// isPinnedBackstop reports whether addr is one of this network's pinned
+// backstop contracts.
+func (p *processor) isPinnedBackstop(addr string) bool {
+	_, ok := p.pinnedBackstops[addr]
+	return ok
 }
 
 // stagePoolInstance merges a pool's instance-storage snapshot into its
-// staged blend_pools row. Name, Admin, and the PoolConfig fields are LWW
-// independently: a later entry only overwrites Name or Admin when it decoded
-// one (best-effort per entries.go), so a transient miss never clobbers an
-// earlier known value. Removal is ignored — a pool's instance entry going
+// staged blend_pools row. Name, Admin, Backstop, and the PoolConfig fields are
+// LWW independently: a later entry only overwrites Name, Admin, or Backstop
+// when it decoded one (best-effort per entries.go), so a transient miss never
+// clobbers an earlier known value. Removal is ignored — a pool's instance entry going
 // away mid-window doesn't delete history, unlike Positions/BackstopUserBalance.
 func (p *processor) stagePoolInstance(addr string, decoded DecodedEntry) {
 	if decoded.PoolInstance == nil {
@@ -661,6 +669,9 @@ func (p *processor) stagePoolInstance(addr string, decoded DecodedEntry) {
 	}
 	if inst.Admin != nil {
 		sp.Admin = types.AddressBytea(*inst.Admin)
+	}
+	if inst.Backstop != nil {
+		sp.BackstopContractID = types.AddressBytea(*inst.Backstop)
 	}
 	if inst.Oracle != "" {
 		sp.OracleContractID = types.AddressBytea(inst.Oracle)
@@ -849,21 +860,21 @@ func (p *processor) stageAuction(pool string, decoded DecodedEntry) {
 	p.stagedAuctions[key] = &stagedAuction{data: decoded.Auction, ledger: p.ledgerNumber}
 }
 
-// stageRewardZone overwrites (LWW) the staged backstop reward-zone membership.
-// A live entry stages its pool list; a removal stages an empty list. RZ
-// deletion is a theoretical case — the entry going away means no reward zone,
-// and absolute-empty (which clears membership everywhere) is the safe fold.
-// Entries arrive in tx-application order, so the later ledger's list wins.
-func (p *processor) stageRewardZone(decoded DecodedEntry) {
+// stageRewardZone overwrites (LWW) the staged reward-zone membership of
+// backstop. A live entry stages its pool list; a removal stages an empty list.
+// RZ deletion is a theoretical case — the entry going away means no reward
+// zone, and absolute-empty (which clears that backstop's pools) is the safe
+// fold. Entries arrive in tx-application order, so the later ledger's list wins.
+func (p *processor) stageRewardZone(backstop string, decoded DecodedEntry) {
 	pools := decoded.RewardZone
 	if decoded.Removed {
 		pools = nil
 	}
-	p.stagedRewardZone = &stagedRewardZone{pools: pools, ledger: p.ledgerNumber}
+	p.stagedRewardZones[backstop] = &stagedRewardZone{pools: pools, ledger: p.ledgerNumber}
 }
 
 // indexContracts rebuilds the per-ledger tracked-contract index (pools and
-// the backstop) plus each contract's wasm hash, from input.ProtocolContracts.
+// backstops) plus each contract's wasm hash, from input.ProtocolContracts.
 func (p *processor) indexContracts(contracts []data.ProtocolContracts) {
 	p.blendContracts = make(map[string]struct{}, len(contracts))
 	p.contractWasmHash = make(map[string]types.HashBytea, len(contracts))
@@ -900,7 +911,7 @@ func (p *processor) Reset() {
 	p.stagedPoolClaims = map[blenddata.PoolUserKey]*stagedClaim{}
 	p.stagedBackstopClaims = map[string]*stagedClaim{}
 	p.stagedAuctions = map[auctionStageKey]*stagedAuction{}
-	p.stagedRewardZone = nil
+	p.stagedRewardZones = map[string]*stagedRewardZone{}
 	p.loggedImpostorBackstops = map[string]struct{}{}
 	p.needsReset = false
 }
@@ -1412,20 +1423,21 @@ func (p *processor) persistAuctions(ctx context.Context, dbTx pgx.Tx) error {
 	return nil
 }
 
-// persistRewardZone sets the exact backstop reward-zone membership from the
-// staged list (nil when no RZ entry was seen this window, in which case this is
-// a no-op). It runs after persistPools so a pool created in the same window
-// exists before its in_reward_zone flag is flipped.
+// persistRewardZone sets each backstop's exact reward-zone membership from its
+// staged list (a no-op for backstops with no RZ entry this window). Backstops
+// are written in address order for determinism. It runs after persistPools so
+// a pool created in the same window exists before its in_reward_zone flag is
+// flipped.
 func (p *processor) persistRewardZone(ctx context.Context, dbTx pgx.Tx) error {
-	if p.stagedRewardZone == nil {
-		return nil
-	}
-	poolIDs := make([]types.AddressBytea, 0, len(p.stagedRewardZone.pools))
-	for _, pool := range p.stagedRewardZone.pools {
-		poolIDs = append(poolIDs, types.AddressBytea(pool))
-	}
-	if err := p.pools.SetRewardZone(ctx, dbTx, poolIDs, int32(p.stagedRewardZone.ledger)); err != nil {
-		return fmt.Errorf("setting blend reward zone for ledger %d: %w", p.ledgerNumber, err)
+	for _, backstop := range slices.Sorted(maps.Keys(p.stagedRewardZones)) {
+		rz := p.stagedRewardZones[backstop]
+		poolIDs := make([]types.AddressBytea, 0, len(rz.pools))
+		for _, pool := range rz.pools {
+			poolIDs = append(poolIDs, types.AddressBytea(pool))
+		}
+		if err := p.pools.SetRewardZone(ctx, dbTx, types.AddressBytea(backstop), poolIDs, int32(rz.ledger)); err != nil {
+			return fmt.Errorf("setting blend reward zone of backstop %s for ledger %d: %w", backstop, p.ledgerNumber, err)
+		}
 	}
 	return nil
 }
