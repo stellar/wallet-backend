@@ -135,6 +135,31 @@ The two rebuilds differ in when the wipe happens relative to the cursor reset, b
 - Reruns after a failure are safe. The wipes are idempotent and re-derived rows land at deterministic `state_change_id`s.
 - Rebuild time grows with the chain — expect hundreds of ledgers per second from the datastore.
 
+## Hiding a token
+
+Add a Soroban token contract to the hidden-contracts list when the API should not return it. Ingestion is not affected: the contract's current state and history are still written, `serve` just leaves them out. Hidden means the API returns none of the current state or state changes that the entry's protocol wrote for the contract. A transaction or operation that touched the account only through the hidden token is still listed, with no state changes under it. There are two reasons to do this:
+
+- It matches a protocol's interface, but its balances cannot be derived from its events the way the processor derives them. The Comet LP pool `CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM` is on the built-in list for this reason.
+- It is a malicious token you do not want shown.
+
+To add one, put an entry in your list and restart `serve`. The list is read at startup only.
+
+The binary ships with a built-in list. Setting `HIDDEN_CONTRACTS_FILE` (or `--hidden-contracts-file`) points at your own file, which replaces the built-in list entirely. Copy any built-in entries you want to keep.
+
+To remove one, delete the entry and restart `serve`. Everything written while it was hidden is already there, so nothing needs rebuilding.
+
+File format:
+
+```yaml
+hidden_contracts:
+  - contract_id: C...
+    protocol: SEP41
+    reason: why it is hidden, and what would let it be shown again
+    added: 2026-10-07
+```
+
+`contract_id`, `protocol` and `reason` are required; `added` is informational. An entry hides the rows that one protocol's processor wrote for the contract: that protocol's current state and the state changes in its range. `SEP41` is the only protocol today. When a dedicated processor later takes the token over, its rows show while the old processor's rows stay hidden, with nothing to delete. A token tracked by two processors at once, for example during a backfill handover, gets one entry per protocol. A bad address, a missing or unknown protocol, an empty reason, the same contract and protocol listed twice, an unknown field or a missing `hidden_contracts` key stops `serve` at startup.
+
 ## Monitoring
 
 All three concurrent processes (live ingestion, history migration, current-state migration) log their progress. Key things to watch:
