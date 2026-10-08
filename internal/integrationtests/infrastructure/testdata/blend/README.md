@@ -10,6 +10,9 @@ protocol stack on a standalone Stellar network.
 - **Repository**: [blend-capital/blend-utils](https://github.com/blend-capital/blend-utils)
 - **Pinned commit**: `b05242df30b6b6caf9d317646f754541824a5a8b`
 
+The two Comet files are the exception: they come from the Comet v1.1 GitHub release, see their
+entries below.
+
 ## Files
 
 ### pool_factory.wasm
@@ -23,13 +26,13 @@ protocol stack on a standalone Stellar network.
 - **Purpose**: Distributes BLND emissions to the backstop module of reward-zone pools.
 
 ### comet.wasm
-- **Source path**: `wasm_v1/comet.wasm`
-- **sha256**: `8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36`
+- **Source**: [CometDEX/comet-contracts-v1](https://github.com/CometDEX/comet-contracts-v1) release `v1.1.0_contracts_pkg1.0.0_cli25.1.0`, asset `contracts_v1.0.0.wasm`
+- **sha256**: `d735c3395f59510172cf5cf838823a1389b97cfec6bf24e580e9bd77d2b3e687`
 - **Purpose**: Balancer-style weighted-pool AMM used to hold the BLND/USDC backstop LP token.
 
 ### comet_factory.wasm
-- **Source path**: `wasm_v1/comet_factory.wasm`
-- **sha256**: `bf7adb09076853eb3aa569278754111d86e161e35e7dc6a984ecde2b9d6700ae`
+- **Source**: [CometDEX/comet-contracts-v1](https://github.com/CometDEX/comet-contracts-v1) release `v1.1.0_contracts_pkg1.0.0_cli25.1.0`, asset `factory_v1.0.0.wasm`
+- **sha256**: `a640ba6249ba89dd7527e6fb9b66b2a0d747721f1f7f3fbdf9c2ae723a5f970d`
 - **Purpose**: Deploys new Comet pool instances from a pinned Comet wasm hash.
 
 ### oracle.wasm
@@ -54,7 +57,8 @@ The Blend v2 pool and backstop contract wasms already live at
 
 ## Updating WASM Files
 
-1. Clone `blend-capital/blend-utils` and pin to the desired commit.
-2. Copy the updated wasm files from the source paths listed above.
+1. Clone `blend-capital/blend-utils` and pin to the desired commit, or download the Comet
+   release assets.
+2. Copy the updated wasm files from the sources listed above.
 3. Recompute sha256 (`shasum -a 256 <file>`) and update this README.
 4. Re-verify the pool/backstop byte-identity claim above and update the table.
