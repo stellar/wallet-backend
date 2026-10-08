@@ -593,21 +593,14 @@ func (s *BlendLiveIngestionTestSuite) TestBlendLiveIngestion() {
 	stack := s.stack
 
 	// ------------------------------------------------------------------
-	// Step 1: restart ingest with Blend price-snapshot env wired in, and
-	// the API with the backstop LP contract id. The resolvers price
-	// backstop deposits (BlendPool.backstopUsd,
-	// BlendBackstopPosition.usdValue) through the Comet LP token named by
-	// BLEND_BACKSTOP_LP_CONTRACT_ID, so without it on the API container
-	// those fields resolve to null.
+	// Step 1: restart ingest with the Blend price-snapshot interval wired
+	// in. The snapshot task reads the backstop's Comet LP token from the
+	// backstop's BToken instance key, so no Comet address is configured.
 	// ------------------------------------------------------------------
 	err := s.testEnv.RestartIngestContainer(ctx, map[string]string{
-		"BLEND_PRICE_INTERVAL":          "5s",
-		"BLEND_BACKSTOP_LP_CONTRACT_ID": stack.CometID,
+		"BLEND_PRICE_INTERVAL": "5s",
 	})
 	s.Require().NoError(err)
-	s.testEnv.RestartAPI(ctx, s.T(), map[string]string{
-		"BLEND_BACKSTOP_LP_CONTRACT_ID": stack.CometID,
-	})
 	s.Require().NoError(s.testEnv.Containers.WaitForIngestCatchup(ctx))
 
 	pool, cleanup := s.setupDB()
@@ -616,11 +609,11 @@ func (s *BlendLiveIngestionTestSuite) TestBlendLiveIngestion() {
 
 	// ------------------------------------------------------------------
 	// Step 2: oracle prices. Exactly 4 rows: (oracle,USDC), (oracle,XLM),
-	// (comet,comet) [LP self-priced], (comet,BLND) [sibling]. BLND is not
-	// a reserve, so the SEP-40 leg never snapshots it under the oracle.
+	// (backstop,backstop) [LP share, self-priced], (backstop,BLND). BLND is
+	// not a reserve, so the SEP-40 leg never snapshots it under the oracle.
 	// ------------------------------------------------------------------
 	s.Require().Eventually(func() bool {
-		prices, priceErr := models.Blend.OraclePrices.GetByOracles(ctx, []string{stack.OracleID, stack.CometID})
+		prices, priceErr := models.Blend.OraclePrices.GetByOracles(ctx, []string{stack.OracleID, stack.BackstopID})
 		if priceErr != nil || len(prices) != 4 {
 			return false
 		}

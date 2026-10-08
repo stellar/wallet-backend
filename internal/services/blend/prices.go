@@ -3,18 +3,19 @@
 // some tracked pool's reserve prices against (blenddata.OraclePriceModel.
 // GetPriceTargets), fetches each oracle's decimals() once and every target's
 // lastprice(asset) (scval.go's buildSep40StellarAsset/decodePriceData), and
-// optionally derives the Blend v2 backstop's Comet BLND:USDC LP deposit
-// token's BLND and LP-share USD prices from the pool's own on-chain state
-// (comet.go) — no on-chain oracle prices a Comet LP token directly. Every row
-// from one pass is written in a single blenddata.OraclePriceModel.BatchUpsert
-// call.
+// derives, for each pinned backstop (BackstopPins), its Comet BLND:USDC LP
+// deposit token's BLND and LP-share USD prices from the pool's own on-chain
+// state (comet.go) — no on-chain oracle prices a Comet LP token directly.
+// Every row from one pass is written in a single
+// blenddata.OraclePriceModel.BatchUpsert call.
 //
-// Comet leg row convention (locked cross-PR contract — PR5 reads these rows):
-// both rows are stored under oracle_contract_id = the Comet pool's own
-// C-address (a schema convenience key, not a claim the pool implements
-// SEP-40). The LP-share row is self-priced: asset_contract_id ==
-// oracle_contract_id. The BLND row's asset_contract_id is the real BLND
-// token address (cometState.BLNDAddress). Both are recorded at Comet's
+// Comet leg row convention (locked cross-PR contract — the GraphQL resolvers
+// read these rows): each backstop's two rows are stored under
+// oracle_contract_id = the backstop contract's C-address (a schema
+// convenience key, not a claim the backstop implements SEP-40). The LP-share
+// row is self-priced: asset_contract_id == oracle_contract_id. The BLND row's
+// asset_contract_id is the BLND leg's token address read from the Comet
+// records (cometState.BLNDAddress). Both are recorded at Comet's
 // 7-decimal STROOP scale (cometPriceDecimals) with PriceTimestamp set to the
 // snapshot's own wall-clock time (unix seconds), since the Comet pool state
 // carries no oracle-reported timestamp of its own.
@@ -26,7 +27,7 @@
 //
 // A failure fetching one oracle's decimals or any of its lastprice targets
 // is isolated to that oracle: it never aborts the rest of the pass. All such
-// failures (and a Comet leg failure, when configured) are joined with
+// failures (and each failed backstop's Comet leg) are joined with
 // errors.Join and returned to the caller for logging; SnapshotOnce still
 // upserts whatever rows the pass did manage to collect.
 package blend
@@ -62,32 +63,32 @@ type PriceSnapshotConfig struct {
 	// Interval is the wait between the end of one snapshot pass and the start
 	// of the next.
 	Interval time.Duration
-	// BackstopLPContractID is the Comet BLND:USDC weighted pool backing the
-	// Blend v2 backstop's deposit token, as a strkey C-address. Empty disables
-	// the BLND/LP-share derived-pricing leg entirely.
-	BackstopLPContractID string
-	// RPC reads the Comet pool's ContractData ledger entries (fetchCometState).
-	// Required only when BackstopLPContractID is set.
+	// NetworkPassphrase selects the pinned backstops (BackstopPins) whose
+	// Comet LP and BLND prices the snapshot derives. A network with no pins
+	// skips the Comet leg.
+	NetworkPassphrase string
+	// RPC reads the backstop and Comet ContractData ledger entries. Required
+	// when the network has pinned backstops.
 	RPC services.RPCService
 	// Metrics receives per-pass duration, per-fetch outcome, and tracked-row-
 	// count observations.
 	Metrics *metrics.BlendPriceMetrics
 }
 
-// PriceSnapshotService periodically snapshots SEP-40 oracle prices — and,
-// when configured, the Comet backstop LP/BLND leg — into blend_oracle_prices.
+// PriceSnapshotService periodically snapshots SEP-40 oracle prices and each
+// pinned backstop's Comet LP/BLND prices into blend_oracle_prices.
 // See the package doc for the persistence and error-isolation contract.
 type PriceSnapshotService struct {
 	oraclePrices *blenddata.OraclePriceModel
 	metadata     services.ContractMetadataService
 	interval     time.Duration
-	cometID      string
+	backstops    []BackstopPin
 	rpc          services.RPCService
 	metrics      *metrics.BlendPriceMetrics
 }
 
 // NewPriceSnapshotService validates cfg and constructs a PriceSnapshotService.
-// BackstopLPContractID is optional; RPC is required alongside it.
+// RPC is required when cfg.NetworkPassphrase has pinned backstops.
 func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, error) {
 	if cfg.OraclePrices == nil {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.OraclePrices is required")
@@ -98,8 +99,9 @@ func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, er
 	if cfg.Interval <= 0 {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.Interval must be positive, got %s", cfg.Interval)
 	}
-	if cfg.BackstopLPContractID != "" && cfg.RPC == nil {
-		return nil, fmt.Errorf("blend: PriceSnapshotConfig.RPC is required when BackstopLPContractID is set")
+	backstops := BackstopPins(cfg.NetworkPassphrase)
+	if len(backstops) > 0 && cfg.RPC == nil {
+		return nil, fmt.Errorf("blend: PriceSnapshotConfig.RPC is required when the network has pinned backstops")
 	}
 	if cfg.Metrics == nil {
 		return nil, fmt.Errorf("blend: PriceSnapshotConfig.Metrics is required")
@@ -108,7 +110,7 @@ func NewPriceSnapshotService(cfg PriceSnapshotConfig) (*PriceSnapshotService, er
 		oraclePrices: cfg.OraclePrices,
 		metadata:     cfg.Metadata,
 		interval:     cfg.Interval,
-		cometID:      cfg.BackstopLPContractID,
+		backstops:    backstops,
 		rpc:          cfg.RPC,
 		metrics:      cfg.Metrics,
 	}, nil
@@ -137,8 +139,8 @@ func (s *PriceSnapshotService) Run(ctx context.Context) {
 }
 
 // SnapshotOnce runs a single price-snapshot pass: discover targets, fetch
-// every oracle's prices (isolating per-oracle failures), optionally derive
-// the Comet leg, and upsert everything collected in one BatchUpsert call.
+// every oracle's prices (isolating per-oracle failures), derive each pinned
+// backstop's Comet leg (isolating per-backstop failures), and upsert everything collected in one BatchUpsert call.
 // Returns an errors.Join of every isolated failure (nil if there were none);
 // a non-nil error does not mean no rows were written.
 func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
@@ -191,15 +193,12 @@ func (s *PriceSnapshotService) SnapshotOnce(ctx context.Context) error {
 		s.metrics.OldestPriceAge.Set(float64(oldestAge))
 	}
 
-	if s.cometID != "" {
+	if len(s.backstops) > 0 {
 		cometRows, cometErr := s.snapshotComet(ctx)
 		if cometErr != nil {
-			s.metrics.FetchesTotal.WithLabelValues("error").Inc()
 			errs = append(errs, fmt.Errorf("blend: price snapshot: comet leg: %w", cometErr))
-		} else {
-			s.metrics.FetchesTotal.WithLabelValues("success").Add(float64(len(cometRows)))
-			rows = append(rows, cometRows...)
 		}
+		rows = append(rows, cometRows...)
 	}
 
 	written := len(rows)
@@ -290,36 +289,67 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 	return rows, oldestAge, errors.Join(errs...)
 }
 
-// snapshotComet derives the BLND and Comet LP-share USD prices from the
-// configured backstop Comet pool's raw on-chain state (fetchCometState,
-// cometValuation) and returns their blend_oracle_prices rows. See the
+// snapshotComet derives the BLND and Comet LP-share USD prices for every
+// pinned backstop from its Comet pool's raw on-chain state
+// (fetchBackstopLPTokens, fetchCometState, cometValuation) and returns their
+// blend_oracle_prices rows. One backstop's failure does not stop the others:
+// each failure counts one FetchesTotal{error} and is joined into the
+// returned error, and each row counts one FetchesTotal{success}. See the
 // package doc for the row-key convention.
 func (s *PriceSnapshotService) snapshotComet(ctx context.Context) ([]blenddata.OraclePrice, error) {
-	state, err := fetchCometState(ctx, s.rpc, s.cometID)
+	backstopIDs := make([]string, len(s.backstops))
+	for i, pin := range s.backstops {
+		backstopIDs[i] = pin.Address
+	}
+	lpTokens, err := fetchBackstopLPTokens(ctx, s.rpc, backstopIDs)
+	if err != nil {
+		s.metrics.FetchesTotal.WithLabelValues("error").Add(float64(len(backstopIDs)))
+		return nil, fmt.Errorf("discovering backstop LP tokens: %w", err)
+	}
+
+	now := time.Now().Unix()
+	var rows []blenddata.OraclePrice
+	var errs []error
+	for _, backstopID := range backstopIDs {
+		backstopRows, backstopErr := snapshotBackstopComet(ctx, s.rpc, backstopID, lpTokens[backstopID], now)
+		if backstopErr != nil {
+			s.metrics.FetchesTotal.WithLabelValues("error").Inc()
+			errs = append(errs, fmt.Errorf("backstop %s: %w", backstopID, backstopErr))
+			continue
+		}
+		s.metrics.FetchesTotal.WithLabelValues("success").Add(float64(len(backstopRows)))
+		rows = append(rows, backstopRows...)
+	}
+	return rows, errors.Join(errs...)
+}
+
+// snapshotBackstopComet values the Comet pool at cometID backing backstopID
+// and returns its two rows: the self-priced LP share and BLND.
+func snapshotBackstopComet(ctx context.Context, rpc services.RPCService, backstopID, cometID string, now int64) ([]blenddata.OraclePrice, error) {
+	state, err := fetchCometState(ctx, rpc, cometID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching comet state: %w", err)
 	}
 
 	blndPrice, lpPrice, err := cometValuation(state.BLNDBalance, state.USDCBalance, state.BLNDWeight, state.USDCWeight, state.LPSupply)
 	if err != nil {
-		return nil, fmt.Errorf("valuing comet pool: %w", err)
+		return nil, fmt.Errorf("valuing comet pool %s: %w", cometID, err)
 	}
 
-	now := time.Now().Unix()
-	cometAddr := types.AddressBytea(s.cometID)
+	backstopAddr := types.AddressBytea(backstopID)
 	return []blenddata.OraclePrice{
 		{
-			OracleContractID: cometAddr,
+			OracleContractID: backstopAddr,
 			AssetContractID:  types.AddressBytea(state.BLNDAddress),
 			Price:            blndPrice,
 			PriceDecimals:    cometPriceDecimals,
 			PriceTimestamp:   now,
 		},
 		{
-			// The LP share is self-priced: this row's asset is the Comet pool
+			// The LP share is self-priced: this row's asset is the backstop
 			// itself, matching the locked cross-PR row-key convention.
-			OracleContractID: cometAddr,
-			AssetContractID:  cometAddr,
+			OracleContractID: backstopAddr,
+			AssetContractID:  backstopAddr,
 			Price:            lpPrice,
 			PriceDecimals:    cometPriceDecimals,
 			PriceTimestamp:   now,

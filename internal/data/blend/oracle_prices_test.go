@@ -209,14 +209,15 @@ func TestOraclePriceModel_GetBackstopLPPrices(t *testing.T) {
 	ctx, _, m, cleanup := newOraclePricesFixture(t)
 	defer cleanup()
 
-	cometOracle := keypair.MustRandom().Address() // pinned Comet pool contract, self-priced as its own oracle
+	cometOracle := keypair.MustRandom().Address() // pinned backstop, self-priced as its own oracle
 	blndAsset := keypair.MustRandom().Address()
+	cometOracle2 := keypair.MustRandom().Address() // a second pinned backstop
+	blndAsset2 := keypair.MustRandom().Address()
 	normalOracle := keypair.MustRandom().Address()
 	normalAsset := keypair.MustRandom().Address()
 	// A SECOND, unpinned self-priced group: a permissionless pool whose oracle
-	// is coincidentally one of its own reserve assets. It satisfies the old
-	// self-priced inference but is NOT the configured Comet contract, so it must
-	// never be returned.
+	// is coincidentally one of its own reserve assets. It is self-priced but
+	// NOT a pinned backstop, so it must never be returned.
 	otherComet := keypair.MustRandom().Address()
 	otherSibling := keypair.MustRandom().Address()
 
@@ -225,6 +226,8 @@ func TestOraclePriceModel_GetBackstopLPPrices(t *testing.T) {
 		{OracleContractID: types.AddressBytea(cometOracle), AssetContractID: types.AddressBytea(cometOracle), Price: "100", PriceDecimals: 7, PriceTimestamp: 1},
 		// Sibling BLND price quoted under the same Comet oracle.
 		{OracleContractID: types.AddressBytea(cometOracle), AssetContractID: types.AddressBytea(blndAsset), Price: "50", PriceDecimals: 7, PriceTimestamp: 1},
+		{OracleContractID: types.AddressBytea(cometOracle2), AssetContractID: types.AddressBytea(cometOracle2), Price: "200", PriceDecimals: 7, PriceTimestamp: 1},
+		{OracleContractID: types.AddressBytea(cometOracle2), AssetContractID: types.AddressBytea(blndAsset2), Price: "60", PriceDecimals: 7, PriceTimestamp: 1},
 		// An unrelated, non-self-priced oracle row must be excluded.
 		{OracleContractID: types.AddressBytea(normalOracle), AssetContractID: types.AddressBytea(normalAsset), Price: "10", PriceDecimals: 7, PriceTimestamp: 1},
 		// A second self-priced group under a DIFFERENT oracle must be excluded.
@@ -232,21 +235,24 @@ func TestOraclePriceModel_GetBackstopLPPrices(t *testing.T) {
 		{OracleContractID: types.AddressBytea(otherComet), AssetContractID: types.AddressBytea(otherSibling), Price: "888", PriceDecimals: 7, PriceTimestamp: 1},
 	}))
 
-	got, err := m.GetBackstopLPPrices(ctx, cometOracle)
+	got, err := m.GetBackstopLPPrices(ctx, []string{cometOracle, cometOracle2})
 	require.NoError(t, err)
-	require.Len(t, got, 2, "exactly the pinned Comet self-price row plus its sibling BLND row")
+	require.Len(t, got, 4, "each pinned backstop's self-price row plus its sibling BLND row")
 
-	gotPrices := map[types.AddressBytea]string{}
+	gotPrices := map[[2]types.AddressBytea]string{}
 	for _, p := range got {
-		assert.Equal(t, types.AddressBytea(cometOracle), p.OracleContractID, "only the pinned Comet oracle's rows, never the second self-priced group")
-		gotPrices[p.AssetContractID] = p.Price
+		gotPrices[[2]types.AddressBytea{p.OracleContractID, p.AssetContractID}] = p.Price
 	}
-	assert.Equal(t, "100", gotPrices[types.AddressBytea(cometOracle)])
-	assert.Equal(t, "50", gotPrices[types.AddressBytea(blndAsset)])
+	assert.Equal(t, map[[2]types.AddressBytea]string{
+		{types.AddressBytea(cometOracle), types.AddressBytea(cometOracle)}:   "100",
+		{types.AddressBytea(cometOracle), types.AddressBytea(blndAsset)}:     "50",
+		{types.AddressBytea(cometOracle2), types.AddressBytea(cometOracle2)}: "200",
+		{types.AddressBytea(cometOracle2), types.AddressBytea(blndAsset2)}:   "60",
+	}, gotPrices, "only the pinned backstops' rows, never the second self-priced group")
 
-	t.Run("empty cometID returns an empty slice without querying", func(t *testing.T) {
+	t.Run("no backstops returns an empty slice without querying", func(t *testing.T) {
 		m := &blend.OraclePriceModel{} // no DB: proves it never queries
-		got, err := m.GetBackstopLPPrices(context.Background(), "")
+		got, err := m.GetBackstopLPPrices(context.Background(), nil)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		require.Empty(t, got)

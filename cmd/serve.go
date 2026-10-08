@@ -25,7 +25,6 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.HiddenContractsFileOption(&cfg.HiddenContractsFile),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.GraphQLIntrospectionEnabledOption(&cfg.GraphQLIntrospectionEnabled),
-		utils.BlendBackstopLPContractIDOption(&cfg.BlendBackstopLPContractID),
 		utils.AdminPortOption(&cfg.AdminPort),
 		{
 			Name:        "port",

@@ -9,6 +9,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	blendrates "github.com/stellar/wallet-backend/internal/services/blend"
 )
 
 // TestClaimableStream covers the contract's three update_user_emissions
@@ -156,7 +158,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	oracleAddr := randomContractAddress(t)
 	assetA := randomContractAddress(t) // r0's asset, 7 decimals
 	assetB := randomContractAddress(t) // r1's asset, 6 decimals
-	cometAddr := randomContractAddress(t)
+	pins := blendrates.BackstopPins(network.PublicNetworkPassphrase)
+	cometAddr, v2Backstop := pins[0].Address, pins[1].Address
 	blndAddr := randomContractAddress(t)
 
 	futureLastTime := int64(4102444800)   // year 2100: guarantees ProjectRates' deltaT<=0 branch
@@ -171,7 +174,7 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: dbMetrics},
 		Blend:        blendModels,
 	}
-	resolver := &accountResolver{&Resolver{models: models, blendBackstopLPContractID: cometAddr}}
+	resolver := &accountResolver{&Resolver{models: models, rpcService: passphraseRPC(t, network.PublicNetworkPassphrase)}}
 
 	// --- contract_tokens metadata (name/symbol only; decimals authority is blend_reserves) ---
 	execTestDB(t, `
@@ -181,9 +184,9 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 
 	// --- pool ---
 	execTestDB(t, `
-		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, last_modified_ledger)
-		VALUES ($1, 'Test Pool', $2, 2000000, 0, 4, 100)`,
-		types.AddressBytea(poolAddr), types.AddressBytea(oracleAddr))
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, backstop_contract_id, last_modified_ledger)
+		VALUES ($1, 'Test Pool', $2, 2000000, 0, 4, $3, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(oracleAddr), types.AddressBytea(cometAddr))
 
 	// --- reserves ---
 	execTestDB(t, `
@@ -446,6 +449,65 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.InDelta(t, 0.000155, *bp.EmissionsEarnedUsd, 1e-12)
 	})
 
+	t.Run("a v2 backstop position is priced from the v2 LP, its BLND from the newest backstop", func(t *testing.T) {
+		// v2 LP=$0.50, v2 BLND=$9.00. The v2 BLND row must never be used.
+		v2Pool := randomContractAddress(t)
+		v2Blnd := randomContractAddress(t)
+		execTestDB(t, `
+			INSERT INTO blend_pools (pool_contract_id, name, backstop_contract_id, last_modified_ledger)
+			VALUES ($1, 'V2 Pool', $2, 100)`,
+			types.AddressBytea(v2Pool), types.AddressBytea(v2Backstop))
+		execTestDB(t, `
+			INSERT INTO blend_backstop_positions (pool_contract_id, user_account_id, shares, q4w, last_modified_ledger)
+			VALUES ($1, $2, '1000000', '[]'::jsonb, 100)`,
+			types.AddressBytea(v2Pool), types.AddressBytea(account))
+		execTestDB(t, `
+			INSERT INTO blend_backstop_pools (pool_contract_id, shares, tokens, q4w, last_modified_ledger)
+			VALUES ($1, '10000000', '20000000', '0', 100)`,
+			types.AddressBytea(v2Pool))
+		execTestDB(t, `
+			INSERT INTO blend_emissions (source_contract_id, user_account_id, token_id, emission_index, accrued, last_modified_ledger)
+			VALUES ($1, $2, -1, '0', '1000', 100)`,
+			types.AddressBytea(v2Pool), types.AddressBytea(account))
+		execTestDB(t, `
+			INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
+			VALUES
+			($1, $1, '5000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+			($1, $2, '90000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
+			types.AddressBytea(v2Backstop), types.AddressBytea(v2Blnd))
+		t.Cleanup(func() {
+			execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id = $1`, types.AddressBytea(v2Backstop))
+			execTestDB(t, `DELETE FROM blend_emissions WHERE source_contract_id = $1`, types.AddressBytea(v2Pool))
+			execTestDB(t, `DELETE FROM blend_backstop_pools WHERE pool_contract_id = $1`, types.AddressBytea(v2Pool))
+			execTestDB(t, `DELETE FROM blend_backstop_positions WHERE pool_contract_id = $1`, types.AddressBytea(v2Pool))
+			execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id = $1`, types.AddressBytea(v2Pool))
+		})
+
+		after, err := resolver.BlendPositions(testCtx, parentAccount)
+		require.NoError(t, err)
+		byPool := map[string]*graphql1.BlendBackstopPosition{}
+		for _, bp := range after.Backstop {
+			byPool[bp.PoolAddress] = bp
+		}
+		require.Len(t, byPool, 2)
+
+		v2 := byPool[v2Pool]
+		// lpTokens = 1_000_000*20_000_000/10_000_000 = 2_000_000; USD = 0.2*$0.50.
+		require.NotNil(t, v2.LpTokens)
+		assert.Equal(t, "2000000", *v2.LpTokens)
+		require.NotNil(t, v2.UsdValue)
+		assert.InDelta(t, 0.1, *v2.UsdValue, 1e-9)
+		// No backstop emission config: only the accrued 1000 is claimable,
+		// priced at the v2.1 BLND ($0.05), not the v2 one ($9.00).
+		assert.Equal(t, "1000", v2.EmissionsEarnedBlnd)
+		require.NotNil(t, v2.EmissionsEarnedUsd)
+		assert.InDelta(t, 0.000005, *v2.EmissionsEarnedUsd, 1e-12)
+
+		v21 := byPool[poolAddr]
+		require.NotNil(t, v21.UsdValue)
+		assert.InDelta(t, 0.715, *v21.UsdValue, 1e-9)
+	})
+
 	t.Run("an emissions-only backstop pool row nulls lpTokens/usdValue, keeps the emissions floor", func(t *testing.T) {
 		// BatchUpsertEmissions creates blend_backstop_pools rows with only the
 		// emis_* columns set — the balance columns keep their '0' defaults. A
@@ -617,12 +679,11 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 	})
 }
 
-// TestFindBackstopPrices pins findBackstopPrices' selection contract over rows
-// already scoped to the pinned Comet oracle (see the function's doc): (nil,
-// nil) unless both a self-priced LP row and a sibling BLND row are present, and
-// a deterministic lowest-sibling-asset pick if an extra sibling ever appears (a
-// config-error state).
-func TestFindBackstopPrices(t *testing.T) {
+// TestBackstopPricesByAddress pins the per-backstop price grouping: a
+// backstop needs both a self-priced LP row and a BLND sibling, groups never
+// mix, and an extra sibling (a config-error state) resolves to the lowest
+// asset address deterministically.
+func TestBackstopPricesByAddress(t *testing.T) {
 	mk := func(oracle, asset string) blenddata.OraclePrice {
 		return blenddata.OraclePrice{
 			OracleContractID: types.AddressBytea(oracle),
@@ -630,46 +691,54 @@ func TestFindBackstopPrices(t *testing.T) {
 		}
 	}
 
-	t.Run("no rows", func(t *testing.T) {
-		lp, blnd := findBackstopPrices(testCtx, nil)
-		assert.Nil(t, lp)
-		assert.Nil(t, blnd)
-	})
-
-	t.Run("self-priced row without a BLND sibling is incomplete", func(t *testing.T) {
-		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "COMET")})
-		assert.Nil(t, lp)
-		assert.Nil(t, blnd)
-	})
-
-	t.Run("sibling row without a self-priced LP row is incomplete", func(t *testing.T) {
-		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "BLND")})
-		assert.Nil(t, lp)
-		assert.Nil(t, blnd)
-	})
-
-	t.Run("one complete group", func(t *testing.T) {
-		lp, blnd := findBackstopPrices(testCtx, []blenddata.OraclePrice{mk("COMET", "COMET"), mk("COMET", "BLND")})
-		require.NotNil(t, lp)
-		require.NotNil(t, blnd)
-		assert.EqualValues(t, "COMET", lp.AssetContractID)
-		assert.EqualValues(t, "BLND", blnd.AssetContractID)
-	})
-
-	t.Run("extra sibling picks the lowest asset address, deterministically", func(t *testing.T) {
-		// The query orders rows by asset, so an ambiguous extra sibling resolves
-		// to the lowest asset address. Rows are passed pre-ordered here.
-		rows := []blenddata.OraclePrice{
-			mk("COMET", "COMET"), mk("COMET", "BLND_A"), mk("COMET", "BLND_B"),
-		}
-		for range 50 {
-			lp, blnd := findBackstopPrices(testCtx, rows)
-			require.NotNil(t, lp)
-			require.NotNil(t, blnd)
-			assert.EqualValues(t, "COMET", lp.AssetContractID)
-			assert.EqualValues(t, "BLND_A", blnd.AssetContractID)
-		}
-	})
+	testCases := []struct {
+		name string
+		rows []blenddata.OraclePrice
+		// want maps backstop -> [lp asset, blnd asset].
+		want map[string][2]string
+	}{
+		{name: "no rows", rows: nil, want: map[string][2]string{}},
+		{
+			name: "self-priced row without a BLND sibling is incomplete",
+			rows: []blenddata.OraclePrice{mk("V21", "V21")},
+			want: map[string][2]string{},
+		},
+		{
+			name: "sibling row without a self-priced LP row is incomplete",
+			rows: []blenddata.OraclePrice{mk("V21", "BLND")},
+			want: map[string][2]string{},
+		},
+		{
+			name: "two backstops keep their own groups",
+			rows: []blenddata.OraclePrice{
+				mk("V2", "BLND_OLD"), mk("V2", "V2"),
+				mk("V21", "BLND"), mk("V21", "V21"),
+			},
+			want: map[string][2]string{"V2": {"V2", "BLND_OLD"}, "V21": {"V21", "BLND"}},
+		},
+		{
+			name: "one complete group beside an incomplete one",
+			rows: []blenddata.OraclePrice{mk("V2", "V2"), mk("V21", "BLND"), mk("V21", "V21")},
+			want: map[string][2]string{"V21": {"V21", "BLND"}},
+		},
+		{
+			name: "extra sibling picks the lowest asset address",
+			rows: []blenddata.OraclePrice{mk("V21", "BLND_A"), mk("V21", "BLND_B"), mk("V21", "V21")},
+			want: map[string][2]string{"V21": {"V21", "BLND_A"}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := backstopPricesByAddress(testCtx, tc.rows)
+			gotAssets := make(map[string][2]string, len(got))
+			for addr, pair := range got {
+				require.NotNil(t, pair.lp)
+				require.NotNil(t, pair.blnd)
+				gotAssets[addr] = [2]string{string(pair.lp.AssetContractID), string(pair.blnd.AssetContractID)}
+			}
+			assert.Equal(t, tc.want, gotAssets)
+		})
+	}
 }
 
 func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
@@ -680,7 +749,7 @@ func TestAccountResolver_BlendPositions_EmptyAccount(t *testing.T) {
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: m.DB},
 		Blend:        blenddata.NewModels(testDBConnectionPool, m.DB),
 	}
-	resolver := &accountResolver{&Resolver{models: models}}
+	resolver := &accountResolver{&Resolver{models: models, rpcService: passphraseRPC(t, "")}}
 
 	got, err := resolver.BlendPositions(testCtx, &types.Account{StellarAddress: types.AddressBytea(account)})
 	require.NoError(t, err)
@@ -713,7 +782,7 @@ func TestAccountResolver_BlendPositions_ActiveAuctions(t *testing.T) {
 		StateChanges: &data.StateChangeModel{DB: testDBConnectionPool, Metrics: dbMetrics},
 		Blend:        blendModels,
 	}
-	resolver := &accountResolver{&Resolver{models: models}}
+	resolver := &accountResolver{&Resolver{models: models, rpcService: passphraseRPC(t, "")}}
 
 	first, second := poolX, poolY
 	if bytes.Compare(mustAddressBytes(t, poolX), mustAddressBytes(t, poolY)) > 0 {

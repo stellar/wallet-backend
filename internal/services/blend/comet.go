@@ -1,11 +1,9 @@
 // Package blend — comet.go derives the BLND/USD spot price and the Comet
 // backstop-deposit LP token's USD price from a Comet weighted pool's raw
-// on-chain state. The Blend v2 backstop's deposit token is a Comet BLND:USDC
-// weighted LP (mainnet
-// CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM, testnet
-// CA5UTUUPHYL5K22UBRUVC37EARZUGYOSGK3IKIXG2JLCC5ZZLI4BDWDM); no on-chain
-// oracle prices it directly, so the price snapshot task derives it from the
-// pool's own balances/weights instead.
+// on-chain state. Each Blend backstop's deposit token is a Comet BLND:USDC
+// weighted LP, named by the backstop instance's "BToken" storage entry
+// (fetchBackstopLPTokens); no on-chain oracle prices it directly, so the
+// price snapshot task derives it from the pool's own balances/weights instead.
 //
 // The pool state is read straight from the contract's ledger entries rather
 // than by simulating its getter functions: everything the valuation needs
@@ -201,12 +199,12 @@ func cometUnitKeyScVal(variant string) xdr.ScVal {
 	return xdr.ScVal{Type: xdr.ScValTypeScvVec, Vec: &vec}
 }
 
-// cometLedgerKey builds the base64-encoded LedgerKey for one of the Comet
-// pool's persistent ContractData entries at cometID.
-func cometLedgerKey(cometID string, key xdr.ScVal) (string, error) {
-	addrVal, err := contractAddressScVal(cometID)
+// contractDataLedgerKey builds the base64-encoded LedgerKey for the
+// persistent ContractData entry at contractID under key.
+func contractDataLedgerKey(contractID string, key xdr.ScVal) (string, error) {
+	addrVal, err := contractAddressScVal(contractID)
 	if err != nil {
-		return "", fmt.Errorf("blend: encoding comet pool address: %w", err)
+		return "", fmt.Errorf("blend: encoding contract address %s: %w", contractID, err)
 	}
 	lk := xdr.LedgerKey{
 		Type: xdr.LedgerEntryTypeContractData,
@@ -218,7 +216,7 @@ func cometLedgerKey(cometID string, key xdr.ScVal) (string, error) {
 	}
 	b64, err := lk.MarshalBinaryBase64()
 	if err != nil {
-		return "", fmt.Errorf("blend: marshaling comet ledger key: %w", err)
+		return "", fmt.Errorf("blend: marshaling contract data ledger key: %w", err)
 	}
 	return b64, nil
 }
@@ -259,7 +257,7 @@ func decodeContractDataVal(dataXDR string) (xdr.ScVal, error) {
 // entries in a single getLedgerEntries call (atomic; see package doc), after
 // asserting the contract instance's WASM hash is in cometWasmHashes. The two
 // legs are split into BLND and USDC by weight: the higher-weighted leg is
-// BLND (the pinned Comet pool is an 80/20 BLND:USDC split). Any RPC failure,
+// BLND (every backstop's Comet pool is an 80/20 BLND:USDC split). Any RPC failure,
 // missing entry, WASM hash mismatch, unexpected shape, token count other
 // than 2, differing token scalars (the valuation's raw-balance ratio assumes
 // both legs share decimals), or a tie between the two weights (which would
@@ -272,15 +270,15 @@ func fetchCometState(ctx context.Context, rpc services.RPCService, cometID strin
 		return nil, fmt.Errorf("blend: fetchCometState: nil RPCService")
 	}
 
-	instanceKey, err := cometLedgerKey(cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance})
+	instanceKey, err := contractDataLedgerKey(cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance})
 	if err != nil {
 		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
 	}
-	recordKey, err := cometLedgerKey(cometID, cometUnitKeyScVal("AllRecordData"))
+	recordKey, err := contractDataLedgerKey(cometID, cometUnitKeyScVal("AllRecordData"))
 	if err != nil {
 		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
 	}
-	sharesKey, err := cometLedgerKey(cometID, cometUnitKeyScVal("TotalShares"))
+	sharesKey, err := contractDataLedgerKey(cometID, cometUnitKeyScVal("TotalShares"))
 	if err != nil {
 		return nil, fmt.Errorf("blend: fetchCometState: %w", err)
 	}
@@ -382,4 +380,58 @@ func fetchCometState(ctx context.Context, rpc services.RPCService, cometID strin
 		USDCWeight:  weights[usdcIdx],
 		LPSupply:    lpSupply,
 	}, nil
+}
+
+// fetchBackstopLPTokens reads each backstop's Comet LP token address from the
+// "BToken" entry of its contract instance storage, in one getLedgerEntries
+// call. It returns backstop address → Comet pool address. A missing
+// instance, or a missing or non-Address BToken, is an error naming the
+// backstop.
+func fetchBackstopLPTokens(ctx context.Context, rpc services.RPCService, backstopIDs []string) (map[string]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("blend: fetchBackstopLPTokens: context error: %w", err)
+	}
+	keys := make([]string, len(backstopIDs))
+	for i, id := range backstopIDs {
+		key, err := contractDataLedgerKey(id, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance})
+		if err != nil {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: %w", err)
+		}
+		keys[i] = key
+	}
+
+	result, err := rpc.GetLedgerEntries(keys)
+	if err != nil {
+		return nil, fmt.Errorf("blend: fetchBackstopLPTokens: fetching ledger entries: %w", err)
+	}
+	byKey := make(map[string]string, len(result.Entries))
+	for _, entry := range result.Entries {
+		byKey[entry.KeyXDR] = entry.DataXDR
+	}
+
+	out := make(map[string]string, len(backstopIDs))
+	for i, id := range backstopIDs {
+		dataXDR, found := byKey[keys[i]]
+		if !found {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: instance entry not found on chain", id)
+		}
+		val, err := decodeContractDataVal(dataXDR)
+		if err != nil {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: %w", id, err)
+		}
+		instance, ok := val.GetInstance()
+		if !ok {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: instance entry is not a ContractInstance (got %v)", id, val.Type)
+		}
+		tokenVal, found := mapGet(instance.Storage, "BToken")
+		if !found {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: BToken not in instance storage", id)
+		}
+		addr, ok := addrString(tokenVal)
+		if !ok {
+			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: BToken is not an Address (got %v)", id, tokenVal.Type)
+		}
+		out[id] = addr
+	}
+	return out, nil
 }
