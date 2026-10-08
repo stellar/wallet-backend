@@ -63,6 +63,10 @@ type Configs struct {
 	// RPC
 	RPCURL string
 
+	// HiddenContractsFile is the YAML list of contracts the API does not
+	// return; empty uses the list built into the binary.
+	HiddenContractsFile string
+
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
@@ -180,6 +184,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
+	hiddenContracts, err := LoadHiddenContracts(cfg.HiddenContractsFile)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("loading hidden contracts: %w", err)
+	}
 
 	requestAuthVerifier, err := buildRequestAuthVerifier(ctx, cfg)
 	if err != nil {
@@ -191,6 +199,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
+
+	log.Ctx(ctx).Infof("Hiding %d contracts: %v", len(hiddenContracts.Labels()), hiddenContracts.Labels())
+	applyHiddenContracts(models, dbConnectionPool, m.DB, hiddenContracts)
 
 	return handlerDeps{
 		Models:                      models,
