@@ -79,6 +79,17 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
+func HiddenContractsFileOption(configKey *string) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:        "hidden-contracts-file",
+		Usage:       "Path to a YAML list of contract IDs the API does not return. Empty uses the list built into the binary.",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "",
+		Required:    false,
+	}
+}
+
 func StartLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "start-ledger",

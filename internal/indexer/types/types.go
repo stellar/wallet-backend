@@ -923,6 +923,14 @@ const (
 	StateChangeOrdinalBaseBlend   int64 = 2 * StateChangeOrdinalNamespaceWidth
 )
 
+// StateChangeOrdinalBaseByProtocol maps a protocol ID to the emitter base its
+// processor writes under. Readers that scope a filter to one protocol's
+// state changes use it. A processor's StateChangeOrdinalBase must agree with
+// its entry here.
+var StateChangeOrdinalBaseByProtocol = map[string]int64{
+	"SEP41": StateChangeOrdinalBaseSEP41,
+}
+
 // Sub-namespace registry within the indexer's emitter namespace.
 //
 // The indexer is itself multi-stream: several processors (token transfers,
