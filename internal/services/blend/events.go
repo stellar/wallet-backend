@@ -118,8 +118,8 @@ type DecodedEvent struct {
 // opposed to a pool-emitted one): a backstop share/queue change, or a
 // backstop-source claim. Pool and backstop decoders never share a category or
 // claim source, so the parse output alone identifies the role. The processor
-// uses this to fold backstop state only from the canonical backstop (see
-// canonicalBackstopAddress).
+// uses this to fold backstop state only from the pinned backstops (see
+// BackstopPins).
 func (e *DecodedEvent) IsBackstop() bool {
 	for _, r := range e.Rows {
 		switch r.Category {

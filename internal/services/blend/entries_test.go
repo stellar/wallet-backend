@@ -585,6 +585,22 @@ func TestDecodeEntry_PoolInstanceAdmin(t *testing.T) {
 		assert.Equal(t, KindPoolInstance, got.Kind)
 		require.NotNil(t, got.PoolInstance)
 		assert.Nil(t, got.PoolInstance.Admin)
+		assert.Nil(t, got.PoolInstance.Backstop)
+	})
+
+	t.Run("Backstop present", func(t *testing.T) {
+		backstopAddr := randomContractAddr(t)
+		storage := mapScVal(
+			symEntry("Backstop", contractAddrScVal(t, backstopAddr)),
+			symEntry("Config", mapValScVal(baseConfig())),
+		)
+
+		got, err := DecodeEntry(createdChange(instanceKeyScVal(), instanceValScVal(storage)))
+		require.NoError(t, err)
+
+		require.NotNil(t, got.PoolInstance)
+		require.NotNil(t, got.PoolInstance.Backstop)
+		assert.Equal(t, backstopAddr, *got.PoolInstance.Backstop)
 	})
 
 	t.Run("backstop instance (no Config) stays ignored even with an Admin-like key", func(t *testing.T) {

@@ -310,12 +310,59 @@ func TestBlndTokenAddress(t *testing.T) {
 	assert.Empty(t, blndTokenAddress("some custom standalone network"))
 }
 
-func TestCanonicalBackstopAddress(t *testing.T) {
-	assert.Equal(t, "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7", canonicalBackstopAddress(network.PublicNetworkPassphrase))
-	assert.Equal(t, "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA", canonicalBackstopAddress(network.TestNetworkPassphrase))
-	assert.Equal(t, "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED", canonicalBackstopAddress("Standalone Network ; February 2017"))
-	assert.Empty(t, canonicalBackstopAddress(network.FutureNetworkPassphrase))
-	assert.Empty(t, canonicalBackstopAddress("some custom standalone network"))
+func TestBackstopPins(t *testing.T) {
+	testCases := []struct {
+		name       string
+		passphrase string
+		want       []BackstopPin
+	}{
+		{
+			name:       "pubnet",
+			passphrase: network.PublicNetworkPassphrase,
+			want: []BackstopPin{
+				{Address: "CCS4AZ5ORM6VLLPJTJUFRNXWBMHOO3L5WHHRPL2ZMILE35ZDMQFHOQMJ", Version: BackstopVersionV2_1},
+				{Address: "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7", Version: BackstopVersionV2},
+			},
+		},
+		{
+			name:       "testnet",
+			passphrase: network.TestNetworkPassphrase,
+			want: []BackstopPin{
+				{Address: "CBGSFY6NR5TSCQJH5EGVMCFTHLZBCAO7YPIW426WSD46V3TESPA3U6DI", Version: BackstopVersionV2_1},
+				{Address: "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA", Version: BackstopVersionV2},
+			},
+		},
+		{
+			name:       "standalone",
+			passphrase: "Standalone Network ; February 2017",
+			want: []BackstopPin{
+				{Address: "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED", Version: BackstopVersionV2_1},
+			},
+		},
+		{name: "futurenet", passphrase: network.FutureNetworkPassphrase, want: nil},
+		{name: "custom", passphrase: "some custom standalone network", want: nil},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, BackstopPins(tc.passphrase))
+		})
+	}
+}
+
+func TestBackstopVersionOf(t *testing.T) {
+	v, ok := BackstopVersionOf(network.PublicNetworkPassphrase, "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7")
+	assert.True(t, ok)
+	assert.Equal(t, BackstopVersionV2, v)
+
+	v, ok = BackstopVersionOf(network.PublicNetworkPassphrase, "CCS4AZ5ORM6VLLPJTJUFRNXWBMHOO3L5WHHRPL2ZMILE35ZDMQFHOQMJ")
+	assert.True(t, ok)
+	assert.Equal(t, BackstopVersionV2_1, v)
+
+	_, ok = BackstopVersionOf(network.TestNetworkPassphrase, "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7")
+	assert.False(t, ok, "a pubnet pin is not pinned on testnet")
+
+	_, ok = BackstopVersionOf(network.FutureNetworkPassphrase, "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7")
+	assert.False(t, ok)
 }
 
 // Validator construction tests ------------------------------------------------
