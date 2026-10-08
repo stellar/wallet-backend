@@ -186,6 +186,7 @@ Recorded on `ingest`. The lag gauge updates once per second in live mode only.
 | `wallet_ingestion_oldest_ledger` | gauge | none | Oldest ledger ingested |
 | `wallet_ingestion_lag_ledgers` | gauge | none | Ledger backend tip minus the ingest position |
 | `wallet_ingestion_duration_seconds` | histogram | none | Time to process and persist one ledger. Excludes the fetch |
+| `wallet_ingestion_persist_batch_size` | histogram | none | Ledgers coalesced into one commit set. 1 while the pipeline keeps pace; larger means the persist stage is amortizing a backlog |
 | `wallet_ingestion_phase_duration_seconds` | histogram | `phase` | Time per live phase: `process_ledger`, `prepare_classification`, `insert_into_db` |
 | `wallet_ingestion_ledger_fetch_duration_seconds` | histogram | none | Time to fetch one ledger, including retries and waiting at the tip. At the tip its floor is the ledger close interval, not I/O latency |
 | `wallet_ingestion_ledgers_total` | counter | none | Ledgers ingested |
