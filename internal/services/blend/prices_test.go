@@ -507,7 +507,7 @@ func TestSnapshotOnce_CometLeg(t *testing.T) {
 	// TotalShares — mirroring the live mainnet entry dump in comet.go.
 	meta := services.NewContractMetadataServiceMock(t)
 	entries := []entities.LedgerEntryResult{
-		cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometWasmHash)),
+		cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, "8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36")),
 		cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t,
 			[]string{blndAddr, usdcAddr},
 			[]xdr.ScVal{

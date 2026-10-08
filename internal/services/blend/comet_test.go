@@ -217,7 +217,7 @@ func cometRecordMapVal(t *testing.T, tokens []string, records []xdr.ScVal) xdr.S
 // TestFetchCometState mocks services.RPCService — no real RPC. The happy
 // mocks mirror the live mainnet entry dump recorded in comet.go: an 80/20
 // BLND:USDC record map, a TotalShares i128, and a contract instance pinned
-// to cometWasmHash.
+// to the Comet v1.0 hash.
 func TestFetchCometState(t *testing.T) {
 	ctx := context.Background()
 	// cometID (mainnet) / cometIDTestnet exercise fetchCometState against two
@@ -227,6 +227,8 @@ func TestFetchCometState(t *testing.T) {
 	const (
 		cometID        = "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM"
 		cometIDTestnet = "CA5UTUUPHYL5K22UBRUVC37EARZUGYOSGK3IKIXG2JLCC5ZZLI4BDWDM"
+		cometV10Hash   = "8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36"
+		cometV11Hash   = "d735c3395f59510172cf5cf838823a1389b97cfec6bf24e580e9bd77d2b3e687"
 	)
 	const sevenDecScalar = 100_000_000_000 // 10^(18-7), both legs 7-decimals
 
@@ -242,7 +244,7 @@ func TestFetchCometState(t *testing.T) {
 		records[1-blndIdx] = cometRecordVal(t, big.NewInt(2_000_000_000_000), big.NewInt(2_000_000), sevenDecScalar, uint32(1-blndIdx)) // 200,000.0 USDC, weight 0.2
 
 		return tokens, []entities.LedgerEntryResult{
-			cometEntryResult(t, poolID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometWasmHash)),
+			cometEntryResult(t, poolID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometV10Hash)),
 			cometEntryResult(t, poolID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t, tokens, records)),
 			cometEntryResult(t, poolID, cometUnitKeyScVal("TotalShares"), i128ScVal(10_000_000_000_000)), // 1,000,000.0 shares
 		}
@@ -303,6 +305,16 @@ func TestFetchCometState(t *testing.T) {
 		assert.ErrorContains(t, err, "TotalShares entry not found")
 	})
 
+	t.Run("accepts the Comet v1.1 WASM hash", func(t *testing.T) {
+		tokens, entries := happyEntries(t, cometID, 0)
+		entries[0] = cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, cometV11Hash))
+		m := mockRPC(t, entries, nil)
+
+		state, err := fetchCometState(ctx, m, cometID)
+		require.NoError(t, err)
+		assert.Equal(t, tokens[0], state.BLNDAddress)
+	})
+
 	t.Run("WASM hash mismatch refuses to decode", func(t *testing.T) {
 		_, entries := happyEntries(t, cometID, 0)
 		otherHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -310,7 +322,7 @@ func TestFetchCometState(t *testing.T) {
 		m := mockRPC(t, entries, nil)
 
 		_, err := fetchCometState(ctx, m, cometID)
-		assert.ErrorContains(t, err, "does not match the pinned Comet hash")
+		assert.ErrorContains(t, err, "is not a known Comet hash")
 	})
 
 	t.Run("wrong token count errors", func(t *testing.T) {
