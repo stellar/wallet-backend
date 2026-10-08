@@ -59,6 +59,9 @@ type BalanceModelInterface interface {
 type BalanceModel struct {
 	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
+	// HiddenContracts are C-addresses GetByAccount skips. Empty outside the API
+	// server.
+	HiddenContracts []string
 }
 
 var _ BalanceModelInterface = (*BalanceModel)(nil)
@@ -80,6 +83,12 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 		WHERE b.account_id = $1`
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
+
+	if len(m.HiddenContracts) > 0 {
+		query += fmt.Sprintf(" AND ct.contract_id <> ALL($%d::text[])", argIndex)
+		args = append(args, m.HiddenContracts)
+		argIndex++
+	}
 
 	if cursor != nil {
 		op := ">"

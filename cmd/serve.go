@@ -22,6 +22,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		utils.LogLevelOption(&cfg.LogLevel),
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.RPCURLOption(&cfg.RPCURL),
+		utils.HiddenContractsFileOption(&cfg.HiddenContractsFile),
 		utils.GraphQLComplexityLimitOption(&cfg.GraphQLComplexityLimit),
 		utils.GraphQLIntrospectionEnabledOption(&cfg.GraphQLIntrospectionEnabled),
 		utils.AdminPortOption(&cfg.AdminPort),
