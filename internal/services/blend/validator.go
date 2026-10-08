@@ -64,42 +64,90 @@ func blndTokenAddress(networkPassphrase string) string {
 	}
 }
 
-// canonicalBackstopAddress returns the C-address of the one canonical Blend v2
-// backstop contract for the given network passphrase. Blend v2 deploys a single
-// backstop per network (the emitter drips BLND to exactly one backstop), so the
-// address is a fixed per-network constant, mirroring blndTokenAddress.
+// BackstopVersion names the Blend deployment a backstop contract belongs to.
+// Mirrors the GraphQL BlendVersion enum values.
+type BackstopVersion string
+
+const (
+	// BackstopVersionV2 is the original Blend v2 deployment.
+	BackstopVersionV2 BackstopVersion = "V2"
+	// BackstopVersionV2_1 is the 2026-09-30 redeploy that pairs the unchanged
+	// v2 backstop WASM with the patched Comet v1.1 LP token.
+	BackstopVersionV2_1 BackstopVersion = "V2_1"
+)
+
+// BackstopPin is one pinned Blend backstop contract on a network.
+type BackstopPin struct {
+	Address string
+	Version BackstopVersion
+}
+
+// BackstopPins returns the pinned Blend backstop contracts for the network
+// passphrase, newest deployment first. Blend v2 and v2.1 run side by side:
+// the v2.1 redeploy copied no state, v2 depositors keep their positions and
+// can still claim accrued emissions, and the emitter still drips to v2 until
+// its queued swap executes. Both backstops are therefore indexed.
 //
 // The backstop-derived tables (blend_backstop_positions, blend_backstop_pools,
-// the backstop-source rows of blend_emissions, blend_backstop_claimed, and
-// blend_pools.in_reward_zone) key their rows on pool and/or user with no
-// backstop contract id anywhere in the key. Because Blend contracts are
-// classified by WASM-interface match, any contract deployed from the backstop
-// WASM would otherwise be tracked and could write pool/user-keyed rows that
-// silently overwrite the real backstop's. Folding backstop-shaped state only
-// from this address closes that impostor-collision hole. On the standalone
-// network the integration suite deploys the backstop from the master account
-// (keypair.Root of the passphrase) with a fixed salt, so its address is a
-// deterministic function of the passphrase alone and is pinned here — the
-// suite asserts the deployed address matches at deploy time. Any other
-// passphrase (futurenet, a custom network) has no known backstop and returns
-// the empty string — the same nil-degradation contract as blndTokenAddress;
-// on such networks all backstop-shaped state is dropped.
+// the backstop-source rows of blend_emissions, blend_pools.in_reward_zone) key
+// their rows on pool and/or user; a pool belongs to exactly one backstop
+// (blend_pools.backstop_contract_id), which keeps the two deployments apart.
+// blend_backstop_claimed carries the backstop id in its key. Because Blend
+// contracts are classified by WASM-interface match, any contract deployed
+// from the backstop WASM would otherwise be tracked and could write
+// pool/user-keyed rows; folding backstop-shaped state only from pinned
+// addresses closes that hole.
 //
-// Operational caveat: the emitter can swap the active backstop via a 31-day
-// queued swap. If Blend ever executes one, these pinned addresses must be
-// updated and the backstop-derived tables migrated to the new backstop's
-// state, since backstop-shaped folds from any other contract are dropped.
-func canonicalBackstopAddress(networkPassphrase string) string {
+// On the standalone network the integration suite deploys one backstop from
+// the master account (keypair.Root of the passphrase) with a fixed salt, so
+// its address is a deterministic function of the passphrase and is pinned
+// here as V2_1 (the suite deploys the Comet v1.1 LP token). Any other
+// passphrase (futurenet, a custom network) has no known backstop and returns
+// nil; on such networks all backstop-shaped state is dropped.
+//
+// A future emitter swap or redeploy adds a pin at the front of the list and
+// a BackstopVersion value; nothing else in the backend names a backstop.
+func BackstopPins(networkPassphrase string) []BackstopPin {
 	switch networkPassphrase {
 	case network.PublicNetworkPassphrase:
-		return "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7"
+		return []BackstopPin{
+			{Address: "CCS4AZ5ORM6VLLPJTJUFRNXWBMHOO3L5WHHRPL2ZMILE35ZDMQFHOQMJ", Version: BackstopVersionV2_1},
+			{Address: "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7", Version: BackstopVersionV2},
+		}
 	case network.TestNetworkPassphrase:
-		return "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA"
+		return []BackstopPin{
+			{Address: "CBGSFY6NR5TSCQJH5EGVMCFTHLZBCAO7YPIW426WSD46V3TESPA3U6DI", Version: BackstopVersionV2_1},
+			{Address: "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA", Version: BackstopVersionV2},
+		}
 	case "Standalone Network ; February 2017":
-		return "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED"
+		return []BackstopPin{
+			{Address: "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED", Version: BackstopVersionV2_1},
+		}
 	default:
-		return ""
+		return nil
 	}
+}
+
+// BackstopVersionOf returns the deployment version of a pinned backstop
+// address on the network, or ("", false) when the address is not pinned.
+func BackstopVersionOf(networkPassphrase, backstopAddress string) (BackstopVersion, bool) {
+	for _, pin := range BackstopPins(networkPassphrase) {
+		if pin.Address == backstopAddress {
+			return pin.Version, true
+		}
+	}
+	return "", false
+}
+
+// pinnedBackstopSet returns the pinned backstop addresses as a set, for the
+// processor's per-event and per-entry gating.
+func pinnedBackstopSet(networkPassphrase string) map[string]struct{} {
+	pins := BackstopPins(networkPassphrase)
+	out := make(map[string]struct{}, len(pins))
+	for _, pin := range pins {
+		out[pin.Address] = struct{}{}
+	}
+	return out
 }
 
 // poolRequiredFunctions defines the Blend v2 Pool contract's required

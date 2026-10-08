@@ -66,12 +66,14 @@ const (
 )
 
 // PoolInstanceData is the decoded payload for KindPoolInstance: the pool's
-// instance-storage Config (a PoolConfig UDT) plus its Name and Admin. Name is
-// nil if the instance storage has no "Name" key or it isn't a String; Admin
-// is nil if the instance storage has no "Admin" key or it isn't an Address.
+// instance-storage Config (a PoolConfig UDT) plus its Name, Admin, and
+// Backstop. Name is nil if the instance storage has no "Name" key or it isn't
+// a String; Admin and Backstop are nil if their key is missing or isn't an
+// Address.
 type PoolInstanceData struct {
 	Name          *string
 	Admin         *string
+	Backstop      *string
 	Oracle        string
 	BstopRate     uint32
 	Status        uint32
@@ -353,7 +355,7 @@ func decodePoolInstanceData(storage *xdr.ScMap) (*PoolInstanceData, error) {
 		return nil, cfgR.err
 	}
 
-	// Name and Admin are metadata-only and best-effort: a missing or
+	// Name, Admin, and Backstop are metadata-only and best-effort: a missing or
 	// wrong-typed value leaves the field nil rather than failing the whole
 	// decode.
 	if nameVal, ok := mapGet(storage, "Name"); ok {
@@ -364,6 +366,11 @@ func decodePoolInstanceData(storage *xdr.ScMap) (*PoolInstanceData, error) {
 	if adminVal, ok := mapGet(storage, "Admin"); ok {
 		if s, ok := addrString(adminVal); ok {
 			payload.Admin = &s
+		}
+	}
+	if backstopVal, ok := mapGet(storage, "Backstop"); ok {
+		if s, ok := addrString(backstopVal); ok {
+			payload.Backstop = &s
 		}
 	}
 	return payload, nil
