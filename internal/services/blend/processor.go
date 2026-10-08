@@ -134,8 +134,8 @@ type stagedUserEmission struct {
 
 // stagedClaim accumulates additive lifetime-claimed amounts across a window:
 // BLND for a pool-source claim (keyed by blenddata.PoolUserKey), Comet LP for a
-// backstop-source claim (keyed by user account, account-wide since the backstop
-// claim event carries no pool address).
+// backstop-source claim (keyed by backstopClaimKey: user and emitting backstop,
+// since the backstop claim event carries no pool address).
 type stagedClaim struct {
 	amount *big.Int
 	ledger uint32
@@ -219,7 +219,7 @@ type processor struct {
 	stagedReserveEmissions  map[poolTokenKey]*stagedResEmission
 	stagedUserEmissions     map[emisKey]*stagedUserEmission
 	stagedPoolClaims        map[blenddata.PoolUserKey]*stagedClaim
-	stagedBackstopClaims    map[string]*stagedClaim
+	stagedBackstopClaims    map[backstopClaimKey]*stagedClaim
 	stagedAuctions          map[auctionStageKey]*stagedAuction
 	// stagedRewardZones is keyed by the emitting backstop's C-address.
 	stagedRewardZones map[string]*stagedRewardZone
@@ -405,14 +405,15 @@ func (p *processor) processEvent(event xdr.ContractEvent, opBuilder *processors.
 
 	// Claim folds accumulate lifetime-claimed totals. A pool claim is keyed by the
 	// emitting pool contract (== contractStr, since a pool emits its own events);
-	// a backstop claim is account-wide (its event carries no pool address).
+	// a backstop claim is keyed by user and emitting backstop (its event carries
+	// no pool address).
 	if mode.NeedsCurrentState() {
 		for _, cf := range decoded.ClaimFolds {
 			switch cf.Source {
 			case claimSourcePool:
 				p.foldPoolClaim(contractStr, cf.Account, cf.Amount)
 			case claimSourceBackstop:
-				p.foldBackstopClaim(cf.Account, cf.Amount)
+				p.foldBackstopClaim(cf.Account, contractStr, cf.Amount)
 			}
 		}
 	}
@@ -534,18 +535,24 @@ func (p *processor) foldPoolClaim(pool, user, amount string) {
 	sc.ledger = p.ledgerNumber
 }
 
+// backstopClaimKey identifies one staged backstop-source claimed total.
+type backstopClaimKey struct {
+	user, backstop string
+}
+
 // foldBackstopClaim accumulates a backstop-source claim's Comet LP amount into
-// the staged account-wide lifetime-claimed total for user.
-func (p *processor) foldBackstopClaim(user, amount string) {
-	sc, ok := p.stagedBackstopClaims[user]
+// the staged lifetime-claimed total for (user, backstop).
+func (p *processor) foldBackstopClaim(user, backstop, amount string) {
+	key := backstopClaimKey{user: user, backstop: backstop}
+	sc, ok := p.stagedBackstopClaims[key]
 	if !ok {
 		sc = &stagedClaim{amount: new(big.Int)}
-		p.stagedBackstopClaims[user] = sc
+		p.stagedBackstopClaims[key] = sc
 	}
 	if delta, parsed := new(big.Int).SetString(amount, 10); parsed {
 		sc.amount.Add(sc.amount, delta)
 	} else {
-		log.Debugf("blend: skipping unparseable backstop claim amount %q for user=%s", amount, user)
+		log.Debugf("blend: skipping unparseable backstop claim amount %q for user=%s backstop=%s", amount, user, backstop)
 	}
 	sc.ledger = p.ledgerNumber
 }
@@ -909,7 +916,7 @@ func (p *processor) Reset() {
 	p.stagedReserveEmissions = map[poolTokenKey]*stagedResEmission{}
 	p.stagedUserEmissions = map[emisKey]*stagedUserEmission{}
 	p.stagedPoolClaims = map[blenddata.PoolUserKey]*stagedClaim{}
-	p.stagedBackstopClaims = map[string]*stagedClaim{}
+	p.stagedBackstopClaims = map[backstopClaimKey]*stagedClaim{}
 	p.stagedAuctions = map[auctionStageKey]*stagedAuction{}
 	p.stagedRewardZones = map[string]*stagedRewardZone{}
 	p.loggedImpostorBackstops = map[string]struct{}{}
@@ -1368,9 +1375,9 @@ func (p *processor) persistClaims(ctx context.Context, dbTx pgx.Tx) error {
 
 	if len(p.stagedBackstopClaims) > 0 {
 		backstopRows := make([]blenddata.BackstopClaimedDelta, 0, len(p.stagedBackstopClaims))
-		for user, sc := range p.stagedBackstopClaims {
+		for key, sc := range p.stagedBackstopClaims {
 			backstopRows = append(backstopRows, blenddata.BackstopClaimedDelta{
-				User: user, ClaimedLp: sc.amount.String(), LedgerNumber: sc.ledger,
+				User: key.user, Backstop: key.backstop, ClaimedLp: sc.amount.String(), LedgerNumber: sc.ledger,
 			})
 		}
 		if err := p.backstopClaimed.BatchApplyDeltas(ctx, dbTx, backstopRows); err != nil {

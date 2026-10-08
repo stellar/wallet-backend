@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/stellar/wallet-backend/pkg/wbclient/types"
 )
 
 func TestGetBlendPools(t *testing.T) {
@@ -165,7 +167,7 @@ func TestGetAccountBlendPositions(t *testing.T) {
 			"backstop":[{"poolAddress":"CPOOL1","shares":"100","lpTokens":"200","emissionsEarnedBlnd":"1","q4w":[
 				{"amount":"10","expiration":1735689600,"lpTokens":"20"}
 			]}],
-			"backstopClaimedLp":"42"
+			"backstopClaimed":[{"version":"V2_1","lpTokens":"42"},{"version":"V2","lpTokens":"7"}]
 		}}}`
 		srv := graphqlServer(t, body)
 		defer srv.Close()
@@ -174,7 +176,8 @@ func TestGetAccountBlendPositions(t *testing.T) {
 		positions, err := c.GetAccountBlendPositions(ctx, "GABC")
 		require.NoError(t, err)
 		require.NotNil(t, positions)
-		assert.Equal(t, "42", positions.BackstopClaimedLp)
+		require.Len(t, positions.BackstopClaimed, 2)
+		assert.Equal(t, types.BlendBackstopClaimed{Version: types.BlendVersionV2_1, LpTokens: "42"}, positions.BackstopClaimed[0])
 		require.Len(t, positions.Pools, 1)
 		assert.Equal(t, "5", positions.Pools[0].ClaimedBlnd)
 		require.Len(t, positions.Backstop, 1)
