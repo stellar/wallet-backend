@@ -102,9 +102,6 @@ type Configs struct {
 	// BlendPriceInterval is the wait between Blend v2 oracle price snapshot passes.
 	// 0 disables the snapshot task. Only takes effect in live ingestion mode.
 	BlendPriceInterval time.Duration
-	// BlendBackstopLPContractID is the Blend v2 backstop's Comet BLND:USDC weighted pool
-	// C-address, enabling the price snapshot task's BLND/LP-share derived-pricing leg.
-	BlendBackstopLPContractID string
 }
 
 func (c Configs) BuildPoolConfig() db.PoolConfig {
@@ -236,12 +233,12 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	var postLockTasks []func(context.Context)
 	if cfg.IngestionMode == services.IngestionModeLive && cfg.BlendPriceInterval > 0 {
 		blendPrices, err := blend.NewPriceSnapshotService(blend.PriceSnapshotConfig{
-			OraclePrices:         models.Blend.OraclePrices,
-			Metadata:             contractMetadataService,
-			Interval:             cfg.BlendPriceInterval,
-			BackstopLPContractID: cfg.BlendBackstopLPContractID,
-			RPC:                  rpcService,
-			Metrics:              m.BlendPrices,
+			OraclePrices:      models.Blend.OraclePrices,
+			Metadata:          contractMetadataService,
+			Interval:          cfg.BlendPriceInterval,
+			NetworkPassphrase: cfg.NetworkPassphrase,
+			RPC:               rpcService,
+			Metrics:           m.BlendPrices,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("instantiating blend price snapshot service: %w", err)

@@ -177,20 +177,6 @@ func BlendPriceIntervalOption(configKey *time.Duration) *config.ConfigOption {
 	}
 }
 
-// BlendBackstopLPContractIDOption returns the config option for the Blend v2 backstop's
-// Comet BLND:USDC weighted pool. Its C-address enables the price snapshot task's BLND/LP-share
-// derived-pricing leg; leaving it empty disables that leg.
-func BlendBackstopLPContractIDOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "blend-backstop-lp-contract-id",
-		Usage:       "C-address of the Blend v2 backstop's Comet BLND:USDC weighted pool, enabling the BLND/LP-share price leg. Empty disables it.",
-		OptType:     types.String,
-		ConfigKey:   configKey,
-		FlagDefault: "",
-		Required:    false,
-	}
-}
-
 func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-complexity-limit",
