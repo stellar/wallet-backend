@@ -81,6 +81,7 @@ services:
       PORT: 8001
       GRAPHQL_INTROSPECTION_ENABLED: "true"
       CLIENT_AUTH_PUBLIC_KEYS: ${CLIENT_AUTH_PUBLIC_KEYS:-}
+      # HIDDEN_CONTRACTS_FILE: /path/inside/the/container/hidden_contracts.yaml   # mount your own list; the binary has a built-in one
     ports:
       - 8001:8001
     depends_on:
