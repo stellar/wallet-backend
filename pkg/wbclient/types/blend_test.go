@@ -214,14 +214,20 @@ func Test_BlendAccountPositions_DecodesBackstopAndQ4W(t *testing.T) {
 				"emissionsEarnedUsd": null
 			}
 		],
-		"backstopClaimedLp": "42"
+		"backstopClaimed": [
+			{"version": "V2_1", "lpTokens": "42"},
+			{"version": "V2", "lpTokens": "7"}
+		]
 	}`)
 
 	var positions BlendAccountPositions
 	err := json.Unmarshal(payload, &positions)
 	require.NoError(t, err)
 
-	assert.Equal(t, "42", positions.BackstopClaimedLp)
+	assert.Equal(t, []BlendBackstopClaimed{
+		{Version: BlendVersionV2_1, LpTokens: "42"},
+		{Version: BlendVersionV2, LpTokens: "7"},
+	}, positions.BackstopClaimed)
 	require.Len(t, positions.Pools, 1)
 	assert.Equal(t, "CPOOL1", positions.Pools[0].PoolAddress)
 	assert.Equal(t, "5", positions.Pools[0].ClaimedBlnd)

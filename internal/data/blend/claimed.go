@@ -36,10 +36,12 @@ type PoolClaimed struct {
 	LastModifiedLedger uint32
 }
 
-// BackstopClaimed is a full row of blend_backstop_claimed: one user's account-wide
-// lifetime backstop-source claims, denominated in Comet LP tokens.
+// BackstopClaimed is a full row of blend_backstop_claimed: one user's lifetime
+// backstop-source claims from one backstop, denominated in that backstop's
+// Comet LP tokens.
 type BackstopClaimed struct {
 	UserAccountID      types.AddressBytea
+	BackstopContractID types.AddressBytea
 	ClaimedLp          string
 	LastModifiedLedger uint32
 }
@@ -52,12 +54,12 @@ type PoolClaimedDelta struct {
 	LedgerNumber uint32
 }
 
-// BackstopClaimedDelta is an additive claim amount for one user, summed into
-// blend_backstop_claimed.claimed_lp.
+// BackstopClaimedDelta is an additive claim amount for one (user, backstop),
+// summed into blend_backstop_claimed.claimed_lp.
 type BackstopClaimedDelta struct {
-	User         string // G-address
-	ClaimedLp    string
-	LedgerNumber uint32
+	User, Backstop string // User: G-address, Backstop: C-address
+	ClaimedLp      string
+	LedgerNumber   uint32
 }
 
 // PoolClaimedModelInterface exposes Blend v2 pool-source claimed-total storage.
@@ -69,8 +71,8 @@ type PoolClaimedModelInterface interface {
 
 // BackstopClaimedModelInterface exposes Blend v2 backstop-source claimed-total storage.
 type BackstopClaimedModelInterface interface {
-	// BatchApplyDeltas adds each delta's claimed_lp into the user's row, inserting
-	// it at 0 on first claim.
+	// BatchApplyDeltas adds each delta's claimed_lp into the (user, backstop)
+	// row, inserting it at 0 on first claim.
 	BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []BackstopClaimedDelta) error
 }
 
@@ -151,7 +153,8 @@ func (m *PoolClaimedModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, de
 
 // BatchApplyDeltas accumulates backstop-source claim amounts server-side
 // (claimed_lp := existing + delta), inserting the row at the delta value on first
-// claim. Each User key must appear at most once per batch (see PoolClaimedModel).
+// claim. Each (User, Backstop) key must appear at most once per batch (see
+// PoolClaimedModel).
 func (m *BackstopClaimedModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx, deltas []BackstopClaimedDelta) error {
 	if len(deltas) == 0 {
 		return nil
@@ -160,30 +163,38 @@ func (m *BackstopClaimedModel) BatchApplyDeltas(ctx context.Context, dbTx pgx.Tx
 	start := time.Now()
 
 	users := make([][]byte, len(deltas))
+	backstops := make([][]byte, len(deltas))
 	claimed := make([]string, len(deltas))
 	ledgers := make([]int32, len(deltas))
-	seen := make(map[string]struct{}, len(deltas))
+	type key struct{ user, backstop string }
+	seen := make(map[key]struct{}, len(deltas))
 	for i, d := range deltas {
 		userBytes, err := addressToBytes(d.User)
 		if err != nil {
 			return fmt.Errorf("converting user address for backstop-claimed apply: %w", err)
 		}
-		if _, dup := seen[d.User]; dup {
-			return fmt.Errorf("duplicate backstop-claimed delta for user=%s: deltas must be pre-aggregated per key", d.User)
+		backstopBytes, err := addressToBytes(d.Backstop)
+		if err != nil {
+			return fmt.Errorf("converting backstop address for backstop-claimed apply: %w", err)
 		}
-		seen[d.User] = struct{}{}
+		k := key{user: d.User, backstop: d.Backstop}
+		if _, dup := seen[k]; dup {
+			return fmt.Errorf("duplicate backstop-claimed delta for user=%s backstop=%s: deltas must be pre-aggregated per key", d.User, d.Backstop)
+		}
+		seen[k] = struct{}{}
 		users[i] = userBytes
+		backstops[i] = backstopBytes
 		claimed[i] = d.ClaimedLp
 		ledgers[i] = int32(d.LedgerNumber)
 	}
 
 	const applyQuery = `
-		INSERT INTO blend_backstop_claimed (user_account_id, claimed_lp, last_modified_ledger)
-		SELECT * FROM UNNEST($1::bytea[], $2::text[], $3::integer[])
-		ON CONFLICT (user_account_id) DO UPDATE SET
+		INSERT INTO blend_backstop_claimed (user_account_id, backstop_contract_id, claimed_lp, last_modified_ledger)
+		SELECT * FROM UNNEST($1::bytea[], $2::bytea[], $3::text[], $4::integer[])
+		ON CONFLICT (user_account_id, backstop_contract_id) DO UPDATE SET
 			claimed_lp           = (blend_backstop_claimed.claimed_lp::numeric + EXCLUDED.claimed_lp::numeric)::text,
 			last_modified_ledger = GREATEST(blend_backstop_claimed.last_modified_ledger, EXCLUDED.last_modified_ledger)`
-	if _, err := dbTx.Exec(ctx, applyQuery, users, claimed, ledgers); err != nil {
+	if _, err := dbTx.Exec(ctx, applyQuery, users, backstops, claimed, ledgers); err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchApplyDeltas", backstopClaimedTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("applying blend backstop claimed deltas: %w", err)
 	}

@@ -246,6 +246,17 @@ func newestBLNDPrice(prices map[string]backstopPricePair, backstopIDs []string) 
 	return prices[backstopIDs[0]].blnd
 }
 
+// blendVersion maps a backstop address to its BlendVersion, or nil when the
+// address is empty or not pinned on the network.
+func blendVersion(networkPassphrase string, backstop types.AddressBytea) *graphql1.BlendVersion {
+	v, ok := blendrates.BackstopVersionOf(networkPassphrase, string(backstop))
+	if !ok {
+		return nil
+	}
+	gv := graphql1.BlendVersion(v)
+	return &gv
+}
+
 // blendAssembly holds every batch-fetched Blend v2 row and derived lookup
 // index needed to assemble one account's Account.blendPositions in a single
 // pass.
@@ -823,12 +834,12 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	// fetch them concurrently. errgroup cancels the shared context on the first
 	// error, and Wait returns it.
 	var (
-		positions          []blenddata.Position
-		backstopPositions  []blenddata.BackstopPosition
-		emissions          []blenddata.Emission
-		poolClaimed        []blenddata.PoolClaimed
-		backstopClaimedRow *blenddata.BackstopClaimed
-		auctions           []blenddata.Auction
+		positions           []blenddata.Position
+		backstopPositions   []blenddata.BackstopPosition
+		emissions           []blenddata.Emission
+		poolClaimed         []blenddata.PoolClaimed
+		backstopClaimedRows []blenddata.BackstopClaimed
+		auctions            []blenddata.Auction
 	)
 	accountGroup, accountCtx := errgroup.WithContext(ctx)
 	// Each wave is capped so one resolution can never hold more than a few of the
@@ -864,7 +875,7 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 		return nil
 	})
 	accountGroup.Go(func() (err error) {
-		backstopClaimedRow, err = r.models.Blend.BackstopClaimed.GetByAccount(accountCtx, address)
+		backstopClaimedRows, err = r.models.Blend.BackstopClaimed.GetByAccount(accountCtx, address)
 		if err != nil {
 			return fmt.Errorf("getting blend backstop claimed total for account %s: %w", address, err)
 		}
@@ -1021,14 +1032,20 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	}
 
 	// Lifetime claimed totals: pool-source BLND per pool, backstop-source Comet
-	// LP account-wide (its on-chain claim event carries no pool address).
+	// LP per backstop (its on-chain claim event carries no pool address). Each
+	// backstop has its own LP token, so the backstop totals are never summed.
 	claimedByPool := map[string]string{}
 	for _, c := range poolClaimed {
 		claimedByPool[string(c.PoolContractID)] = c.ClaimedBlnd
 	}
-	backstopClaimed := "0"
-	if backstopClaimedRow != nil {
-		backstopClaimed = backstopClaimedRow.ClaimedLp
+	backstopClaimed := make([]*graphql1.BlendBackstopClaimed, 0, len(backstopClaimedRows))
+	for _, c := range backstopClaimedRows {
+		version := blendVersion(passphrase, c.BackstopContractID)
+		if version == nil {
+			log.Ctx(ctx).Debugf("blend: skipping backstop claims from unpinned backstop %s", c.BackstopContractID)
+			continue
+		}
+		backstopClaimed = append(backstopClaimed, &graphql1.BlendBackstopClaimed{Version: *version, LpTokens: c.ClaimedLp})
 	}
 
 	assembly := &blendAssembly{
@@ -1092,9 +1109,9 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	}
 
 	return &graphql1.BlendAccountPositions{
-		Pools:             poolPositions,
-		Backstop:          backstopOut,
-		BackstopClaimedLp: backstopClaimed,
-		ActiveAuctions:    activeAuctions,
+		Pools:           poolPositions,
+		Backstop:        backstopOut,
+		BackstopClaimed: backstopClaimed,
+		ActiveAuctions:  activeAuctions,
 	}, nil
 }
