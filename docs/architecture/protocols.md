@@ -78,12 +78,12 @@ Legend:
 - **Stored unclassified** covers a WASM whose spec cannot be read. Its `protocol_wasms` row keeps a NULL `protocol_id`.
 - **Match** is a pure signature check against the spec entries. It makes no RPC or database calls.
 - **Prefetch** makes the RPC calls the validator needs, such as token metadata. It runs before any database transaction opens. A failed fetch for one contract is logged and left out of the result.
-- **Apply** writes the validator's rows inside the ledger's database transaction. It gets no RPC handle, so no network call happens while row locks are held.
+- **Apply** writes the validator's rows inside the batch's coordinating transaction. It gets no RPC handle, so no network call happens while row locks are held.
 - **Stamp protocol_id** writes the verdict to `protocol_wasms` in the same transaction.
 
 Validators run in protocol ID order, and the first match wins. A WASM claimed by one protocol is removed from the candidates passed to the next. When two protocols' signatures overlap, the alphabetically earlier ID claims the WASM. Pick an added protocol's ID with that in mind.
 
-Live ingestion builds the plan once per ledger, before the persist transaction opens, and reuses it across retries. A retry never repeats RPC calls.
+Live ingestion builds one plan per persist batch (one ledger by default), before any transaction of the batch opens, and reuses it across retries. A retry never repeats RPC calls. A contract classified in one ledger of a batch is claimed under that binding for every later ledger of the same batch.
 
 Failures increment `wallet_ingestion_wasm_classification_failures_total`. Its `reason` label is `spec_extraction_error` or `validate_error`. Its `protocol_id` label is the validator that was running, or `unknown` when spec extraction failed first. The fix for an unclassified WASM is to rerun `protocol-setup`.
 
@@ -99,7 +99,7 @@ wallet-backend protocol-setup \
 
 ## Processing
 
-During live ingestion each processor runs inside the same database transaction as the rest of the ledger.
+During live ingestion each processor runs inside the batch's coordinating transaction, ledger by ledger in order; its history rows go through the `state_changes` sibling transaction of the same commit set (see [ingestion](ingestion.md#live-mode)).
 
 For each protocol and each ledger `N`, live ingestion:
 
@@ -108,7 +108,7 @@ For each protocol and each ledger `N`, live ingestion:
 3. Skips the protocol when neither CAS wins. That happens while a migration still owns the cursor.
 4. Otherwise resets the processor, calls `ProcessLedger`, then calls `PersistHistory` if the history CAS won and `PersistCurrentState` if the current-state CAS won.
 
-Live ingestion only tries a CAS on a cursor row that exists. It reads which rows exist at startup and checks the missing ones again every 100 ledgers. A protocol whose cursors were never created costs nothing per ledger. A cursor row that disappears after it existed is treated as an incident. The ledger's transaction fails with a permanent error rather than skipping the protocol.
+Live ingestion only tries a CAS on a cursor row that exists. It reads which rows exist at startup and checks the missing ones again every 100 ledgers. A protocol whose cursors were never created costs nothing per ledger. A cursor row that disappears after it existed is treated as an incident. The batch fails with a permanent error rather than skipping the protocol.
 
 The processor sees the protocol's contracts that emitted events in the ledger, plus contracts classified in the same ledger. A processor that returns true from `RequiresContractData` also gets the ledger's ContractData changes and the protocol's full contract list.
 
