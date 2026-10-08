@@ -199,6 +199,7 @@ const (
 	blendPoolFields = `
 		address
 		name
+		version
 		status
 		oracleContractId
 		backstopRate
@@ -255,6 +256,7 @@ const (
 		backstop {
 			poolAddress
 			poolName
+			version
 			shares
 			lpTokens
 			usdValue

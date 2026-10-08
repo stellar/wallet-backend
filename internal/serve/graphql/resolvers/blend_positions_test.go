@@ -419,6 +419,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.Equal(t, poolAddr, bp.PoolAddress)
 		require.NotNil(t, bp.PoolName)
 		assert.Equal(t, "Test Pool", *bp.PoolName)
+		require.NotNil(t, bp.Version)
+		assert.Equal(t, graphql1.BlendVersionV2_1, *bp.Version)
 		// shares is the ACTIVE (non-queued) share balance only.
 		assert.Equal(t, "1000000", bp.Shares)
 		// lpTokens/usdValue include queued shares — still the user's slashable,
@@ -497,6 +499,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		require.Len(t, byPool, 2)
 
 		v2 := byPool[v2Pool]
+		require.NotNil(t, v2.Version)
+		assert.Equal(t, graphql1.BlendVersionV2, *v2.Version)
 		// lpTokens = 1_000_000*20_000_000/10_000_000 = 2_000_000; USD = 0.2*$0.50.
 		require.NotNil(t, v2.LpTokens)
 		assert.Equal(t, "2000000", *v2.LpTokens)
@@ -509,6 +513,8 @@ func TestAccountResolver_BlendPositions(t *testing.T) {
 		assert.InDelta(t, 0.000005, *v2.EmissionsEarnedUsd, 1e-12)
 
 		v21 := byPool[poolAddr]
+		require.NotNil(t, v21.Version)
+		assert.Equal(t, graphql1.BlendVersionV2_1, *v21.Version)
 		require.NotNil(t, v21.UsdValue)
 		assert.InDelta(t, 0.715, *v21.UsdValue, 1e-9)
 	})

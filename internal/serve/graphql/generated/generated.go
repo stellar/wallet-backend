@@ -256,6 +256,7 @@ type ComplexityRoot struct {
 		Q4w                 func(childComplexity int) int
 		Shares              func(childComplexity int) int
 		UsdValue            func(childComplexity int) int
+		Version             func(childComplexity int) int
 	}
 
 	BlendBackstopQueueChange struct {
@@ -328,6 +329,7 @@ type ComplexityRoot struct {
 		Reserves         func(childComplexity int) int
 		Status           func(childComplexity int) int
 		SuppliedUsd      func(childComplexity int) int
+		Version          func(childComplexity int) int
 	}
 
 	BlendPoolConnection struct {
@@ -1900,6 +1902,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendBackstopPosition.UsdValue(childComplexity), true
+	case "BlendBackstopPosition.version":
+		if e.ComplexityRoot.BlendBackstopPosition.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Version(childComplexity), true
 
 	case "BlendBackstopQueueChange.account":
 		if e.ComplexityRoot.BlendBackstopQueueChange.Account == nil {
@@ -2247,6 +2255,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BlendPool.SuppliedUsd(childComplexity), true
+	case "BlendPool.version":
+		if e.ComplexityRoot.BlendPool.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Version(childComplexity), true
 
 	case "BlendPoolConnection.edges":
 		if e.ComplexityRoot.BlendPoolConnection.Edges == nil {
@@ -4452,6 +4466,8 @@ shares earn no emissions).
 type BlendBackstopPosition {
   poolAddress: String!
   poolName: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
   shares: String!
   """
   The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
@@ -4496,6 +4512,8 @@ yield would report a number that looks real and isn't.
 type BlendPool {
   address: String!
   name: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
   """
   Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
   (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
@@ -8921,6 +8939,8 @@ func (ec *executionContext) fieldContext_BlendAccountPositions_backstop(_ contex
 				return ec.fieldContext_BlendBackstopPosition_poolAddress(ctx, field)
 			case "poolName":
 				return ec.fieldContext_BlendBackstopPosition_poolName(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendBackstopPosition_version(ctx, field)
 			case "shares":
 				return ec.fieldContext_BlendBackstopPosition_shares(ctx, field)
 			case "lpTokens":
@@ -10528,6 +10548,35 @@ func (ec *executionContext) fieldContext_BlendBackstopPosition_poolName(_ contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_version(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
 		},
 	}
 	return fc, nil
@@ -12270,6 +12319,35 @@ func (ec *executionContext) fieldContext_BlendPool_name(_ context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendPool_version(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _BlendPool_status(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -12756,6 +12834,8 @@ func (ec *executionContext) fieldContext_BlendPoolEdge_node(_ context.Context, f
 				return ec.fieldContext_BlendPool_address(ctx, field)
 			case "name":
 				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendPool_version(ctx, field)
 			case "status":
 				return ec.fieldContext_BlendPool_status(ctx, field)
 			case "oracleContractId":
@@ -18030,6 +18110,8 @@ func (ec *executionContext) fieldContext_Query_blendPool(ctx context.Context, fi
 				return ec.fieldContext_BlendPool_address(ctx, field)
 			case "name":
 				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendPool_version(ctx, field)
 			case "status":
 				return ec.fieldContext_BlendPool_status(ctx, field)
 			case "oracleContractId":
@@ -27714,6 +27796,8 @@ func (ec *executionContext) _BlendBackstopPosition(ctx context.Context, sel ast.
 			}
 		case "poolName":
 			out.Values[i] = ec._BlendBackstopPosition_poolName(ctx, field, obj)
+		case "version":
+			out.Values[i] = ec._BlendBackstopPosition_version(ctx, field, obj)
 		case "shares":
 			out.Values[i] = ec._BlendBackstopPosition_shares(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -29085,6 +29169,8 @@ func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet
 			}
 		case "name":
 			out.Values[i] = ec._BlendPool_name(ctx, field, obj)
+		case "version":
+			out.Values[i] = ec._BlendPool_version(ctx, field, obj)
 		case "status":
 			out.Values[i] = ec._BlendPool_status(ctx, field, obj)
 		case "oracleContractId":
@@ -36638,6 +36724,22 @@ func (ec *executionContext) unmarshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellar�
 }
 
 func (ec *executionContext) marshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus(ctx context.Context, sel ast.SelectionSet, v *BlendPoolStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, v any) (*BlendVersion, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(BlendVersion)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, sel ast.SelectionSet, v *BlendVersion) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

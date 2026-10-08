@@ -86,6 +86,7 @@ func Test_BlendPool_DecodesWithNestedReservesAndNullFloats(t *testing.T) {
 	payload := []byte(`{
 		"address": "CPOOLADDRESS",
 		"name": "Fixed Pool",
+		"version": "V2",
 		"status": "ACTIVE",
 		"oracleContractId": "CORACLE",
 		"backstopRate": 4750000,
@@ -127,6 +128,8 @@ func Test_BlendPool_DecodesWithNestedReservesAndNullFloats(t *testing.T) {
 	assert.Equal(t, "Fixed Pool", *pool.Name)
 	require.NotNil(t, pool.Status)
 	assert.Equal(t, BlendPoolStatusActive, *pool.Status)
+	require.NotNil(t, pool.Version)
+	assert.Equal(t, BlendVersionV2, *pool.Version)
 	assert.Nil(t, pool.SuppliedUsd)
 	require.NotNil(t, pool.BorrowedUsd)
 	assert.InDelta(t, 123.45, *pool.BorrowedUsd, 0.0001)
@@ -199,6 +202,7 @@ func Test_BlendAccountPositions_DecodesBackstopAndQ4W(t *testing.T) {
 			{
 				"poolAddress": "CPOOL1",
 				"poolName": "Pool One",
+				"version": "V2_1",
 				"shares": "1000",
 				"lpTokens": "2000",
 				"usdValue": null,
@@ -236,6 +240,8 @@ func Test_BlendAccountPositions_DecodesBackstopAndQ4W(t *testing.T) {
 	require.Len(t, positions.Backstop, 1)
 	bp := positions.Backstop[0]
 	assert.Equal(t, "1000", bp.Shares)
+	require.NotNil(t, bp.Version)
+	assert.Equal(t, BlendVersionV2_1, *bp.Version)
 	assert.Nil(t, bp.UsdValue)
 	require.Len(t, bp.Q4W, 1)
 	assert.Equal(t, "100", bp.Q4W[0].Amount)

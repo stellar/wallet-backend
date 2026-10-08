@@ -53,6 +53,7 @@ const (
 type BlendPool struct {
 	Address          string           `json:"address"`
 	Name             *string          `json:"name,omitempty"`
+	Version          *BlendVersion    `json:"version,omitempty"`
 	Status           *BlendPoolStatus `json:"status,omitempty"`
 	OracleContractID *string          `json:"oracleContractId,omitempty"`
 	BackstopRate     *int32           `json:"backstopRate,omitempty"`
@@ -253,14 +254,15 @@ type BlendReservePosition struct {
 
 // BlendBackstopPosition is an account's backstop deposit in one pool.
 type BlendBackstopPosition struct {
-	PoolAddress         string     `json:"poolAddress"`
-	PoolName            *string    `json:"poolName,omitempty"`
-	Shares              string     `json:"shares"`
-	LpTokens            string     `json:"lpTokens"`
-	UsdValue            *float64   `json:"usdValue,omitempty"`
-	Q4W                 []BlendQ4W `json:"q4w"`
-	EmissionsEarnedBlnd string     `json:"emissionsEarnedBlnd"`
-	EmissionsEarnedUsd  *float64   `json:"emissionsEarnedUsd,omitempty"`
+	PoolAddress         string        `json:"poolAddress"`
+	PoolName            *string       `json:"poolName,omitempty"`
+	Version             *BlendVersion `json:"version,omitempty"`
+	Shares              string        `json:"shares"`
+	LpTokens            string        `json:"lpTokens"`
+	UsdValue            *float64      `json:"usdValue,omitempty"`
+	Q4W                 []BlendQ4W    `json:"q4w"`
+	EmissionsEarnedBlnd string        `json:"emissionsEarnedBlnd"`
+	EmissionsEarnedUsd  *float64      `json:"emissionsEarnedUsd,omitempty"`
 }
 
 // BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix seconds).
