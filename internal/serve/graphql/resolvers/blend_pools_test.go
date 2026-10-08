@@ -354,12 +354,16 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.NotNil(t, alpha.Admin)
 		assert.Equal(t, adminA, *alpha.Admin)
 		assert.True(t, alpha.InRewardZone)
+		require.NotNil(t, alpha.Version)
+		assert.Equal(t, graphql1.BlendVersionV2, *alpha.Version)
 		require.Len(t, alpha.Reserves, 2)
 	})
 
 	t.Run("Pool Beta: no admin, not in reward zone", func(t *testing.T) {
 		assert.Nil(t, beta.Admin)
 		assert.False(t, beta.InRewardZone)
+		require.NotNil(t, beta.Version)
+		assert.Equal(t, graphql1.BlendVersionV2_1, *beta.Version)
 	})
 
 	r0, r1 := alpha.Reserves[0], alpha.Reserves[1]
@@ -679,7 +683,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.InDelta(t, 35.04758444233353, *byAddr[poolA].NetApy, 1e-9)
 	})
 
-	t.Run("a pool whose backstop is not pinned has a null backstopUsd", func(t *testing.T) {
+	t.Run("a pool whose backstop is not pinned has a null version and backstopUsd", func(t *testing.T) {
 		execTestDB(t, `UPDATE blend_pools SET backstop_contract_id = $1 WHERE pool_contract_id = $2`,
 			types.AddressBytea(randomContractAddress(t)), types.AddressBytea(poolB))
 		t.Cleanup(func() {
@@ -690,6 +694,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		one, err := resolver.BlendPool(testCtx, poolB)
 		require.NoError(t, err)
 		require.NotNil(t, one)
+		assert.Nil(t, one.Version)
 		assert.Nil(t, one.BackstopUsd)
 	})
 
@@ -705,6 +710,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.Len(t, got, 2)
 		for _, p := range got {
 			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil without pinned backstops", p.Address)
+			assert.Nil(t, p.Version, "pool %s version must be nil without pinned backstops", p.Address)
 		}
 	})
 

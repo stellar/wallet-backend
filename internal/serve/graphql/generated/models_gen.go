@@ -145,7 +145,9 @@ type BlendBackstopClaimed struct {
 type BlendBackstopPosition struct {
 	PoolAddress string  `json:"poolAddress"`
 	PoolName    *string `json:"poolName,omitempty"`
-	Shares      string  `json:"shares"`
+	// The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes.
+	Version *BlendVersion `json:"version,omitempty"`
+	Shares  string        `json:"shares"`
 	// The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
 	// Null when that rate is unknown: the pool's blend_backstop_pools balance can
 	// be absent or zeroed (an emissions-only write creates the row with zero
@@ -172,6 +174,8 @@ type BlendBackstopPosition struct {
 type BlendPool struct {
 	Address string  `json:"address"`
 	Name    *string `json:"name,omitempty"`
+	// The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes.
+	Version *BlendVersion `json:"version,omitempty"`
 	// Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
 	// (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
 	// SETUP reject both. Null until the pool's config entry has been ingested, and

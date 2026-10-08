@@ -883,6 +883,8 @@ func (s *BlendLiveIngestionTestSuite) assertWhaleFinalPositions(positions *wbtyp
 	s.Assert().Empty(bp.Q4W, "the queued withdrawal was dequeued")
 	s.Assert().GreaterOrEqual(parseBigIntStr(s.T(), bp.EmissionsEarnedBlnd).Sign(), 0)
 
+	s.Require().NotNil(bp.Version)
+	s.Assert().Equal(wbtypes.BlendVersionV2_1, *bp.Version, "the standalone backstop is pinned as V2_1")
 	s.Require().Len(positions.BackstopClaimed, 1, "one backstop is deployed on standalone")
 	s.Assert().Equal(wbtypes.BlendVersionV2_1, positions.BackstopClaimed[0].Version)
 	s.Assert().Greater(parseBigIntStr(s.T(), positions.BackstopClaimed[0].LpTokens).Sign(), 0, "whale claimed backstop emissions in phase 2")

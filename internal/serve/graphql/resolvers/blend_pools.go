@@ -263,6 +263,7 @@ func (d *blendAssembly) buildPool(pool blenddata.Pool, reserves []blenddata.Rese
 	return &graphql1.BlendPool{
 		Address:          poolAddr,
 		Name:             pool.Name,
+		Version:          d.poolVersion(poolAddr),
 		Status:           blendPoolStatusEnum(pool.Status),
 		OracleContractID: addressPtrOrNil(pool.OracleContractID),
 		BackstopRate:     pool.BackstopRate,
@@ -394,6 +395,7 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 		metaByContractID:           metaByContractID,
 		backstopPrices:             backstopPrices,
 		blndPrice:                  newestBLNDPrice(backstopPrices, backstopIDs),
+		networkPassphrase:          passphrase,
 		now:                        now,
 	}
 
