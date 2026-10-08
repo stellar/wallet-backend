@@ -49,11 +49,11 @@ flowchart LR
     IX --> SC[state changes]
     IX --> B[balance updates]
     IX --> P[protocol events]
-    T & O & SC & B & P --> TX[(one DB transaction)]
-    TX --> CUR[cursor + 1]
+    T & O & SC & B & P --> TX[(commit set)]
+    TX --> CUR[cursor advance]
 ```
 
-The indexer runs the transactions of a ledger in parallel, each producing rows for every table. Everything for the ledger commits in one database transaction with the cursor advance, so a crash never leaves a half-ingested ledger. Details in [ingestion](ingestion.md).
+The indexer runs the transactions of a ledger in parallel, each producing rows for every table. The rows are written by a set of transactions that commit together, with the cursor advance strictly last, so a crash never serves a half-ingested ledger. Details in [ingestion](ingestion.md).
 
 ## What is stored
 

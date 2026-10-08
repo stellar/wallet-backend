@@ -41,34 +41,36 @@ Startup:
 
 ```mermaid
 flowchart LR
-    Probe[Probe lock session] --> Fetch[Fetch ledger]
-    Fetch --> Index[Index ledger]
-    Index --> Classify[Classify contracts]
-    Classify --> Persist[Persist one transaction]
-    Persist --> Probe
-    Probe -->|session dead| Exit[Exit process]
-    Fetch -->|retries exhausted| Exit
-    Persist -->|permanent error| Exit
+    F[Fetch ledger] -->|1 slot| P[Process ledger]
+    P -->|queue| S[Persist batch]
+    S --> SB[7 sibling transactions]
+    S --> CO[Coordinating transaction]
+    SB --> C1[Commit siblings]
+    C1 --> C2[Commit coordinator + cursor]
+    F -->|retries exhausted| X[Exit process]
+    S -->|permanent error| X
 ```
 
-Each loop iteration handles one ledger:
+Live ingestion is a pipeline of three stages that run at the same time, joined by channels:
 
-- **Probe lock session.** Runs `SELECT 1` on the connection that holds the advisory lock. If that session is gone, the lock is gone too, and the process exits.
-- **Fetch ledger.** Reads the ledger from the ledger source. Up to 10 attempts, with backoff doubling from 1 s to a 30 s cap.
-- **Index ledger.** Runs the [indexer](#indexer) and fills an in-memory buffer.
-- **Classify contracts.** Matches WASM uploads and contract deployments in the ledger against registered protocol validators. Any RPC calls (for example SEP-41 token metadata) happen here, before a database transaction opens. The database read in this step has its own 5-attempt retry.
-- **Persist one transaction.** Writes everything for the ledger and advances `latest_ingest_ledger` in a single database transaction. If the transaction fails, nothing from the ledger is kept.
+- **Fetch.** Reads the next ledger from the ledger source. Up to 10 attempts, with backoff doubling from 1 s to a 30 s cap. Hands the ledger on through a one-slot channel, so fetch works one ledger ahead of process.
+- **Process.** Takes a free buffer, runs the [indexer](#indexer) over the ledger, and queues the filled buffer for persist. Buffers rotate: `2 × LIVE_PERSIST_MAX_BATCH_SIZE + 1` of them exist, which is also the most ledgers the pipeline holds in memory at once.
+- **Persist.** Takes the queued ledgers, up to `LIVE_PERSIST_MAX_BATCH_SIZE` consecutive ones (default 1), and commits them as one batch. With the default, every ledger gets its own commit set. A larger value lets a backlog coalesce into fewer, bigger commits at the cost of coarser crash recovery; `wallet_ingestion_persist_batch_size` shows what the stage is doing.
 
-Write order inside the persist transaction:
+Before a batch opens any transaction it probes the advisory-lock session with `SELECT 1`; if that session is gone the lock is gone too, and the process exits. It also builds one classification plan for the whole batch: WASM uploads and contract deployments are matched against the registered protocol validators and any RPC calls (for example SEP-41 token metadata) happen here, with their own 5-attempt retry on the database read.
 
-1. `trustline_assets` rows referenced by this ledger.
-2. `contract_tokens` rows for Stellar Asset Contracts (SAC) seen for the first time.
-3. Protocol classification results, then `protocol_wasms`.
-4. Protocol state, for each protocol whose cursor wins its compare-and-swap for this ledger.
-5. `protocol_contracts`.
-6. `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes` (PostgreSQL `COPY`).
-7. Balance tables: `trustline_balances`, `native_balances`, `sac_balances`, `liquidity_pools`, `liquidity_pool_balances`.
-8. `latest_ingest_ledger`, with a guarded update. It succeeds only if the stored value is this ledger or the one before it.
+A batch is written by eight transactions that open together and commit in a fixed order:
+
+| Transaction | Writes | Commit |
+| --- | --- | --- |
+| `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes` (five siblings, one each) | The bulk tables, by `COPY`, every ledger of the batch in order. Protocol history rows also go through the `state_changes` sibling. | First, with `synchronous_commit = off` |
+| `balances` sibling | `native_balances`, `liquidity_pools`, `liquidity_pool_balances` upserts | First, with `synchronous_commit = off` |
+| `trustlines` sibling | `trustline_assets`, then `trustline_balances` upserts | First, with `synchronous_commit = off` |
+| Coordinating transaction | `contract_tokens` for new SACs, classification results and `protocol_wasms`, `protocol_contracts`, protocol current state (each protocol's cursor swapped `N-1 → N` per ledger), `sac_balances`, and finally `latest_ingest_ledger` set to the batch's last ledger with a guarded update | Last, synchronously |
+
+Each sibling owns a disjoint set of tables with no foreign keys to another transaction's tables, so the eight never contend. Nothing is visible until the commits start, and the coordinating commit's WAL flush covers the siblings' commit records, so a durable cursor means durable siblings. The only state a crash between the first and last commit can leave is rows above the cursor in the five bulk tables; startup reconciliation deletes those, the balance upserts simply reapply when the ledgers re-ingest, and API reads are bounded by the cursor so such rows are never served. A failure before the first commit rolls the whole batch back and it is retried; a failure after it is fatal and the next start repairs it.
+
+This is why live ingest needs at least 9 pool connections: seven siblings, the coordinator, and the advisory-lock session that is held for the life of the process. The default `DB_MAX_CONNS` is 12. With fewer than 9 the process refuses to start: `db-max-conns is <n>, below the 9 connections live persist requires`.
 
 Persist retries and errors:
 
@@ -86,7 +88,7 @@ Every 100 ledgers the loop rereads `oldest_ingest_ledger` for the metric and che
 
 ### Shutdown
 
-SIGINT or SIGTERM cancels the root context. The in-flight ledger's transaction rolls back, so that ledger is fetched again on the next start. In live mode this counts as a clean exit with status 0.
+SIGINT or SIGTERM cancels the root context. A batch that has not reached its commit barrier rolls back entirely and its ledgers are fetched again on the next start; a barrier already in progress runs to completion. In live mode this counts as a clean exit with status 0.
 
 The live loop releases the advisory lock as it returns. If the unlock fails, the process destroys that connection so PostgreSQL ends the session and drops the lock. The process then stops its HTTP servers (10 s timeout), stops worker pools, closes the ledger source, and closes the database pool.
 
@@ -227,6 +229,8 @@ The live ingester applies these settings on every start. Backfill does not. All 
 | `COMPRESSION_COMPRESS_AFTER` | empty | How long after a chunk closes before it can be compressed. Empty leaves it unchanged. |
 | `COMPRESSION_MAX_CHUNKS` | 0 | `maxchunks_to_compress` per job run. 0 leaves it unchanged (TimescaleDB default: no limit). |
 
+`LIVE_PERSIST_MAX_BATCH_SIZE` (default 1) is the one live-mode knob outside TimescaleDB; see [Live mode](#live-mode).
+
 The compression jobs come from the hypertable definitions in the migrations. The ingester only changes their schedule and config. Policies are updated in place when they differ, so job IDs and run history survive restarts.
 
 When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_cursor` function and a job that runs it every hour on a fixed schedule. The job reads the oldest remaining ledger in `transactions` and raises `oldest_ingest_ledger` to it after retention drops chunks. It never lowers the cursor. When `RETENTION_PERIOD` is empty, the job is deleted.
@@ -241,6 +245,7 @@ When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_
 | Next ledger is older than the RPC's retention window | The RPC rejects the request, the 10 fetch attempts fail, and the process exits. | Restart with `LEDGER_BACKEND_TYPE=datastore` until caught up, or use an RPC with longer retention. |
 | Datastore buffer dead | A download worker ran out of retries. Every later read on that source fails, so the ingester exits at once without retrying. | Check bucket access, then restart. A restart builds a fresh buffer. |
 | Database failover | The lock session dies on the server. The next lock probe fails and the process exits. If a second ingester advanced the cursor first, the guarded cursor update refuses the write. | Restart. Transient connection errors during persist are retried before that. |
+| `DB_MAX_CONNS` below 9 | The process refuses to start: `db-max-conns is <n>, below the 9 connections live persist requires`. | Raise `DB_MAX_CONNS`; the default is 12. |
 | SIGINT or SIGTERM | The in-flight ledger rolls back. Live mode exits with status 0. | None. The next start refetches that ledger. |
 
 ## Where in the code

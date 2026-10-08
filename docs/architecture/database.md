@@ -106,7 +106,7 @@ When retention is on, a `reconcile_oldest_cursor` job runs every hour and moves 
 
 ## Writes
 
-Live ingest writes one ledger per transaction: history rows with batched inserts, balances with upserts, then the cursor. A crash mid-ledger rolls everything back and the ledger is re-ingested on restart.
+Live ingest writes each batch of ledgers (one ledger by default, up to `LIVE_PERSIST_MAX_BATCH_SIZE`) through eight transactions on separate connections: five stream the bulk tables by `COPY`, two upsert the balance tables, and a coordinating transaction stages contracts, protocol state and the cursor. The seven siblings commit first without waiting on the WAL flush; the coordinator commits last, synchronously, and its flush covers them. A crash before the first commit loses nothing. A crash between the commits can leave bulk rows above the cursor; startup reconciliation deletes them, and every read query is bounded by the cursor so they are never served. Details in [ingestion](ingestion.md#live-mode).
 
 Live ingest holds a session-level advisory lock keyed on the network passphrase for its whole life. The lock is what stops two live ingesters from writing the same network. Protocol migrations hold their own lock per protocol and strategy.
 
@@ -115,7 +115,7 @@ Live ingest holds a session-level advisory lock keyed on the network passphrase 
 | Process | Pool | Needs |
 |---|---|---|
 | `serve` | pgx pool, `QueryExecModeExec` (no server-side prepared statements) | Works behind PgBouncer in transaction pooling. Can target a read replica. |
-| `ingest` | pgx pool | A direct connection or session pooling, because of the advisory lock. Must target the primary. |
+| `ingest` | pgx pool, at least 9 connections (default 12) | A direct connection or session pooling, because of the advisory lock. Must target the primary. Live persist holds eight connections at its commit barrier plus the lock session, and refuses to start with fewer. |
 
 Pool size and lifetimes come from `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_LIFETIME`, `DB_MAX_CONN_IDLE_TIME`.
 
