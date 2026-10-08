@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -15,8 +16,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/services"
+	blendrates "github.com/stellar/wallet-backend/internal/services/blend"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
+
+// passphraseRPC is an RPC mock that only answers NetworkPassphrase, which
+// selects the pinned backstops whose LP/BLND prices the Blend resolvers read.
+func passphraseRPC(t *testing.T, passphrase string) services.RPCService {
+	t.Helper()
+	m := services.NewRPCServiceMock(t)
+	m.On("NetworkPassphrase").Return(passphrase).Maybe()
+	return m
+}
 
 // poolNodes unwraps a blendPools connection into its nodes, so the catalog
 // assertions below read against a plain slice regardless of the Relay
@@ -82,7 +94,7 @@ func mustDecodeCursor(t *testing.T, cursor string) string {
 //
 //	= 35.04758444233353 (python).
 //
-// backstopUsd = tokens(50_000_000, 7dec) * LP price($1.10) = 5.5.
+// backstopUsd = tokens(50_000_000, 7dec) * v2 LP price($1.10) = 5.5.
 //
 // Pool Beta r0 (single reserve): target=0.5 (5_000_000), r_base=0.02
 // (200_000), r_one=0.03 (300_000), ir_mod=1.0, b_supply=50_000_000,
@@ -96,7 +108,12 @@ func mustDecodeCursor(t *testing.T, cursor string) string {
 // token id => both emissions APRs are 0.
 // Single reserve => pool interestApy/netApy both equal supplyApy exactly
 // (emissionsSupplyApr contributes 0).
-// backstopUsd = tokens(4_000_000, 7dec) * LP price($1.10) = 0.44.
+// backstopUsd = tokens(4_000_000, 7dec) * v2.1 LP price($2.20) = 0.88.
+//
+// Pool Alpha belongs to the v2 backstop and Pool Beta to the v2.1 backstop.
+// Each backstopUsd uses its own backstop's LP price; BLND ($0.05) always
+// comes from the newest (v2.1) backstop, so the v2 BLND row ($9.00) never
+// shows up in Pool Alpha's emissions APR.
 func TestQueryResolver_BlendPools(t *testing.T) {
 	poolA := randomContractAddress(t)
 	poolB := randomContractAddress(t)
@@ -105,8 +122,10 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 	assetA1 := randomContractAddress(t) // Pool Alpha r0, 7 decimals
 	assetA2 := randomContractAddress(t) // Pool Alpha r1, 6 decimals
 	assetB1 := randomContractAddress(t) // Pool Beta r0, 5 decimals
-	cometAddr := randomContractAddress(t)
+	pins := blendrates.BackstopPins(network.PublicNetworkPassphrase)
+	v21Backstop, v2Backstop := pins[0].Address, pins[1].Address
 	blndAddr := randomContractAddress(t)
+	v2BlndAddr := randomContractAddress(t)
 
 	// blendPools' deterministic order follows Pools.GetPage's ORDER BY
 	// pool_contract_id (bytea order), not string/address order — compute
@@ -128,7 +147,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		Contract: &data.ContractModel{DB: testDBConnectionPool, Metrics: dbMetrics},
 		Blend:    blendModels,
 	}
-	resolver := &queryResolver{&Resolver{models: models, blendBackstopLPContractID: cometAddr}}
+	resolver := &queryResolver{&Resolver{models: models, rpcService: passphraseRPC(t, network.PublicNetworkPassphrase)}}
 
 	// --- contract_tokens metadata (name/symbol only; decimals authority is blend_reserves) ---
 	execTestDB(t, `
@@ -143,13 +162,13 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 	// --- pools --- (Pool Alpha is admin-owned and in the reward zone; Pool Beta has neither)
 	adminA := randomContractAddress(t)
 	execTestDB(t, `
-		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, admin, in_reward_zone, last_modified_ledger)
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, admin, in_reward_zone, backstop_contract_id, last_modified_ledger)
 		VALUES
-		($1, 'Pool Alpha', $2, 2000000, 0, 4, $5, true, 100),
-		($3, 'Pool Beta', $4, 1000000, 1, 6, NULL, false, 100)`,
+		($1, 'Pool Alpha', $2, 2000000, 0, 4, $5, true, $6, 100),
+		($3, 'Pool Beta', $4, 1000000, 1, 6, NULL, false, $7, 100)`,
 		types.AddressBytea(poolA), types.AddressBytea(oracleA),
 		types.AddressBytea(poolB), types.AddressBytea(oracleB),
-		types.AddressBytea(adminA))
+		types.AddressBytea(adminA), types.AddressBytea(v2Backstop), types.AddressBytea(v21Backstop))
 
 	// --- reserves ---
 	execTestDB(t, `
@@ -184,7 +203,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		($2, '1000000', '4000000', '0', 100)`,
 		types.AddressBytea(poolA), types.AddressBytea(poolB))
 
-	// --- oracle prices: reserve assets under each pool's own oracle, Comet leg under its own address.
+	// --- oracle prices: reserve assets under each pool's own oracle, each backstop's LP + BLND pair under the backstop's address.
 	// price_timestamp must be fresh: rows older than blendrates.MaxPriceAge are treated as missing. ---
 	execTestDB(t, `
 		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
@@ -192,19 +211,22 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		($1, $2, '25000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
 		($1, $3, '10000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
 		($4, $5, '30000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
-		($6, $6, '11000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
-		($6, $7, '500000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
+		($6, $6, '22000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($6, $7, '500000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($8, $8, '11000000', 7, EXTRACT(EPOCH FROM NOW())::bigint),
+		($8, $9, '90000000', 7, EXTRACT(EPOCH FROM NOW())::bigint)`,
 		types.AddressBytea(oracleA), types.AddressBytea(assetA1), types.AddressBytea(assetA2),
 		types.AddressBytea(oracleB), types.AddressBytea(assetB1),
-		types.AddressBytea(cometAddr), types.AddressBytea(blndAddr))
+		types.AddressBytea(v21Backstop), types.AddressBytea(blndAddr),
+		types.AddressBytea(v2Backstop), types.AddressBytea(v2BlndAddr))
 
 	t.Cleanup(func() {
 		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id IN ($1, $2)`, types.AddressBytea(poolA), types.AddressBytea(poolB))
 		execTestDB(t, `DELETE FROM blend_reserve_emissions WHERE pool_contract_id = $1`, types.AddressBytea(poolA))
 		execTestDB(t, `DELETE FROM blend_backstop_pools WHERE pool_contract_id IN ($1, $2)`, types.AddressBytea(poolA), types.AddressBytea(poolB))
 		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id IN ($1, $2)`, types.AddressBytea(poolA), types.AddressBytea(poolB))
-		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2, $3)`,
-			types.AddressBytea(oracleA), types.AddressBytea(oracleB), types.AddressBytea(cometAddr))
+		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id IN ($1, $2, $3, $4)`,
+			types.AddressBytea(oracleA), types.AddressBytea(oracleB), types.AddressBytea(v21Backstop), types.AddressBytea(v2Backstop))
 		execTestDB(t, `DELETE FROM contract_tokens WHERE contract_id IN ($1, $2, $3)`, assetA1, assetA2, assetB1)
 	})
 
@@ -454,7 +476,7 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		require.NotNil(t, beta.BorrowedUsd)
 		assert.InDelta(t, 600.0, *beta.BorrowedUsd, 1e-9)
 		require.NotNil(t, beta.BackstopUsd)
-		assert.InDelta(t, 0.44, *beta.BackstopUsd, 1e-9)
+		assert.InDelta(t, 0.88, *beta.BackstopUsd, 1e-9)
 		require.NotNil(t, beta.InterestApy)
 		assert.InDelta(t, 0.01596366724981446, *beta.InterestApy, 1e-9)
 		require.NotNil(t, beta.NetApy)
@@ -635,35 +657,54 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 		assert.Nil(t, byAddr[poolB].BackstopUsd, "zero balances beside emission state are an unfolded balance half, not $0")
 	})
 
-	t.Run("stale Comet LP rows null backstopUsd", func(t *testing.T) {
+	t.Run("stale LP rows null backstopUsd only for that backstop's pools", func(t *testing.T) {
 		execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint - 90000
-			WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))
+			WHERE oracle_contract_id = $1`, types.AddressBytea(v2Backstop))
 		t.Cleanup(func() {
 			execTestDB(t, `UPDATE blend_oracle_prices SET price_timestamp = EXTRACT(EPOCH FROM NOW())::bigint
-				WHERE oracle_contract_id = $1`, types.AddressBytea(cometAddr))
+				WHERE oracle_contract_id = $1`, types.AddressBytea(v2Backstop))
 		})
 
 		conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
-		got := poolNodes(conn)
-		require.Len(t, got, 2)
-		for _, p := range got {
-			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil once the LP price is stale", p.Address)
+		byAddr := map[string]*graphql1.BlendPool{}
+		for _, p := range poolNodes(conn) {
+			byAddr[p.Address] = p
 		}
+		require.Len(t, byAddr, 2)
+		assert.Nil(t, byAddr[poolA].BackstopUsd, "v2 LP price is stale")
+		require.NotNil(t, byAddr[poolB].BackstopUsd, "v2.1 LP price is still fresh")
+		assert.InDelta(t, 0.88, *byAddr[poolB].BackstopUsd, 1e-9)
+		require.NotNil(t, byAddr[poolA].NetApy, "BLND comes from the v2.1 backstop, so Pool Alpha's emissions stay priced")
+		assert.InDelta(t, 35.04758444233353, *byAddr[poolA].NetApy, 1e-9)
 	})
 
-	t.Run("unset backstop LP pin nulls backstopUsd (no LP price read at all)", func(t *testing.T) {
-		// With the pin empty, GetBackstopLPPrices short-circuits to an empty
-		// result without querying, so the LP price is never found and every
-		// pool's backstopUsd is null — even though the Comet rows are present
-		// and fresh. This exercises the cmd→resolver plumbing end-to-end.
-		unpinned := &queryResolver{&Resolver{models: models}}
+	t.Run("a pool whose backstop is not pinned has a null backstopUsd", func(t *testing.T) {
+		execTestDB(t, `UPDATE blend_pools SET backstop_contract_id = $1 WHERE pool_contract_id = $2`,
+			types.AddressBytea(randomContractAddress(t)), types.AddressBytea(poolB))
+		t.Cleanup(func() {
+			execTestDB(t, `UPDATE blend_pools SET backstop_contract_id = $1 WHERE pool_contract_id = $2`,
+				types.AddressBytea(v21Backstop), types.AddressBytea(poolB))
+		})
+
+		one, err := resolver.BlendPool(testCtx, poolB)
+		require.NoError(t, err)
+		require.NotNil(t, one)
+		assert.Nil(t, one.BackstopUsd)
+	})
+
+	t.Run("network without pinned backstops nulls backstopUsd (no LP price read at all)", func(t *testing.T) {
+		// A network without pinned backstops passes no IDs, so
+		// GetBackstopLPPrices short-circuits to an empty result without
+		// querying, the LP price is never found, and every pool's backstopUsd
+		// is null — even though the Comet rows are present and fresh.
+		unpinned := &queryResolver{&Resolver{models: models, rpcService: passphraseRPC(t, "")}}
 		conn, err := unpinned.BlendPools(testCtx, nil, nil, nil, nil)
 		require.NoError(t, err)
 		got := poolNodes(conn)
 		require.Len(t, got, 2)
 		for _, p := range got {
-			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil when the backstop LP pin is unset", p.Address)
+			assert.Nil(t, p.BackstopUsd, "pool %s backstopUsd must be nil without pinned backstops", p.Address)
 		}
 	})
 
@@ -708,7 +749,7 @@ func TestQueryResolver_BlendPools_Empty(t *testing.T) {
 		Contract: &data.ContractModel{DB: testDBConnectionPool, Metrics: m.DB},
 		Blend:    blenddata.NewModels(testDBConnectionPool, m.DB),
 	}
-	resolver := &queryResolver{&Resolver{models: models}}
+	resolver := &queryResolver{&Resolver{models: models, rpcService: passphraseRPC(t, "")}}
 
 	conn, err := resolver.BlendPools(testCtx, nil, nil, nil, nil)
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -120,15 +121,15 @@ func priceDataScVal(price int64, timestamp uint64) xdr.ScVal {
 	return v
 }
 
-func newTestSnapshotService(t *testing.T, oraclePrices *blenddata.OraclePriceModel, meta services.ContractMetadataService, cometID string, rpc services.RPCService, bpm *metrics.BlendPriceMetrics) *PriceSnapshotService {
+func newTestSnapshotService(t *testing.T, oraclePrices *blenddata.OraclePriceModel, meta services.ContractMetadataService, networkPassphrase string, rpc services.RPCService, bpm *metrics.BlendPriceMetrics) *PriceSnapshotService {
 	t.Helper()
 	svc, err := NewPriceSnapshotService(PriceSnapshotConfig{
-		OraclePrices:         oraclePrices,
-		Metadata:             meta,
-		Interval:             time.Minute,
-		BackstopLPContractID: cometID,
-		RPC:                  rpc,
-		Metrics:              bpm,
+		OraclePrices:      oraclePrices,
+		Metadata:          meta,
+		Interval:          time.Minute,
+		NetworkPassphrase: networkPassphrase,
+		RPC:               rpc,
+		Metrics:           bpm,
 	})
 	require.NoError(t, err)
 	return svc
@@ -156,13 +157,13 @@ func TestNewPriceSnapshotService_Validation(t *testing.T) {
 		_, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute})
 		assert.Error(t, err)
 	})
-	t.Run("BackstopLPContractID is optional", func(t *testing.T) {
+	t.Run("RPC is optional on a network without pinned backstops", func(t *testing.T) {
 		svc, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute, Metrics: bpm})
 		require.NoError(t, err)
 		require.NotNil(t, svc)
 	})
-	t.Run("requires RPC when BackstopLPContractID is set", func(t *testing.T) {
-		_, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute, BackstopLPContractID: randomContractAddr(t), Metrics: bpm})
+	t.Run("requires RPC when the network has pinned backstops", func(t *testing.T) {
+		_, err := NewPriceSnapshotService(PriceSnapshotConfig{OraclePrices: oraclePrices, Metadata: meta, Interval: time.Minute, NetworkPassphrase: network.PublicNetworkPassphrase, Metrics: bpm})
 		assert.ErrorContains(t, err, "RPC is required")
 	})
 }
@@ -489,57 +490,98 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 	assert.Equal(t, 1, countOraclePriceRows(t, ctx, pool))
 }
 
-// TestSnapshotOnce_CometLeg covers the optional BLND/LP-share derived-pricing
-// leg: when BackstopLPContractID is configured, fetchCometState reads the
-// pool's ledger entries and two rows are written under oracle_contract_id = the Comet pool
-// address — the BLND row keyed by the real BLND token address, the LP-share
-// row self-priced (asset_contract_id == oracle_contract_id).
-func TestSnapshotOnce_CometLeg(t *testing.T) {
-	ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
-	defer cleanup()
+// mockBackstopComets wires rpc for one Comet leg pass over backstopIDs: one
+// getLedgerEntries call reading every backstop's instance (each names its own
+// fresh Comet pool as BToken), then one call per Comet pool. The Comet pool of
+// backstopIDs[i] answers with cometErrs[i] when non-nil; otherwise it is an
+// 80/20 pool pricing BLND at 0.2 and the LP share at 1.0. Returns each
+// backstop's BLND token address.
+func mockBackstopComets(t *testing.T, rpc *services.RPCServiceMock, backstopIDs []string, cometErrs []error) []string {
+	t.Helper()
+	instanceKey := xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}
+	backstopEntries := make([]entities.LedgerEntryResult, len(backstopIDs))
+	blndAddrs := make([]string, len(backstopIDs))
+	for i, backstopID := range backstopIDs {
+		cometID := randomContractAddr(t)
+		backstopEntries[i] = cometEntryResult(t, backstopID, instanceKey, backstopInstanceVal(t, cometID))
+		blndAddrs[i] = randomContractAddr(t)
 
-	cometID := randomContractAddr(t)
-	blndAddr := randomContractAddr(t)
-	usdcAddr := randomContractAddr(t)
-
-	// One atomic getLedgerEntries read serves the whole Comet leg: the
-	// instance (WASM hash check), the AllRecordData record map, and
-	// TotalShares — mirroring the live mainnet entry dump in comet.go.
-	meta := services.NewContractMetadataServiceMock(t)
-	entries := []entities.LedgerEntryResult{
-		cometEntryResult(t, cometID, xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}, cometInstanceVal(t, "8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36")),
-		cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t,
-			[]string{blndAddr, usdcAddr},
-			[]xdr.ScVal{
-				cometRecordVal(t, big.NewInt(40_000_000_000_000), big.NewInt(8_000_000), 100_000_000_000, 0), // 4,000,000.0 BLND, weight 0.8
-				cometRecordVal(t, big.NewInt(2_000_000_000_000), big.NewInt(2_000_000), 100_000_000_000, 1),  // 200,000.0 USDC, weight 0.2
-			})),
-		cometEntryResult(t, cometID, cometUnitKeyScVal("TotalShares"), i128ScVal(10_000_000_000_000)), // 1,000,000.0 shares
+		entries := []entities.LedgerEntryResult{
+			cometEntryResult(t, cometID, instanceKey, cometInstanceVal(t, "d735c3395f59510172cf5cf838823a1389b97cfec6bf24e580e9bd77d2b3e687")),
+			cometEntryResult(t, cometID, cometUnitKeyScVal("AllRecordData"), cometRecordMapVal(t,
+				[]string{blndAddrs[i], randomContractAddr(t)},
+				[]xdr.ScVal{
+					cometRecordVal(t, big.NewInt(40_000_000_000_000), big.NewInt(8_000_000), 100_000_000_000, 0), // 4,000,000.0 BLND, weight 0.8
+					cometRecordVal(t, big.NewInt(2_000_000_000_000), big.NewInt(2_000_000), 100_000_000_000, 1),  // 200,000.0 USDC, weight 0.2
+				})),
+			cometEntryResult(t, cometID, cometUnitKeyScVal("TotalShares"), i128ScVal(10_000_000_000_000)), // 1,000,000.0 shares
+		}
+		keys := []string{entries[0].KeyXDR, entries[1].KeyXDR, entries[2].KeyXDR}
+		rpc.On("GetLedgerEntries", keys).
+			Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: entries}, cometErrs[i]).Once()
 	}
-	rpc := services.NewRPCServiceMock(t)
-	rpc.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool { return len(keys) == 3 })).
-		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: entries}, nil).Once()
+	rpc.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool { return len(keys) == len(backstopIDs) })).
+		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 1, Entries: backstopEntries}, nil).Once()
+	return blndAddrs
+}
 
-	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
-	svc := newTestSnapshotService(t, oraclePrices, meta, cometID, rpc, bpm)
+// TestSnapshotOnce_CometLeg covers the per-backstop BLND/LP-share
+// derived-pricing leg: each pinned backstop's Comet pool is discovered from
+// its BToken and valued, and two rows are written under oracle_contract_id =
+// the backstop address — the BLND row keyed by the BLND token address, the
+// LP-share row self-priced (asset_contract_id == oracle_contract_id).
+func TestSnapshotOnce_CometLeg(t *testing.T) {
+	pins := BackstopPins(network.PublicNetworkPassphrase)
+	require.Len(t, pins, 2)
+	backstopIDs := []string{pins[0].Address, pins[1].Address}
 
-	require.NoError(t, svc.SnapshotOnce(ctx))
+	t.Run("writes two rows per backstop", func(t *testing.T) {
+		ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+		defer cleanup()
 
-	blndRow, ok := getOraclePriceRow(t, ctx, pool, cometID, blndAddr)
-	require.True(t, ok, "expected a BLND leg row keyed by the BLND token address")
-	assert.Equal(t, "2000000", blndRow.Price)
-	assert.Equal(t, int32(7), blndRow.PriceDecimals)
+		rpc := services.NewRPCServiceMock(t)
+		blndAddrs := mockBackstopComets(t, rpc, backstopIDs, []error{nil, nil})
+		bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+		svc := newTestSnapshotService(t, oraclePrices, services.NewContractMetadataServiceMock(t), network.PublicNetworkPassphrase, rpc, bpm)
 
-	lpRow, ok := getOraclePriceRow(t, ctx, pool, cometID, cometID)
-	require.True(t, ok, "expected a self-priced LP-share row")
-	assert.Equal(t, "10000000", lpRow.Price)
-	assert.Equal(t, int32(7), lpRow.PriceDecimals)
+		require.NoError(t, svc.SnapshotOnce(ctx))
 
-	assert.Equal(t, 2, countOraclePriceRows(t, ctx, pool))
-	assert.Equal(t, 2.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
-	assert.Equal(t, 2.0, testutil.ToFloat64(bpm.PricesTracked))
+		now := time.Now().Unix()
+		for i, backstopID := range backstopIDs {
+			blndRow, ok := getOraclePriceRow(t, ctx, pool, backstopID, blndAddrs[i])
+			require.True(t, ok, "expected a BLND row under backstop %s", backstopID)
+			assert.Equal(t, "2000000", blndRow.Price)
+			assert.Equal(t, int32(7), blndRow.PriceDecimals)
+			assert.InDelta(t, now, blndRow.PriceTimestamp, 5, "BLND row timestamp should be ~now, not an oracle-reported one")
 
-	now := time.Now().Unix()
-	assert.InDelta(t, now, blndRow.PriceTimestamp, 5, "BLND row timestamp should be ~now, not an oracle-reported one")
-	assert.InDelta(t, now, lpRow.PriceTimestamp, 5, "LP row timestamp should be ~now, not an oracle-reported one")
+			lpRow, ok := getOraclePriceRow(t, ctx, pool, backstopID, backstopID)
+			require.True(t, ok, "expected a self-priced LP-share row under backstop %s", backstopID)
+			assert.Equal(t, "10000000", lpRow.Price)
+			assert.Equal(t, int32(7), lpRow.PriceDecimals)
+		}
+		assert.Equal(t, 4, countOraclePriceRows(t, ctx, pool))
+		assert.Equal(t, 4.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
+		assert.Equal(t, 4.0, testutil.ToFloat64(bpm.PricesTracked))
+	})
+
+	t.Run("one failing Comet pool does not stop the other backstop", func(t *testing.T) {
+		ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+		defer cleanup()
+
+		rpc := services.NewRPCServiceMock(t)
+		blndAddrs := mockBackstopComets(t, rpc, backstopIDs, []error{assert.AnError, nil})
+		bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+		svc := newTestSnapshotService(t, oraclePrices, services.NewContractMetadataServiceMock(t), network.PublicNetworkPassphrase, rpc, bpm)
+
+		err := svc.SnapshotOnce(ctx)
+		assert.ErrorContains(t, err, "backstop "+backstopIDs[0])
+
+		_, ok := getOraclePriceRow(t, ctx, pool, backstopIDs[1], blndAddrs[1])
+		assert.True(t, ok, "the healthy backstop's BLND row is still written")
+		_, ok = getOraclePriceRow(t, ctx, pool, backstopIDs[1], backstopIDs[1])
+		assert.True(t, ok, "the healthy backstop's LP-share row is still written")
+		assert.Equal(t, 2, countOraclePriceRows(t, ctx, pool))
+		assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("error")))
+		assert.Equal(t, 2.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
+	})
 }
