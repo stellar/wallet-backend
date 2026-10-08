@@ -182,7 +182,7 @@ flowchart LR
     Pool --> Compress[Compress done chunks]
 ```
 
-- **Check END_LEDGER.** `END_LEDGER` must be at most `latest_ingest_ledger`. Otherwise backfill exits with `end ledger %d cannot be greater than latest ingested ledger %d for backfilling`.
+- **Check END_LEDGER.** `END_LEDGER` must be at most `latest_ingest_ledger`. Otherwise backfill exits with `end ledger <end> cannot be greater than latest ingested ledger <latest> for backfilling`.
 - **Find gaps.** Backfill reads the ledger of the oldest row in `transactions` and lists missing ledger numbers between it and `END_LEDGER`. It adds the range from `START_LEDGER` up to the oldest ledger when the request starts earlier. Gaps are clipped to `[START_LEDGER, END_LEDGER]`.
 - **Split into batches.** Each gap is cut into batches of `BACKFILL_BATCH_SIZE` ledgers (default 250).
 - **Worker pool.** `BACKFILL_WORKERS` batches run at once. The default 0 means one per CPU the Go runtime may use (`GOMAXPROCS`). Each batch opens its own ledger source for a bounded range and reuses one indexer buffer.
@@ -326,7 +326,7 @@ When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_
 | Event | What the process does | What to do |
 | --- | --- | --- |
 | A second live ingester starts for the same network | The second one exits with `advisory lock not acquired`. The first keeps running. | Run one live ingester per network. |
-| `DB_MAX_CONNS` below 9 in live mode | The process refuses to start with `db-max-conns is %d, below the %d connections live persist requires`. | Raise `DB_MAX_CONNS`. The default is 12. |
+| `DB_MAX_CONNS` below 9 in live mode | The process refuses to start with `db-max-conns is <n>, below the 9 connections live persist requires`. | Raise `DB_MAX_CONNS`. The default is 12. |
 | Database failover ends the lock session | The next lock-session check fails and the process exits with `advisory lock session is no longer alive, the lock may have been lost`. If a second ingester advanced the cursor first, the guarded cursor update refuses the write. | Restart. Transient connection errors during persist are retried before that. |
 | SIGINT or SIGTERM | A batch before its barrier rolls back. A barrier in progress completes. Live mode exits with status 0. A failed lock-session check during shutdown counts as shutdown, not lock loss. | None. The next start refetches the rolled-back ledgers. |
 | Commit fails after the first sibling committed | The process exits with `ledger persist partially committed`. | Restart. Startup reconciliation deletes the orphaned bulk rows, and the batch re-ingests. |
