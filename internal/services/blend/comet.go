@@ -21,10 +21,8 @@
 // latestLedger), so the read is atomic by construction — a Comet transaction
 // can never interleave with it — where per-getter simulations would each
 // execute against whatever ledger is latest at that moment. The instance
-// entry's executable WASM hash is asserted against cometWasmHash before any
-// storage is decoded: the deployed contract has no upgrade entrypoint (its
-// layout cannot change at this address), so a mismatch means the configured
-// address is not the pinned Comet pool.
+// entry's executable WASM hash is checked against cometWasmHashes before any
+// storage is decoded, so an unknown layout is refused rather than misread.
 //
 // Verification (2026-07-22): the key encodings (unit enum variants as
 // single-element ScvVec[Symbol]), the Record field shapes, both legs'
@@ -59,12 +57,17 @@ const cometPriceDecimals = 7
 // tokens to treat as BLND/USDC.
 const cometTokenCount = 2
 
-// cometWasmHash is the executable WASM hash of the deployed Comet pool
-// contract (identical on mainnet and testnet; pinned 2026-07-08, re-confirmed
-// live 2026-07-22). fetchCometState refuses to decode storage whose contract
-// instance reports any other hash — the storage layout this file relies on
-// is defined by exactly this code.
-const cometWasmHash = "8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36"
+// cometWasmHashes are the executable WASM hashes of the Comet pool
+// contracts this file can decode, mapped to a human-readable version.
+// fetchCometState refuses to decode storage whose contract instance reports
+// any other hash. Both versions share the storage layout decoded here
+// (AllRecordData, TotalShares, Record{balance, weight, scalar}); v1.1's
+// changes (same-token swap guard, mint events, muxed transfer, `gulp`
+// removed) do not touch it.
+var cometWasmHashes = map[string]string{
+	"8abc28913035c07411ed5d134e6bfeab4723d97ddd4d1a22a0605d35c94d1a36": "Comet v1.0",
+	"d735c3395f59510172cf5cf838823a1389b97cfec6bf24e580e9bd77d2b3e687": "Comet v1.1",
+}
 
 // cometState is a Comet weighted pool's raw on-chain balances, weights, and
 // LP total supply, already split into BLND and USDC legs. Balance/weight/
@@ -254,7 +257,7 @@ func decodeContractDataVal(dataXDR string) (xdr.ScVal, error) {
 // fetchCometState reads the Comet pool's state at cometID — token balances,
 // normalized weights, and LP total supply — from its ContractData ledger
 // entries in a single getLedgerEntries call (atomic; see package doc), after
-// asserting the contract instance's WASM hash matches cometWasmHash. The two
+// asserting the contract instance's WASM hash is in cometWasmHashes. The two
 // legs are split into BLND and USDC by weight: the higher-weighted leg is
 // BLND (the pinned Comet pool is an 80/20 BLND:USDC split). Any RPC failure,
 // missing entry, WASM hash mismatch, unexpected shape, token count other
@@ -311,8 +314,8 @@ func fetchCometState(ctx context.Context, rpc services.RPCService, cometID strin
 	if !ok {
 		return nil, fmt.Errorf("blend: fetchCometState: pool %s: contract executable is not WASM (got %v)", cometID, instance.Executable.Type)
 	}
-	if gotHash := hex.EncodeToString(wasmHash[:]); gotHash != cometWasmHash {
-		return nil, fmt.Errorf("blend: fetchCometState: pool %s: WASM hash %s does not match the pinned Comet hash %s — refusing to decode its storage", cometID, gotHash, cometWasmHash)
+	if gotHash := hex.EncodeToString(wasmHash[:]); cometWasmHashes[gotHash] == "" {
+		return nil, fmt.Errorf("blend: fetchCometState: pool %s: WASM hash %s is not a known Comet hash (%v) — refusing to decode its storage", cometID, gotHash, cometWasmHashes)
 	}
 
 	recordMap, ok := vals["AllRecordData"].GetMap()
