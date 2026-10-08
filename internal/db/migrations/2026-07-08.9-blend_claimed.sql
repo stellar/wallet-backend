@@ -19,15 +19,16 @@ CREATE TABLE blend_pool_claimed (
 -- The resolver reads by account; user is not the primary-key prefix.
 CREATE INDEX idx_blend_pool_claimed_user ON blend_pool_claimed (user_account_id);
 
--- Lifetime backstop-emission claims in Comet LP tokens, account-wide. A backstop
--- `claim` auto-compounds the claimed BLND into LP across every pool the caller
--- claimed from and emits a single aggregate amount carrying NO pool address, so
--- this total can only be keyed by user, not by pool.
+-- Lifetime backstop-emission claims per (user, backstop), in that backstop's
+-- Comet LP tokens. A backstop `claim` auto-compounds the claimed BLND into LP
+-- across every pool the caller claimed from and emits a single aggregate amount
+-- carrying NO pool address, so the key is user + emitting backstop.
 CREATE TABLE blend_backstop_claimed (
     user_account_id      BYTEA NOT NULL,
+    backstop_contract_id BYTEA NOT NULL,
     claimed_lp           TEXT NOT NULL DEFAULT '0',   -- Σ claimed Comet LP (7 decimals)
     last_modified_ledger INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (user_account_id)
+    PRIMARY KEY (user_account_id, backstop_contract_id)
 ) WITH (
     fillfactor = 90,
     autovacuum_vacuum_scale_factor = 0.02,

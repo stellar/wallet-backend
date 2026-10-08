@@ -39,6 +39,16 @@ func (s BlendPoolStatus) AcceptsBorrow() bool {
 	return s == BlendPoolStatusAdminActive || s == BlendPoolStatusActive
 }
 
+// BlendVersion is the Blend deployment a backstop belongs to.
+type BlendVersion string
+
+const (
+	// BlendVersionV2 is the original Blend v2 deployment.
+	BlendVersionV2 BlendVersion = "V2"
+	// BlendVersionV2_1 is the 2026-09-30 redeploy with the patched Comet LP token.
+	BlendVersionV2_1 BlendVersion = "V2_1"
+)
+
 // BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of any account.
 type BlendPool struct {
 	Address          string           `json:"address"`
@@ -170,14 +180,23 @@ func (c *BlendPoolConnection) Pools() []BlendPool {
 // BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has
 // touched.
 type BlendAccountPositions struct {
-	Pools             []BlendPoolPosition     `json:"pools"`
-	Backstop          []BlendBackstopPosition `json:"backstop"`
-	BackstopClaimedLp string                  `json:"backstopClaimedLp"`
+	Pools    []BlendPoolPosition     `json:"pools"`
+	Backstop []BlendBackstopPosition `json:"backstop"`
+	// BackstopClaimed is the account's lifetime backstop-emission claims, one entry per backstop.
+	BackstopClaimed []BlendBackstopClaimed `json:"backstopClaimed"`
 	// ActiveAuctions are the Dutch auctions where this account is the auction owner: being
 	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop address —
 	// carrying bad debt (BAD_DEBT) or settling interest (INTEREST). Sorted by
 	// (poolAddress, auctionType).
 	ActiveAuctions []BlendAuction `json:"activeAuctions"`
+}
+
+// BlendBackstopClaimed is an account's lifetime backstop-emission claims from one backstop, in
+// that backstop's Comet LP tokens (7 decimals). Each backstop has its own LP token, so totals
+// from different versions are never summed.
+type BlendBackstopClaimed struct {
+	Version  BlendVersion `json:"version"`
+	LpTokens string       `json:"lpTokens"`
 }
 
 // BlendAuction is one active Dutch auction on a Blend v2 pool. The amounts in Bid and Lot are raw

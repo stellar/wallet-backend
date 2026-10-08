@@ -267,7 +267,10 @@ const (
 			emissionsEarnedBlnd
 			emissionsEarnedUsd
 		}
-		backstopClaimedLp
+		backstopClaimed {
+			version
+			lpTokens
+		}
 		activeAuctions {
 			poolAddress
 			poolName

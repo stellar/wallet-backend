@@ -84,15 +84,14 @@ type BalanceEdge struct {
 }
 
 // BlendAccountPositions aggregates one account's Blend v2 exposure across every
-// pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in
-// Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP
-// token and re-deposits it, so LP tokens are what the claimer actually receives.
-// Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no
-// pool address, so this total can only ever be reported account-wide.
+// pool it has touched. backstopClaimed lists lifetime backstop-emission claims
+// per backstop. Unlike claimedBlnd (per pool), the on-chain backstop claim event
+// carries no pool address, so these totals are reported per backstop, not per
+// pool.
 type BlendAccountPositions struct {
-	Pools             []*BlendPoolPosition     `json:"pools"`
-	Backstop          []*BlendBackstopPosition `json:"backstop"`
-	BackstopClaimedLp string                   `json:"backstopClaimedLp"`
+	Pools           []*BlendPoolPosition     `json:"pools"`
+	Backstop        []*BlendBackstopPosition `json:"backstop"`
+	BackstopClaimed []*BlendBackstopClaimed  `json:"backstopClaimed"`
 	// Active Dutch auctions where this account is the auction owner: being
 	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
 	// address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
@@ -120,6 +119,16 @@ type BlendAuctionAmount struct {
 	AssetContractID string `json:"assetContractId"`
 	// Raw on-chain integer amount at the asset's native decimals, NOT a USD value.
 	Amount string `json:"amount"`
+}
+
+// BlendBackstopClaimed is an account's lifetime backstop-emission claims from
+// one backstop, in that backstop's Comet LP tokens (7 decimals): the backstop
+// converts claimed BLND into its LP token and re-deposits it, so LP tokens are
+// what the claimer receives. Each backstop has its own LP token, so totals from
+// different versions are never summed.
+type BlendBackstopClaimed struct {
+	Version  BlendVersion `json:"version"`
+	LpTokens string       `json:"lpTokens"`
 }
 
 // BlendBackstopPosition is an account's backstop deposit in one pool. The
@@ -715,6 +724,65 @@ func (e *BlendPoolStatus) UnmarshalJSON(b []byte) error {
 }
 
 func (e BlendPoolStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// BlendVersion is the Blend deployment a backstop belongs to. V2 is the original
+// deployment; V2_1 is the 2026-09-30 redeploy with the patched Comet LP token.
+// Both are indexed. Values for V2 backstop positions reflect the old Comet
+// pool's on-chain state after the 2026-08-25 incident.
+type BlendVersion string
+
+const (
+	BlendVersionV2   BlendVersion = "V2"
+	BlendVersionV2_1 BlendVersion = "V2_1"
+)
+
+var AllBlendVersion = []BlendVersion{
+	BlendVersionV2,
+	BlendVersionV2_1,
+}
+
+func (e BlendVersion) IsValid() bool {
+	switch e {
+	case BlendVersionV2, BlendVersionV2_1:
+		return true
+	}
+	return false
+}
+
+func (e BlendVersion) String() string {
+	return string(e)
+}
+
+func (e *BlendVersion) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendVersion(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendVersion", str)
+	}
+	return nil
+}
+
+func (e BlendVersion) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendVersion) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendVersion) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

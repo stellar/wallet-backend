@@ -483,7 +483,8 @@ func TestProcessLedger_StagesClaims(t *testing.T) {
 				rows[0].ClaimedBlnd == "500" && rows[0].LedgerNumber == 10
 		})).Return(nil).Once()
 		m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
-			return len(rows) == 1 && rows[0].User == userAddr && rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
+			return len(rows) == 1 && rows[0].User == userAddr && rows[0].Backstop == backstopAddr &&
+				rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
 		})).Return(nil).Once()
 		require.NoError(t, p.PersistCurrentState(ctx, nil))
 	})
@@ -568,7 +569,7 @@ func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
 	assert.Equal(t, "250", depositByPool[poolB].Amount.String)
 
 	// Auto-restake deposits mint backstop shares (not a cost-basis position),
-	// and the claim folds only the account-wide claimed-total accumulator —
+	// and the claim folds only the per-backstop claimed-total accumulator —
 	// neither stages a net-delta or auction fold.
 	assert.Empty(t, p.stagedNetDeltas)
 	assert.Empty(t, p.stagedAuctionAdjs)
@@ -582,7 +583,8 @@ func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
 	require.NoError(t, p.PersistHistory(ctx, nil))
 
 	m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
-		return len(rows) == 1 && rows[0].User == userAddr && rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
+		return len(rows) == 1 && rows[0].User == userAddr && rows[0].Backstop == backstopAddr &&
+			rows[0].ClaimedLp == "750" && rows[0].LedgerNumber == 10
 	})).Return(nil).Once()
 	require.NoError(t, p.PersistCurrentState(ctx, nil))
 }
@@ -675,7 +677,7 @@ func TestProcessLedger_SecondPinnedBackstopFolded(t *testing.T) {
 	assert.Equal(t, []string{poolA}, p.stagedRewardZones[olderBackstop].pools)
 
 	require.Len(t, p.stagedBackstopClaims, 1)
-	sc, ok := p.stagedBackstopClaims[user]
+	sc, ok := p.stagedBackstopClaims[backstopClaimKey{user: user, backstop: olderBackstop}]
 	require.True(t, ok, "the second pinned backstop's claim is folded; the unpinned one is dropped")
 	assert.Equal(t, "100", sc.amount.String())
 }
@@ -703,7 +705,14 @@ func TestProcessLedger_PersistsPerBackstopRewardZoneAndClaims(t *testing.T) {
 	m.pools.On("SetRewardZone", mock.Anything, mock.Anything, types.AddressBytea(older),
 		[]types.AddressBytea{types.AddressBytea(poolOld1), types.AddressBytea(poolOld2)}, int32(9)).Return(nil).Once()
 	m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
-		return len(rows) == 1 && rows[0].User == user && rows[0].ClaimedLp == "340" && rows[0].LedgerNumber == 9
+		got := map[string]string{}
+		for _, r := range rows {
+			if r.User != user {
+				return false
+			}
+			got[r.Backstop] = r.ClaimedLp
+		}
+		return len(rows) == 2 && got[newer] == "300" && got[older] == "40"
 	})).Return(nil).Once()
 
 	require.NoError(t, p.PersistCurrentState(ctx, nil))
