@@ -20,7 +20,7 @@ Table-by-table columns and keys are in the [data model](data-model.md).
 
 ```mermaid
 flowchart LR
-    I[ingest] -->|one tx per ledger| H[(hypertables)]
+    I[ingest] -->|one commit set per batch| H[(hypertables)]
     I -->|upserts| S[(current-state tables)]
     C[checkpoint bootstrap] -->|first start| S
     A[serve] -->|reads| H

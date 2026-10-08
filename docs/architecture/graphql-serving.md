@@ -215,6 +215,8 @@ The subtraction is unsigned. If the RPC that `serve` talks to is behind ingestio
 
 The pool uses `QueryExecModeExec`. pgx then sends each query without creating a server-side prepared statement. That keeps `serve` compatible with PgBouncer in transaction pooling mode, where a prepared statement can land on a different backend and fail with SQLSTATE 42P05.
 
+Every history read is bounded by `latest_ingest_ledger`: the query compares the row's TOID against the cursor in the same snapshot, so rows the ingester has written but not yet acknowledged with a cursor commit are never served, and a transaction never appears without its operations and state changes.
+
 Read replicas are a deployment choice. `serve` uses whatever `DATABASE_URL` points at, and nothing in the code routes reads elsewhere. `serve` only reads, so it can point at a replica. `/health` then reads `latest_ingest_ledger` from that replica, so replication lag counts toward the 50-ledger rule.
 
 ## Metrics
