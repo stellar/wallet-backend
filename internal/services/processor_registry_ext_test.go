@@ -41,3 +41,15 @@ func TestBuildProcessorsAllRegistered(t *testing.T) {
 		seen[base] = p.ProtocolID()
 	}
 }
+
+// TestStateChangeOrdinalBaseByProtocol pins the reader-side map to the
+// processors: every registered processor is in it with its own base, and it
+// names no protocol that is not registered.
+func TestStateChangeOrdinalBaseByProtocol(t *testing.T) {
+	procs, err := services.BuildProcessors(services.ProtocolDeps{}, services.GetAllProcessorIDs())
+	require.NoError(t, err)
+	require.Len(t, types.StateChangeOrdinalBaseByProtocol, len(procs))
+	for _, p := range procs {
+		assert.Equal(t, p.StateChangeOrdinalBase(), types.StateChangeOrdinalBaseByProtocol[p.ProtocolID()], "protocol %q", p.ProtocolID())
+	}
+}
