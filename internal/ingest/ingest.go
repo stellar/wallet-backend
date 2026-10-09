@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -249,6 +251,22 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		pools, err := models.AMMPools.GetAll(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("loading AMM pools: %w", err)
+		}
+		// An empty registry means this environment has never been seeded: read the venue's
+		// pools from its factory now, so fills from existing pools are trusted from the first
+		// ledger. Pools created later arrive through factory events.
+		if len(pools) == 0 && tradesVenues.SoroswapFactory != "" {
+			seeder := &prices.PoolSeeder{Fetcher: contractMetadataService}
+			pools, err = seeder.SoroswapPools(ctx, tradesVenues.SoroswapFactory, nil)
+			if err != nil {
+				return nil, nil, fmt.Errorf("seeding Soroswap pools: %w", err)
+			}
+			if err = db.RunInTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+				return models.AMMPools.BatchUpsert(ctx, tx, pools)
+			}); err != nil {
+				return nil, nil, fmt.Errorf("registering seeded Soroswap pools: %w", err)
+			}
+			log.Ctx(ctx).Infof("Seeded %d Soroswap pools from the factory", len(pools))
 		}
 		tradesRegistry = processors.NewAMMPoolRegistry(pools)
 		anchor := &prices.Anchor{}
