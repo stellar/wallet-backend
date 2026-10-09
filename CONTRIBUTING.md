@@ -6,6 +6,23 @@ Thanks for helping improve Wallet Backend. We welcome bug reports, feature reque
 
 This document does not replace it. It adds what is specific to this repository. This service is the data layer behind wallets that hold keys and sign transactions, so some steps are stricter here and some are spelled out in more detail. Where this document is silent, the Stellar Contribution Guide governs.
 
+## Contents
+
+- [Start with an issue](#start-with-an-issue)
+- [Report a bug](#report-a-bug)
+- [Suggest a feature](#suggest-a-feature)
+- [Improve the documentation](#improve-the-documentation)
+- [Report a security issue](#report-a-security-issue)
+- [Pull requests](#pull-requests)
+- [Go specifics](#go-specifics)
+- [Local setup](#local-setup)
+- [Release notes and labels](#release-notes-and-labels)
+- [Schema, mocks and migrations](#schema-mocks-and-migrations)
+- [Documentation](#documentation)
+- [Using LLMs responsibly](#using-llms-responsibly)
+- [Review expectations](#review-expectations)
+- [For maintainers](#for-maintainers)
+
 ## Start with an issue
 
 We encourage contributors to start their task by opening an issue instead of a pull request. This lets maintainers confirm the problem is real, agree on the approach, and check that nobody is already working on it before anyone writes code.
@@ -64,6 +81,53 @@ Maintainers may close pull requests that do not meet these requirements without 
 - Format with `gofmt`. Follow [Effective Go](https://golang.org/doc/effective_go.html) and [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments).
 - Exported functions, types, and constants need a doc comment conforming to [Effective Go](https://golang.org/doc/effective_go.html#commentary).
 - Run `make check` and `make unit-test` before opening a pull request. CI runs the same checks and fails the build if unit test coverage drops below 65%.
+
+## Local setup
+
+1. Install the Go version named in `go.mod`. Verify: `go version` prints it or later.
+2. Start TimescaleDB, Stellar RPC and a debug build of the service:
+
+   ```bash
+   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build
+   ```
+
+   Verify: `docker compose ps` lists every service as running.
+
+3. Run `make unit-test`. Verify: no `FAIL` lines.
+4. Run `make integration-test` when your change touches ingestion, the database or the API. It needs Docker and takes about 30 minutes.
+5. Run `make check` before you push. It is not read-only: it formats code with `gofmt` and `gofumpt`, fixes imports with `goimports`, then runs vet, lint, shadow and deadcode. Verify: it exits 0, then commit anything it rewrote, since CI runs the read-only variants and fails on unformatted code.
+
+[Getting started](docs/getting-started.md) walks through the stack, and [Integration tests](docs/development/integration-tests.md) explains the harness.
+
+## Release notes and labels
+
+Release notes are generated from merged pull request titles, grouped by label (`.github/release.yml`). Give every pull request exactly one of these labels so it lands in the right section:
+
+| Label | Release-notes section |
+| --- | --- |
+| `breaking` | Breaking changes |
+| `feature` or `enhancement` | Features |
+| `fix` or `bug` | Fixes |
+| `docs` or `documentation` | Documentation |
+| `dependencies` | Dependencies |
+| `ci` | CI and tooling |
+| `skip-changelog` | Left out of release notes |
+
+The title is the changelog line, so keep it under 72 characters and make it read on its own. Releases are cut from `main`; see [Releasing](docs/releasing.md).
+
+## Schema, mocks and migrations
+
+| Change | What to do |
+| --- | --- |
+| GraphQL schema | Edit the `.graphqls` file, then run `make gql-generate` and `make gql-docs`. CI fails if `docs/api/schema.md` is stale. |
+| Go interface | Update its hand-written `testify/mock` in the package's `mocks.go` in the same commit. |
+| Database schema | Add a file under `internal/db/migrations/` with both a `-- +migrate Up` and a `-- +migrate Down` block. |
+| Applied migration | Never edit it. Add a new migration that changes it. |
+| Flags or environment variables | Update `.env.example` and `docs/configuration.md`. CI diffs the reference against `--help`. |
+
+## Documentation
+
+Docs live in `docs/`; the index is [docs/README.md](docs/README.md). Run `make docs-check` before you push a docs change. It runs markdownlint, the link check, the schema-reference freshness check and the configuration-reference check. Write for a newcomer: present behavior only, short sentences, tables for facts, every number with its source.
 
 ## Using LLMs responsibly
 
