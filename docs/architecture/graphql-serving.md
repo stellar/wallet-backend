@@ -208,7 +208,7 @@ The subtraction is unsigned. If the RPC that `serve` talks to is behind ingestio
 
 | Setting | Default | Flag |
 | --- | --- | --- |
-| Max connections | 10 | `--db-max-conns` |
+| Max connections | 12 | `--db-max-conns` |
 | Min connections | 5 | `--db-min-conns` |
 | Max connection lifetime | 5m | `--db-max-conn-lifetime` |
 | Max connection idle time | 10s | `--db-max-conn-idle-time` |
