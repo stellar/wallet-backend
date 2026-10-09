@@ -51,6 +51,6 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error
 		Operations:           &OperationModel{DB: pool, Metrics: dbMetrics},
 		Transactions:         &TransactionModel{DB: pool, Metrics: dbMetrics},
 		StateChanges:         &StateChangeModel{DB: pool, Metrics: dbMetrics},
-		SEP41:                sep41.NewModels(pool, dbMetrics),
+		SEP41:                sep41.NewModels(pool, dbMetrics, nil),
 	}, nil
 }

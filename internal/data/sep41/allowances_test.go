@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
@@ -320,4 +321,31 @@ func TestAllowanceModel_DeleteExpiredBefore(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, activePage, 2)
 	})
+}
+
+func TestAllowanceModel_GetByOwner_HidesContracts(t *testing.T) {
+	ctx, pool, writer, cleanup := newAllowancesFixture(t)
+	defer cleanup()
+	apiDB := apiPool(t, ctx, pool)
+	defer apiDB.Close()
+	m := &sep41.AllowanceModel{DB: apiDB, Metrics: writer.Metrics}
+
+	const hidden = "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM"
+	const tracked = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	owner := keypair.MustRandom().Address()
+	spender := keypair.MustRandom().Address()
+	seedIngestLedger(t, ctx, pool)
+	seedAllowance(t, ctx, pool, owner, spender, hidden, currentLedger+100)
+	seedAllowance(t, ctx, pool, owner, spender, tracked, currentLedger+100)
+
+	all, err := m.GetByOwner(ctx, owner, 10, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+
+	m.HiddenContracts = []string{hidden}
+
+	visible, err := m.GetByOwner(ctx, owner, 10, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, visible, 1)
+	assert.Equal(t, data.DeterministicContractID(tracked), visible[0].ContractID)
 }

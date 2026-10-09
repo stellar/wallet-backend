@@ -62,6 +62,9 @@ type AllowanceModelInterface interface {
 type AllowanceModel struct {
 	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
+	// HiddenContracts are C-addresses GetByOwner skips. Empty outside the API
+	// server.
+	HiddenContracts []string
 }
 
 var _ AllowanceModelInterface = (*AllowanceModel)(nil)
@@ -93,6 +96,12 @@ func (m *AllowanceModel) GetByOwner(ctx context.Context, ownerAddress string, li
 		  )`
 	args := []interface{}{types.AddressBytea(ownerAddress), latestIngestLedgerCursor}
 	argIndex := 3
+
+	if len(m.HiddenContracts) > 0 {
+		query += fmt.Sprintf(" AND ct.contract_id <> ALL($%d::text[])", argIndex)
+		args = append(args, m.HiddenContracts)
+		argIndex++
+	}
 
 	if cursor != nil {
 		op := ">"
