@@ -30,7 +30,7 @@ Releases follow semantic versioning from v1.0.0.
    docker pull public.ecr.aws/stellar/wallet-backend:<VERSION>
    ```
 
-3. Stop the live ingester. It exits cleanly on SIGTERM and rolls back the ledger in flight. Stop any backfill too.
+3. Stop the live ingester. It exits cleanly on SIGTERM: a batch that has not reached its commit barrier rolls back, and a barrier already in progress completes first. Stop any backfill too.
 
 4. Apply migrations with the release binary.
 

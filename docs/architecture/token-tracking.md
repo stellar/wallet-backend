@@ -44,7 +44,7 @@ Each row reads left to right: the ledger input, the table that holds the current
 
 ## How each kind stays current
 
-Live ingestion writes the ledger-entry balance tables (native, classic, SAC, liquidity pool) and, once the protocol's cursor exists, the SEP-41 tables. `protocol-migrate current-state` fills the SEP-41 tables for ledgers ingested before that. Backfill writes transactions, operations, and state changes, and never touches balances. On an empty database, live ingestion first loads the ledger-entry balances from the history archive's latest checkpoint (SEP-41 balances are not in the archive), then applies each ledger's changes inside the same database transaction as that ledger's history rows.
+Live ingestion writes the ledger-entry balance tables (native, classic, SAC, liquidity pool) and, once the protocol's cursor exists, the SEP-41 tables. `protocol-migrate current-state` fills the SEP-41 tables for ledgers ingested before that. Backfill writes transactions, operations, and state changes, and never touches balances. On an empty database, live ingestion first loads the ledger-entry balances from the history archive's latest checkpoint (SEP-41 balances are not in the archive), then applies each ledger's changes in the same persist commit set as that ledger's history rows.
 
 | Kind | Live update | Checkpoint bootstrap |
 | --- | --- | --- |
@@ -245,7 +245,7 @@ Send the `Authorization` header only when the server sets `CLIENT_AUTH_PUBLIC_KE
 | `internal/indexer/processors/protocol_wasms.go` | Captures WASM bytecode for classification |
 | `internal/indexer/processors/protocol_contracts.go` | Maps contract instances to WASM hashes |
 | `internal/indexer/processors/token_transfer.go` | Drops token events from non-SAC contracts |
-| `internal/services/checkpoint.go` | Checkpoint bootstrap of every balance table and `contract_tokens` |
+| `internal/services/checkpoint.go` | Checkpoint bootstrap of the ledger-entry balance tables (archived entries skipped, no SEP-41) and `contract_tokens` |
 | `internal/services/token_ingestion.go` | Live upserts and deletes for ledger-entry balances |
 | `internal/services/protocol_validator.go` | WASM spec extraction with wazero |
 | `internal/services/protocol_validation_dispatch.go` | First-match-wins classification across validators |

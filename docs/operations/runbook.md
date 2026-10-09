@@ -21,7 +21,7 @@ Figures come from the same pubnet and testnet deployments measured in [Sizing](#
 
 | Component | Pubnet minimum | Pubnet recommended | Testnet | What drives it |
 | --- | --- | --- | --- | --- |
-| Live ingester (one per network) | 2 CPU, 12 GiB RAM | 4 CPU, 16 GiB RAM | 1 CPU, 4 GiB RAM | The first start loads every balance from the history archive checkpoint: it peaked at 1.8 cores and 9.4 GiB on pubnet, 0.8 cores and 1.9 GiB on testnet. Steady state is 0.1 cores and 0.4 GiB |
+| Live ingester (one per network) | 2 CPU, 12 GiB RAM | 4 CPU, 16 GiB RAM | 1 CPU, 4 GiB RAM | The first start loads the ledger-entry balances (native, trustline, liquidity pool, SAC) from the history archive checkpoint; SEP-41 balances come from `protocol-migrate current-state`. The load it peaked at 1.8 cores and 9.4 GiB on pubnet, 0.8 cores and 1.9 GiB on testnet. Steady state is 0.1 cores and 0.4 GiB |
 | Backfill (optional, runs alongside) | 2 CPU, 4 GiB RAM | as many CPUs as you want speed; 1 GiB per worker | same | CPU-bound; `BACKFILL_WORKERS` defaults to one per CPU and memory grows with workers × `BACKFILL_BATCH_SIZE` |
 | API (per instance) | 0.5 CPU, 512 MiB RAM | 1 CPU, 1 GiB RAM, two or more instances | same | Stateless; near zero at low traffic (20 MiB resident). Scale out for throughput, not up |
 | PostgreSQL + TimescaleDB | 4 CPU, 16 GiB RAM, SSD | 8 CPU, 32 GiB RAM, SSD | 2 CPU, 4 GiB RAM, SSD | Working set of about 20 GiB on pubnet (shared buffers and the current-state tables), 1.5 GiB on testnet; CPU peaks under 1 core |
@@ -32,7 +32,7 @@ Checked against a different network or a later protocol, every number here can m
 
 ## Sizing
 
-Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28.2, a three-instance database on 8 CPU / 32 GiB hosts with SSD storage, 1-day chunks, and an ingest process allotted 4 CPU / 8 GiB. Treat the figures as a starting point and measure your own.
+Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28.2, a three-instance database on 8 CPU / 32 GiB hosts with SSD storage, 1-day chunks, and an ingest process allotted 4 CPU / 8 GiB. Testnet figures come from a testnet deployment on the same setup (2.5 GB database, 45,408 ledgers ingested). Peak and steady-state CPU and memory are over seven days ending 2026-10-06. Treat the figures as a starting point and measure your own.
 
 | What | Measured | Notes |
 |---|---|---|

@@ -34,7 +34,7 @@ Both modes serve `/health` and `/ingest-metrics` on `INGEST_SERVER_PORT` (defaul
 
 ## Live mode
 
-Live mode follows the network tip, one ledger after another, and is the only writer of balances, protocol state, and `latest_ingest_ledger`.
+Live mode follows the network tip, one ledger after another, and in normal operation is the only writer of balances, protocol state, and `latest_ingest_ledger`. `protocol-migrate` also writes protocol state while a migration runs.
 
 ### Startup
 
