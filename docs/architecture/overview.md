@@ -31,7 +31,7 @@ One binary, several commands. `ingest` and `serve` run for as long as the deploy
 | Command | Runs | Talks to | Exposes |
 |---|---|---|---|
 | `ingest` | one per network | RPC, history archive, optional data lake, database | `/health`, `/ingest-metrics` |
-| `serve` | as many replicas as you need | database, RPC (health and contract metadata) | `/graphql/query`, `/health`, `/api-metrics` |
+| `serve` | as many replicas as you need | database, RPC (`getHealth` only) | `/graphql/query`, `/health`, `/api-metrics` |
 | `migrate up` | before the first start and after each upgrade | database | |
 | `protocol-setup` | when a protocol is added after history was ingested | database, RPC | |
 | `protocol-migrate` | after `protocol-setup`, to fill the protocol's history and current state | database, RPC or data lake | `/metrics` on `--metrics-port` |
