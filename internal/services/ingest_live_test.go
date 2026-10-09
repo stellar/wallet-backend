@@ -142,6 +142,12 @@ func Test_isPermanentPersistError(t *testing.T) {
 			err:           pgErrWithCode("57014"),
 			wantPermanent: false,
 		},
+		{name: "ledger_zero_is_permanent", err: ErrLedgerZero, wantPermanent: true},
+		{
+			name:          "wrapped_ledger_zero_is_permanent",
+			err:           fmt.Errorf("persisting ledgers 0-1: %w", ErrLedgerZero),
+			wantPermanent: true,
+		},
 		{name: "partial_persist_is_permanent", err: ErrPartialPersist, wantPermanent: true},
 		{
 			name:          "wrapped_partial_persist_is_permanent",

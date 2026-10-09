@@ -1,5 +1,7 @@
 // AccountModel provides data access methods for account-related queries
-// including fee bump eligibility checks and batch lookups for dataloaders.
+// including fee bump eligibility checks and batch lookups for dataloaders. It
+// also holds the COPY helper shared by the transactions_accounts and
+// operations_accounts link tables.
 package data
 
 import (
@@ -7,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stellar/wallet-backend/internal/db"
@@ -56,4 +60,79 @@ func (m *AccountModel) BatchGetByOperationIDs(ctx context.Context, operationIDs 
 		return nil, fmt.Errorf("getting accounts by operation IDs: %w", err)
 	}
 	return accounts, nil
+}
+
+// batchCopyAccounts inserts the rows of an account-link table (transactions_accounts,
+// operations_accounts) using pgx's binary COPY protocol. parents supplies each link's
+// ledger_created_at — the link table's partition column — through idAndCreatedAt, keyed
+// by the same ID that keys addressesByID; both arguments come from the same buffer and
+// are read only. idColumn names the link table's ID column.
+//
+// IMPORTANT: like the parent table's BatchCopy, this FAILS on duplicates — COPY has no
+// conflict handling.
+func batchCopyAccounts[T any](
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	dbMetrics *metrics.DBMetrics,
+	table string,
+	idColumn string,
+	parents []T,
+	idAndCreatedAt func(T) (int64, time.Time),
+	addressesByID map[int64]map[string]struct{},
+) error {
+	if len(addressesByID) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+
+	// Build ID -> LedgerCreatedAt lookup from the parent rows
+	ledgerCreatedAtByID := make(map[int64]time.Time, len(parents))
+	for _, parent := range parents {
+		id, ledgerCreatedAt := idAndCreatedAt(parent)
+		ledgerCreatedAtByID[id] = ledgerCreatedAt
+	}
+
+	// COPY the link table using pgx binary format with native pgtype types. Upstream
+	// participants handling ensures that account address is not NULL here.
+	var rows [][]any
+	for id, addresses := range addressesByID {
+		ledgerCreatedAt, ok := ledgerCreatedAtByID[id]
+		if !ok {
+			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
+			// the hypertable — and means the caller's parent rows and
+			// participants disagree about which IDs exist.
+			return fmt.Errorf("no row supplies ledger_created_at for %s %d", idColumn, id)
+		}
+		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
+		idPgtype := pgtype.Int8{Int64: id, Valid: true}
+		for addr := range addresses {
+			addrBytes, addrErr := types.AddressBytea(addr).Value()
+			if addrErr != nil {
+				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
+			}
+			rows = append(rows, []any{
+				ledgerCreatedAtPgtype,
+				idPgtype,
+				addrBytes,
+			})
+		}
+	}
+
+	_, err := pgxTx.CopyFrom(
+		ctx,
+		pgx.Identifier{table},
+		[]string{"ledger_created_at", idColumn, "account_id"},
+		pgx.CopyFromRows(rows),
+	)
+	duration := time.Since(start).Seconds()
+	dbMetrics.QueryDuration.WithLabelValues("BatchCopyAccounts", table).Observe(duration)
+	dbMetrics.BatchSize.WithLabelValues("BatchCopyAccounts", table).Observe(float64(len(rows)))
+	dbMetrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", table).Inc()
+	if err != nil {
+		dbMetrics.QueryErrors.WithLabelValues("BatchCopyAccounts", table, utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("pgx CopyFrom %s: %w", table, err)
+	}
+
+	return nil
 }

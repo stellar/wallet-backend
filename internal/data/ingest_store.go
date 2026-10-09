@@ -336,6 +336,9 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 	if boundErr != nil && !errors.Is(boundErr, pgx.ErrNoRows) {
 		return fmt.Errorf("resolving close-time bound for ledger %d: %w", ledger, boundErr)
 	}
+	if bound.IsZero() {
+		log.Ctx(ctx).Warnf("startup reconciliation: cursor ledger %d has no transactions row, so the deletes above it run without a close-time bound and scan every uncompressed chunk", ledger)
+	}
 
 	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
 		for _, target := range BulkCopyTables {
