@@ -34,6 +34,9 @@ type ContractModelInterface interface {
 	// tokens an earlier run resolved, or that were written directly over SQL.
 	// Reads through any db.Querier (pool or transaction).
 	GetWithMetadata(ctx context.Context, q db.Querier, contractIDs []string) ([]string, error)
+	// GetDecimals returns the decimals of the given contracts, keyed by contract address;
+	// unknown contracts are absent.
+	GetDecimals(ctx context.Context, contractIDs []string) (map[string]int32, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
@@ -200,4 +203,34 @@ func (m *ContractModel) BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, co
 		return fmt.Errorf("batch updating contract metadata: %w", err)
 	}
 	return nil
+}
+
+// GetDecimals returns the decimals of the given contract tokens, keyed by contract address.
+// Unknown contracts are simply absent from the result.
+func (m *ContractModel) GetDecimals(ctx context.Context, contractIDs []string) (map[string]int32, error) {
+	if len(contractIDs) == 0 {
+		return map[string]int32{}, nil
+	}
+	start := time.Now()
+	rows, err := m.DB.Query(ctx, `SELECT contract_id, decimals FROM contract_tokens WHERE contract_id = ANY($1)`, contractIDs)
+	m.Metrics.QueryDuration.WithLabelValues("GetDecimals", "contract_tokens").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("GetDecimals", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetDecimals", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying contract token decimals: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]int32)
+	for rows.Next() {
+		var id string
+		var d int32
+		if err := rows.Scan(&id, &d); err != nil {
+			return nil, fmt.Errorf("scanning contract token decimals: %w", err)
+		}
+		out[id] = d
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating contract token decimals: %w", err)
+	}
+	return out, nil
 }

@@ -702,7 +702,7 @@ func Test_IngestStoreModel_GetOldestLedger(t *testing.T) {
 	}
 }
 
-// Test_IngestStoreModel_DeleteRowsAboveLedger seeds two consecutive ledgers across all five
+// Test_IngestStoreModel_DeleteRowsAboveLedger seeds two consecutive ledgers across all the
 // bulk-COPY tables and verifies the startup reconciliation removes exactly the rows above the
 // cursor ledger — the shape a crash between persistLedgerData's sibling commits and its
 // coordinating commit leaves behind — and is a no-op when run again.
@@ -745,6 +745,11 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 			`INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category, state_change_reason, ledger_number, account_id, ledger_created_at)
 			 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
 			txTOID, opTOID, ledger, []byte{1}, closedAt)
+		require.NoError(t, seedErr)
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO trades (ledger_created_at, operation_id, fill_index, ledger_number, base_token, counter_token, base_amount, counter_amount, venue)
+			 VALUES ($1::timestamptz, $2, 0, $3, $4, $5, 1, 1, 1)`,
+			closedAt, opTOID, ledger, []byte{1}, []byte{2})
 		require.NoError(t, seedErr)
 	}
 	seedLedger(t, cursorLedger, "2026-01-01T00:00:00Z")

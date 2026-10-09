@@ -27,6 +27,10 @@ type Models struct {
 	Transactions         *TransactionModel
 	StateChanges         *StateChangeModel
 	SEP41                sep41.Models
+	Trades               *TradesModel
+	AMMPools             *AMMPoolsModel
+	OraclePrices         *OraclePricesModel
+	PriceComparisons     *PriceComparisonsModel
 }
 
 func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error) {
@@ -52,5 +56,9 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error
 		Transactions:         &TransactionModel{DB: pool, Metrics: dbMetrics},
 		StateChanges:         &StateChangeModel{DB: pool, Metrics: dbMetrics},
 		SEP41:                sep41.NewModels(pool, dbMetrics),
+		Trades:               &TradesModel{DB: pool, Metrics: dbMetrics},
+		AMMPools:             &AMMPoolsModel{DB: pool, Metrics: dbMetrics},
+		OraclePrices:         &OraclePricesModel{DB: pool, Metrics: dbMetrics},
+		PriceComparisons:     &PriceComparisonsModel{DB: pool, Metrics: dbMetrics},
 	}, nil
 }

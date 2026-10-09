@@ -287,6 +287,7 @@ var BulkCopyTables = []BulkCopyTable{
 	{"operations", "id"},
 	{"operations_accounts", "operation_id"},
 	{"state_changes", "to_id"},
+	{"trades", "operation_id"},
 }
 
 // BulkCopyTableNames returns the table names alone, in the same order, for the
