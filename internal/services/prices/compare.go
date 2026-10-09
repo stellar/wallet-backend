@@ -25,21 +25,25 @@ type ComparisonStore interface {
 	DeleteOlderThan(ctx context.Context, cutoff time.Time) error
 }
 
-// ExternalPriceSource returns an external USD price for a token, or nil when it has none.
+// ExternalPriceSource returns an external USD price for an external asset id, or nil when it has
+// none.
 type ExternalPriceSource interface {
-	AssetPriceUSD(ctx context.Context, token string, xlmSAC string) (*float64, error)
+	AssetPriceUSD(ctx context.Context, id string) (*float64, error)
 }
 
 // ComparisonConfig wires a ComparisonSampler. Zero TopN, Spacing and Retention take defaults.
 type ComparisonConfig struct {
-	DB        *pgxpool.Pool
-	Store     ComparisonStore
-	Client    ExternalPriceSource
-	XLMSAC    string
-	Interval  time.Duration
-	TopN      int
-	Spacing   time.Duration
-	Retention time.Duration
+	DB     *pgxpool.Pool
+	Store  ComparisonStore
+	Client ExternalPriceSource
+	XLMSAC string
+	// ClassicAssets maps a classic asset's SAC address to the CODE-ISSUER id the external source
+	// understands. nil means every non-native token is sent as its contract address.
+	ClassicAssets func(ctx context.Context) (map[string]string, error)
+	Interval      time.Duration
+	TopN          int
+	Spacing       time.Duration
+	Retention     time.Duration
 	// Metrics is optional.
 	Metrics *metrics.PricesMetrics
 }
@@ -97,6 +101,13 @@ func (s *ComparisonSampler) pass(ctx context.Context) {
 // and trims those past retention. It returns early with the context error when ctx is done.
 func (s *ComparisonSampler) samplePass(ctx context.Context, snap *Snapshot, now time.Time) error {
 	tokens := s.selectTokens(snap)
+	classic := map[string]string{}
+	if s.cfg.ClassicAssets != nil {
+		var err error
+		if classic, err = s.cfg.ClassicAssets(ctx); err != nil {
+			return fmt.Errorf("loading classic asset ids: %w", err)
+		}
+	}
 	samples := make([]data.PriceComparison, 0, len(tokens))
 	var missing, failed int
 	observe := func(result string) {
@@ -110,7 +121,7 @@ func (s *ComparisonSampler) samplePass(ctx context.Context, snap *Snapshot, now 
 			return fmt.Errorf("sampling interrupted: %w", ctx.Err())
 		case <-time.After(s.cfg.Spacing):
 		}
-		theirs, err := s.cfg.Client.AssetPriceUSD(ctx, tp.Token, s.cfg.XLMSAC)
+		theirs, err := s.cfg.Client.AssetPriceUSD(ctx, s.externalID(tp.Token, classic))
 		if err != nil {
 			if ctx.Err() != nil {
 				return fmt.Errorf("sampling interrupted: %w", ctx.Err())
@@ -136,6 +147,18 @@ func (s *ComparisonSampler) samplePass(ctx context.Context, snap *Snapshot, now 
 	}
 	log.Ctx(ctx).Infof("price comparison pass: sampled=%d missing=%d errors=%d", len(samples), missing, failed)
 	return nil
+}
+
+// externalID maps a token to the id the external source understands: XLM for the native SAC,
+// CODE-ISSUER for a classic asset, and the contract address for anything else.
+func (s *ComparisonSampler) externalID(token string, classic map[string]string) string {
+	if token == s.cfg.XLMSAC {
+		return StellarExpertNativeID
+	}
+	if id, ok := classic[token]; ok {
+		return id
+	}
+	return token
 }
 
 // selectTokens returns up to TopN tokens ordered by 24-hour volume, descending. The native

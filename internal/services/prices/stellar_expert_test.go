@@ -12,7 +12,6 @@ import (
 )
 
 func TestStellarExpertClient_AssetPriceUSD(t *testing.T) {
-	const xlm = "CXLM"
 	tests := []struct {
 		name     string
 		token    string
@@ -29,7 +28,8 @@ func TestStellarExpertClient_AssetPriceUSD(t *testing.T) {
 		{"rate limited", "CTOK", 429, ``, "/asset/CTOK", nil, true},
 		{"server error", "CTOK", 500, ``, "/asset/CTOK", nil, true},
 		{"malformed", "CTOK", 200, `{not json`, "/asset/CTOK", nil, true},
-		{"native id", xlm, 200, `{"price":0.1}`, "/asset/XLM", ptr(0.1), false},
+		{"native id", "XLM", 200, `{"price":0.1}`, "/asset/XLM", ptr(0.1), false},
+		{"classic id", "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", 200, `{"price":1}`, "/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", ptr(1.0), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,7 +44,7 @@ func TestStellarExpertClient_AssetPriceUSD(t *testing.T) {
 			defer srv.Close()
 
 			c := NewStellarExpertClient(srv.URL+"/", &http.Client{Timeout: 10 * time.Second})
-			got, err := c.AssetPriceUSD(context.Background(), tc.token, xlm)
+			got, err := c.AssetPriceUSD(context.Background(), tc.token)
 			assert.Equal(t, tc.wantPath, gotPath)
 			assert.Equal(t, "wallet-backend", gotUA)
 			if tc.wantErr {

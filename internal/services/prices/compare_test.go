@@ -43,7 +43,7 @@ type fakePriceSource struct {
 	onCall func()
 }
 
-func (f *fakePriceSource) AssetPriceUSD(_ context.Context, token, _ string) (*float64, error) {
+func (f *fakePriceSource) AssetPriceUSD(_ context.Context, token string) (*float64, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, token)
 	f.mu.Unlock()
@@ -78,7 +78,8 @@ func TestComparisonSampler_TopNOrderingAndXLM(t *testing.T) {
 	now := time.Now()
 	require.NoError(t, s.samplePass(context.Background(), snap, now))
 
-	assert.Equal(t, []string{"B", "C", "CXLM"}, client.calls)
+	// The native SAC is asked for as XLM; everything else by its own id.
+	assert.Equal(t, []string{"B", "C", "XLM"}, client.calls)
 	require.Len(t, store.samples, 3)
 	assert.Equal(t, 1, store.inserts)
 	assert.Equal(t, now.Add(-time.Hour), store.cutoff)
@@ -132,4 +133,23 @@ func TestComparisonSampler_CancelMidPass(t *testing.T) {
 	}
 	assert.Equal(t, 0, store.inserts)
 	assert.Len(t, client.calls, 1)
+}
+
+func TestComparisonSampler_ClassicAssetsUseCodeIssuerIDs(t *testing.T) {
+	store := &fakeComparisonStore{}
+	client := &fakePriceSource{prices: map[string]*float64{"USDC-GISSUER": ptr(1)}}
+	sampler := NewComparisonSampler(ComparisonConfig{
+		Store: store, Client: client, XLMSAC: "CXLM", Interval: time.Hour, TopN: 10,
+		Spacing: time.Nanosecond, Retention: time.Hour,
+		ClassicAssets: func(context.Context) (map[string]string, error) {
+			return map[string]string{"CUSDC": "USDC-GISSUER"}, nil
+		},
+	})
+	snap := snapOf(map[string]float64{"CUSDC": 100, "CTOKEN": 50, "CXLM": 10})
+
+	require.NoError(t, sampler.samplePass(context.Background(), snap, time.Now()))
+	assert.Equal(t, []string{"USDC-GISSUER", "CTOKEN", "XLM"}, client.calls)
+	require.Len(t, store.samples, 3)
+	assert.Equal(t, "CUSDC", store.samples[0].Token, "samples keep our token id")
+	require.NotNil(t, store.samples[0].Theirs)
 }

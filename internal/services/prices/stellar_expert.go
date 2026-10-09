@@ -8,8 +8,10 @@ import (
 	"strings"
 )
 
-// stellarExpertNativeID is the asset id stellar.expert uses for the native token.
-const stellarExpertNativeID = "XLM"
+// StellarExpertNativeID is the asset id stellar.expert uses for the native token. Classic assets
+// are addressed as CODE-ISSUER; a contract address resolves only for tokens that exist as
+// contracts, and carries no price for a classic asset's SAC.
+const StellarExpertNativeID = "XLM"
 
 // StellarExpertClient reads asset prices from the stellar.expert explorer API.
 type StellarExpertClient struct {
@@ -23,14 +25,10 @@ func NewStellarExpertClient(baseURL string, httpClient *http.Client) *StellarExp
 	return &StellarExpertClient{baseURL: strings.TrimRight(baseURL, "/"), http: httpClient}
 }
 
-// AssetPriceUSD returns the USD price stellar.expert reports for a token. The native token is
-// the one whose contract address equals xlmSAC. It returns nil without an error when the asset is
-// not indexed or has no positive price.
-func (c *StellarExpertClient) AssetPriceUSD(ctx context.Context, token string, xlmSAC string) (*float64, error) {
-	id := token
-	if token == xlmSAC {
-		id = stellarExpertNativeID
-	}
+// AssetPriceUSD returns the USD price stellar.expert reports for an asset id (XLM, CODE-ISSUER or
+// a contract address). It returns nil without an error when the asset is not indexed or has no
+// positive price.
+func (c *StellarExpertClient) AssetPriceUSD(ctx context.Context, id string) (*float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/asset/"+id, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building stellar.expert request: %w", err)
