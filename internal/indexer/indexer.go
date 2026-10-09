@@ -34,8 +34,6 @@ type IndexerBufferInterface interface {
 	GetOperations() []*types.Operation
 	GetOperationsParticipants() map[int64]map[string]struct{}
 	GetStateChanges() []types.StateChange
-	GetTrades() []types.Trade
-	GetAMMPools() []types.AMMPool
 }
 
 type TokenTransferProcessorInterface interface {

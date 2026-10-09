@@ -236,10 +236,12 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	// acquires the live advisory lock, so a lock-losing instance never runs them.
 	var postLockTasks []func(context.Context)
 
+	// Token prices are live-only: fills are extracted and persisted by the live ingester, and
+	// backfill leaves the trades tables untouched.
 	var tradesRegistry *processors.AMMPoolRegistry
 	var tradesVenues processors.TradeVenues
 	var tradesEnricher *prices.Enricher
-	if cfg.PricesEnabled {
+	if cfg.PricesEnabled && cfg.IngestionMode == services.IngestionModeLive {
 		tradesVenues, err = processors.TradeVenuesFor(cfg.NetworkPassphrase)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving trade venues: %w", err)
@@ -251,23 +253,21 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		tradesRegistry = processors.NewAMMPoolRegistry(pools)
 		anchor := &prices.Anchor{}
 		tradesEnricher = prices.NewEnricher(tradesVenues, anchor, models.Contract)
-		if cfg.IngestionMode == services.IngestionModeLive {
-			pricesTasks, err := prices.LiveTasks(prices.LiveTasksConfig{
-				Venues:            tradesVenues,
-				Anchor:            anchor,
-				Models:            models,
-				Metadata:          contractMetadataService,
-				NetworkPassphrase: cfg.NetworkPassphrase,
-				OracleInterval:    cfg.PricesOracleInterval,
-				CompareInterval:   cfg.PricesCompareInterval,
-				StellarExpertURL:  cfg.StellarExpertURL,
-				Metrics:           m.Prices,
-			})
-			if err != nil {
-				return nil, nil, fmt.Errorf("building price tasks: %w", err)
-			}
-			postLockTasks = append(postLockTasks, pricesTasks...)
+		pricesTasks, err := prices.LiveTasks(prices.LiveTasksConfig{
+			Venues:            tradesVenues,
+			Anchor:            anchor,
+			Models:            models,
+			Metadata:          contractMetadataService,
+			NetworkPassphrase: cfg.NetworkPassphrase,
+			OracleInterval:    cfg.PricesOracleInterval,
+			CompareInterval:   cfg.PricesCompareInterval,
+			StellarExpertURL:  cfg.StellarExpertURL,
+			Metrics:           m.Prices,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("building price tasks: %w", err)
 		}
+		postLockTasks = append(postLockTasks, pricesTasks...)
 		log.Ctx(ctx).Infof("Token prices enabled: %d AMM pools registered", tradesRegistry.Len())
 	}
 

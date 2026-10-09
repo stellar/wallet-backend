@@ -157,7 +157,7 @@ func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSib
 		// Fills ride their own sibling: a COPY like the bulk tables plus two idempotent upserts
 		// (pool registrations, last trades) that need the same batch's rows.
 		{"trades", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
-			return m.insertTrades(ctx, dbTx, it.buffer.GetTrades(), it.buffer.GetAMMPools(), true)
+			return m.insertTrades(ctx, dbTx, it.buffer.GetTrades(), it.buffer.GetAMMPools())
 		}},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every

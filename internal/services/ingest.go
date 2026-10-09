@@ -76,7 +76,7 @@ type IngestServiceConfig struct {
 	// Each runs in its own goroutine for the life of the ingestion context.
 	PostLockTasks []func(context.Context)
 	// TradesRegistry enables fill extraction for token prices when non-nil; TradesVenues and
-	// TradesEnricher go with it.
+	// TradesEnricher go with it. Live mode only: the backfill path does not persist fills.
 	TradesRegistry *processors.AMMPoolRegistry
 	TradesVenues   processors.TradeVenues
 	TradesEnricher *prices.Enricher
@@ -289,19 +289,14 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
 		return err
 	}
-	// Backfill has no live oracle, so fills land unpriced in USD and the last-trade table is left
-	// to the live path; the aggregates still get quantities once decimals are known.
-	if err := m.insertTrades(ctx, dbTx, buffer.GetTrades(), buffer.GetAMMPools(), false); err != nil {
-		return err
-	}
 	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 	return nil
 }
 
 // insertTrades prices the batch's fills, streams them into trades, registers the pools their
-// factories announced and, when updateLastTrades is set, records each token's last priced fill.
-// It is a no-op when trades are disabled or the batch has none.
-func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades []types.Trade, pools []types.AMMPool, updateLastTrades bool) error {
+// factories announced and records each token's last priced fill. Fill ingestion is live-only, so
+// this runs from the live persist path alone; it is a no-op when the batch has no fills.
+func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades []types.Trade, pools []types.AMMPool) error {
 	if len(trades) == 0 && len(pools) == 0 {
 		return nil
 	}
@@ -319,10 +314,8 @@ func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades [
 	if err := m.models.AMMPools.BatchUpsert(ctx, pgxTx, pools); err != nil {
 		return fmt.Errorf("registering AMM pools: %w", err)
 	}
-	if updateLastTrades {
-		if err := m.models.Trades.UpsertLastTrades(ctx, pgxTx, last); err != nil {
-			return fmt.Errorf("recording last trades: %w", err)
-		}
+	if err := m.models.Trades.UpsertLastTrades(ctx, pgxTx, last); err != nil {
+		return fmt.Errorf("recording last trades: %w", err)
 	}
 	return nil
 }
