@@ -125,7 +125,9 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
-          HIGHEST=$(gh release list --exclude-pre-releases --exclude-drafts --limit 200 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+          # A failed gh call stops the step; only an empty list means no releases yet.
+          TAGS=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | select(.draft | not) | select(.prerelease | not) | .tag_name')
+          HIGHEST=$({ grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$TAGS" || true; } | sort -V | tail -1)
           if [[ -z "$HIGHEST" || "$(printf '%s\n%s\n' "$HIGHEST" "$RELEASE_VERSION" | sort -V | tail -1)" == "$RELEASE_VERSION" ]]; then
             echo "move=true" >> "$GITHUB_OUTPUT"
             echo "$RELEASE_VERSION is the highest release; :latest will move."
@@ -134,15 +136,32 @@ jobs:
             echo "$HIGHEST is newer than $RELEASE_VERSION; :latest stays put."
           fi
 
-      # Every existence check runs before any tag is created, so a failed check leaves nothing half-promoted.
-      - name: Verify production ECR tag does not exist
+      - name: Resolve staging digest
+        id: stg
+        env:
+          ECR_REGISTRY: ${{ steps.ecr_login.outputs.ecr-registry }}
+          PRERELEASE_TAG: ${{ inputs.prerelease_tag }}
+        run: |
+          set -euo pipefail
+          DIGEST=$(docker buildx imagetools inspect "${ECR_REGISTRY}/stg/wallet-backend:${PRERELEASE_TAG}" --format '{{.Manifest.Digest}}')
+          echo "Staging digest: $DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # Every check runs before any tag is created. A tag that already holds the staging digest is left from an
+      # earlier partial run and is accepted, so a failed promotion can be re-run.
+      - name: Verify production ECR tag is absent or already promoted
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
+          STG_DIGEST: ${{ steps.stg.outputs.digest }}
         run: |
           set -uo pipefail
-          # Fail closed: only ImageNotFoundException lets the promotion proceed.
-          if out=$(aws ecr describe-images --repository-name prd/wallet-backend --image-ids imageTag="$RELEASE_VERSION" --region us-east-1 2>&1); then
-            echo "::error::ECR tag prd/wallet-backend:$RELEASE_VERSION already exists."
+          # Fail closed: only ImageNotFoundException or a matching digest lets the promotion proceed.
+          if out=$(aws ecr describe-images --repository-name prd/wallet-backend --image-ids imageTag="$RELEASE_VERSION" --region us-east-1 --query 'imageDetails[0].imageDigest' --output text 2>&1); then
+            if [[ "$out" == "$STG_DIGEST" ]]; then
+              echo "ECR tag $RELEASE_VERSION already holds $STG_DIGEST. Proceeding."
+              exit 0
+            fi
+            echo "::error::ECR tag prd/wallet-backend:$RELEASE_VERSION already exists with digest $out, not $STG_DIGEST."
             exit 1
           fi
           if ! grep -q "ImageNotFoundException" <<<"$out"; then
@@ -151,34 +170,44 @@ jobs:
           fi
           echo "ECR tag $RELEASE_VERSION not present. Proceeding."
 
-      - name: Verify public ECR tag does not exist
+      - name: Verify public ECR tag is absent or already published
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
+          STG_DIGEST: ${{ steps.stg.outputs.digest }}
         run: |
           set -uo pipefail
-          # Fail closed: only an explicit not-found answer lets the publish proceed.
-          if out=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" 2>&1); then
-            echo "::error::Public ECR tag ${PUBLIC_IMAGE}:${RELEASE_VERSION} already exists."
+          # Fail closed: only an explicit not-found answer or a matching digest lets the publish proceed.
+          if out=$(docker buildx imagetools inspect "${PUBLIC_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}' 2>&1); then
+            if [[ "$out" == "$STG_DIGEST" ]]; then
+              echo "Public ECR tag ${RELEASE_VERSION} already holds $STG_DIGEST. Proceeding."
+              exit 0
+            fi
+            echo "::error::Public ECR tag ${PUBLIC_IMAGE}:${RELEASE_VERSION} already exists with digest $out, not $STG_DIGEST."
             exit 1
           fi
-          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
+          if ! grep -qiE "not found|no such manifest|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
             echo "::error::Could not verify public ECR tag ${RELEASE_VERSION}: $out"
             exit 1
           fi
           echo "Public ECR tag ${RELEASE_VERSION} not present. Proceeding."
 
       # Cross-registry copy of the production ECR digest; no rebuild.
-      - name: Verify Docker Hub tag does not exist
+      - name: Verify Docker Hub tag is absent or already published
         env:
           RELEASE_VERSION: ${{ inputs.release_version }}
+          STG_DIGEST: ${{ steps.stg.outputs.digest }}
         run: |
           set -uo pipefail
-          # Fail closed: only an explicit not-found answer lets the publish proceed.
-          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" 2>&1); then
-            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists."
+          # Fail closed: only an explicit not-found answer or a matching digest lets the publish proceed.
+          if out=$(docker buildx imagetools inspect "${DOCKERHUB_IMAGE}:${RELEASE_VERSION}" --format '{{.Manifest.Digest}}' 2>&1); then
+            if [[ "$out" == "$STG_DIGEST" ]]; then
+              echo "Docker Hub tag ${RELEASE_VERSION} already holds $STG_DIGEST. Proceeding."
+              exit 0
+            fi
+            echo "::error::Docker Hub tag ${DOCKERHUB_IMAGE}:${RELEASE_VERSION} already exists with digest $out, not $STG_DIGEST."
             exit 1
           fi
-          if ! grep -qiE "not found|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
+          if ! grep -qiE "not found|no such manifest|manifest unknown|MANIFEST_UNKNOWN" <<<"$out"; then
             echo "::error::Could not verify Docker Hub tag ${RELEASE_VERSION}: $out"
             exit 1
           fi
