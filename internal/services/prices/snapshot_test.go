@@ -99,9 +99,20 @@ func TestSnapshot_EndToEnd(t *testing.T) {
 		require.NoError(t, err, view)
 	}
 
+	require.NoError(t, models.OraclePrices.Upsert(ctx, []data.OraclePrice{
+		{Asset: venues.USDCSAC, PriceUSD: 1.0004, PriceTimestamp: asOf.Add(-5 * time.Minute).Unix()},
+		{Asset: venues.XLMSAC, PriceUSD: 0.2, PriceTimestamp: asOf.Add(-5 * time.Minute).Unix()},
+	}))
+
 	snap, err := LoadSnapshot(ctx, pool, asOf)
 	require.NoError(t, err)
-	require.Len(t, snap.Prices, 2)
+	require.Len(t, snap.Prices, 4, "two traded tokens plus the two anchors from the oracle")
+
+	usdc := snap.Prices[venues.USDCSAC]
+	assert.Equal(t, PriceSourceOracle, usdc.Source, "USDC is always the counter, so it comes from the oracle")
+	assert.InDelta(t, 1.0004, usdc.PriceUSD, 1e-9)
+	assert.True(t, PublishRule{MinVolume24hUSD: 100, MaxStaleness: time.Hour}.Publishable(usdc, asOf), "oracle prices need no volume")
+	assert.False(t, PublishRule{}.Publishable(usdc, asOf.Add(25*time.Hour)), "but must be fresh")
 
 	tp := snap.Prices[tokenT]
 	assert.Equal(t, PriceSourceVWAP1H, tp.Source)

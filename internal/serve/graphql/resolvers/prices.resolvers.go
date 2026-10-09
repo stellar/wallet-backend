@@ -58,6 +58,9 @@ func (r *queryResolver) TokenPrices(ctx context.Context, tokenIds []string) ([]*
 		case prices.PriceSourceLastTrade:
 			src := graphql1.TokenPriceSourceLastTrade
 			out[i].PriceSource = &src
+		case prices.PriceSourceOracle:
+			src := graphql1.TokenPriceSourceOracle
+			out[i].PriceSource = &src
 		}
 	}
 	return out, nil

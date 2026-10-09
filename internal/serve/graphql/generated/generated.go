@@ -3288,6 +3288,8 @@ enum TokenPriceSource {
   VWAP_1H
   """Price of the token's most recent trade."""
   LAST_TRADE
+  """The anchor oracle's reading; served for anchor tokens, which fills never price."""
+  ORACLE
 }
 
 """Candle bucket width."""

@@ -16,7 +16,14 @@ type PriceSource int16
 const (
 	PriceSourceVWAP1H    PriceSource = 1
 	PriceSourceLastTrade PriceSource = 2
+	// PriceSourceOracle is the anchor oracle's own reading, used for the anchor tokens the fills
+	// never price: an anchor is always the counter side of a fill, so it has no base rows.
+	PriceSourceOracle PriceSource = 3
 )
+
+// oracleMaxAge is how old an oracle reading may be and still be served as a price; the oracle
+// poller already refuses older readings, so this is a second guard on the read path.
+const oracleMaxAge = 24 * time.Hour
 
 // TokenPrice is one token's spot price with the windowed statistics the publish rule needs.
 // PriceUSD is the trailing-hour VWAP when the token traded in that hour, else its last fill.
@@ -44,9 +51,10 @@ type Snapshot struct {
 	Prices map[string]TokenPrice
 }
 
-// LoadSnapshot assembles the snapshot from three bounded reads: the last fill per token, the
-// trailing-hour VWAP from the real-time 1-minute aggregate and the 24-hour statistics from the
-// real-time 1-hour aggregate. Nothing here depends on how long ago a token last traded.
+// LoadSnapshot assembles the snapshot from four bounded reads: the last fill per token, the
+// trailing-hour VWAP from the real-time 1-minute aggregate, the 24-hour statistics from the
+// real-time 1-hour aggregate, and the oracle readings for the anchor tokens the fills never
+// price. Nothing here depends on how long ago a token last traded.
 func LoadSnapshot(ctx context.Context, db *pgxpool.Pool, asOf time.Time) (*Snapshot, error) {
 	snap := &Snapshot{AsOf: asOf, Prices: make(map[string]TokenPrice)}
 
@@ -125,6 +133,33 @@ func LoadSnapshot(ctx context.Context, db *pgxpool.Pool, asOf time.Time) (*Snaps
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating 24h stats: %w", err)
 	}
+
+	rows, err = db.Query(ctx, `SELECT asset, price_usd, price_timestamp FROM oracle_prices`)
+	if err != nil {
+		return nil, fmt.Errorf("reading oracle prices: %w", err)
+	}
+	for rows.Next() {
+		var asset types.AddressBytea
+		var price float64
+		var ts int64
+		if err := rows.Scan(&asset, &price, &ts); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning oracle prices: %w", err)
+		}
+		if _, priced := snap.Prices[string(asset)]; priced || price <= 0 {
+			continue
+		}
+		snap.Prices[string(asset)] = TokenPrice{
+			Token:       string(asset),
+			PriceUSD:    price,
+			Source:      PriceSourceOracle,
+			LastTradeAt: time.Unix(ts, 0),
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating oracle prices: %w", err)
+	}
 	return snap, nil
 }
 
@@ -134,7 +169,14 @@ type PublishRule struct {
 	MaxStaleness    time.Duration
 }
 
-// Publishable reports whether tp passes the rule as of asOf.
+// Publishable reports whether tp passes the rule as of asOf. An oracle-sourced price has no
+// fill volume to judge; it is served while the reading is fresh.
 func (r PublishRule) Publishable(tp TokenPrice, asOf time.Time) bool {
-	return tp.PriceUSD > 0 && tp.Volume24hUSD >= r.MinVolume24hUSD && asOf.Sub(tp.LastTradeAt) <= r.MaxStaleness
+	if tp.PriceUSD <= 0 {
+		return false
+	}
+	if tp.Source == PriceSourceOracle {
+		return asOf.Sub(tp.LastTradeAt) <= oracleMaxAge
+	}
+	return tp.Volume24hUSD >= r.MinVolume24hUSD && asOf.Sub(tp.LastTradeAt) <= r.MaxStaleness
 }

@@ -445,16 +445,19 @@ const (
 	TokenPriceSourceVwap1h TokenPriceSource = "VWAP_1H"
 	// Price of the token's most recent trade.
 	TokenPriceSourceLastTrade TokenPriceSource = "LAST_TRADE"
+	// The anchor oracle's reading; served for anchor tokens, which fills never price.
+	TokenPriceSourceOracle TokenPriceSource = "ORACLE"
 )
 
 var AllTokenPriceSource = []TokenPriceSource{
 	TokenPriceSourceVwap1h,
 	TokenPriceSourceLastTrade,
+	TokenPriceSourceOracle,
 }
 
 func (e TokenPriceSource) IsValid() bool {
 	switch e {
-	case TokenPriceSourceVwap1h, TokenPriceSourceLastTrade:
+	case TokenPriceSourceVwap1h, TokenPriceSourceLastTrade, TokenPriceSourceOracle:
 		return true
 	}
 	return false
