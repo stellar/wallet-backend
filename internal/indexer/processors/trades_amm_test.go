@@ -452,6 +452,10 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 		{name: "swap from an unregistered contract is ignored", event: ammSwapEvent(ammStranger, ammSwapData(500, 0, 0, 1200))},
 		{name: "swap from a registered pool is a trade", event: ammSwapEvent(ammPair, ammSwapData(500, 0, 0, 1200)), wantTrade: true, wantVenue: types.TradeVenueSoroswap},
 		{name: "swap from the router is a trade", event: routerSwap, wantTrade: true, wantVenue: types.TradeVenueAquarius},
+		// An unreadable event from a trusted contract is skipped, never an error: one lost fill
+		// must not stop the ledger.
+		{name: "unreadable router swap is skipped", event: ammRouterSwapEvent(ammVec(ammBytes32(), ammAddr(ethContractAddress)))},
+		{name: "unreadable pair swap is skipped", event: ammSwapEvent(ammPair, ammU32(1))},
 	}
 
 	for _, tc := range testCases {
