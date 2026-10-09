@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/types"
 	"math"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
@@ -69,6 +70,56 @@ func (c *ingestCmd) Command() *cobra.Command {
 			OptType:     types.Int,
 			ConfigKey:   &cfg.LivePersistMaxBatchSize,
 			FlagDefault: 1,
+			Required:    false,
+		},
+		{
+			Name:        "prices-enabled",
+			Usage:       "Enable token price ingestion: fills from DEX and AMM activity, the oracle anchor poller and the external comparison sampler.",
+			OptType:     types.Bool,
+			ConfigKey:   &cfg.PricesEnabled,
+			FlagDefault: false,
+			Required:    false,
+		},
+		{
+			Name:    "prices-oracle-interval",
+			Usage:   `Wait between oracle anchor reads (Go duration string). Live mode only.`,
+			OptType: types.String,
+			CustomSetValue: func(co *config.ConfigOption) error {
+				if err := utils.SetConfigOptionDuration(co); err != nil {
+					return fmt.Errorf("parsing %s: %w", co.Name, err)
+				}
+				if d := *co.ConfigKey.(*time.Duration); d <= 0 {
+					return fmt.Errorf("%s must be positive, got %s", co.Name, d)
+				}
+				return nil
+			},
+			ConfigKey:   &cfg.PricesOracleInterval,
+			FlagDefault: "5m",
+			Required:    false,
+		},
+		{
+			Name:    "prices-compare-interval",
+			Usage:   `Wait between external price comparison passes (Go duration string). 0 disables the sampler.`,
+			OptType: types.String,
+			CustomSetValue: func(co *config.ConfigOption) error {
+				if err := utils.SetConfigOptionDuration(co); err != nil {
+					return fmt.Errorf("parsing %s: %w", co.Name, err)
+				}
+				if d := *co.ConfigKey.(*time.Duration); d < 0 {
+					return fmt.Errorf("%s must not be negative (0 disables the sampler), got %s", co.Name, d)
+				}
+				return nil
+			},
+			ConfigKey:   &cfg.PricesCompareInterval,
+			FlagDefault: "1h",
+			Required:    false,
+		},
+		{
+			Name:        "stellar-expert-url",
+			Usage:       "Base URL of the external price source the comparison sampler reads.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.StellarExpertURL,
+			FlagDefault: "https://api.stellar.expert/explorer/public",
 			Required:    false,
 		},
 		{

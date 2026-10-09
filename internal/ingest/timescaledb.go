@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,11 @@ import (
 // hypertables lists all TimescaleDB hypertables managed by the ingestion
 // system: exactly the tables ingestion bulk-loads with COPY.
 var hypertables = data.BulkCopyTableNames()
+
+// retentionHypertables are the hypertables whose retention follows --retention-period. The
+// trades table keeps the retention its migration set, because its aggregates' refresh windows
+// depend on it.
+var retentionHypertables = slices.DeleteFunc(slices.Clone(hypertables), func(t string) bool { return t == "trades" })
 
 // configureHypertableSettings applies chunk interval, retention policy, and
 // compression schedule settings to all hypertables. Chunk interval only affects
@@ -40,7 +46,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 		log.Ctx(ctx).Infof("Set chunk interval %q on %s", chunkInterval, table)
 	}
 
-	for _, table := range hypertables {
+	for _, table := range retentionHypertables {
 		if err := configureRetentionPolicy(ctx, pool, table, retentionPeriod); err != nil {
 			return fmt.Errorf("configuring retention policy on %s: %w", table, err)
 		}

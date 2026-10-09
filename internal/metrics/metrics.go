@@ -17,6 +17,7 @@ type Metrics struct {
 	Auth       *AuthMetrics
 	Migration  *MigrationMetrics
 	Dataloader *DataloaderMetrics
+	Prices     *PricesMetrics
 	registry   *prometheus.Registry
 }
 
@@ -37,6 +38,7 @@ func NewMetrics(reg *prometheus.Registry) *Metrics {
 		Auth:       newAuthMetrics(reg),
 		Migration:  newMigrationMetrics(reg),
 		Dataloader: newDataloaderMetrics(reg),
+		Prices:     newPricesMetrics(reg),
 		registry:   reg,
 	}
 }

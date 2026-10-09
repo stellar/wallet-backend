@@ -75,11 +75,13 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		err = configureHypertableSettings(ctx, dbConnectionPool, "1 day", "", "oldest_ingest_ledger", "", "", 0)
 		require.NoError(t, err)
 
-		// Verify no retention policies were created
+		// Verify no retention policies were created on the tables the flag manages. The trades
+		// table and its aggregates keep the retention their migration set.
 		count, err := db.QueryOne[int](ctx, dbConnectionPool,
 			`SELECT COUNT(*)
 			 FROM timescaledb_information.jobs
-			 WHERE proc_name = 'policy_retention'`,
+			 WHERE proc_name = 'policy_retention' AND hypertable_name = ANY($1)`,
+			retentionHypertables,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, count, "expected no retention policies when retention period is empty")

@@ -17,8 +17,10 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
+	"github.com/stellar/wallet-backend/internal/services/prices"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -68,6 +70,16 @@ type IngestServiceConfig struct {
 	// === Live Mode Dependencies ===
 	TokenIngestionService TokenIngestionService
 	CheckpointService     CheckpointService
+	// PostLockTasks are long-lived background tasks started only after live
+	// ingestion acquires its advisory lock, so an instance that loses the
+	// lock never runs them and never duplicates their RPC load or writes.
+	// Each runs in its own goroutine for the life of the ingestion context.
+	PostLockTasks []func(context.Context)
+	// TradesRegistry enables fill extraction for token prices when non-nil; TradesVenues and
+	// TradesEnricher go with it.
+	TradesRegistry *processors.AMMPoolRegistry
+	TradesVenues   processors.TradeVenues
+	TradesEnricher *prices.Enricher
 
 	// === Protocol Processors ===
 	ProtocolProcessors []ProtocolProcessor // nil means no protocol state production
@@ -116,6 +128,8 @@ type ingestService struct {
 	isPermanentFetchError     func(error) bool
 	tokenIngestionService     TokenIngestionService
 	checkpointService         CheckpointService
+	postLockTasks             []func(context.Context)
+	tradesEnricher            *prices.Enricher
 	appMetrics                *metrics.Metrics
 	networkPassphrase         string
 	ledgerIndexer             *indexer.Indexer
@@ -175,6 +189,9 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating ledger indexer: %w", err)
 	}
+	if cfg.TradesRegistry != nil {
+		ledgerIndexer.EnableTrades(cfg.TradesVenues, cfg.TradesRegistry, cfg.Metrics.Ingestion)
+	}
 
 	return &ingestService{
 		ingestionMode:             cfg.IngestionMode,
@@ -186,6 +203,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		isPermanentFetchError:     cfg.IsPermanentFetchError,
 		tokenIngestionService:     cfg.TokenIngestionService,
 		checkpointService:         cfg.CheckpointService,
+		postLockTasks:             cfg.PostLockTasks,
+		tradesEnricher:            cfg.TradesEnricher,
 		appMetrics:                cfg.Metrics,
 		networkPassphrase:         cfg.NetworkPassphrase,
 		ledgerIndexer:             ledgerIndexer,
@@ -270,8 +289,70 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	if err := m.insertStateChanges(ctx, dbTx, stateChanges); err != nil {
 		return err
 	}
+	// Backfill has no live oracle, so fills land unpriced in USD and the last-trade table is left
+	// to the live path; the aggregates still get quantities once decimals are known.
+	if err := m.insertTrades(ctx, dbTx, buffer.GetTrades(), buffer.GetAMMPools(), false); err != nil {
+		return err
+	}
 	log.Ctx(ctx).Debugf("✅ inserted %d txs, %d ops, %d state_changes", len(txs), len(ops), len(stateChanges))
 	return nil
+}
+
+// insertTrades prices the batch's fills, streams them into trades, registers the pools their
+// factories announced and, when updateLastTrades is set, records each token's last priced fill.
+// It is a no-op when trades are disabled or the batch has none.
+func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades []types.Trade, pools []types.AMMPool, updateLastTrades bool) error {
+	if len(trades) == 0 && len(pools) == 0 {
+		return nil
+	}
+	var last []data.LastTrade
+	if m.tradesEnricher != nil {
+		var err error
+		if last, err = m.tradesEnricher.Enrich(ctx, trades); err != nil {
+			return fmt.Errorf("pricing trades: %w", err)
+		}
+	}
+	if err := m.models.Trades.BatchCopy(ctx, pgxTx, trades); err != nil {
+		return fmt.Errorf("batch inserting trades: %w", err)
+	}
+	m.recordTradeMetrics(trades)
+	if err := m.models.AMMPools.BatchUpsert(ctx, pgxTx, pools); err != nil {
+		return fmt.Errorf("registering AMM pools: %w", err)
+	}
+	if updateLastTrades {
+		if err := m.models.Trades.UpsertLastTrades(ctx, pgxTx, last); err != nil {
+			return fmt.Errorf("recording last trades: %w", err)
+		}
+	}
+	return nil
+}
+
+// recordTradeMetrics counts persisted fills by venue and those left without a USD value.
+func (m *ingestService) recordTradeMetrics(trades []types.Trade) {
+	if m.appMetrics == nil || m.appMetrics.Prices == nil {
+		return
+	}
+	for i := range trades {
+		m.appMetrics.Prices.TradesTotal.WithLabelValues(tradeVenueLabel(trades[i].Venue)).Inc()
+		if trades[i].USDValue == nil {
+			m.appMetrics.Prices.TradesUnpricedTotal.Inc()
+		}
+	}
+}
+
+func tradeVenueLabel(v types.TradeVenue) string {
+	switch v {
+	case types.TradeVenueSDEXOrderbook:
+		return "sdex_orderbook"
+	case types.TradeVenueSDEXPool:
+		return "sdex_pool"
+	case types.TradeVenueSoroswap:
+		return "soroswap"
+	case types.TradeVenueAquarius:
+		return "aquarius"
+	default:
+		return "unknown"
+	}
 }
 
 // insertTransactions batch inserts transactions into the database.

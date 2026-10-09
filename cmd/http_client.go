@@ -13,7 +13,8 @@ import (
 //
 // Cloning rather than constructing a bare &http.Transport{DisableKeepAlives: true} keeps
 // HTTP_PROXY/HTTPS_PROXY support intact for operators who reach the RPC endpoint via a proxy.
-func keepAlivesDisabledHTTPClient(timeout time.Duration) *http.Client {
+func keepAlivesDisabledHTTPClient() *http.Client {
+	const timeout = 30 * time.Second
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableKeepAlives = true
 	return &http.Client{

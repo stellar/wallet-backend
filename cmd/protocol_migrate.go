@@ -220,7 +220,7 @@ func runMigration(
 			// Keep-alives disabled (see keepAlivesDisabledHTTPClient): a fresh connection per request
 			// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection
 			// reuse; negligible at this command's RPC volume.
-			keepAlivesDisabledHTTPClient(30*time.Second),
+			keepAlivesDisabledHTTPClient(),
 			m.RPC,
 		)
 		if rpcErr != nil {

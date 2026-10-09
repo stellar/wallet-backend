@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"sort"
 	"syscall"
-	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
@@ -99,7 +98,7 @@ func (c *protocolSetupCmd) Run(databaseURL, rpcURL, networkPassphrase string, pr
 	// Create RPC service with keep-alives disabled (see keepAlivesDisabledHTTPClient): this
 	// one-shot command makes only a short burst of RPC calls, and a fresh connection per request
 	// sidesteps stale-connection EOFs behind intermediaries that don't support HTTP connection reuse.
-	httpClient := keepAlivesDisabledHTTPClient(30 * time.Second)
+	httpClient := keepAlivesDisabledHTTPClient()
 	rpcService, err := services.NewRPCService(rpcURL, networkPassphrase, httpClient, m.RPC)
 	if err != nil {
 		return fmt.Errorf("creating RPC service: %w", err)

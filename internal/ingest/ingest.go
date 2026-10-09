@@ -20,9 +20,11 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/prices"
 	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
@@ -74,6 +76,15 @@ type Configs struct {
 	// ingestion coalesces into one persist commit when persist falls behind.
 	// 1 persists every ledger in its own commit.
 	LivePersistMaxBatchSize int
+	// PricesEnabled turns on token price ingestion: fill extraction, the oracle anchor poller
+	// and the external comparison sampler.
+	PricesEnabled bool
+	// PricesOracleInterval is the wait between oracle anchor reads. Live mode only.
+	PricesOracleInterval time.Duration
+	// PricesCompareInterval is the wait between external comparison passes; 0 disables them.
+	PricesCompareInterval time.Duration
+	// StellarExpertURL is the base URL of the external price source used for comparison.
+	StellarExpertURL string
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -221,6 +232,45 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
+	// Live-only background tasks. The ingest service starts them only after it
+	// acquires the live advisory lock, so a lock-losing instance never runs them.
+	var postLockTasks []func(context.Context)
+
+	var tradesRegistry *processors.AMMPoolRegistry
+	var tradesVenues processors.TradeVenues
+	var tradesEnricher *prices.Enricher
+	if cfg.PricesEnabled {
+		tradesVenues, err = processors.TradeVenuesFor(cfg.NetworkPassphrase)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving trade venues: %w", err)
+		}
+		pools, err := models.AMMPools.GetAll(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("loading AMM pools: %w", err)
+		}
+		tradesRegistry = processors.NewAMMPoolRegistry(pools)
+		anchor := &prices.Anchor{}
+		tradesEnricher = prices.NewEnricher(tradesVenues, anchor, models.Contract)
+		if cfg.IngestionMode == services.IngestionModeLive {
+			pricesTasks, err := prices.LiveTasks(prices.LiveTasksConfig{
+				Venues:            tradesVenues,
+				Anchor:            anchor,
+				Models:            models,
+				Metadata:          contractMetadataService,
+				NetworkPassphrase: cfg.NetworkPassphrase,
+				OracleInterval:    cfg.PricesOracleInterval,
+				CompareInterval:   cfg.PricesCompareInterval,
+				StellarExpertURL:  cfg.StellarExpertURL,
+				Metrics:           m.Prices,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("building price tasks: %w", err)
+			}
+			postLockTasks = append(postLockTasks, pricesTasks...)
+		}
+		log.Ctx(ctx).Infof("Token prices enabled: %d AMM pools registered", tradesRegistry.Len())
+	}
+
 	// Build a single ProtocolDeps to pass through both the validator and
 	// processor registries. cmd/ingest knows nothing about specific
 	// protocols — adding a new one is a blank import elsewhere plus a SQL
@@ -316,6 +366,10 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
+		PostLockTasks:             postLockTasks,
+		TradesRegistry:            tradesRegistry,
+		TradesVenues:              tradesVenues,
+		TradesEnricher:            tradesEnricher,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)

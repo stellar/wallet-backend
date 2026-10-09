@@ -154,6 +154,11 @@ func (m *ingestService) persistSiblings(stateChangesMu *sync.Mutex) []persistSib
 			defer stateChangesMu.Unlock()
 			return m.insertStateChanges(ctx, dbTx, it.buffer.GetStateChanges())
 		}},
+		// Fills ride their own sibling: a COPY like the bulk tables plus two idempotent upserts
+		// (pool registrations, last trades) that need the same batch's rows.
+		{"trades", func(ctx context.Context, dbTx pgx.Tx, it *persistItem) error {
+			return m.insertTrades(ctx, dbTx, it.buffer.GetTrades(), it.buffer.GetAMMPools(), true)
+		}},
 		// Each balance family rides the transaction that stages its FK parents,
 		// so the coordinating transaction's serial path stays short and every
 		// foreign key is checked within one commit. The SAC balances remain in
@@ -610,6 +615,13 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 	// after the lock is confirmed held. See casProtocolCursor and snapshotProtocolCursors.
 	if err := m.snapshotProtocolCursors(ctx); err != nil {
 		return fmt.Errorf("snapshotting protocol cursors: %w", err)
+	}
+
+	// Background tasks gated on the advisory lock: an instance that failed to
+	// acquire it must never run them, or a crash-looping or standby pod would
+	// duplicate their RPC load and writes.
+	for _, task := range m.postLockTasks {
+		go task(ctx)
 	}
 
 	// Get latest ingested ledger to determine DB state
