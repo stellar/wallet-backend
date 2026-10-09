@@ -1,5 +1,5 @@
 # Build stage: compiles the wallet-backend binary.
-FROM golang:1.25.9-bookworm AS api-build
+FROM golang:1.27.0-bookworm AS api-build
 ARG VERSION=dev
 ARG GIT_COMMIT
 # BUILD_MODE=debug adds delve and disables optimizations, for use via docker-compose.dev.yaml.
