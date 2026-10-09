@@ -5,6 +5,7 @@ package indexer
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -84,6 +85,8 @@ type IndexerBuffer struct {
 	sacBalanceChangesByKey         map[SACBalanceChangeKey]types.SACBalanceChange
 	lpShareChangesByKey            map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange
 	lpChangesByPoolID              map[string]types.LiquidityPoolChange
+	trades                         []types.Trade
+	ammPoolsByID                   map[string]types.AMMPool
 	uniqueTrustlineAssets          map[uuid.UUID]data.TrustlineAsset
 	// parsedAssetsByString memoizes the parse + deterministic-ID derivation per unique asset
 	// string (nil value = string is known-invalid). It is content-derived — the same string always
@@ -112,6 +115,8 @@ func NewIndexerBuffer() *IndexerBuffer {
 		sacBalanceChangesByKey:         make(map[SACBalanceChangeKey]types.SACBalanceChange),
 		lpShareChangesByKey:            make(map[LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange),
 		lpChangesByPoolID:              make(map[string]types.LiquidityPoolChange),
+		trades:                         make([]types.Trade, 0),
+		ammPoolsByID:                   make(map[string]types.AMMPool),
 		uniqueTrustlineAssets:          make(map[uuid.UUID]data.TrustlineAsset),
 		parsedAssetsByString:           make(map[string]*data.TrustlineAsset),
 		sacContractsByID:               make(map[string]*data.Contract),
@@ -312,6 +317,41 @@ func (b *IndexerBuffer) GetLiquidityPoolChanges() map[string]types.LiquidityPool
 	return b.lpChangesByPoolID
 }
 
+// PushTrade appends an executed fill. Fills are keyed by (operation, fill index), so nothing
+// deduplicates them; GetTrades returns them in that order.
+func (b *IndexerBuffer) PushTrade(trade types.Trade) {
+	b.trades = append(b.trades, trade)
+}
+
+// GetTrades returns the buffer's fills sorted by (operation_id, fill_index); callers must not
+// modify the slice.
+func (b *IndexerBuffer) GetTrades() []types.Trade {
+	sort.SliceStable(b.trades, func(i, j int) bool {
+		if b.trades[i].OperationID != b.trades[j].OperationID {
+			return b.trades[i].OperationID < b.trades[j].OperationID
+		}
+		return b.trades[i].FillIndex < b.trades[j].FillIndex
+	})
+	return b.trades
+}
+
+// PushAMMPool records an AMM pool registration, keeping the first one per pool.
+func (b *IndexerBuffer) PushAMMPool(pool types.AMMPool) {
+	if _, exists := b.ammPoolsByID[pool.Pool]; !exists {
+		b.ammPoolsByID[pool.Pool] = pool
+	}
+}
+
+// GetAMMPools returns the pools registered in this buffer.
+func (b *IndexerBuffer) GetAMMPools() []types.AMMPool {
+	pools := make([]types.AMMPool, 0, len(b.ammPoolsByID))
+	for _, p := range b.ammPoolsByID {
+		pools = append(pools, p)
+	}
+	sort.Slice(pools, func(i, j int) bool { return pools[i].Pool < pools[j].Pool })
+	return pools
+}
+
 // PushOperation adds an operation and its parent transaction, associating both with a participant.
 // Uses canonical pointer pattern for both operations and transactions to avoid memory duplication.
 func (b *IndexerBuffer) PushOperation(participant string, operation *types.Operation, transaction *types.Transaction) {
@@ -395,6 +435,8 @@ type TransactionResult struct {
 	SACBalanceChanges     []types.SACBalanceChange
 	LPShareChanges        []types.LiquidityPoolShareChange
 	LPChanges             []types.LiquidityPoolChange
+	Trades                []types.Trade
+	AMMPools              []types.AMMPool
 	SACContracts          []*data.Contract
 	ProtocolWasms         []data.ProtocolWasms
 	ProtocolWasmBytecodes map[string][]byte
@@ -437,6 +479,12 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	}
 	for _, lpChange := range r.LPChanges {
 		b.PushLiquidityPoolChange(lpChange)
+	}
+	for _, trade := range r.Trades {
+		b.PushTrade(trade)
+	}
+	for _, pool := range r.AMMPools {
+		b.PushAMMPool(pool)
 	}
 	for _, contract := range r.SACContracts {
 		b.PushSACContract(contract)
@@ -495,6 +543,8 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.sacBalanceChangesByKey)
 	clear(b.lpShareChangesByKey)
 	clear(b.lpChangesByPoolID)
+	b.trades = b.trades[:0]
+	clear(b.ammPoolsByID)
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

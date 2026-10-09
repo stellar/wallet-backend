@@ -34,6 +34,8 @@ type IndexerBufferInterface interface {
 	GetOperations() []*types.Operation
 	GetOperationsParticipants() map[int64]map[string]struct{}
 	GetStateChanges() []types.StateChange
+	GetTrades() []types.Trade
+	GetAMMPools() []types.AMMPool
 }
 
 type TokenTransferProcessorInterface interface {
@@ -77,6 +79,7 @@ type AccountsProcessorInterface interface {
 }
 
 type Indexer struct {
+	networkPassphrase          string
 	participantsProcessor      ParticipantsProcessorInterface
 	tokenTransferProcessor     TokenTransferProcessorInterface
 	trustlinesProcessor        LedgerChangeProcessor[types.TrustlineChange]
@@ -87,8 +90,11 @@ type Indexer struct {
 	sacInstancesProcessor      LedgerChangeProcessor[*data.Contract]
 	protocolWasmsProcessor     LedgerChangeProcessor[processors.ProtocolWasmObservation]
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
-	processors                 []OperationProcessorInterface
-	pool                       pond.Pool
+	// tradesProcessor and ammPoolsProcessor are nil unless EnableTrades was called.
+	tradesProcessor   LedgerChangeProcessor[types.Trade]
+	ammPoolsProcessor LedgerChangeProcessor[types.AMMPool]
+	processors        []OperationProcessorInterface
+	pool              pond.Pool
 }
 
 // NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
@@ -103,6 +109,7 @@ type Indexer struct {
 // processors emit for the same operation.
 func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) (*Indexer, error) {
 	indexer := &Indexer{
+		networkPassphrase:          networkPassphrase,
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
 		sacBalancesProcessor:       processors.NewSACBalancesProcessor(networkPassphrase, ingestionMetrics),
@@ -124,6 +131,14 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 		return nil, fmt.Errorf("validating state_change_id sub-bases: %w", err)
 	}
 	return indexer, nil
+}
+
+// EnableTrades turns on fill extraction for token prices. The pools processor runs before the
+// trades processor on every operation, so a pool announced by its factory is trusted from the
+// operation that created it.
+func (i *Indexer) EnableTrades(venues processors.TradeVenues, registry *processors.AMMPoolRegistry, ingestionMetrics *metrics.IngestionMetrics) {
+	i.ammPoolsProcessor = processors.NewAMMPoolsProcessor(venues, registry, ingestionMetrics)
+	i.tradesProcessor = processors.NewTradesProcessor(i.networkPassphrase, venues, registry, ingestionMetrics)
 }
 
 // validateStateChangeSubBases validates the state_change_id sub-base registry
@@ -303,6 +318,20 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 			return nil, fmt.Errorf("processing liquidity pool changes: %w", lpErr)
 		}
 		result.LPChanges = append(result.LPChanges, lpChanges...)
+
+		if i.tradesProcessor != nil {
+			pools, poolsErr := i.ammPoolsProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if poolsErr != nil {
+				return nil, fmt.Errorf("processing AMM pools: %w", poolsErr)
+			}
+			result.AMMPools = append(result.AMMPools, pools...)
+
+			trades, tradesErr := i.tradesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
+			if tradesErr != nil {
+				return nil, fmt.Errorf("processing trades: %w", tradesErr)
+			}
+			result.Trades = append(result.Trades, trades...)
+		}
 
 		sacContracts, sacInstanceErr := i.sacInstancesProcessor.ProcessOperation(ctx, opParticipants.OpWrapper)
 		if sacInstanceErr != nil {
