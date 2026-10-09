@@ -16,6 +16,7 @@ balance queries, and a GraphQL API for accessing blockchain data.
   - [Authentication](#authentication)
   - [API Reference](internal/serve/graphql/README.md)
   - [Architecture](#architecture)
+  - [Token Prices](#token-prices)
   - [Data Migrations](#data-migrations)
   - [Integration Tests Setup](#integration-tests-setup)
   - [Deployment](#deployment)
@@ -1013,6 +1014,22 @@ FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.Co
 - Metadata map size = number of contracts × ~200 bytes per entry
 - Worker pool limits concurrent RPC connections
 - No large in-memory buffers required
+
+## Token Prices
+
+Fills come from classic DEX results and trusted Soroban AMM events. Each fill is valued in USD through the Reflector anchor oracle. Serve answers `tokenPrices` and `tokenPriceHistory` from an in-memory snapshot that reloads on an interval. Tokens are addressed by contract id.
+
+Run `prices-setup-pools` once per environment before enabling `PRICES_ENABLED`.
+
+| Variable | Command | Default | Description |
+|----------|---------|---------|-------------|
+| `PRICES_ENABLED` | ingest | `false` | Ingest fills and poll the anchor oracle |
+| `PRICES_ORACLE_INTERVAL` | ingest | `5m` | Wait between oracle reads |
+| `PRICES_COMPARE_INTERVAL` | ingest | `1h` | Wait between external comparison passes; `0` disables |
+| `STELLAR_EXPERT_URL` | ingest | `https://api.stellar.expert/explorer/public` | External price source for the comparison |
+| `PRICES_SNAPSHOT_INTERVAL` | serve | `5s` | Snapshot reload interval |
+| `PRICES_MIN_VOLUME_24H_USD` | serve | `100` | Minimum 24-hour USD volume to serve a price |
+| `PRICES_MAX_STALENESS` | serve | `168h` | Maximum age of the last trade to serve a price |
 
 ## Data Migrations
 

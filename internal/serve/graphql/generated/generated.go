@@ -170,6 +170,17 @@ type ComplexityRoot struct {
 		Node   func(childComplexity int) int
 	}
 
+	Candle struct {
+		Bucket    func(childComplexity int) int
+		Close     func(childComplexity int) int
+		High      func(childComplexity int) int
+		Low       func(childComplexity int) int
+		Open      func(childComplexity int) int
+		Trades    func(childComplexity int) int
+		UsdVolume func(childComplexity int) int
+		Vwap      func(childComplexity int) int
+	}
+
 	DataEntryAddedChange struct {
 		Account         func(childComplexity int) int
 		Category        func(childComplexity int) int
@@ -305,6 +316,8 @@ type ComplexityRoot struct {
 	Query struct {
 		AccountByAddress  func(childComplexity int, address string) int
 		OperationByID     func(childComplexity int, id int64) int
+		TokenPriceHistory func(childComplexity int, tokenID string, resolution CandleResolution, from time.Time, to time.Time) int
+		TokenPrices       func(childComplexity int, tokenIds []string) int
 		TransactionByHash func(childComplexity int, hash string) int
 	}
 
@@ -410,6 +423,15 @@ type ComplexityRoot struct {
 		Reason          func(childComplexity int) int
 		Threshold       func(childComplexity int) int
 		Transaction     func(childComplexity int) int
+	}
+
+	TokenPrice struct {
+		LastTradeAt      func(childComplexity int) int
+		PercentChange24h func(childComplexity int) int
+		PriceSource      func(childComplexity int) int
+		PriceUsd         func(childComplexity int) int
+		TokenID          func(childComplexity int) int
+		Volume24hUsd     func(childComplexity int) int
 	}
 
 	Transaction struct {
@@ -626,6 +648,8 @@ type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
+	TokenPrices(ctx context.Context, tokenIds []string) ([]*TokenPrice, error)
+	TokenPriceHistory(ctx context.Context, tokenID string, resolution CandleResolution, from time.Time, to time.Time) ([]*Candle, error)
 }
 type SignerAddedChangeResolver interface {
 	Category(ctx context.Context, obj *types.SignerAddedChangeModel) (types.StateChangeCategory, error)
@@ -1221,6 +1245,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
+
+	case "Candle.bucket":
+		if e.ComplexityRoot.Candle.Bucket == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Bucket(childComplexity), true
+	case "Candle.close":
+		if e.ComplexityRoot.Candle.Close == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Close(childComplexity), true
+	case "Candle.high":
+		if e.ComplexityRoot.Candle.High == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.High(childComplexity), true
+	case "Candle.low":
+		if e.ComplexityRoot.Candle.Low == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Low(childComplexity), true
+	case "Candle.open":
+		if e.ComplexityRoot.Candle.Open == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Open(childComplexity), true
+	case "Candle.trades":
+		if e.ComplexityRoot.Candle.Trades == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Trades(childComplexity), true
+	case "Candle.usdVolume":
+		if e.ComplexityRoot.Candle.UsdVolume == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.UsdVolume(childComplexity), true
+	case "Candle.vwap":
+		if e.ComplexityRoot.Candle.Vwap == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Candle.Vwap(childComplexity), true
 
 	case "DataEntryAddedChange.account":
 		if e.ComplexityRoot.DataEntryAddedChange.Account == nil {
@@ -1821,6 +1894,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.OperationByID(childComplexity, args["id"].(int64)), true
+	case "Query.tokenPriceHistory":
+		if e.ComplexityRoot.Query.TokenPriceHistory == nil {
+			break
+		}
+
+		args, err := ec.field_Query_tokenPriceHistory_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.TokenPriceHistory(childComplexity, args["tokenId"].(string), args["resolution"].(CandleResolution), args["from"].(time.Time), args["to"].(time.Time)), true
+	case "Query.tokenPrices":
+		if e.ComplexityRoot.Query.TokenPrices == nil {
+			break
+		}
+
+		args, err := ec.field_Query_tokenPrices_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.TokenPrices(childComplexity, args["tokenIds"].([]string)), true
 	case "Query.transactionByHash":
 		if e.ComplexityRoot.Query.TransactionByHash == nil {
 			break
@@ -2269,6 +2364,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ThresholdChange.Transaction(childComplexity), true
+
+	case "TokenPrice.lastTradeAt":
+		if e.ComplexityRoot.TokenPrice.LastTradeAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.LastTradeAt(childComplexity), true
+	case "TokenPrice.percentChange24h":
+		if e.ComplexityRoot.TokenPrice.PercentChange24h == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.PercentChange24h(childComplexity), true
+	case "TokenPrice.priceSource":
+		if e.ComplexityRoot.TokenPrice.PriceSource == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.PriceSource(childComplexity), true
+	case "TokenPrice.priceUsd":
+		if e.ComplexityRoot.TokenPrice.PriceUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.PriceUsd(childComplexity), true
+	case "TokenPrice.tokenId":
+		if e.ComplexityRoot.TokenPrice.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.TokenID(childComplexity), true
+	case "TokenPrice.volume24hUsd":
+		if e.ComplexityRoot.TokenPrice.Volume24hUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.Volume24hUsd(childComplexity), true
 
 	case "Transaction.accounts":
 		if e.ComplexityRoot.Transaction.Accounts == nil {
@@ -3150,6 +3282,50 @@ type AccountTransactionEdge {
   stateChanges: [BaseStateChange!]!  @goField(forceResolver: true)
 }
 `, BuiltIn: false},
+	{Name: "../schema/prices.graphqls", Input: `"""Which number a spot price is."""
+enum TokenPriceSource {
+  """Volume-weighted average price over the trailing hour."""
+  VWAP_1H
+  """Price of the token's most recent trade."""
+  LAST_TRADE
+}
+
+"""Candle bucket width."""
+enum CandleResolution {
+  ONE_MINUTE
+  ONE_HOUR
+  ONE_DAY
+}
+
+"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound)."
+type TokenPrice {
+  tokenId: String!
+  priceUsd: Float
+  percentChange24h: Float
+  volume24hUsd: Float
+  lastTradeAt: Time
+  priceSource: TokenPriceSource
+}
+
+"""One USD price candle."""
+type Candle {
+  bucket: Time!
+  open: Float!
+  high: Float!
+  low: Float!
+  close: Float!
+  vwap: Float!
+  usdVolume: Float!
+  trades: Int!
+}
+
+extend type Query {
+  "Spot prices for up to 200 tokens by contract address, in input order."
+  tokenPrices(tokenIds: [String!]!): [TokenPrice!]!
+  "USD candles for one token. Span caps: ONE_MINUTE 1 day, ONE_HOUR 60 days, ONE_DAY 5 years; at most 1000 buckets."
+  tokenPriceHistory(tokenId: String!, resolution: CandleResolution!, from: Time!, to: Time!): [Candle!]!
+}
+`, BuiltIn: false},
 	{Name: "../schema/queries.graphqls", Input: `"""Root queries. Entities not found return null."""
 type Query {
     """Look up a transaction by its hex-encoded hash."""
@@ -3876,6 +4052,43 @@ func (ec *executionContext) field_Query_operationById_args(ctx context.Context, 
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_tokenPriceHistory_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "tokenId", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["tokenId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "resolution", ec.unmarshalNCandleResolution2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandleResolution)
+	if err != nil {
+		return nil, err
+	}
+	args["resolution"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "from", ec.unmarshalNTime2timeᚐTime)
+	if err != nil {
+		return nil, err
+	}
+	args["from"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "to", ec.unmarshalNTime2timeᚐTime)
+	if err != nil {
+		return nil, err
+	}
+	args["to"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_tokenPrices_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "tokenIds", ec.unmarshalNString2ᚕstringᚄ)
+	if err != nil {
+		return nil, err
+	}
+	args["tokenIds"] = arg0
 	return args, nil
 }
 
@@ -6754,6 +6967,238 @@ func (ec *executionContext) fieldContext_BalanceEdge_cursor(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_bucket(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_bucket,
+		func(ctx context.Context) (any, error) {
+			return obj.Bucket, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_bucket(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_open(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_open,
+		func(ctx context.Context) (any, error) {
+			return obj.Open, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_open(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_high(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_high,
+		func(ctx context.Context) (any, error) {
+			return obj.High, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_high(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_low(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_low,
+		func(ctx context.Context) (any, error) {
+			return obj.Low, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_low(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_close(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_close,
+		func(ctx context.Context) (any, error) {
+			return obj.Close, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_close(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_vwap(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_vwap,
+		func(ctx context.Context) (any, error) {
+			return obj.Vwap, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_vwap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_usdVolume(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_usdVolume,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdVolume, nil
+		},
+		nil,
+		ec.marshalNFloat2float64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_usdVolume(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Candle_trades(ctx context.Context, field graphql.CollectedField, obj *Candle) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Candle_trades,
+		func(ctx context.Context) (any, error) {
+			return obj.Trades, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Candle_trades(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Candle",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10099,6 +10544,120 @@ func (ec *executionContext) fieldContext_Query_operationById(ctx context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_tokenPrices(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_tokenPrices,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().TokenPrices(ctx, fc.Args["tokenIds"].([]string))
+		},
+		nil,
+		ec.marshalNTokenPrice2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPriceᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_tokenPrices(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "tokenId":
+				return ec.fieldContext_TokenPrice_tokenId(ctx, field)
+			case "priceUsd":
+				return ec.fieldContext_TokenPrice_priceUsd(ctx, field)
+			case "percentChange24h":
+				return ec.fieldContext_TokenPrice_percentChange24h(ctx, field)
+			case "volume24hUsd":
+				return ec.fieldContext_TokenPrice_volume24hUsd(ctx, field)
+			case "lastTradeAt":
+				return ec.fieldContext_TokenPrice_lastTradeAt(ctx, field)
+			case "priceSource":
+				return ec.fieldContext_TokenPrice_priceSource(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type TokenPrice", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_tokenPrices_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_tokenPriceHistory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_tokenPriceHistory,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().TokenPriceHistory(ctx, fc.Args["tokenId"].(string), fc.Args["resolution"].(CandleResolution), fc.Args["from"].(time.Time), fc.Args["to"].(time.Time))
+		},
+		nil,
+		ec.marshalNCandle2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandleᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_tokenPriceHistory(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "bucket":
+				return ec.fieldContext_Candle_bucket(ctx, field)
+			case "open":
+				return ec.fieldContext_Candle_open(ctx, field)
+			case "high":
+				return ec.fieldContext_Candle_high(ctx, field)
+			case "low":
+				return ec.fieldContext_Candle_low(ctx, field)
+			case "close":
+				return ec.fieldContext_Candle_close(ctx, field)
+			case "vwap":
+				return ec.fieldContext_Candle_vwap(ctx, field)
+			case "usdVolume":
+				return ec.fieldContext_Candle_usdVolume(ctx, field)
+			case "trades":
+				return ec.fieldContext_Candle_trades(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Candle", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_tokenPriceHistory_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -12547,6 +13106,180 @@ func (ec *executionContext) fieldContext_ThresholdChange_newThreshold(_ context.
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_tokenId(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_priceUsd(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_priceUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_priceUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_percentChange24h(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_percentChange24h,
+		func(ctx context.Context) (any, error) {
+			return obj.PercentChange24h, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_percentChange24h(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_volume24hUsd(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_volume24hUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.Volume24hUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_volume24hUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_lastTradeAt(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_lastTradeAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastTradeAt, nil
+		},
+		nil,
+		ec.marshalOTime2ᚖtimeᚐTime,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_lastTradeAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_priceSource(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_priceSource,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceSource, nil
+		},
+		nil,
+		ec.marshalOTokenPriceSource2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPriceSource,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_priceSource(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type TokenPriceSource does not have child fields")
 		},
 	}
 	return fc, nil
@@ -18401,6 +19134,80 @@ func (ec *executionContext) _BalanceEdge(ctx context.Context, sel ast.SelectionS
 	return out
 }
 
+var candleImplementors = []string{"Candle"}
+
+func (ec *executionContext) _Candle(ctx context.Context, sel ast.SelectionSet, obj *Candle) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, candleImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Candle")
+		case "bucket":
+			out.Values[i] = ec._Candle_bucket(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "open":
+			out.Values[i] = ec._Candle_open(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "high":
+			out.Values[i] = ec._Candle_high(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "low":
+			out.Values[i] = ec._Candle_low(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "close":
+			out.Values[i] = ec._Candle_close(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "vwap":
+			out.Values[i] = ec._Candle_vwap(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "usdVolume":
+			out.Values[i] = ec._Candle_usdVolume(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "trades":
+			out.Values[i] = ec._Candle_trades(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var dataEntryAddedChangeImplementors = []string{"DataEntryAddedChange", "BaseStateChange"}
 
 func (ec *executionContext) _DataEntryAddedChange(ctx context.Context, sel ast.SelectionSet, obj *types.DataEntryAddedChangeModel) graphql.Marshaler {
@@ -20773,6 +21580,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "tokenPrices":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_tokenPrices(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "tokenPriceHistory":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_tokenPriceHistory(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -22434,6 +23285,55 @@ func (ec *executionContext) _ThresholdChange(ctx context.Context, sel ast.Select
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var tokenPriceImplementors = []string{"TokenPrice"}
+
+func (ec *executionContext) _TokenPrice(ctx context.Context, sel ast.SelectionSet, obj *TokenPrice) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, tokenPriceImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("TokenPrice")
+		case "tokenId":
+			out.Values[i] = ec._TokenPrice_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "priceUsd":
+			out.Values[i] = ec._TokenPrice_priceUsd(ctx, field, obj)
+		case "percentChange24h":
+			out.Values[i] = ec._TokenPrice_percentChange24h(ctx, field, obj)
+		case "volume24hUsd":
+			out.Values[i] = ec._TokenPrice_volume24hUsd(ctx, field, obj)
+		case "lastTradeAt":
+			out.Values[i] = ec._TokenPrice_lastTradeAt(ctx, field, obj)
+		case "priceSource":
+			out.Values[i] = ec._TokenPrice_priceSource(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -24307,6 +25207,58 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
+func (ec *executionContext) marshalNCandle2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandleᚄ(ctx context.Context, sel ast.SelectionSet, v []*Candle) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNCandle2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandle(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNCandle2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandle(ctx context.Context, sel ast.SelectionSet, v *Candle) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._Candle(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNCandleResolution2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandleResolution(ctx context.Context, v any) (CandleResolution, error) {
+	var res CandleResolution
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNCandleResolution2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐCandleResolution(ctx context.Context, sel ast.SelectionSet, v CandleResolution) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNFloat2float64(ctx context.Context, v any) (float64, error) {
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNFloat2float64(ctx context.Context, sel ast.SelectionSet, v float64) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalFloatContext(v)
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return graphql.WrapContextMarshaler(ctx, res)
+}
+
 func (ec *executionContext) unmarshalNInt2int32(ctx context.Context, v any) (int32, error) {
 	res, err := graphql.UnmarshalInt32(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -24602,6 +25554,36 @@ func (ec *executionContext) marshalNString2string(ctx context.Context, sel ast.S
 	return res
 }
 
+func (ec *executionContext) unmarshalNString2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
+	var vSlice []any
+	vSlice = graphql.CoerceList(v)
+	var err error
+	res := make([]string, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNString2string(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNString2string(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNThresholdLevel2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐThresholdLevel(ctx context.Context, v any) (types.ThresholdLevel, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := types.ThresholdLevel(tmp)
@@ -24633,6 +25615,32 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNTokenPrice2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPriceᚄ(ctx context.Context, sel ast.SelectionSet, v []*TokenPrice) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNTokenPrice2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPrice(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNTokenPrice2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPrice(ctx context.Context, sel ast.SelectionSet, v *TokenPrice) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._TokenPrice(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNTokenType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenType(ctx context.Context, v any) (TokenType, error) {
@@ -24878,6 +25886,23 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
+}
+
 func (ec *executionContext) unmarshalOInt2ᚖint32(ctx context.Context, v any) (*int32, error) {
 	if v == nil {
 		return nil, nil
@@ -24993,6 +26018,22 @@ func (ec *executionContext) marshalOTime2ᚖtimeᚐTime(ctx context.Context, sel
 	_ = ctx
 	res := graphql.MarshalTime(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOTokenPriceSource2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPriceSource(ctx context.Context, v any) (*TokenPriceSource, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(TokenPriceSource)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOTokenPriceSource2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐTokenPriceSource(ctx context.Context, sel ast.SelectionSet, v *TokenPriceSource) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction(ctx context.Context, sel ast.SelectionSet, v *types.Transaction) graphql.Marshaler {

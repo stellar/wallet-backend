@@ -26,6 +26,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/prices"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 
 	gqlhandler "github.com/99designs/gqlgen/graphql/handler"
@@ -48,6 +49,12 @@ const (
 	requestContextTimeout = 30 * time.Second
 )
 
+const (
+	DefaultPricesSnapshotInterval = 5 * time.Second
+	DefaultPricesMinVolume24hUSD  = 100.0
+	DefaultPricesMaxStaleness     = 168 * time.Hour
+)
+
 type Configs struct {
 	Port int
 	// AdminPort, when > 0, serves pprof endpoints at /debug/pprof on a separate
@@ -66,6 +73,11 @@ type Configs struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
+
+	// Token prices. Zero values fall back to the defaults below.
+	PricesSnapshotInterval time.Duration
+	PricesMinVolume24hUSD  float64
+	PricesMaxStaleness     time.Duration
 
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
@@ -114,14 +126,24 @@ type handlerDeps struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
+
+	// Prices is nil when the handler is built without price serving; tokenPrices then returns
+	// every token unpriced.
+	Prices      *prices.SnapshotHolder
+	PublishRule prices.PublishRule
 }
 
 func Serve(cfg Configs) error {
-	ctx := context.Background()
+	// ctx bounds background work such as the price snapshot loop; supporthttp.Run blocks until
+	// the process is signalled, and the deferred cancel stops the loop once it returns.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	deps, err := initHandlerDeps(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("setting up handler dependencies: %w", err)
 	}
+
+	go deps.Prices.Run(ctx)
 
 	// Start separate admin server for pprof endpoints if configured. It is best-effort profiling
 	// infra: supporthttp.Run blocks below, and a bind failure here is logged without taking down
@@ -192,7 +214,20 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
+	interval, minVolume, maxStaleness := cfg.PricesSnapshotInterval, cfg.PricesMinVolume24hUSD, cfg.PricesMaxStaleness
+	if interval <= 0 {
+		interval = DefaultPricesSnapshotInterval
+	}
+	if minVolume <= 0 {
+		minVolume = DefaultPricesMinVolume24hUSD
+	}
+	if maxStaleness <= 0 {
+		maxStaleness = DefaultPricesMaxStaleness
+	}
+
 	return handlerDeps{
+		Prices:                      prices.NewSnapshotHolder(dbConnectionPool, interval, m.Prices),
+		PublishRule:                 prices.PublishRule{MinVolume24hUSD: minVolume, MaxStaleness: maxStaleness},
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
 		Metrics:                     m,
@@ -261,7 +296,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.RPCService,
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
-				resolvers.ResolverConfig{},
+				resolvers.ResolverConfig{Prices: deps.Prices, PublishRule: deps.PublishRule},
 			)
 
 			config := generated.Config{
@@ -395,6 +430,13 @@ func addComplexityCalculation(config *generated.Config) {
 	// past the limit.
 	accountsListComplexityFunc := func(childComplexity int) int {
 		return childComplexity * int(graphqlutils.DefaultPageLimit)
+	}
+	// tokenPrices is an in-memory lookup per id; tokenPriceHistory is one bounded aggregate scan.
+	config.Complexity.Query.TokenPrices = func(childComplexity int, tokenIds []string) int {
+		return len(tokenIds)
+	}
+	config.Complexity.Query.TokenPriceHistory = func(childComplexity int, tokenID string, resolution generated.CandleResolution, from time.Time, to time.Time) int {
+		return 100
 	}
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc

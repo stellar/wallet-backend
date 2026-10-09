@@ -1,0 +1,43 @@
+"""Which number a spot price is."""
+enum TokenPriceSource {
+  """Volume-weighted average price over the trailing hour."""
+  VWAP_1H
+  """Price of the token's most recent trade."""
+  LAST_TRADE
+}
+
+"""Candle bucket width."""
+enum CandleResolution {
+  ONE_MINUTE
+  ONE_HOUR
+  ONE_DAY
+}
+
+"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound)."
+type TokenPrice {
+  tokenId: String!
+  priceUsd: Float
+  percentChange24h: Float
+  volume24hUsd: Float
+  lastTradeAt: Time
+  priceSource: TokenPriceSource
+}
+
+"""One USD price candle."""
+type Candle {
+  bucket: Time!
+  open: Float!
+  high: Float!
+  low: Float!
+  close: Float!
+  vwap: Float!
+  usdVolume: Float!
+  trades: Int!
+}
+
+extend type Query {
+  "Spot prices for up to 200 tokens by contract address, in input order."
+  tokenPrices(tokenIds: [String!]!): [TokenPrice!]!
+  "USD candles for one token. Span caps: ONE_MINUTE 1 day, ONE_HOUR 60 days, ONE_DAY 5 years; at most 1000 buckets."
+  tokenPriceHistory(tokenId: String!, resolution: CandleResolution!, from: Time!, to: Time!): [Candle!]!
+}

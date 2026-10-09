@@ -24,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/prices"
 )
 
 // BalanceReader provides read-only access to account balance data.
@@ -43,7 +44,12 @@ const (
 )
 
 // ResolverConfig holds configuration values for the GraphQL resolver.
-type ResolverConfig struct{}
+type ResolverConfig struct {
+	// Prices serves tokenPrices from memory. A nil holder answers every token as unpriced.
+	Prices *prices.SnapshotHolder
+	// PublishRule decides which snapshot prices tokenPrices returns.
+	PublishRule prices.PublishRule
+}
 
 var ErrNotStateChange = errors.New("object is not a StateChange")
 

@@ -83,6 +83,18 @@ type BalanceEdge struct {
 	Cursor string  `json:"cursor"`
 }
 
+// One USD price candle.
+type Candle struct {
+	Bucket    time.Time `json:"bucket"`
+	Open      float64   `json:"open"`
+	High      float64   `json:"high"`
+	Low       float64   `json:"low"`
+	Close     float64   `json:"close"`
+	Vwap      float64   `json:"vwap"`
+	UsdVolume float64   `json:"usdVolume"`
+	Trades    int32     `json:"trades"`
+}
+
 // An account's liquidity-pool share holding. `balance` is the account's pool
 // shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 // assets and amounts.
@@ -263,6 +275,16 @@ type StateChangeEdge struct {
 	Cursor string          `json:"cursor"`
 }
 
+// Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound).
+type TokenPrice struct {
+	TokenID          string            `json:"tokenId"`
+	PriceUsd         *float64          `json:"priceUsd,omitempty"`
+	PercentChange24h *float64          `json:"percentChange24h,omitempty"`
+	Volume24hUsd     *float64          `json:"volume24hUsd,omitempty"`
+	LastTradeAt      *time.Time        `json:"lastTradeAt,omitempty"`
+	PriceSource      *TokenPriceSource `json:"priceSource,omitempty"`
+}
+
 // A classic Stellar asset held via a trustline.
 type TrustlineBalance struct {
 	Balance   string    `json:"balance"`
@@ -352,6 +374,122 @@ func (e *AssetType) UnmarshalJSON(b []byte) error {
 }
 
 func (e AssetType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Candle bucket width.
+type CandleResolution string
+
+const (
+	CandleResolutionOneMinute CandleResolution = "ONE_MINUTE"
+	CandleResolutionOneHour   CandleResolution = "ONE_HOUR"
+	CandleResolutionOneDay    CandleResolution = "ONE_DAY"
+)
+
+var AllCandleResolution = []CandleResolution{
+	CandleResolutionOneMinute,
+	CandleResolutionOneHour,
+	CandleResolutionOneDay,
+}
+
+func (e CandleResolution) IsValid() bool {
+	switch e {
+	case CandleResolutionOneMinute, CandleResolutionOneHour, CandleResolutionOneDay:
+		return true
+	}
+	return false
+}
+
+func (e CandleResolution) String() string {
+	return string(e)
+}
+
+func (e *CandleResolution) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = CandleResolution(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid CandleResolution", str)
+	}
+	return nil
+}
+
+func (e CandleResolution) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *CandleResolution) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e CandleResolution) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which number a spot price is.
+type TokenPriceSource string
+
+const (
+	// Volume-weighted average price over the trailing hour.
+	TokenPriceSourceVwap1h TokenPriceSource = "VWAP_1H"
+	// Price of the token's most recent trade.
+	TokenPriceSourceLastTrade TokenPriceSource = "LAST_TRADE"
+)
+
+var AllTokenPriceSource = []TokenPriceSource{
+	TokenPriceSourceVwap1h,
+	TokenPriceSourceLastTrade,
+}
+
+func (e TokenPriceSource) IsValid() bool {
+	switch e {
+	case TokenPriceSourceVwap1h, TokenPriceSourceLastTrade:
+		return true
+	}
+	return false
+}
+
+func (e TokenPriceSource) String() string {
+	return string(e)
+}
+
+func (e *TokenPriceSource) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = TokenPriceSource(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid TokenPriceSource", str)
+	}
+	return nil
+}
+
+func (e TokenPriceSource) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *TokenPriceSource) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e TokenPriceSource) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
