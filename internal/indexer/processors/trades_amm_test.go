@@ -355,11 +355,12 @@ func TestDecodeAquariusRouterSwap(t *testing.T) {
 			wantErr: "want 5 elements, found 4",
 		},
 		{
-			name: "pool id that is not bytes is an error",
+			name: "pool element encoded as an address decodes like bytes",
 			event: ammRouterSwapEvent(ammVec(
-				ammU32(1), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500), ammU128(0, 1200),
+				ammAddr(ethContractAddress), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500), ammU128(0, 1200),
 			)),
-			wantErr: "element 0 (pool_id): want bytes, found ScValTypeScvU32",
+			wantOK:   true,
+			wantFill: fill{TokenIn: ethContractAddress, AmountIn: big.NewInt(500), TokenOut: usdcContractAddress, AmountOut: big.NewInt(1200), Venue: types.TradeVenueAquarius},
 		},
 		{
 			name: "token that is not an address is an error",

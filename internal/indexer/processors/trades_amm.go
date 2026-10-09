@@ -143,7 +143,8 @@ func decodeSoroswapSwap(ev xdr.ContractEvent, pool types.AMMPool) (fill, bool, e
 // router event.
 //
 // Topics: [Sym "swap", tokens: Vec<Address>, user: Address].
-// Data: (pool_id: BytesN<32>, token_in: Address, token_out: Address, in_amount: u128, out_amount: u128).
+// Data: (pool: Address or BytesN<32>, token_in: Address, token_out: Address, in_amount: u128,
+// out_amount: u128). The pool element is not read; its encoding differs between router versions.
 func decodeAquariusRouterSwap(ev xdr.ContractEvent) (fill, bool, error) {
 	topics, data, ok := contractEventV0(ev)
 	if !ok || !hasSymbolTopics(topics, "swap") {
@@ -156,9 +157,6 @@ func decodeAquariusRouterSwap(ev xdr.ContractEvent) (fill, bool, error) {
 	items := *vec
 	if len(items) != 5 {
 		return fill{}, false, fmt.Errorf("swap data: want 5 elements, found %d", len(items))
-	}
-	if items[0].Type != xdr.ScValTypeScvBytes {
-		return fill{}, false, fmt.Errorf("swap data element 0 (pool_id): want bytes, found %s", items[0].Type)
 	}
 	tokenIn, ok := scValAddress(items[1])
 	if !ok {

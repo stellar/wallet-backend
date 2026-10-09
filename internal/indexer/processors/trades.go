@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -60,7 +61,7 @@ const classicDecimals int32 = 7
 
 // ProcessOperation returns the operation's fills in meta order. Failed transactions have no
 // fills: their results carry no claim atoms and their events are not emitted.
-func (p *TradesProcessor) ProcessOperation(_ context.Context, opWrapper *TransactionOperationWrapper) ([]types.Trade, error) {
+func (p *TradesProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.Trade, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -79,7 +80,7 @@ func (p *TradesProcessor) ProcessOperation(_ context.Context, opWrapper *Transac
 		xdr.OperationTypeManageBuyOffer, xdr.OperationTypeManageSellOffer, xdr.OperationTypeCreatePassiveSellOffer:
 		fills, err = p.classicFills(opWrapper)
 	case xdr.OperationTypeInvokeHostFunction:
-		fills, err = p.ammFills(opWrapper)
+		fills, err = p.ammFills(ctx, opWrapper)
 	default:
 		return nil, nil
 	}
@@ -167,8 +168,10 @@ func (p *TradesProcessor) classicFills(opWrapper *TransactionOperationWrapper) (
 }
 
 // ammFills decodes swap events from contracts the processor trusts: pools in the registry and
-// the venues' fixed routers. Events from any other contract are ignored, whatever their shape.
-func (p *TradesProcessor) ammFills(opWrapper *TransactionOperationWrapper) ([]fill, error) {
+// the venues' fixed routers. Events from any other contract are ignored, whatever their shape. An
+// event from a trusted contract that does not decode is logged and skipped: one unreadable fill
+// must not stop the ledger, and the log line is what reveals a venue's layout has changed.
+func (p *TradesProcessor) ammFills(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]fill, error) {
 	events, err := opWrapper.Transaction.GetContractEventsForOperation(opWrapper.Index)
 	if err != nil {
 		return nil, fmt.Errorf("getting contract events: %w", err)
@@ -183,7 +186,8 @@ func (p *TradesProcessor) ammFills(opWrapper *TransactionOperationWrapper) ([]fi
 		case p.venues.AquariusRouter != "" && emitter == p.venues.AquariusRouter:
 			f, ok, err := decodeAquariusRouterSwap(ev)
 			if err != nil {
-				return nil, fmt.Errorf("decoding Aquarius router event: %w", err)
+				log.Ctx(ctx).Warnf("prices: skipping Aquarius router event in operation %d: %v", opWrapper.ID(), err)
+				continue
 			}
 			if ok {
 				fills = append(fills, f)
@@ -195,7 +199,8 @@ func (p *TradesProcessor) ammFills(opWrapper *TransactionOperationWrapper) ([]fi
 			}
 			f, ok, err := decodeSoroswapSwap(ev, pool)
 			if err != nil {
-				return nil, fmt.Errorf("decoding Soroswap pair event: %w", err)
+				log.Ctx(ctx).Warnf("prices: skipping Soroswap pair %s event in operation %d: %v", emitter, opWrapper.ID(), err)
+				continue
 			}
 			if ok {
 				fills = append(fills, f)
