@@ -426,12 +426,15 @@ type ComplexityRoot struct {
 	}
 
 	TokenPrice struct {
+		EffectiveTakers  func(childComplexity int) int
 		LastTradeAt      func(childComplexity int) int
 		PercentChange24h func(childComplexity int) int
+		PriceErrorPct    func(childComplexity int) int
 		PriceSource      func(childComplexity int) int
 		PriceUsd         func(childComplexity int) int
 		TokenID          func(childComplexity int) int
 		Volume24hUsd     func(childComplexity int) int
+		Window           func(childComplexity int) int
 	}
 
 	Transaction struct {
@@ -2365,6 +2368,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ThresholdChange.Transaction(childComplexity), true
 
+	case "TokenPrice.effectiveTakers":
+		if e.ComplexityRoot.TokenPrice.EffectiveTakers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.EffectiveTakers(childComplexity), true
 	case "TokenPrice.lastTradeAt":
 		if e.ComplexityRoot.TokenPrice.LastTradeAt == nil {
 			break
@@ -2377,6 +2386,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TokenPrice.PercentChange24h(childComplexity), true
+	case "TokenPrice.priceErrorPct":
+		if e.ComplexityRoot.TokenPrice.PriceErrorPct == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.PriceErrorPct(childComplexity), true
 	case "TokenPrice.priceSource":
 		if e.ComplexityRoot.TokenPrice.PriceSource == nil {
 			break
@@ -2401,6 +2416,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.TokenPrice.Volume24hUsd(childComplexity), true
+	case "TokenPrice.window":
+		if e.ComplexityRoot.TokenPrice.Window == nil {
+			break
+		}
+
+		return e.ComplexityRoot.TokenPrice.Window(childComplexity), true
 
 	case "Transaction.accounts":
 		if e.ComplexityRoot.Transaction.Accounts == nil {
@@ -3286,10 +3307,16 @@ type AccountTransactionEdge {
 enum TokenPriceSource {
   """Volume-weighted average price over the trailing hour."""
   VWAP_1H
-  """Price of the token's most recent trade."""
-  LAST_TRADE
+  """Volume-weighted average price over the trailing 24 hours."""
+  VWAP_24H
   """The anchor oracle's reading; served for anchor tokens, which fills never price."""
   ORACLE
+}
+
+"""Trailing period a price was estimated over."""
+enum PriceWindow {
+  ONE_HOUR
+  ONE_DAY
 }
 
 """Candle bucket width."""
@@ -3299,7 +3326,7 @@ enum CandleResolution {
   ONE_DAY
 }
 
-"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound)."
+"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or its price is not known within the server's error tolerance; the other fields still describe the evidence."
 type TokenPrice {
   tokenId: String!
   priceUsd: Float
@@ -3307,6 +3334,11 @@ type TokenPrice {
   volume24hUsd: Float
   lastTradeAt: Time
   priceSource: TokenPriceSource
+  "Estimated relative standard error of the price, in percent. Null when fewer than two effective takers leave no estimate."
+  priceErrorPct: Float
+  "Effective number of independent accounts behind the price."
+  effectiveTakers: Float
+  window: PriceWindow
 }
 
 """One USD price candle."""
@@ -10583,6 +10615,12 @@ func (ec *executionContext) fieldContext_Query_tokenPrices(ctx context.Context, 
 				return ec.fieldContext_TokenPrice_lastTradeAt(ctx, field)
 			case "priceSource":
 				return ec.fieldContext_TokenPrice_priceSource(ctx, field)
+			case "priceErrorPct":
+				return ec.fieldContext_TokenPrice_priceErrorPct(ctx, field)
+			case "effectiveTakers":
+				return ec.fieldContext_TokenPrice_effectiveTakers(ctx, field)
+			case "window":
+				return ec.fieldContext_TokenPrice_window(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type TokenPrice", field.Name)
 		},
@@ -13282,6 +13320,93 @@ func (ec *executionContext) fieldContext_TokenPrice_priceSource(_ context.Contex
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type TokenPriceSource does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_priceErrorPct(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_priceErrorPct,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceErrorPct, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_priceErrorPct(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_effectiveTakers(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_effectiveTakers,
+		func(ctx context.Context) (any, error) {
+			return obj.EffectiveTakers, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_effectiveTakers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _TokenPrice_window(ctx context.Context, field graphql.CollectedField, obj *TokenPrice) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_TokenPrice_window,
+		func(ctx context.Context) (any, error) {
+			return obj.Window, nil
+		},
+		nil,
+		ec.marshalOPriceWindow2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPriceWindow,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_TokenPrice_window(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "TokenPrice",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type PriceWindow does not have child fields")
 		},
 	}
 	return fc, nil
@@ -23336,6 +23461,12 @@ func (ec *executionContext) _TokenPrice(ctx context.Context, sel ast.SelectionSe
 			out.Values[i] = ec._TokenPrice_lastTradeAt(ctx, field, obj)
 		case "priceSource":
 			out.Values[i] = ec._TokenPrice_priceSource(ctx, field, obj)
+		case "priceErrorPct":
+			out.Values[i] = ec._TokenPrice_priceErrorPct(ctx, field, obj)
+		case "effectiveTakers":
+			out.Values[i] = ec._TokenPrice_effectiveTakers(ctx, field, obj)
+		case "window":
+			out.Values[i] = ec._TokenPrice_window(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -25946,6 +26077,22 @@ func (ec *executionContext) marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwallet
 		return graphql.Null
 	}
 	return ec._Operation(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOPriceWindow2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPriceWindow(ctx context.Context, v any) (*PriceWindow, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(PriceWindow)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOPriceWindow2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPriceWindow(ctx context.Context, sel ast.SelectionSet, v *PriceWindow) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOStateChangeCategory2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx context.Context, v any) (*types.StateChangeCategory, error) {

@@ -23,14 +23,14 @@ func setPositiveDuration(co *config.ConfigOption) error {
 	return nil
 }
 
-// setPositiveFloat parses a float option and rejects zero and negative values.
-func setPositiveFloat(co *config.ConfigOption) error {
+// setErrorFraction parses a float option that must be greater than 0 and at most 1.
+func setErrorFraction(co *config.ConfigOption) error {
 	v, err := strconv.ParseFloat(viper.GetString(co.Name), 64)
 	if err != nil {
 		return fmt.Errorf("couldn't parse number in %s: %w", co.Name, err)
 	}
-	if v <= 0 {
-		return fmt.Errorf("%s must be greater than 0, got %v", co.Name, v)
+	if v <= 0 || v > 1 {
+		return fmt.Errorf("%s must be greater than 0 and at most 1, got %v", co.Name, v)
 	}
 	key, ok := co.ConfigKey.(*float64)
 	if !ok {
@@ -41,7 +41,7 @@ func setPositiveFloat(co *config.ConfigOption) error {
 }
 
 // PricesOptions returns the config options for token price serving.
-func PricesOptions(snapshotInterval *time.Duration, minVolume24hUSD *float64, maxStaleness *time.Duration) config.ConfigOptions {
+func PricesOptions(snapshotInterval *time.Duration, maxError *float64) config.ConfigOptions {
 	return config.ConfigOptions{
 		{
 			Name:           "prices-snapshot-interval",
@@ -52,20 +52,12 @@ func PricesOptions(snapshotInterval *time.Duration, minVolume24hUSD *float64, ma
 			FlagDefault:    serve.DefaultPricesSnapshotInterval.String(),
 		},
 		{
-			Name:           "prices-min-volume-24h-usd",
-			Usage:          "Minimum 24-hour USD trading volume for a token's price to be served.",
+			Name:           "prices-max-error",
+			Usage:          "Largest estimated relative error (0.05 = 5%) at which a token price is served.",
 			OptType:        types.String,
-			CustomSetValue: setPositiveFloat,
-			ConfigKey:      minVolume24hUSD,
-			FlagDefault:    strconv.FormatFloat(serve.DefaultPricesMinVolume24hUSD, 'f', -1, 64),
-		},
-		{
-			Name:           "prices-max-staleness",
-			Usage:          "Maximum age of a token's last trade for its price to be served (Go duration string, e.g. \"168h\").",
-			OptType:        types.String,
-			CustomSetValue: setPositiveDuration,
-			ConfigKey:      maxStaleness,
-			FlagDefault:    serve.DefaultPricesMaxStaleness.String(),
+			CustomSetValue: setErrorFraction,
+			ConfigKey:      maxError,
+			FlagDefault:    strconv.FormatFloat(serve.DefaultPricesMaxError, 'f', -1, 64),
 		},
 	}
 }

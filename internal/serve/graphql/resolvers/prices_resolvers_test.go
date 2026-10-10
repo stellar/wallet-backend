@@ -33,6 +33,9 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 	good := testContractAddress(t, 1)
 	thin := testContractAddress(t, 2)
 	unknown := testContractAddress(t, 3)
+	anchor := testContractAddress(t, 4)
+	errPct := 1.5
+	thinErrPct := 12.5
 
 	holder := prices.NewSnapshotHolder(nil, time.Second, prices.DefaultMaxError, nil)
 	newResolver := func(h *prices.SnapshotHolder) *queryResolver {
@@ -56,8 +59,9 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 	})
 
 	holder.Set(&prices.Snapshot{AsOf: asOf, Prices: map[string]prices.TokenPrice{
-		good: {Token: good, PriceUSD: 3, Source: prices.PriceSourceVWAP1H, Publishable: true, Price24hAgoUSD: &ago, Volume24hUSD: 5000, LastTradeAt: asOf.Add(-time.Minute)},
-		thin: {Token: thin, PriceUSD: 1, Source: prices.PriceSourceVWAP24H, Volume24hUSD: 10, LastTradeAt: asOf.Add(-time.Minute)},
+		good:   {Token: good, PriceUSD: 3, Source: prices.PriceSourceVWAP1H, Window: prices.Window1H, ErrorPct: &errPct, EffectiveTakers: 7, Publishable: true, Price24hAgoUSD: &ago, Volume24hUSD: 5000, LastTradeAt: asOf.Add(-time.Minute)},
+		thin:   {Token: thin, PriceUSD: 1, Source: prices.PriceSourceVWAP24H, Window: prices.Window24H, ErrorPct: &thinErrPct, EffectiveTakers: 3, Volume24hUSD: 10, LastTradeAt: asOf.Add(-time.Minute)},
+		anchor: {Token: anchor, PriceUSD: 1, Source: prices.PriceSourceOracle, Window: prices.WindowNone, Publishable: true, LastTradeAt: asOf.Add(-time.Minute)},
 	}})
 
 	t.Run("publishable token, input order, unknown token", func(t *testing.T) {
@@ -76,17 +80,39 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 		assert.Equal(t, graphql1.TokenPriceSourceVwap1h, *got[1].PriceSource)
 		assert.InDelta(t, 5000.0, *got[1].Volume24hUsd, 1e-9)
 		require.NotNil(t, got[1].LastTradeAt)
+		require.NotNil(t, got[1].PriceErrorPct)
+		assert.InDelta(t, 1.5, *got[1].PriceErrorPct, 1e-9)
+		require.NotNil(t, got[1].EffectiveTakers)
+		assert.InDelta(t, 7.0, *got[1].EffectiveTakers, 1e-9)
+		require.NotNil(t, got[1].Window)
+		assert.Equal(t, graphql1.PriceWindowOneHour, *got[1].Window)
 	})
 
-	t.Run("unpublishable token keeps volume but nulls price", func(t *testing.T) {
+	t.Run("unpublishable token keeps evidence but nulls price", func(t *testing.T) {
 		got, err := newResolver(holder).TokenPrices(t.Context(), []string{thin})
 		require.NoError(t, err)
 		assert.Nil(t, got[0].PriceUsd)
 		assert.Nil(t, got[0].PercentChange24h)
-		assert.Nil(t, got[0].PriceSource)
+		require.NotNil(t, got[0].PriceSource)
+		assert.Equal(t, graphql1.TokenPriceSourceVwap24h, *got[0].PriceSource)
+		require.NotNil(t, got[0].PriceErrorPct)
+		assert.InDelta(t, 12.5, *got[0].PriceErrorPct, 1e-9)
+		require.NotNil(t, got[0].EffectiveTakers)
+		assert.InDelta(t, 3.0, *got[0].EffectiveTakers, 1e-9)
+		require.NotNil(t, got[0].Window)
+		assert.Equal(t, graphql1.PriceWindowOneDay, *got[0].Window)
 		require.NotNil(t, got[0].Volume24hUsd)
 		assert.InDelta(t, 10.0, *got[0].Volume24hUsd, 1e-9)
 		require.NotNil(t, got[0].LastTradeAt)
+	})
+
+	t.Run("oracle token has no window", func(t *testing.T) {
+		got, err := newResolver(holder).TokenPrices(t.Context(), []string{anchor})
+		require.NoError(t, err)
+		require.NotNil(t, got[0].PriceUsd)
+		assert.Nil(t, got[0].Window)
+		require.NotNil(t, got[0].PriceSource)
+		assert.Equal(t, graphql1.TokenPriceSourceOracle, *got[0].PriceSource)
 	})
 
 	t.Run("invalid id", func(t *testing.T) {

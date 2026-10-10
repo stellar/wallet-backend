@@ -2,10 +2,16 @@
 enum TokenPriceSource {
   """Volume-weighted average price over the trailing hour."""
   VWAP_1H
-  """Price of the token's most recent trade."""
-  LAST_TRADE
+  """Volume-weighted average price over the trailing 24 hours."""
+  VWAP_24H
   """The anchor oracle's reading; served for anchor tokens, which fills never price."""
   ORACLE
+}
+
+"""Trailing period a price was estimated over."""
+enum PriceWindow {
+  ONE_HOUR
+  ONE_DAY
 }
 
 """Candle bucket width."""
@@ -15,7 +21,7 @@ enum CandleResolution {
   ONE_DAY
 }
 
-"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound)."
+"Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or its price is not known within the server's error tolerance; the other fields still describe the evidence."
 type TokenPrice {
   tokenId: String!
   priceUsd: Float
@@ -23,6 +29,11 @@ type TokenPrice {
   volume24hUsd: Float
   lastTradeAt: Time
   priceSource: TokenPriceSource
+  "Estimated relative standard error of the price, in percent. Null when fewer than two effective takers leave no estimate."
+  priceErrorPct: Float
+  "Effective number of independent accounts behind the price."
+  effectiveTakers: Float
+  window: PriceWindow
 }
 
 """One USD price candle."""

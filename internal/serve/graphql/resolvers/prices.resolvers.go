@@ -45,19 +45,17 @@ func (r *queryResolver) TokenPrices(ctx context.Context, tokenIds []string) ([]*
 		volume, lastTradeAt := tp.Volume24hUSD, tp.LastTradeAt
 		out[i].Volume24hUsd = &volume
 		out[i].LastTradeAt = &lastTradeAt
-		if !tp.Publishable {
-			continue
+		out[i].PriceErrorPct = tp.ErrorPct
+		if tp.EffectiveTakers > 0 {
+			takers := tp.EffectiveTakers
+			out[i].EffectiveTakers = &takers
 		}
-		price := tp.PriceUSD
-		out[i].PriceUsd = &price
-		out[i].PercentChange24h = tp.PercentChange24h()
-		switch tp.Source {
-		case prices.PriceSourceVWAP1H:
-			src := graphql1.TokenPriceSourceVwap1h
-			out[i].PriceSource = &src
-		case prices.PriceSourceOracle:
-			src := graphql1.TokenPriceSourceOracle
-			out[i].PriceSource = &src
+		out[i].Window = priceWindow(tp.Window)
+		out[i].PriceSource = priceSource(tp.Source)
+		if tp.Publishable {
+			price := tp.PriceUSD
+			out[i].PriceUsd = &price
+			out[i].PercentChange24h = tp.PercentChange24h()
 		}
 	}
 	return out, nil

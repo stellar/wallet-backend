@@ -51,8 +51,7 @@ const (
 
 const (
 	DefaultPricesSnapshotInterval = 5 * time.Second
-	DefaultPricesMinVolume24hUSD  = 100.0
-	DefaultPricesMaxStaleness     = 168 * time.Hour
+	DefaultPricesMaxError         = prices.DefaultMaxError
 )
 
 type Configs struct {
@@ -76,8 +75,7 @@ type Configs struct {
 
 	// Token prices. Zero values fall back to the defaults below.
 	PricesSnapshotInterval time.Duration
-	PricesMinVolume24hUSD  float64
-	PricesMaxStaleness     time.Duration
+	PricesMaxError         float64
 
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
@@ -217,9 +215,13 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if interval <= 0 {
 		interval = DefaultPricesSnapshotInterval
 	}
+	maxError := cfg.PricesMaxError
+	if maxError <= 0 {
+		maxError = DefaultPricesMaxError
+	}
 
 	return handlerDeps{
-		Prices:                      prices.NewSnapshotHolder(dbConnectionPool, interval, prices.DefaultMaxError, m.Prices),
+		Prices:                      prices.NewSnapshotHolder(dbConnectionPool, interval, maxError, m.Prices),
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
 		Metrics:                     m,

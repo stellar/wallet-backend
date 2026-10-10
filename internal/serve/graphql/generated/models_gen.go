@@ -275,7 +275,7 @@ type StateChangeEdge struct {
 	Cursor string          `json:"cursor"`
 }
 
-// Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or fails the publish rule (24h volume below the minimum, or last trade older than the staleness bound).
+// Spot price of one token. priceUsd and percentChange24h are null when the token is unknown or its price is not known within the server's error tolerance; the other fields still describe the evidence.
 type TokenPrice struct {
 	TokenID          string            `json:"tokenId"`
 	PriceUsd         *float64          `json:"priceUsd,omitempty"`
@@ -283,6 +283,11 @@ type TokenPrice struct {
 	Volume24hUsd     *float64          `json:"volume24hUsd,omitempty"`
 	LastTradeAt      *time.Time        `json:"lastTradeAt,omitempty"`
 	PriceSource      *TokenPriceSource `json:"priceSource,omitempty"`
+	// Estimated relative standard error of the price, in percent. Null when fewer than two effective takers leave no estimate.
+	PriceErrorPct *float64 `json:"priceErrorPct,omitempty"`
+	// Effective number of independent accounts behind the price.
+	EffectiveTakers *float64     `json:"effectiveTakers,omitempty"`
+	Window          *PriceWindow `json:"window,omitempty"`
 }
 
 // A classic Stellar asset held via a trustline.
@@ -437,27 +442,83 @@ func (e CandleResolution) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Trailing period a price was estimated over.
+type PriceWindow string
+
+const (
+	PriceWindowOneHour PriceWindow = "ONE_HOUR"
+	PriceWindowOneDay  PriceWindow = "ONE_DAY"
+)
+
+var AllPriceWindow = []PriceWindow{
+	PriceWindowOneHour,
+	PriceWindowOneDay,
+}
+
+func (e PriceWindow) IsValid() bool {
+	switch e {
+	case PriceWindowOneHour, PriceWindowOneDay:
+		return true
+	}
+	return false
+}
+
+func (e PriceWindow) String() string {
+	return string(e)
+}
+
+func (e *PriceWindow) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = PriceWindow(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid PriceWindow", str)
+	}
+	return nil
+}
+
+func (e PriceWindow) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *PriceWindow) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e PriceWindow) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 // Which number a spot price is.
 type TokenPriceSource string
 
 const (
 	// Volume-weighted average price over the trailing hour.
 	TokenPriceSourceVwap1h TokenPriceSource = "VWAP_1H"
-	// Price of the token's most recent trade.
-	TokenPriceSourceLastTrade TokenPriceSource = "LAST_TRADE"
+	// Volume-weighted average price over the trailing 24 hours.
+	TokenPriceSourceVwap24h TokenPriceSource = "VWAP_24H"
 	// The anchor oracle's reading; served for anchor tokens, which fills never price.
 	TokenPriceSourceOracle TokenPriceSource = "ORACLE"
 )
 
 var AllTokenPriceSource = []TokenPriceSource{
 	TokenPriceSourceVwap1h,
-	TokenPriceSourceLastTrade,
+	TokenPriceSourceVwap24h,
 	TokenPriceSourceOracle,
 }
 
 func (e TokenPriceSource) IsValid() bool {
 	switch e {
-	case TokenPriceSourceVwap1h, TokenPriceSourceLastTrade, TokenPriceSourceOracle:
+	case TokenPriceSourceVwap1h, TokenPriceSourceVwap24h, TokenPriceSourceOracle:
 		return true
 	}
 	return false

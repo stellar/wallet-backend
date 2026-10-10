@@ -1017,7 +1017,7 @@ FetchAndStoreMetadata(ctx context.Context, contractTypesByID map[string]types.Co
 
 ## Token Prices
 
-Fills come from classic DEX results and trusted Soroban AMM events. Each fill is valued in USD through the Reflector anchor oracle. Serve answers `tokenPrices` and `tokenPriceHistory` from an in-memory snapshot that reloads on an interval. Tokens are addressed by contract id.
+Fills come from classic DEX results and trusted Soroban AMM events. Each fill is valued in USD through the Reflector anchor oracle. Serve answers `tokenPrices` and `tokenPriceHistory` from an in-memory snapshot that reloads on an interval. Tokens are addressed by contract id. A price is served when at least two effective takers pin it within the error tolerance over the trailing hour, else the trailing 24 hours.
 
 Run `prices-setup-pools` once per environment before enabling `PRICES_ENABLED`.
 
@@ -1028,8 +1028,7 @@ Run `prices-setup-pools` once per environment before enabling `PRICES_ENABLED`.
 | `PRICES_COMPARE_INTERVAL` | ingest | `1h` | Wait between external comparison passes; `0` disables |
 | `STELLAR_EXPERT_URL` | ingest | `https://api.stellar.expert/explorer/public` | External price source for the comparison |
 | `PRICES_SNAPSHOT_INTERVAL` | serve | `5s` | Snapshot reload interval |
-| `PRICES_MIN_VOLUME_24H_USD` | serve | `100` | Minimum 24-hour USD volume to serve a price |
-| `PRICES_MAX_STALENESS` | serve | `168h` | Maximum age of the last trade to serve a price |
+| `PRICES_MAX_ERROR` | serve | `0.05` | Largest estimated relative error at which a price is served |
 
 ## Data Migrations
 

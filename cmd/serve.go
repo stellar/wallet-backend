@@ -59,7 +59,7 @@ func (c *serveCmd) Command() *cobra.Command {
 		},
 	}
 
-	cfgOpts = append(cfgOpts, utils.PricesOptions(&cfg.PricesSnapshotInterval, &cfg.PricesMinVolume24hUSD, &cfg.PricesMaxStaleness)...)
+	cfgOpts = append(cfgOpts, utils.PricesOptions(&cfg.PricesSnapshotInterval, &cfg.PricesMaxError)...)
 	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
 
 	cmd := &cobra.Command{
