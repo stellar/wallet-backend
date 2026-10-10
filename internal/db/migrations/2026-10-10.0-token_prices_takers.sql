@@ -48,8 +48,24 @@ SELECT add_continuous_aggregate_policy('trades_takers_1h',
 SELECT add_retention_policy('trades_takers_1m', drop_after => INTERVAL '30 days');
 SELECT add_retention_policy('trades_takers_1h', drop_after => INTERVAL '2 years');
 
+-- The last fill per token is no longer a price source; the taker aggregates carry last_at.
+DROP TABLE token_last_trades;
+
 
 -- +migrate Down
+
+CREATE TABLE token_last_trades (
+    token             BYTEA PRIMARY KEY,
+    price_usd         DOUBLE PRECISION NOT NULL,
+    ledger_created_at TIMESTAMPTZ NOT NULL,
+    operation_id      BIGINT NOT NULL
+) WITH (
+    fillfactor = 80,
+    autovacuum_vacuum_scale_factor = 0.02,
+    autovacuum_vacuum_threshold = 50,
+    autovacuum_analyze_scale_factor = 0.01,
+    autovacuum_analyze_threshold = 50
+);
 
 DROP MATERIALIZED VIEW IF EXISTS trades_takers_1h;
 DROP MATERIALIZED VIEW IF EXISTS trades_takers_1m;

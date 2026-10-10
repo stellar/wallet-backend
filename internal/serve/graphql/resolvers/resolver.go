@@ -47,8 +47,6 @@ const (
 type ResolverConfig struct {
 	// Prices serves tokenPrices from memory. A nil holder answers every token as unpriced.
 	Prices *prices.SnapshotHolder
-	// PublishRule decides which snapshot prices tokenPrices returns.
-	PublishRule prices.PublishRule
 }
 
 var ErrNotStateChange = errors.New("object is not a StateChange")

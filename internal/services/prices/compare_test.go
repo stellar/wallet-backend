@@ -59,7 +59,7 @@ func (f *fakePriceSource) AssetPriceUSD(_ context.Context, token string) (*float
 func snapOf(vols map[string]float64) *Snapshot {
 	s := &Snapshot{Prices: map[string]TokenPrice{}}
 	for tok, v := range vols {
-		s.Prices[tok] = TokenPrice{Token: tok, PriceUSD: 1, Volume24hUSD: v}
+		s.Prices[tok] = TokenPrice{Token: tok, PriceUSD: 1, Volume24hUSD: v, Publishable: true}
 	}
 	return s
 }

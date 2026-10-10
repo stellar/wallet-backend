@@ -85,7 +85,7 @@ func (s *ComparisonSampler) Run(ctx context.Context) {
 
 func (s *ComparisonSampler) pass(ctx context.Context) {
 	now := time.Now()
-	snap, err := LoadSnapshot(ctx, s.cfg.DB, now)
+	snap, err := LoadSnapshot(ctx, s.cfg.DB, now, DefaultMaxError)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Ctx(ctx).Errorf("price comparison: loading snapshot: %v", err)
@@ -136,8 +136,13 @@ func (s *ComparisonSampler) samplePass(ctx context.Context, snap *Snapshot, now 
 		} else {
 			observe("both")
 		}
-		ours := tp.PriceUSD
-		samples = append(samples, data.PriceComparison{SampledAt: now, Token: tp.Token, Ours: &ours, Theirs: theirs})
+		// Ours is recorded only when the price is served, so unpublished tokens show as NULL.
+		var ours *float64
+		if tp.Publishable {
+			p := tp.PriceUSD
+			ours = &p
+		}
+		samples = append(samples, data.PriceComparison{SampledAt: now, Token: tp.Token, Ours: ours, Theirs: theirs})
 	}
 	if err := s.cfg.Store.Insert(ctx, samples); err != nil {
 		return fmt.Errorf("storing samples: %w", err)

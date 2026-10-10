@@ -293,17 +293,15 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	return nil
 }
 
-// insertTrades prices the batch's fills, streams them into trades, registers the pools their
-// factories announced and records each token's last priced fill. Fill ingestion is live-only, so
-// this runs from the live persist path alone; it is a no-op when the batch has no fills.
+// insertTrades prices the batch's fills, streams them into trades and registers the pools their
+// factories announced. Fill ingestion is live-only, so this runs from the live persist path
+// alone; it is a no-op when the batch has no fills.
 func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades []types.Trade, pools []types.AMMPool) error {
 	if len(trades) == 0 && len(pools) == 0 {
 		return nil
 	}
-	var last []data.LastTrade
 	if m.tradesEnricher != nil {
-		var err error
-		if last, err = m.tradesEnricher.Enrich(ctx, trades); err != nil {
+		if err := m.tradesEnricher.Enrich(ctx, trades); err != nil {
 			return fmt.Errorf("pricing trades: %w", err)
 		}
 	}
@@ -313,9 +311,6 @@ func (m *ingestService) insertTrades(ctx context.Context, pgxTx pgx.Tx, trades [
 	m.recordTradeMetrics(trades)
 	if err := m.models.AMMPools.BatchUpsert(ctx, pgxTx, pools); err != nil {
 		return fmt.Errorf("registering AMM pools: %w", err)
-	}
-	if err := m.models.Trades.UpsertLastTrades(ctx, pgxTx, last); err != nil {
-		return fmt.Errorf("recording last trades: %w", err)
 	}
 	return nil
 }

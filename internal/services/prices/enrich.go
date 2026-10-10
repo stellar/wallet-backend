@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
@@ -41,19 +40,17 @@ func NewEnricher(venues processors.TradeVenues, anchor *Anchor, decimals Decimal
 // classicDecimals is the fixed precision of every classic asset and its SAC.
 const classicDecimals int32 = 7
 
-// Enrich sets BaseQty and USDValue on every fill it can price and returns each token's last priced
-// fill in the batch. A fill whose decimals or anchor rate are unknown is persisted unpriced.
-// Enrich is called from the single persist goroutine, so the cache needs no locking.
-func (e *Enricher) Enrich(ctx context.Context, trades []types.Trade) ([]data.LastTrade, error) {
+// Enrich sets BaseQty and USDValue on every fill it can price. A fill whose decimals or anchor
+// rate are unknown is persisted unpriced. Enrich is called from the single persist goroutine, so
+// the cache needs no locking.
+func (e *Enricher) Enrich(ctx context.Context, trades []types.Trade) error {
 	if len(trades) == 0 {
-		return nil, nil
+		return nil
 	}
 	if err := e.resolveDecimals(ctx, trades); err != nil {
-		return nil, err
+		return err
 	}
 	rates, haveRates := e.Anchor.Get()
-
-	last := make(map[string]data.LastTrade)
 	for i := range trades {
 		t := &trades[i]
 		if t.BaseDecimals == nil || t.CounterDecimals == nil {
@@ -73,22 +70,8 @@ func (e *Enricher) Enrich(ctx context.Context, trades []types.Trade) ([]data.Las
 		}
 		usd := scaled(t.CounterAmount, *t.CounterDecimals) * rate
 		t.USDValue = &usd
-
-		// Fills arrive in (operation, fill) order, so a later fill for the same token wins.
-		if prev, seen := last[t.BaseToken]; !seen || t.OperationID >= prev.OperationID {
-			last[t.BaseToken] = data.LastTrade{
-				Token:           t.BaseToken,
-				PriceUSD:        usd / baseQty,
-				LedgerCreatedAt: t.LedgerClosed,
-				OperationID:     t.OperationID,
-			}
-		}
 	}
-	out := make([]data.LastTrade, 0, len(last))
-	for _, l := range last {
-		out = append(out, l)
-	}
-	return out, nil
+	return nil
 }
 
 func (e *Enricher) resolveDecimals(ctx context.Context, trades []types.Trade) error {

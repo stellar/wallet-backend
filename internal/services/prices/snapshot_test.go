@@ -2,6 +2,7 @@ package prices
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -34,23 +35,50 @@ func contractAddress(fill byte) string {
 	return strkey.MustEncode(strkey.VersionByteContract, raw[:])
 }
 
-func seven() *int32 { d := int32(7); return &d }
+// accountAddress builds a valid G-address whose key bytes are all fill.
+func accountAddress(fill byte) string {
+	var raw [32]byte
+	for i := range raw {
+		raw[i] = fill
+	}
+	return strkey.MustEncode(strkey.VersionByteAccountID, raw[:])
+}
 
-// testTaker is a fixed account for fixtures that do not exercise taker counting.
-const testTaker = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI"
-
-func classicFill(opID int64, at time.Time, base string, baseAmt int64, counter string, counterAmt int64) types.Trade {
+// pricedFill is a fill whose quantity and USD value are already known, so a test can state the
+// price evidence directly: qty units of base for usd dollars, taken by taker at at.
+func pricedFill(opID int64, at time.Time, base, taker string, qty, usd float64, counter string) types.Trade {
 	return types.Trade{
-		OperationID: opID, LedgerNumber: uint32(opID >> 32), LedgerClosed: at, Taker: testTaker,
-		BaseToken: base, BaseAmount: big.NewInt(baseAmt),
-		CounterToken: counter, CounterAmount: big.NewInt(counterAmt),
-		Venue: types.TradeVenueSDEXOrderbook, BaseDecimals: seven(), CounterDecimals: seven(),
+		OperationID: opID, LedgerNumber: uint32(opID >> 32), LedgerClosed: at, Taker: taker,
+		BaseToken: base, BaseAmount: big.NewInt(1), CounterToken: counter, CounterAmount: big.NewInt(1),
+		Venue: types.TradeVenueSDEXOrderbook, BaseQty: &qty, USDValue: &usd,
 	}
 }
 
-// TestSnapshot_EndToEnd proves the data path: enriched fills are copied, the last fill per token
-// is recorded, the aggregates refresh, and LoadSnapshot derives spot, VWAP, 24h volume and change.
-func TestSnapshot_EndToEnd(t *testing.T) {
+// expectedStats computes VWAP, effective takers and relative error straight from fills, as an
+// independent reference for the aggregate-based loader.
+func expectedStats(fills []types.Trade) (vwap, neff, rse float64) {
+	var w, q, wl, wll float64
+	perTaker := map[string]float64{}
+	for _, f := range fills {
+		lp := math.Log(*f.USDValue / *f.BaseQty)
+		w += *f.USDValue
+		q += *f.BaseQty
+		wl += *f.USDValue * lp
+		wll += *f.USDValue * lp * lp
+		perTaker[f.Taker] += *f.USDValue
+	}
+	var w2 float64
+	for _, v := range perTaker {
+		w2 += v * v
+	}
+	neff = w * w / w2
+	mean := wl / w
+	return w / q, neff, math.Sqrt(math.Max(wll/w-mean*mean, 0) / neff)
+}
+
+// TestLoadSnapshot_ConfidenceRule drives the publish rule end to end: fills are copied, every
+// aggregate refreshes, and LoadSnapshot picks a window, or none, for each token.
+func TestLoadSnapshot_ConfidenceRule(t *testing.T) {
 	ctx := context.Background()
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -59,98 +87,116 @@ func TestSnapshot_EndToEnd(t *testing.T) {
 	defer pool.Close()
 	models, err := data.NewModels(pool, metrics.NewMetrics(prometheus.NewRegistry()).DB)
 	require.NoError(t, err)
-
 	venues, err := processors.TradeVenuesFor(network.PublicNetworkPassphrase)
 	require.NoError(t, err)
-	anchor := &Anchor{}
-	anchor.Set(AnchorRates{XLMUSD: 0.2, USDCUSD: 1.0, AsOf: time.Now()})
-	enricher := NewEnricher(venues, anchor, models.Contract)
 
 	asOf := time.Date(2026, 10, 9, 12, 30, 0, 0, time.UTC)
-	// Valid 24-hour windows need fills in the 1h bucket that starts 24h before asOf.
-	dayAgo := asOf.Add(-24 * time.Hour).Truncate(time.Hour) // 2026-10-08 11:00
-	const xlm = 10_000_000
-	trades := []types.Trade{
-		// T 24h ago: 1000 T for 400 XLM → $80 → 0.08/T
-		classicFill(1<<32|1, dayAgo.Add(15*time.Minute), tokenT, 1000*xlm, venues.XLMSAC, 400*xlm),
-		// U 3.5h ago: 10 U for 20 USDC → $20 → 2.0/U; no fill in the last hour
-		classicFill(2<<32|1, asOf.Add(-210*time.Minute), tokenU, 10*xlm, venues.USDCSAC, 20*xlm),
-		// T in the last hour: 1000 T for 500 XLM → $100 → 0.10/T, then 1000 T for 600 XLM → $120 → 0.12/T
-		classicFill(3<<32|1, asOf.Add(-30*time.Minute), tokenT, 1000*xlm, venues.XLMSAC, 500*xlm),
-		classicFill(4<<32|1, asOf.Add(-10*time.Minute), tokenT, 1000*xlm, venues.XLMSAC, 600*xlm),
-		// a non-anchor pair stays unpriced in USD
-		classicFill(5<<32|1, asOf.Add(-5*time.Minute), tokenU, 1*xlm, tokenT, 20*xlm),
-	}
+	hourAgo24 := asOf.Add(-24 * time.Hour).Truncate(time.Hour) // the reference hour for the 24h change
+	k1, k2, k3 := accountAddress(1), accountAddress(2), accountAddress(3)
+	agree, bot, dayOnly, spread := contractAddress(0x61), contractAddress(0x62), contractAddress(0x63), contractAddress(0x64)
+	usdc := venues.USDCSAC
 
-	last, err := enricher.Enrich(ctx, trades)
-	require.NoError(t, err)
-	require.Len(t, last, 2)
-	require.Nil(t, trades[4].USDValue, "non-anchor counter is not priced")
-	require.NotNil(t, trades[3].USDValue)
-	assert.InDelta(t, 120, *trades[3].USDValue, 1e-9)
-	assert.InDelta(t, 1000, *trades[3].BaseQty, 1e-9)
+	var opID int64
+	next := func() int64 { opID++; return opID<<32 | 1 }
+	agreeHour := []types.Trade{
+		pricedFill(next(), asOf.Add(-40*time.Minute), agree, k1, 100, 10.0, usdc),
+		pricedFill(next(), asOf.Add(-30*time.Minute), agree, k2, 100, 10.1, usdc),
+		pricedFill(next(), asOf.Add(-20*time.Minute), agree, k3, 100, 9.95, usdc),
+	}
+	fills := append([]types.Trade{
+		// The hour 24h ago sets the reference for agree's 24h change.
+		pricedFill(next(), hourAgo24.Add(10*time.Minute), agree, k1, 100, 8, usdc),
+	}, agreeHour...)
+	// One account trading 50 times is one observation.
+	for i := 0; i < 50; i++ {
+		fills = append(fills, pricedFill(next(), asOf.Add(-time.Duration(50-i)*time.Minute), bot, k1, 10, 1.0+0.001*float64(i%3), usdc))
+	}
+	// Three takers 3-20 hours ago, nothing in the trailing hour.
+	dayOnlyFills := []types.Trade{
+		pricedFill(next(), asOf.Add(-20*time.Hour), dayOnly, k1, 50, 100, usdc),
+		pricedFill(next(), asOf.Add(-10*time.Hour), dayOnly, k2, 50, 101, usdc),
+		pricedFill(next(), asOf.Add(-3*time.Hour), dayOnly, k3, 50, 99, usdc),
+	}
+	fills = append(fills, dayOnlyFills...)
+	// Three equal-weight takers, one 30% above the others: enough takers for an error estimate,
+	// and the estimate is above 5%.
+	fills = append(fills,
+		pricedFill(next(), asOf.Add(-25*time.Minute), spread, k1, 100, 10, usdc),
+		pricedFill(next(), asOf.Add(-15*time.Minute), spread, k2, 100/1.3, 10, usdc),
+		pricedFill(next(), asOf.Add(-5*time.Minute), spread, k3, 100, 10, usdc),
+	)
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback(ctx) }()
-	require.NoError(t, models.Trades.BatchCopy(ctx, tx, trades))
-	require.NoError(t, models.Trades.UpsertLastTrades(ctx, tx, last))
+	require.NoError(t, models.Trades.BatchCopy(ctx, tx, fills))
 	require.NoError(t, tx.Commit(ctx))
-
-	for _, view := range []string{"trades_1m", "trades_1h", "trades_1d"} {
+	for _, view := range []string{"trades_1m", "trades_1h", "trades_1d", "trades_takers_1m", "trades_takers_1h"} {
 		_, err = pool.Exec(ctx, "CALL refresh_continuous_aggregate($1, NULL, NULL)", view)
 		require.NoError(t, err, view)
 	}
-
 	require.NoError(t, models.OraclePrices.Upsert(ctx, []data.OraclePrice{
-		{Asset: venues.USDCSAC, PriceUSD: 1.0004, PriceTimestamp: asOf.Add(-5 * time.Minute).Unix()},
+		{Asset: usdc, PriceUSD: 1.0004, PriceTimestamp: asOf.Add(-5 * time.Minute).Unix()},
 		{Asset: venues.XLMSAC, PriceUSD: 0.2, PriceTimestamp: asOf.Add(-5 * time.Minute).Unix()},
 	}))
 
-	snap, err := LoadSnapshot(ctx, pool, asOf)
+	snap, err := LoadSnapshot(ctx, pool, asOf, DefaultMaxError)
 	require.NoError(t, err)
-	require.Len(t, snap.Prices, 4, "two traded tokens plus the two anchors from the oracle")
 
-	usdc := snap.Prices[venues.USDCSAC]
-	assert.Equal(t, PriceSourceOracle, usdc.Source, "USDC is always the counter, so it comes from the oracle")
-	assert.InDelta(t, 1.0004, usdc.PriceUSD, 1e-9)
-	assert.True(t, PublishRule{MinVolume24hUSD: 100, MaxStaleness: time.Hour}.Publishable(usdc, asOf), "oracle prices need no volume")
-	assert.False(t, PublishRule{}.Publishable(usdc, asOf.Add(25*time.Hour)), "but must be fresh")
+	t.Run("takers who agree publish the trailing hour", func(t *testing.T) {
+		tp := snap.Prices[agree]
+		vwap, neff, rse := expectedStats(agreeHour)
+		assert.True(t, tp.Publishable)
+		assert.Equal(t, Window1H, tp.Window)
+		assert.Equal(t, PriceSourceVWAP1H, tp.Source)
+		assert.InDelta(t, vwap, tp.PriceUSD, 1e-9)
+		assert.InDelta(t, neff, tp.EffectiveTakers, 1e-9)
+		require.NotNil(t, tp.ErrorPct)
+		assert.InDelta(t, rse*100, *tp.ErrorPct, 1e-9)
+		require.NotNil(t, tp.Price24hAgoUSD)
+		assert.InDelta(t, 0.08, *tp.Price24hAgoUSD, 1e-9, "the VWAP of the hour 24h ago")
+		assert.InDelta(t, (vwap/0.08-1)*100, *tp.PercentChange24h(), 1e-9)
+		assert.Equal(t, asOf.Add(-20*time.Minute), tp.LastTradeAt.UTC())
+	})
 
-	tp := snap.Prices[tokenT]
-	assert.Equal(t, PriceSourceVWAP1H, tp.Source)
-	assert.InDelta(t, 0.11, tp.PriceUSD, 1e-9, "trailing-hour VWAP = (100+120)/(1000+1000)")
-	assert.InDelta(t, 300, tp.Volume24hUSD, 1e-9, "24h volume includes the bucket 24h ago")
-	require.NotNil(t, tp.Price24hAgoUSD)
-	assert.InDelta(t, 0.08, *tp.Price24hAgoUSD, 1e-9)
-	assert.InDelta(t, 37.5, *tp.PercentChange24h(), 1e-6)
-	assert.Equal(t, asOf.Add(-10*time.Minute), tp.LastTradeAt.UTC())
+	t.Run("one account trading many times is not published", func(t *testing.T) {
+		tp := snap.Prices[bot]
+		assert.False(t, tp.Publishable)
+		assert.InDelta(t, 1, tp.EffectiveTakers, 1e-9)
+		assert.Nil(t, tp.ErrorPct, "no error estimate below two effective takers")
+		assert.InDelta(t, 50*1.001, tp.Volume24hUSD, 0.05, "volume is still reported")
+	})
 
-	up := snap.Prices[tokenU]
-	assert.Equal(t, PriceSourceLastTrade, up.Source, "no fill in the trailing hour falls back to the last fill")
-	assert.InDelta(t, 2.0, up.PriceUSD, 1e-9)
-	assert.InDelta(t, 20, up.Volume24hUSD, 1e-9)
-	assert.Nil(t, up.Price24hAgoUSD)
-	assert.Nil(t, up.PercentChange24h())
+	t.Run("takers only earlier in the day publish the 24h window", func(t *testing.T) {
+		tp := snap.Prices[dayOnly]
+		vwap, neff, rse := expectedStats(dayOnlyFills)
+		assert.True(t, tp.Publishable)
+		assert.Equal(t, Window24H, tp.Window)
+		assert.Equal(t, PriceSourceVWAP24H, tp.Source)
+		assert.InDelta(t, vwap, tp.PriceUSD, 1e-9)
+		assert.InDelta(t, neff, tp.EffectiveTakers, 1e-9)
+		require.NotNil(t, tp.ErrorPct)
+		assert.InDelta(t, rse*100, *tp.ErrorPct, 1e-9)
+	})
 
-	rule := PublishRule{MinVolume24hUSD: 100, MaxStaleness: 7 * 24 * time.Hour}
-	assert.True(t, rule.Publishable(tp, asOf))
-	assert.False(t, rule.Publishable(up, asOf), "below the volume floor")
-	assert.False(t, PublishRule{MinVolume24hUSD: 0, MaxStaleness: time.Minute}.Publishable(tp, asOf), "stale")
+	t.Run("takers 30% apart are not published", func(t *testing.T) {
+		tp := snap.Prices[spread]
+		assert.False(t, tp.Publishable)
+		assert.InDelta(t, 3, tp.EffectiveTakers, 1e-9)
+		require.NotNil(t, tp.ErrorPct)
+		assert.Greater(t, *tp.ErrorPct, 5.0)
+	})
 
-	// A replayed older fill never moves the last trade backwards.
-	tx, err = pool.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback(ctx) }()
-	require.NoError(t, models.Trades.UpsertLastTrades(ctx, tx, []data.LastTrade{{Token: tokenT, PriceUSD: 0.01, LedgerCreatedAt: dayAgo, OperationID: 1<<32 | 1}}))
-	require.NoError(t, tx.Commit(ctx))
-	all, err := models.Trades.GetAllLastTrades(ctx)
-	require.NoError(t, err)
-	for _, l := range all {
-		if l.Token == tokenT {
-			assert.InDelta(t, 0.12, l.PriceUSD, 1e-9)
-		}
-	}
+	t.Run("anchors without fills come from the oracle while it is fresh", func(t *testing.T) {
+		tp := snap.Prices[usdc]
+		assert.True(t, tp.Publishable)
+		assert.Equal(t, PriceSourceOracle, tp.Source)
+		assert.InDelta(t, 1.0004, tp.PriceUSD, 1e-9)
+
+		later, err := LoadSnapshot(ctx, pool, asOf.Add(25*time.Hour), DefaultMaxError)
+		require.NoError(t, err)
+		assert.False(t, later.Prices[usdc].Publishable, "a reading older than 24h is not served")
+	})
 }
 
 // TestEnricher_ResolvesDecimalsFromContractTokens covers AMM fills, whose decimals come from
@@ -187,17 +233,13 @@ func TestEnricher_ResolvesDecimalsFromContractTokens(t *testing.T) {
 	}
 	trades := []types.Trade{known, unknown}
 
-	last, err := enricher.Enrich(ctx, trades)
-	require.NoError(t, err)
+	require.NoError(t, enricher.Enrich(ctx, trades))
 	require.NotNil(t, trades[0].BaseQty)
 	assert.InDelta(t, 3, *trades[0].BaseQty, 1e-9)
 	require.NotNil(t, trades[0].USDValue)
 	assert.InDelta(t, 6, *trades[0].USDValue, 1e-9)
 	assert.Nil(t, trades[1].BaseQty)
 	assert.Nil(t, trades[1].USDValue)
-	require.Len(t, last, 1)
-	assert.Equal(t, tokenU, last[0].Token)
-	assert.InDelta(t, 2, last[0].PriceUSD, 1e-9)
 
 	// The native SAC has no contract_tokens row; an AMM fill against XLM is still priced.
 	xlmFill := types.Trade{
@@ -205,8 +247,7 @@ func TestEnricher_ResolvesDecimalsFromContractTokens(t *testing.T) {
 		CounterToken: venues.XLMSAC, CounterAmount: big.NewInt(100_000_000), Venue: types.TradeVenueAquarius,
 	}
 	trades = []types.Trade{xlmFill}
-	_, err = enricher.Enrich(ctx, trades)
-	require.NoError(t, err)
+	require.NoError(t, enricher.Enrich(ctx, trades))
 	require.NotNil(t, trades[0].USDValue, "XLM decimals are known without a lookup")
 	assert.InDelta(t, 2, *trades[0].USDValue, 1e-9, "10 XLM at $0.2")
 
@@ -219,17 +260,14 @@ func TestEnricher_ResolvesDecimalsFromContractTokens(t *testing.T) {
 		OperationID: 4, LedgerClosed: time.Now(), BaseToken: tokenV, BaseAmount: big.NewInt(5),
 		CounterToken: venues.USDCSAC, CounterAmount: big.NewInt(60_000_000), Venue: types.TradeVenueSoroswap,
 	}}
-	_, err = enricher.Enrich(ctx, trades)
-	require.NoError(t, err)
+	require.NoError(t, enricher.Enrich(ctx, trades))
 	assert.Nil(t, trades[0].BaseQty)
 	assert.Nil(t, trades[0].USDValue)
 
 	// No anchor yet: quantities resolve, USD does not.
 	enricher = NewEnricher(venues, &Anchor{}, models.Contract)
 	trades = []types.Trade{known}
-	last, err = enricher.Enrich(ctx, trades)
-	require.NoError(t, err)
-	assert.Empty(t, last)
+	require.NoError(t, enricher.Enrich(ctx, trades))
 	require.NotNil(t, trades[0].BaseQty)
 	assert.Nil(t, trades[0].USDValue)
 }

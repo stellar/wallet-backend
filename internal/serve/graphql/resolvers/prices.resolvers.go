@@ -45,7 +45,7 @@ func (r *queryResolver) TokenPrices(ctx context.Context, tokenIds []string) ([]*
 		volume, lastTradeAt := tp.Volume24hUSD, tp.LastTradeAt
 		out[i].Volume24hUsd = &volume
 		out[i].LastTradeAt = &lastTradeAt
-		if !r.config.PublishRule.Publishable(tp, snap.AsOf) {
+		if !tp.Publishable {
 			continue
 		}
 		price := tp.PriceUSD
@@ -54,9 +54,6 @@ func (r *queryResolver) TokenPrices(ctx context.Context, tokenIds []string) ([]*
 		switch tp.Source {
 		case prices.PriceSourceVWAP1H:
 			src := graphql1.TokenPriceSourceVwap1h
-			out[i].PriceSource = &src
-		case prices.PriceSourceLastTrade:
-			src := graphql1.TokenPriceSourceLastTrade
 			out[i].PriceSource = &src
 		case prices.PriceSourceOracle:
 			src := graphql1.TokenPriceSourceOracle

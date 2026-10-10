@@ -16,13 +16,15 @@ import (
 type SnapshotHolder struct {
 	db       *pgxpool.Pool
 	interval time.Duration
+	maxError float64
 	current  atomic.Pointer[Snapshot]
 	metrics  *metrics.PricesMetrics
 }
 
-// NewSnapshotHolder builds a holder that reloads every interval. m may be nil.
-func NewSnapshotHolder(db *pgxpool.Pool, interval time.Duration, m *metrics.PricesMetrics) *SnapshotHolder {
-	return &SnapshotHolder{db: db, interval: interval, metrics: m}
+// NewSnapshotHolder builds a holder that reloads every interval and publishes prices whose
+// estimated error is within maxError. m may be nil.
+func NewSnapshotHolder(db *pgxpool.Pool, interval time.Duration, maxError float64, m *metrics.PricesMetrics) *SnapshotHolder {
+	return &SnapshotHolder{db: db, interval: interval, maxError: maxError, metrics: m}
 }
 
 // Run loads the snapshot immediately, then again every interval until ctx is done. A failed load
@@ -44,7 +46,7 @@ func (h *SnapshotHolder) Run(ctx context.Context) {
 
 func (h *SnapshotHolder) reload(ctx context.Context) {
 	start := time.Now()
-	snap, err := LoadSnapshot(ctx, h.db, start)
+	snap, err := LoadSnapshot(ctx, h.db, start, h.maxError)
 	if err != nil {
 		log.Ctx(ctx).Errorf("Loading price snapshot: %v", err)
 		if h.metrics != nil {

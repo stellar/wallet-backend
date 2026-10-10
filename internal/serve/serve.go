@@ -129,8 +129,7 @@ type handlerDeps struct {
 
 	// Prices is nil when the handler is built without price serving; tokenPrices then returns
 	// every token unpriced.
-	Prices      *prices.SnapshotHolder
-	PublishRule prices.PublishRule
+	Prices *prices.SnapshotHolder
 }
 
 func Serve(cfg Configs) error {
@@ -214,20 +213,13 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
-	interval, minVolume, maxStaleness := cfg.PricesSnapshotInterval, cfg.PricesMinVolume24hUSD, cfg.PricesMaxStaleness
+	interval := cfg.PricesSnapshotInterval
 	if interval <= 0 {
 		interval = DefaultPricesSnapshotInterval
 	}
-	if minVolume <= 0 {
-		minVolume = DefaultPricesMinVolume24hUSD
-	}
-	if maxStaleness <= 0 {
-		maxStaleness = DefaultPricesMaxStaleness
-	}
 
 	return handlerDeps{
-		Prices:                      prices.NewSnapshotHolder(dbConnectionPool, interval, m.Prices),
-		PublishRule:                 prices.PublishRule{MinVolume24hUSD: minVolume, MaxStaleness: maxStaleness},
+		Prices:                      prices.NewSnapshotHolder(dbConnectionPool, interval, prices.DefaultMaxError, m.Prices),
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
 		Metrics:                     m,
@@ -296,7 +288,7 @@ func handler(deps handlerDeps) http.Handler {
 				deps.RPCService,
 				resolvers.NewBalanceReader(deps.TrustlineBalanceModel, deps.NativeBalanceModel, deps.SACBalanceModel, deps.LiquidityPoolBalanceModel, deps.SEP41BalanceModel, deps.SEP41AllowanceModel),
 				deps.Metrics,
-				resolvers.ResolverConfig{Prices: deps.Prices, PublishRule: deps.PublishRule},
+				resolvers.ResolverConfig{Prices: deps.Prices},
 			)
 
 			config := generated.Config{

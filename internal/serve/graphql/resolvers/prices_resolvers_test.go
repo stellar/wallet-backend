@@ -34,12 +34,9 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 	thin := testContractAddress(t, 2)
 	unknown := testContractAddress(t, 3)
 
-	holder := prices.NewSnapshotHolder(nil, time.Second, nil)
+	holder := prices.NewSnapshotHolder(nil, time.Second, prices.DefaultMaxError, nil)
 	newResolver := func(h *prices.SnapshotHolder) *queryResolver {
-		return &queryResolver{&Resolver{config: ResolverConfig{
-			Prices:      h,
-			PublishRule: prices.PublishRule{MinVolume24hUSD: 100, MaxStaleness: 168 * time.Hour},
-		}}}
+		return &queryResolver{&Resolver{config: ResolverConfig{Prices: h}}}
 	}
 
 	t.Run("nil snapshot returns nulls", func(t *testing.T) {
@@ -59,8 +56,8 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 	})
 
 	holder.Set(&prices.Snapshot{AsOf: asOf, Prices: map[string]prices.TokenPrice{
-		good: {Token: good, PriceUSD: 3, Source: prices.PriceSourceVWAP1H, Price24hAgoUSD: &ago, Volume24hUSD: 5000, LastTradeAt: asOf.Add(-time.Minute)},
-		thin: {Token: thin, PriceUSD: 1, Source: prices.PriceSourceLastTrade, Volume24hUSD: 10, LastTradeAt: asOf.Add(-time.Minute)},
+		good: {Token: good, PriceUSD: 3, Source: prices.PriceSourceVWAP1H, Publishable: true, Price24hAgoUSD: &ago, Volume24hUSD: 5000, LastTradeAt: asOf.Add(-time.Minute)},
+		thin: {Token: thin, PriceUSD: 1, Source: prices.PriceSourceVWAP24H, Volume24hUSD: 10, LastTradeAt: asOf.Add(-time.Minute)},
 	}})
 
 	t.Run("publishable token, input order, unknown token", func(t *testing.T) {
@@ -81,7 +78,7 @@ func TestQueryResolver_TokenPrices(t *testing.T) {
 		require.NotNil(t, got[1].LastTradeAt)
 	})
 
-	t.Run("below volume threshold keeps volume but nulls price", func(t *testing.T) {
+	t.Run("unpublishable token keeps volume but nulls price", func(t *testing.T) {
 		got, err := newResolver(holder).TokenPrices(t.Context(), []string{thin})
 		require.NoError(t, err)
 		assert.Nil(t, got[0].PriceUsd)
