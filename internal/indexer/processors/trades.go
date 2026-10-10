@@ -88,10 +88,12 @@ func (p *TradesProcessor) ProcessOperation(ctx context.Context, opWrapper *Trans
 		return nil, err
 	}
 
+	taker := opWrapper.SourceAccount().ToAccountId().Address()
 	trades := make([]types.Trade, 0, len(fills))
 	for _, f := range fills {
 		if t, ok := p.orient(f); ok {
 			t.OperationID = opWrapper.ID()
+			t.Taker = taker
 			t.FillIndex = int16(len(trades))
 			t.LedgerNumber = opWrapper.LedgerSequence
 			t.LedgerClosed = opWrapper.LedgerClosed

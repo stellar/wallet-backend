@@ -44,7 +44,7 @@ func (m *TradesModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, trades []types
 	copyCount, err := dbTx.CopyFrom(ctx, pgx.Identifier{"trades"},
 		[]string{
 			"ledger_created_at", "operation_id", "fill_index", "ledger_number", "base_token", "counter_token",
-			"base_amount", "counter_amount", "base_qty", "usd_value", "venue",
+			"base_amount", "counter_amount", "base_qty", "usd_value", "venue", "taker",
 		},
 		pgx.CopyFromSlice(len(trades), func(i int) ([]any, error) {
 			t := trades[i]
@@ -53,6 +53,10 @@ func (m *TradesModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, trades []types
 				return nil, err
 			}
 			counter, err := addressBytea(t.CounterToken)
+			if err != nil {
+				return nil, err
+			}
+			taker, err := addressBytea(t.Taker)
 			if err != nil {
 				return nil, err
 			}
@@ -68,6 +72,7 @@ func (m *TradesModel) BatchCopy(ctx context.Context, dbTx pgx.Tx, trades []types
 				nullableFloat(t.BaseQty),
 				nullableFloat(t.USDValue),
 				pgtype.Int2{Int16: int16(t.Venue), Valid: true},
+				taker,
 			}, nil
 		}),
 	)

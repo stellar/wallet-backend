@@ -479,6 +479,8 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 			}
 			require.Len(t, trades, 1)
 			got := trades[0]
+			assert.Equal(t, op.SourceAccount().ToAccountId().Address(), got.Taker, "AMM taker is the invoking account")
+			assert.NotEmpty(t, got.Taker)
 			// USDC is the anchor, so ETH is the base whichever side the taker paid.
 			assert.Equal(t, ethContractAddress, got.BaseToken)
 			assert.Equal(t, big.NewInt(500), got.BaseAmount)

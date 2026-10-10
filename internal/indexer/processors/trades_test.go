@@ -8,6 +8,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,7 +64,12 @@ func TestTradesProcessor_ClassicFills(t *testing.T) {
 
 	seller := keypair.MustRandom().Address()
 	sellerMuxed := xdr.MustMuxedAddress(seller)
-	taker := xdr.MustMuxedAddress(keypair.MustRandom().Address())
+	takerKP := keypair.MustRandom()
+	taker := xdr.MustMuxedAddress(takerKP.Address())
+	// The same account behind a muxed id: the taker is still its G-address.
+	var takerKey xdr.Uint256
+	copy(takerKey[:], strkey.MustDecode(strkey.VersionByteAccountID, takerKP.Address()))
+	mTaker := xdr.MuxedAccount{Type: xdr.CryptoKeyTypeKeyTypeMuxedEd25519, Med25519: &xdr.MuxedAccountMed25519{Id: 42, Ed25519: takerKey}}
 	poolID := xdr.PoolId{1, 2, 3}
 
 	closed := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
@@ -106,6 +112,18 @@ func TestTradesProcessor_ClassicFills(t *testing.T) {
 			// the maker sold 100 XLM and bought 500 yXLM: same pair, opposite direction
 			result: manageSellOfferResult([]xdr.ClaimAtom{
 				generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeOrderBook, &sellerMuxed, nil, xlm, 100, yxlm, 500),
+			}),
+			expected: []types.Trade{{
+				BaseToken: yxlmSAC, BaseAmount: big.NewInt(500),
+				CounterToken: venues.XLMSAC, CounterAmount: big.NewInt(100),
+				Venue: types.TradeVenueSDEXOrderbook,
+			}},
+		},
+		{
+			name: "muxed source account is reduced to its G-address taker",
+			op:   pathPaymentStrictSendOp(xlm, 100, taker, yxlm, 1, nil, &mTaker),
+			result: pathPaymentResult([]xdr.ClaimAtom{
+				generateClaimAtom(xdr.ClaimAtomTypeClaimAtomTypeOrderBook, &sellerMuxed, nil, yxlm, 500, xlm, 100),
 			}),
 			expected: []types.Trade{{
 				BaseToken: yxlmSAC, BaseAmount: big.NewInt(500),
@@ -172,6 +190,7 @@ func TestTradesProcessor_ClassicFills(t *testing.T) {
 				assert.Equal(t, opWrapper.ID(), got[i].OperationID)
 				assert.Equal(t, uint32(1000), got[i].LedgerNumber)
 				assert.Equal(t, closed, got[i].LedgerClosed)
+				assert.Equal(t, takerKP.Address(), got[i].Taker, "taker is the operation source's account")
 				require.NotNil(t, got[i].BaseDecimals)
 				assert.EqualValues(t, 7, *got[i].BaseDecimals)
 				require.NotNil(t, got[i].CounterDecimals)

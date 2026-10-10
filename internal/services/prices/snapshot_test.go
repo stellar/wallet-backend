@@ -36,9 +36,12 @@ func contractAddress(fill byte) string {
 
 func seven() *int32 { d := int32(7); return &d }
 
+// testTaker is a fixed account for fixtures that do not exercise taker counting.
+const testTaker = "GADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOZPI"
+
 func classicFill(opID int64, at time.Time, base string, baseAmt int64, counter string, counterAmt int64) types.Trade {
 	return types.Trade{
-		OperationID: opID, LedgerNumber: uint32(opID >> 32), LedgerClosed: at,
+		OperationID: opID, LedgerNumber: uint32(opID >> 32), LedgerClosed: at, Taker: testTaker,
 		BaseToken: base, BaseAmount: big.NewInt(baseAmt),
 		CounterToken: counter, CounterAmount: big.NewInt(counterAmt),
 		Venue: types.TradeVenueSDEXOrderbook, BaseDecimals: seven(), CounterDecimals: seven(),

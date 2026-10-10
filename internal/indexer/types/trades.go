@@ -23,7 +23,10 @@ const (
 // resolved from contract_tokens otherwise. BaseQty and USDValue are filled by the persist path
 // from the decimals and the oracle anchor rate, and stay nil when either is unknown.
 type Trade struct {
-	OperationID   int64
+	OperationID int64
+	// Taker is the operation's source account (a G-address, muxed ids dropped): the account that
+	// crossed the offer or invoked the swap. Price confidence counts distinct takers, not fills.
+	Taker         string
 	FillIndex     int16
 	LedgerNumber  uint32
 	LedgerClosed  time.Time
