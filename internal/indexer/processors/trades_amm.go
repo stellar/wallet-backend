@@ -77,7 +77,7 @@ func (p *AMMPoolsProcessor) ProcessOperation(_ context.Context, opWrapper *Trans
 // Data: {new_pairs_length: u32, pair: Address, token_0: Address, token_1: Address}.
 func decodeSoroswapNewPair(ev xdr.ContractEvent) (types.AMMPool, bool, error) {
 	topics, data, ok := contractEventV0(ev)
-	if !ok || !hasSymbolTopics(topics, "SoroswapFactory", "new_pair") {
+	if !ok || !hasTopicNames(topics, "SoroswapFactory", "new_pair") {
 		return types.AMMPool{}, false, nil
 	}
 	fields, ok := scValMapFields(data)
@@ -105,7 +105,7 @@ func decodeSoroswapNewPair(ev xdr.ContractEvent) (types.AMMPool, bool, error) {
 // Data: {amount_0_in, amount_0_out, amount_1_in, amount_1_out: i128, to: Address}.
 func decodeSoroswapSwap(ev xdr.ContractEvent, pool types.AMMPool) (fill, bool, error) {
 	topics, data, ok := contractEventV0(ev)
-	if !ok || !hasSymbolTopics(topics, "SoroswapPair", "swap") {
+	if !ok || !hasTopicNames(topics, "SoroswapPair", "swap") {
 		return fill{}, false, nil
 	}
 	fields, ok := scValMapFields(data)
@@ -147,7 +147,7 @@ func decodeSoroswapSwap(ev xdr.ContractEvent, pool types.AMMPool) (fill, bool, e
 // out_amount: u128). The pool element is not read; its encoding differs between router versions.
 func decodeAquariusRouterSwap(ev xdr.ContractEvent) (fill, bool, error) {
 	topics, data, ok := contractEventV0(ev)
-	if !ok || !hasSymbolTopics(topics, "swap") {
+	if !ok || !hasTopicNames(topics, "swap") {
 		return fill{}, false, nil
 	}
 	vec, ok := data.GetVec()
@@ -193,17 +193,29 @@ func contractEventV0(ev xdr.ContractEvent) ([]xdr.ScVal, xdr.ScVal, bool) {
 	return body.Topics, body.Data, true
 }
 
-// hasSymbolTopics reports whether topics start with the given symbols.
-func hasSymbolTopics(topics []xdr.ScVal, want ...string) bool {
+// hasTopicNames reports whether topics start with the given names. A name may be encoded as a
+// symbol or a string: Soroswap emits its venue name as a string and the action as a symbol.
+func hasTopicNames(topics []xdr.ScVal, want ...string) bool {
 	if len(topics) < len(want) {
 		return false
 	}
 	for i, w := range want {
-		if s, ok := scValSymbol(topics[i]); !ok || s != w {
+		if name, ok := scValName(topics[i]); !ok || name != w {
 			return false
 		}
 	}
 	return true
+}
+
+// scValName returns the text of a symbol or string ScVal.
+func scValName(val xdr.ScVal) (string, bool) {
+	if sym, ok := val.GetSym(); ok {
+		return string(sym), true
+	}
+	if str, ok := val.GetStr(); ok {
+		return string(str), true
+	}
+	return "", false
 }
 
 // mapFieldAddress returns the address stored under key in a decoded contract-type struct.

@@ -43,6 +43,12 @@ func ammContractID(addr string) xdr.ContractId {
 	return id
 }
 
+// ammStr builds a string ScVal; Soroswap emits its venue name this way.
+func ammStr(s string) xdr.ScVal {
+	str := xdr.ScString(s)
+	return xdr.ScVal{Type: xdr.ScValTypeScvString, Str: &str}
+}
+
 func ammSym(s string) xdr.ScVal {
 	sym := xdr.ScSymbol(s)
 	return xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &sym}
@@ -128,7 +134,7 @@ func ammSwapData(in0, in1, out0, out1 int64) xdr.ScVal {
 }
 
 func ammSwapEvent(emitter string, data xdr.ScVal) xdr.ContractEvent {
-	return ammEvent(emitter, data, ammSym("SoroswapPair"), ammSym("swap"))
+	return ammEvent(emitter, data, ammStr("SoroswapPair"), ammSym("swap"))
 }
 
 func ammRouterSwapEvent(data xdr.ScVal) xdr.ContractEvent {
@@ -161,7 +167,7 @@ func TestDecodeSoroswapNewPair(t *testing.T) {
 	}{
 		{
 			name:   "new_pair registers the pool",
-			event:  ammEvent(ammFactory, ammNewPairData(), ammSym("SoroswapFactory"), ammSym("new_pair")),
+			event:  ammEvent(ammFactory, ammNewPairData(), ammStr("SoroswapFactory"), ammSym("new_pair")),
 			wantOK: true,
 			wantPool: types.AMMPool{
 				Pool:   ammPair,
@@ -172,11 +178,11 @@ func TestDecodeSoroswapNewPair(t *testing.T) {
 		},
 		{
 			name:  "other factory event is ignored",
-			event: ammEvent(ammFactory, ammU32(1), ammSym("SoroswapFactory"), ammSym("fees_enabled")),
+			event: ammEvent(ammFactory, ammU32(1), ammStr("SoroswapFactory"), ammSym("fees_enabled")),
 		},
 		{
 			name:  "wrong first topic is ignored",
-			event: ammEvent(ammFactory, ammNewPairData(), ammSym("SoroswapPair"), ammSym("new_pair")),
+			event: ammEvent(ammFactory, ammNewPairData(), ammStr("SoroswapPair"), ammSym("new_pair")),
 		},
 		{
 			name:  "no topics is ignored",
@@ -184,21 +190,21 @@ func TestDecodeSoroswapNewPair(t *testing.T) {
 		},
 		{
 			name:    "data that is not a map is an error",
-			event:   ammEvent(ammFactory, ammU32(1), ammSym("SoroswapFactory"), ammSym("new_pair")),
+			event:   ammEvent(ammFactory, ammU32(1), ammStr("SoroswapFactory"), ammSym("new_pair")),
 			wantErr: "want a symbol-keyed map, found ScValTypeScvU32",
 		},
 		{
 			name: "missing token_1 is an error",
 			event: ammEvent(ammFactory,
 				ammMap("pair", ammAddr(ammPair), "token_0", ammAddr(ethContractAddress)),
-				ammSym("SoroswapFactory"), ammSym("new_pair")),
+				ammStr("SoroswapFactory"), ammSym("new_pair")),
 			wantErr: `field "token_1" is missing`,
 		},
 		{
 			name: "pair that is not an address is an error",
 			event: ammEvent(ammFactory,
 				ammMap("pair", ammSym("x"), "token_0", ammAddr(ethContractAddress), "token_1", ammAddr(usdcContractAddress)),
-				ammSym("SoroswapFactory"), ammSym("new_pair")),
+				ammStr("SoroswapFactory"), ammSym("new_pair")),
 			wantErr: `field "pair": want an address, found ScValTypeScvSymbol`,
 		},
 	}
@@ -248,11 +254,11 @@ func TestDecodeSoroswapSwap(t *testing.T) {
 		},
 		{
 			name:  "sync event is ignored",
-			event: ammEvent(ammPair, ammSwapData(1, 0, 0, 1), ammSym("SoroswapPair"), ammSym("sync")),
+			event: ammEvent(ammPair, ammSwapData(1, 0, 0, 1), ammStr("SoroswapPair"), ammSym("sync")),
 		},
 		{
 			name:  "wrong topic with malformed data is ignored",
-			event: ammEvent(ammPair, ammU32(1), ammSym("SoroswapPair"), ammSym("deposit")),
+			event: ammEvent(ammPair, ammU32(1), ammStr("SoroswapPair"), ammSym("deposit")),
 		},
 		{
 			name:  "both ins positive is not a single-direction swap",
@@ -395,7 +401,7 @@ func TestDecodeAquariusRouterSwap(t *testing.T) {
 
 func TestAMMPoolsProcessor_ProcessOperation(t *testing.T) {
 	newPair := func(emitter string) xdr.ContractEvent {
-		return ammEvent(emitter, ammNewPairData(), ammSym("SoroswapFactory"), ammSym("new_pair"))
+		return ammEvent(emitter, ammNewPairData(), ammStr("SoroswapFactory"), ammSym("new_pair"))
 	}
 	venues := TradeVenues{SoroswapFactory: ammFactory}
 
@@ -451,6 +457,7 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 	}{
 		{name: "swap from an unregistered contract is ignored", event: ammSwapEvent(ammStranger, ammSwapData(500, 0, 0, 1200))},
 		{name: "swap from a registered pool is a trade", event: ammSwapEvent(ammPair, ammSwapData(500, 0, 0, 1200)), wantTrade: true, wantVenue: types.TradeVenueSoroswap},
+		{name: "venue name encoded as a symbol is also a trade", event: ammEvent(ammPair, ammSwapData(500, 0, 0, 1200), ammSym("SoroswapPair"), ammSym("swap")), wantTrade: true, wantVenue: types.TradeVenueSoroswap},
 		{name: "swap from the router is a trade", event: routerSwap, wantTrade: true, wantVenue: types.TradeVenueAquarius},
 		// An unreadable event from a trusted contract is skipped, never an error: one lost fill
 		// must not stop the ledger.
