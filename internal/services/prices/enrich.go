@@ -26,10 +26,20 @@ type Enricher struct {
 	decimalsCache map[string]int32
 }
 
-// NewEnricher builds an enricher over the given sources.
+// NewEnricher builds an enricher over the given sources. The anchor tokens are classic assets,
+// so their decimals are known without a lookup; the native token's SAC has no contract_tokens row.
 func NewEnricher(venues processors.TradeVenues, anchor *Anchor, decimals DecimalsSource) *Enricher {
-	return &Enricher{Venues: venues, Anchor: anchor, Decimals: decimals, decimalsCache: make(map[string]int32)}
+	cache := make(map[string]int32)
+	for _, sac := range []string{venues.XLMSAC, venues.USDCSAC} {
+		if sac != "" {
+			cache[sac] = classicDecimals
+		}
+	}
+	return &Enricher{Venues: venues, Anchor: anchor, Decimals: decimals, decimalsCache: cache}
 }
+
+// classicDecimals is the fixed precision of every classic asset and its SAC.
+const classicDecimals int32 = 7
 
 // Enrich sets BaseQty and USDValue on every fill it can price and returns each token's last priced
 // fill in the batch. A fill whose decimals or anchor rate are unknown is persisted unpriced.

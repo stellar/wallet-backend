@@ -196,6 +196,31 @@ func TestEnricher_ResolvesDecimalsFromContractTokens(t *testing.T) {
 	assert.Equal(t, tokenU, last[0].Token)
 	assert.InDelta(t, 2, last[0].PriceUSD, 1e-9)
 
+	// The native SAC has no contract_tokens row; an AMM fill against XLM is still priced.
+	xlmFill := types.Trade{
+		OperationID: 3, LedgerClosed: time.Now(), BaseToken: tokenU, BaseAmount: new(big.Int).Mul(big.NewInt(2), wei),
+		CounterToken: venues.XLMSAC, CounterAmount: big.NewInt(100_000_000), Venue: types.TradeVenueAquarius,
+	}
+	trades = []types.Trade{xlmFill}
+	_, err = enricher.Enrich(ctx, trades)
+	require.NoError(t, err)
+	require.NotNil(t, trades[0].USDValue, "XLM decimals are known without a lookup")
+	assert.InDelta(t, 2, *trades[0].USDValue, 1e-9, "10 XLM at $0.2")
+
+	// An UNKNOWN row's placeholder decimals are never used.
+	tokenV := contractAddress(0x56)
+	_, err = pool.Exec(ctx, `INSERT INTO contract_tokens (id, contract_id, type, decimals) VALUES ($1, $2, 'UNKNOWN', 0)`,
+		data.DeterministicContractID(tokenV), tokenV)
+	require.NoError(t, err)
+	trades = []types.Trade{{
+		OperationID: 4, LedgerClosed: time.Now(), BaseToken: tokenV, BaseAmount: big.NewInt(5),
+		CounterToken: venues.USDCSAC, CounterAmount: big.NewInt(60_000_000), Venue: types.TradeVenueSoroswap,
+	}}
+	_, err = enricher.Enrich(ctx, trades)
+	require.NoError(t, err)
+	assert.Nil(t, trades[0].BaseQty)
+	assert.Nil(t, trades[0].USDValue)
+
 	// No anchor yet: quantities resolve, USD does not.
 	enricher = NewEnricher(venues, &Anchor{}, models.Contract)
 	trades = []types.Trade{known}

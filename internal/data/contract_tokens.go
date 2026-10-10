@@ -35,7 +35,7 @@ type ContractModelInterface interface {
 	// Reads through any db.Querier (pool or transaction).
 	GetWithMetadata(ctx context.Context, q db.Querier, contractIDs []string) ([]string, error)
 	// GetDecimals returns the decimals of the given contracts, keyed by contract address;
-	// unknown contracts are absent.
+	// contracts with no row or an UNKNOWN row are absent.
 	GetDecimals(ctx context.Context, contractIDs []string) (map[string]int32, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
@@ -206,13 +206,14 @@ func (m *ContractModel) BatchUpdateMetadata(ctx context.Context, dbTx pgx.Tx, co
 }
 
 // GetDecimals returns the decimals of the given contract tokens, keyed by contract address.
-// Unknown contracts are simply absent from the result.
+// Rows typed UNKNOWN carry a placeholder 0 rather than real decimals, so they are left out with
+// the contracts that have no row at all.
 func (m *ContractModel) GetDecimals(ctx context.Context, contractIDs []string) (map[string]int32, error) {
 	if len(contractIDs) == 0 {
 		return map[string]int32{}, nil
 	}
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, `SELECT contract_id, decimals FROM contract_tokens WHERE contract_id = ANY($1)`, contractIDs)
+	rows, err := m.DB.Query(ctx, `SELECT contract_id, decimals FROM contract_tokens WHERE contract_id = ANY($1) AND type <> 'UNKNOWN'`, contractIDs)
 	m.Metrics.QueryDuration.WithLabelValues("GetDecimals", "contract_tokens").Observe(time.Since(start).Seconds())
 	m.Metrics.QueriesTotal.WithLabelValues("GetDecimals", "contract_tokens").Inc()
 	if err != nil {
