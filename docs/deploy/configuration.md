@@ -66,6 +66,7 @@ Runs the GraphQL API server.
 | `--client-auth-public-keys` | `CLIENT_AUTH_PUBLIC_KEYS` | (none) | no | Comma-separated Stellar public keys allowed to sign requests. Empty disables auth |
 | `--client-auth-max-timeout-seconds` | `CLIENT_AUTH_MAX_TIMEOUT_SECONDS` | `15` | yes | Maximum JWT lifetime accepted by client auth, in seconds |
 | `--client-auth-max-body-size-bytes` | `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` | `102400` | yes | Maximum request body size client auth reads, in bytes |
+| `--hidden-contracts-file` | `HIDDEN_CONTRACTS_FILE` | (none) | no | YAML list of contracts the API does not return. Empty uses the list built into the binary. See [hiding tokens](hiding-tokens.md) |
 | `--graphql-complexity-limit` | `GRAPHQL_COMPLEXITY_LIMIT` | `10000` | no | Maximum GraphQL query complexity |
 | `--graphql-introspection-enabled` | `GRAPHQL_INTROSPECTION_ENABLED` | `false` | no | Serve `__schema` and `__type` introspection |
 
@@ -197,6 +198,7 @@ Each command checks these at startup and exits with the quoted error.
 - **Bad duration.** The `--db-max-conn-*` and `--datastore-retry-wait` options fail with `<name> cannot be empty` or `couldn't parse duration in <name>: <cause>`.
 - **Bad log level.** `--log-level` fails with `couldn't parse log level in log-level: <cause>`.
 - **Bad auth key.** `serve` rejects an invalid Stellar address in `--client-auth-public-keys` with `validating public key "<key>" in client-auth-public-keys: <cause>`.
+- **Bad hidden-contracts list.** `serve` refuses a missing file, unknown fields, a bad contract address, an empty reason, or an unknown protocol. The errors are listed in [hiding tokens](hiding-tokens.md#startup-errors).
 - **Bad migrate count.** `migrate down` needs exactly one integer argument and fails otherwise with `invalid [count] argument: <value>`.
 
 ## Network presets
