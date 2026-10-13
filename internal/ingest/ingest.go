@@ -271,7 +271,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		tradesRegistry = processors.NewAMMPoolRegistry(pools)
 		anchor := &prices.Anchor{}
 		tradesEnricher = prices.NewEnricher(tradesVenues, anchor, models.Contract)
-		pricesTasks, err := prices.LiveTasks(prices.LiveTasksConfig{
+		pricesTasks, err := prices.LiveTasks(ctx, prices.LiveTasksConfig{
 			Venues:            tradesVenues,
 			Anchor:            anchor,
 			Models:            models,

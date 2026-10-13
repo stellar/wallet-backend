@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -30,11 +31,17 @@ type LiveTasksConfig struct {
 }
 
 // LiveTasks returns the background tasks to start after the live lock is held: the oracle anchor
-// poller, and the comparison sampler when its interval is positive.
-func LiveTasks(cfg LiveTasksConfig) ([]func(context.Context), error) {
+// poller, and the comparison sampler when its interval is positive. A network with no anchor
+// oracle configured runs without the poller: fills are still ingested, but none gets a USD value.
+func LiveTasks(ctx context.Context, cfg LiveTasksConfig) ([]func(context.Context), error) {
 	var tasks []func(context.Context)
+	oracle := OracleContractFor(cfg.NetworkPassphrase)
+	if oracle == "" {
+		log.Ctx(ctx).Warnf("prices: no anchor oracle is configured for this network; fills will be ingested without USD values")
+		return tasks, nil
+	}
 	poller, err := NewOraclePoller(OracleConfig{
-		OracleContractID: OracleContractFor(cfg.NetworkPassphrase),
+		OracleContractID: oracle,
 		Metadata:         cfg.Metadata,
 		Interval:         cfg.OracleInterval,
 		Anchor:           cfg.Anchor,
