@@ -143,6 +143,6 @@ For someone with Docker who wants to see wallet-backend work on testnet. After t
 
 ## Next steps
 
-- [Running wallet-backend](deploy/install.md) for a production deployment and mainnet.
+- [Deploying wallet-backend](deploy/README.md) for a production deployment and mainnet.
 - [Configuration reference](deploy/configuration.md) for every flag and environment variable.
 - [Request authentication](api/authentication.md) to turn on JWT auth with `CLIENT_AUTH_PUBLIC_KEYS`.

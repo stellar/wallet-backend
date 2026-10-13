@@ -48,14 +48,14 @@ curl -s -X POST localhost:8001/graphql/query \
   -d '{"query":"{ accountByAddress(address: \"GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H\") { address balances(first: 5) { edges { node { __typename } } } } }"}'
 ```
 
-Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`. For mainnet and real deployments, read [Running wallet-backend](docs/deploy/install.md).
+Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`. For mainnet and real deployments, read [Deploying wallet-backend](docs/deploy/README.md).
 
 ## Documentation
 
 | I want to | Read |
 |---|---|
 | Try it end to end on testnet | [Getting started](docs/getting-started.md) |
-| Run it for real: database, ingestion, API, backfill | [Running wallet-backend](docs/deploy/install.md) |
+| Run it for real: database, ingestion, API, backfill | [Running wallet-backend](docs/deploy/README.md) |
 | Look up a flag or environment variable | [Configuration reference](docs/deploy/configuration.md) |
 | Query the API | [GraphQL guide](docs/api/graphql.md), [schema reference](docs/api/schema.md) |
 | Sign requests from any language | [Request authentication](docs/api/authentication.md) |

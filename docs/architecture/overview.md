@@ -75,7 +75,7 @@ History can be bounded with `RETENTION_PERIOD`. Current state is complete for le
 | Concern | Where it lives |
 |---|---|
 | Building and submitting transactions | not here; use an SDK and RPC |
-| Historical data older than what you ingested | backfill from a data lake, see [running](../deploy/install.md) |
+| Historical data older than what you ingested | backfill from a data lake, see [backfill](../deploy/backfill.md) |
 | Leader election for ingest | a database advisory lock; a second live ingester exits |
 | Rate limiting, TLS, caching | your ingress or gateway |
 
