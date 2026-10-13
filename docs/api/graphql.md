@@ -108,7 +108,7 @@ Treat cursors as opaque strings. Pass a cursor back only to the same field it ca
 | `hasPreviousPage` | `true` whenever `after` was given | More edges precede this page |
 | `startCursor`, `endCursor` | Cursors of the first and last edge; null on an empty page | Same |
 
-Four lists are plain arrays with no pagination. `Transaction.accounts` and `Operation.accounts` return every participant. `AccountTransactionEdge.operations` and `AccountTransactionEdge.stateChanges` return everything the account did inside that one transaction.
+Four lists are plain arrays with no pagination. `Transaction.accounts` and `Operation.accounts` return every participant. `AccountTransactionEdge.operations` returns every operation the account took part in inside that one transaction. `AccountTransactionEdge.stateChanges` returns the account's state changes in that transaction, newest first, up to 2,000 (see [State changes](#state-changes)).
 
 ### Example: page through an account's transactions
 
