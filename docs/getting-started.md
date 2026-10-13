@@ -133,7 +133,18 @@ For someone with Docker who wants to see wallet-backend work on testnet. After t
 
    Verify: the three query names appear. Every type and field is listed in the [GraphQL schema reference](api/schema.md).
 
-7. **Stop and clean up.**
+7. **Optional: turn on SEP-41 history.** Live ingestion writes SEP-41 rows only once the protocol is set up. `protocol-setup` fetches and checks every unclassified contract WASM on testnet through the RPC, so it runs for a long time: in a test on 2026-10-13 it was still running after 10 minutes. Then `protocol-migrate history` fills SEP-41 history for the ledgers ingested so far. Both commands reuse the `migrate` service's settings.
+
+   ```bash
+   docker compose run --rm migrate protocol-setup --protocol-id SEP41
+   docker compose run --rm migrate protocol-migrate history --protocol-id SEP41
+   ```
+
+   Verify: the first command ends with `Protocol setup completed successfully for protocols: [SEP41]`. Within about 100 ledgers of the second finishing, `docker compose logs ingest` shows `protocol SEP41 history cursor initialized; production enabled`.
+
+   SEP-41 balances need `protocol-migrate current-state` run from the first ledger with SEP-41 activity on the network, which takes a data lake with full history. See [Protocols](deploy/protocols.md).
+
+8. **Stop and clean up.**
 
    | Command | Keeps |
    | --- | --- |

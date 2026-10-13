@@ -1,6 +1,6 @@
-# Protocol data migrations
+# Protocols
 
-For an operator whose database holds ledgers ingested before a protocol was registered. After reading it you can classify that protocol's contracts and fill its history and current state for the ledgers already in the database.
+Step 3 of [deploying wallet-backend](README.md), and the page to return to when a release adds a protocol. After it the protocol's contracts are classified and its history and current state are filled for the ledgers already in the database. Live ingestion then keeps them current.
 
 ## Contents
 
@@ -21,7 +21,7 @@ Live ingestion produces a protocol's data only from the moment that protocol's m
 
 | You have | You run |
 | --- | --- |
-| A fresh database, protocol present from the start | `protocol-setup`, then both migrations, so live ingestion starts producing the protocol |
+| A fresh install | `protocol-setup`, then both migrations, so live ingestion starts producing the protocol. [Install](install.md) and [Ingest](ingest.md) already did steps 1 and 2 of [Order of operations](#order-of-operations); start at step 3 |
 | A release that adds a protocol to a populated database | Every step in [Order of operations](#order-of-operations) |
 | Wrong data for a protocol that already migrated | The matching migration with `--rebuild` |
 
@@ -149,6 +149,8 @@ Near the tip the run waits for live ingestion and logs `migration gated on live 
 | `protocol "<ID>" classification not complete` | Run `protocol-setup` first |
 | `ingestion has not started yet (oldest_ingest_ledger is 0)` | Start live ingestion first. History needs ingested ledgers |
 | The lock-held error | Another run for the same protocol and scope is active. Wait for it or stop it |
+
+Next: [start the API](serve.md).
 
 ## Where in the code
 
