@@ -2,7 +2,7 @@
 # Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`.
 # Build locally instead: `docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build`.
 # Mainnet needs NETWORK_PASSPHRASE, ARCHIVE_URL, and an RPC or datastore on pubnet.
-# See docs/operations/running.md.
+# See docs/deploy/README.md.
 name: wallet-backend
 
 x-wallet-backend-env: &wallet-backend-env

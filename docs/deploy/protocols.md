@@ -82,7 +82,7 @@ Writes the protocol's state-change rows into `state_changes` for every ledger fr
 | `DATABASE_URL`, `NETWORK_PASSPHRASE`, `LOG_LEVEL` | | Same as `ingest` |
 | `LEDGER_BACKEND_TYPE` | `rpc` | Use `datastore` for ranges older than the RPC retention window |
 | `RPC_URL` | none | Required with `rpc`. With `datastore` it is optional, and without it the run skips contract metadata and the tip gauge |
-| `DATASTORE_*` | | Same as `ingest`. See [ledger source](../configuration.md#ledger-source) |
+| `DATASTORE_*` | | Same as `ingest`. See [ledger source](configuration.md#ledger-source) |
 | `GET_LEDGERS_LIMIT` | `10` | RPC backend only |
 | `--protocol-id` | none | Required, repeatable |
 | `--window-size` | `100` | Ledgers per commit. `0` or `1` commits every ledger |

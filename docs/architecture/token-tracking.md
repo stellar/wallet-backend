@@ -58,7 +58,7 @@ Within one ledger, several operations can touch the same balance. The ingest buf
 
 `NativeBalance.minimumBalance` is computed, not read. The formula is `(2 + numSubentries + numSponsoring - numSponsored) * baseReserve`, with the base reserve fixed at 0.5 XLM in code. Every other numeric field is read from the ledger entry or the event.
 
-SEP-41 balances and SEP-41 history fill only after an operator runs `protocol-setup` and `protocol-migrate current-state` (and `protocol-migrate history` for state changes). Live ingestion writes SEP-41 rows for a ledger only once the protocol's cursors exist. Until then `SEP41Balance` never appears. See [Protocol data migrations](../operations/data-migrations.md).
+SEP-41 balances and SEP-41 history fill only after an operator runs `protocol-setup` and `protocol-migrate current-state` (and `protocol-migrate history` for state changes). Live ingestion writes SEP-41 rows for a ledger only once the protocol's cursors exist. Until then `SEP41Balance` never appears. See [Protocol data migrations](../deploy/protocols.md).
 
 ## SAC vs SEP-41 classification
 

@@ -13,7 +13,7 @@ For the person on call for a wallet-backend deployment. After reading it you can
 - [Database maintenance](#database-maintenance)
 - [Where in the code](#where-in-the-code)
 
-Config names use the environment-variable form. Every one has a flag twin in the [configuration reference](../configuration.md).
+Config names use the environment-variable form. Every one has a flag twin in the [configuration reference](configuration.md).
 
 ## Hardware
 
@@ -88,7 +88,7 @@ A batch of ledgers (one by default) is written by a set of transactions whose cu
 | First start takes a long time with no ledgers ingested | Checkpoint bootstrap is downloading the history archive and filling balance tables | Wait. Watch the ingest log for the checkpoint completion line, then `wallet_ingestion_latest_ledger` starts moving. |
 | `/health` 500 or 503, logs show `getHealth` errors | RPC unreachable (500) or not synced (503) | Fix RPC. Ingest retries; API serves stale data but reports unhealthy. |
 | Datastore backend exits with a buffer error | The data-lake reader died (missing files, credentials, throttling) | This is classified permanent; the process exits. Restart after fixing access. |
-| `migrate up` fails on `tsdb.` or `sparse_index` options | TimescaleDB extension missing, too old, or `timescaledb.enable_sparse_index_bloom` off | See [running](running.md#requirements). |
+| `migrate up` fails on `tsdb.` or `sparse_index` options | TimescaleDB extension missing, too old, or `timescaledb.enable_sparse_index_bloom` off | See [running](install.md#requirements). |
 | API 401 on every request | `CLIENT_AUTH_PUBLIC_KEYS` set and clients unsigned, or wrong key | See [authentication](../api/authentication.md). |
 | API 401 on large signed requests only | Body larger than `CLIENT_AUTH_MAX_BODY_SIZE_BYTES`: the server hashes only that many bytes, so the signature no longer matches | Raise the limit or shrink the request. A 500 on auth means the body could not be read at all. |
 | Disk fills faster than expected | Compression not running (no policy job, `COMPRESSION_COMPRESS_AFTER` too long) or retention off | Check `timescaledb_information.jobs`; set `RETENTION_PERIOD` if you do not need full history. |

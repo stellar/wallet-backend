@@ -54,7 +54,7 @@ Releases follow semantic versioning from v1.0.0.
 
    `version` prints `wallet-backend <VERSION> (commit <SHA>, <GO_VERSION>)`. A promoted image reports the release candidate it was built as, for example `v1.2.0-rc.2`. Every service also logs `wallet-backend <VERSION> (commit <SHA>)` at startup. Both `/health` calls return `"status":"ok"` once ingest is within 50 ledgers of the RPC.
 
-If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](data-migrations.md).
+If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](protocols.md).
 
 ## Version skew
 

@@ -227,7 +227,7 @@ The five hypertables are created with the TimescaleDB columnstore on. TimescaleD
 
 Retention is off unless `RETENTION_PERIOD` is set on the live ingester. With a value, every hypertable gets a retention policy that drops chunks older than that interval, and the `reconcile_oldest_cursor` job keeps `oldest_ingest_ledger` in step. With it empty, the live ingester removes any retention policy on start. Current-state, protocol, and bookkeeping tables are never compressed or dropped.
 
-See the [runbook](../operations/runbook.md) for changing these settings on a running deployment, and [Ingestion](ingestion.md#timescaledb-policies-the-live-ingester-applies) for how they are applied.
+See the [runbook](../deploy/runbook.md) for changing these settings on a running deployment, and [Ingestion](ingestion.md#timescaledb-policies-the-live-ingester-applies) for how they are applied.
 
 ## Where in the code
 
