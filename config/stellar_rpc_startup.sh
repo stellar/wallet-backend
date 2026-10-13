@@ -2,12 +2,12 @@
 set -e
 
 # Handle environment logic for Stellar RPC
-if [ "$NETWORK" = "testnet" ]; then
+if [ "$RPC_NETWORK" = "testnet" ]; then
     CONFIG_FILE="/config/stellar-rpc-testnet-config.toml"
-elif [ "$NETWORK" = "pubnet" ]; then
+elif [ "$RPC_NETWORK" = "pubnet" ]; then
     CONFIG_FILE="/config/stellar-rpc-pubnet-config.toml"
 else
-    echo "Unknown environment: $NETWORK"
+    echo "Unknown environment: $RPC_NETWORK"
     exit 1
 fi
 
