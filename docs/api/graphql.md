@@ -342,7 +342,9 @@ Four fields return state changes:
 | `Account.stateChanges` | Changes to that account | `filter`, `since`, `until`, pagination |
 | `Transaction.stateChanges` | Changes produced by that transaction, for all accounts | Pagination only |
 | `Operation.stateChanges` | Changes produced by that operation, for all accounts | Pagination only |
-| `AccountTransactionEdge.stateChanges` | Changes to the account inside one transaction | None, not paginated |
+| `AccountTransactionEdge.stateChanges` | Changes to the account inside one transaction | None. Not paginated: at most 2,000 rows, newest first |
+
+`AccountTransactionEdge.stateChanges` keeps a transaction's newest 2,000 rows for the account and drops older ones, so a list of exactly 2,000 may be incomplete. Page `Transaction.stateChanges` for every row of a large transaction.
 
 `filter` is an `AccountStateChangeFilterInput`. All set fields must match.
 

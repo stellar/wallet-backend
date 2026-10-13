@@ -114,12 +114,12 @@ Each migration drops the single-column `ledger_created_at` index TimescaleDB cre
 | `native_balances` | `account_id` | XLM balance, minimum balance, liabilities, subentry count per account | Both |
 | `trustline_assets` | `id` (UUID v5 of `CODE:ISSUER`) | One row per classic asset. Unique on `(code, issuer)` | Both |
 | `trustline_balances` | `(account_id, asset_id)` | Classic asset balance, limit, liabilities, flags per account | Both |
-| `contract_tokens` | `id` (deterministic UUID) | Soroban token metadata: contract ID, type, code, issuer, name, symbol, decimals. Unique on `contract_id` | Both |
+| `contract_tokens` | `id` (deterministic UUID) | Soroban token metadata: contract ID, type, code, issuer, name, symbol, decimals. Unique on `contract_id` | Both, and `protocol-setup` |
 | `sac_balances` | `(account_id, contract_id)` | SAC balances held by contract addresses. Account holders keep these in `trustline_balances` | Both |
 | `liquidity_pools` | `pool_id` | Constant-product pool reserves: two assets and their amounts | Both |
 | `liquidity_pool_balances` | `(account_id, pool_id)` | Pool shares held per account | Both |
 
-"Both" means the [checkpoint bootstrap](ingestion.md#checkpoint-bootstrap) fills the table on an empty database and the live ingester keeps it current every ledger. Backfill does not write these tables. Balance and pool rows carry `last_modified_ledger`.
+"Both" means the [checkpoint bootstrap](ingestion.md#checkpoint-bootstrap) fills the table on an empty database and the live ingester keeps it current every ledger. `protocol-setup` also writes `contract_tokens` when it classifies a SEP-41 contract and stores its metadata. Backfill does not write these tables. Balance and pool rows carry `last_modified_ledger`.
 
 The balance and pool tables take upserts and deletes on most ledgers, so their storage settings favor in-place updates:
 

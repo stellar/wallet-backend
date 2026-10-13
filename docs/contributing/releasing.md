@@ -64,6 +64,7 @@ Notes are generated from merged PR titles, grouped by label (`.github/release.ym
 | `dependencies` | Dependencies |
 | `ci` | CI and tooling |
 | `skip-changelog` | excluded |
+| no matching label | Other changes |
 
 A PR title is therefore a changelog line: imperative, specific, under 72 characters.
 

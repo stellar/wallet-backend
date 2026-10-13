@@ -149,9 +149,9 @@ The fee row is a `BALANCE` `DEBIT` whenever the net is positive. Refunds never p
 | `Account.stateChanges` | Rows whose account is this address | `filter` (`transactionHash`, `operationId`, `category`, `reason`, all ANDed), `since`, `until` | default 50, max 100 |
 | `Transaction.stateChanges` | Every row from this transaction | none | default 50, max 100 |
 | `Operation.stateChanges` | Every row from this operation | none | default 50, max 100 |
-| `AccountTransactionEdge.stateChanges` | This account's rows in this transaction | none | unpaginated list |
+| `AccountTransactionEdge.stateChanges` | This account's rows in this transaction | none | unpaginated list, at most 2,000 rows |
 
-Connections sort by `ledgerCreatedAt`, then transaction, operation, and ordinal, in ascending order. `first` pages forward from the oldest row. `last` pages back from the newest row, and the page still returns in ascending order. `AccountTransactionEdge.stateChanges` returns newest first. `since` and `until` bound ledger close time and let TimescaleDB skip chunks outside the range. A `first` or `last` above 100 returns a `BAD_USER_INPUT` error.
+Connections sort by `ledgerCreatedAt`, then transaction, operation, and ordinal, in ascending order. `first` pages forward from the oldest row. `last` pages back from the newest row, and the page still returns in ascending order. `AccountTransactionEdge.stateChanges` returns newest first and keeps at most 2,000 rows per transaction, dropping the oldest. `since` and `until` bound ledger close time and let TimescaleDB skip chunks outside the range. A `first` or `last` above 100 returns a `BAD_USER_INPUT` error.
 
 Query complexity is capped at 10000. A connection costs its page size times the cost of its selected fields, and an omitted `first` or `last` counts as 50. `AccountTransactionEdge.stateChanges` carries no page-size multiplier. A full-detail account-history page selects every state-change fragment, and a multiplier there would push it past the cap.
 

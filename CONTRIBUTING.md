@@ -112,6 +112,7 @@ Release notes are generated from merged pull request titles, grouped by label (`
 | `dependencies` | Dependencies |
 | `ci` | CI and tooling |
 | `skip-changelog` | Left out of release notes |
+| no matching label | Other changes |
 
 The title is the changelog line, so keep it under 72 characters and make it read on its own. Releases are cut from `main`; see [Releasing](docs/contributing/releasing.md).
 

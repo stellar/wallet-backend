@@ -33,7 +33,7 @@ services:
       start_period: 30s
 
   stellar-rpc:
-    image: stellar/stellar-rpc:stable
+    image: stellar/stellar-rpc:29.0.1
     entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
     environment:
       RPC_NETWORK: testnet
