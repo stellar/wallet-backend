@@ -12,7 +12,7 @@ Pick by what you are trying to do.
 
 | Page | You will |
 |---|---|
-| [Running wallet-backend](deploy/install.md) | Set up the database, start ingestion and the API, backfill history, enable auth |
+| [Running wallet-backend](deploy/README.md) | Set up the database, start ingestion and the API, backfill history, enable auth |
 | [Upgrading](deploy/upgrading.md) | Move between releases safely |
 | [Runbook](deploy/runbook.md) | Size a deployment, set alerts, handle failures |
 | [Protocol data migrations](deploy/protocols.md) | Load history for a protocol added later |
