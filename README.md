@@ -55,15 +55,17 @@ Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`. For mainne
 | I want to | Read |
 |---|---|
 | Try it end to end on testnet | [Getting started](docs/getting-started.md) |
-| Run it for real: database, ingestion, API, backfill | [Running wallet-backend](docs/deploy/README.md) |
+| Deploy it: database, ingestion, protocols, API, backfill | [Deploying wallet-backend](docs/deploy/README.md) |
+| Fill SEP-41 balances and history, or add a protocol on upgrade | [Protocols](docs/deploy/protocols.md) |
+| Upgrade between releases | [Upgrading](docs/deploy/upgrading.md) |
+| Operate it: sizing, alerts, failures | [Runbook](docs/deploy/runbook.md), [Observability](docs/deploy/observability.md) |
 | Look up a flag or environment variable | [Configuration reference](docs/deploy/configuration.md) |
 | Query the API | [GraphQL guide](docs/api/graphql.md), [schema reference](docs/api/schema.md) |
 | Sign requests from any language | [Request authentication](docs/api/authentication.md) |
 | Use the Go client | [Go client](docs/api/go-client.md) |
-| Operate it: sizing, alerts, failures | [Runbook](docs/deploy/runbook.md), [Observability](docs/deploy/observability.md) |
-| Upgrade between releases | [Upgrading](docs/deploy/upgrading.md) |
 | Understand how it works | [Architecture](docs/architecture/overview.md) |
-| Contribute | [CONTRIBUTING](CONTRIBUTING.md), [docs index](docs/README.md) |
+| Contribute | [CONTRIBUTING](CONTRIBUTING.md), [contributor docs](docs/contributing/README.md) |
+| See every page | [Docs index](docs/README.md) |
 
 ## Stability
 
