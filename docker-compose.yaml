@@ -36,7 +36,7 @@ services:
     image: stellar/stellar-rpc:stable
     entrypoint: ["/bin/bash", "/config/stellar_rpc_startup.sh"]
     environment:
-      NETWORK: testnet
+      RPC_NETWORK: testnet
     volumes:
       - ./config:/config:ro
     ports:
