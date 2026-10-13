@@ -221,7 +221,7 @@ Read replicas are a deployment choice. `serve` uses whatever `DATABASE_URL` poin
 
 ## Metrics
 
-`serve` exposes these on `/api-metrics`. See [Observability](../operations/observability.md) for what to alert on.
+`serve` exposes these on `/api-metrics`. See [Observability](../deploy/observability.md) for what to alert on.
 
 | Area | Metrics |
 | --- | --- |

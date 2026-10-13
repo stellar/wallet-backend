@@ -214,7 +214,7 @@ The `rpc` source checks the RPC's `getHealth` before each `getLedgers` call. Whe
 
 The datastore source reads the file layout from the bucket's `.config.json` manifest. `DATASTORE_LEDGERS_PER_FILE` and `DATASTORE_FILES_PER_PARTITION` override it for a bucket without a manifest. `DATASTORE_NUM_WORKERS` must not exceed `DATASTORE_BUFFER_SIZE`. Workers download and decode files in parallel, and a single goroutine hands them on in ledger order. On an unbounded range (live mode), a file that does not exist yet is awaited without limit, checking every `DATASTORE_RETRY_WAIT`. On a bounded range (backfill), a missing file is an error. A missing file on a bounded range, or a download that runs out of retries, kills the buffer. Every later read on that source then fails with `ledger buffer permanently cancelled`.
 
-`RPC_URL` is required with either source. The ingester calls RPC for `/health` (`getHealth`) and for the validators' metadata fetches during protocol classification. The process connects to the history archive at `ARCHIVE_URL` at startup with either source, and live mode reads it for the checkpoint bootstrap. See [Configuration](../configuration.md) for every setting.
+`RPC_URL` is required with either source. The ingester calls RPC for `/health` (`getHealth`) and for the validators' metadata fetches during protocol classification. The process connects to the history archive at `ARCHIVE_URL` at startup with either source, and live mode reads it for the checkpoint bootstrap. See [Configuration](../deploy/configuration.md) for every setting.
 
 ## Cursors
 
@@ -229,7 +229,7 @@ Cursors live in the `ingest_store` table as key and text value pairs.
 
 A missing key reads as 0.
 
-For each protocol cursor, the live ingester swaps the value from ledger `N-1` to `N` inside the coordinating transaction, and writes that protocol's rows only when the swap succeeds. A cursor that holds another value is behind the tip or owned by a `protocol-migrate` run, and the ledger is skipped for that protocol. The migration folds that ledger later. A cursor that did not exist at startup is skipped with no database call, and the ingester checks again every 100 ledgers, so a protocol starts without a restart once its cursor row appears. A cursor row that existed and then vanished is a permanent error. See [Protocol data migrations](../operations/data-migrations.md) and [Protocols](protocols.md).
+For each protocol cursor, the live ingester swaps the value from ledger `N-1` to `N` inside the coordinating transaction, and writes that protocol's rows only when the swap succeeds. A cursor that holds another value is behind the tip or owned by a `protocol-migrate` run, and the ledger is skipped for that protocol. The migration folds that ledger later. A cursor that did not exist at startup is skipped with no database call, and the ingester checks again every 100 ledgers, so a protocol starts without a restart once its cursor row appears. A cursor row that existed and then vanished is a permanent error. See [Protocol data migrations](../deploy/protocols.md) and [Protocols](protocols.md).
 
 ## Checkpoint bootstrap
 
@@ -337,7 +337,7 @@ When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_
 | RPC tip is behind the network | The `rpc` source waits at the RPC tip. Ingestion runs only as fresh as the RPC. `/health` returns 503 when RPC `getHealth` reports unhealthy, and 500 when the RPC cannot be reached. | Fix the RPC node. |
 | Ingester falls behind the RPC | `/health` returns 503 with `wallet backend is not in sync with the RPC` when the RPC's latest ledger minus `latest_ingest_ledger` is more than 50. | Check `wallet_ingestion_phase_duration_seconds` for the slow phase: `process_ledger`, `prepare_classification`, or `insert_into_db`. Check `wallet_ingestion_persist_batch_size` for a backlog. |
 
-See the [Runbook](../operations/runbook.md) for recovery procedures.
+See the [Runbook](../deploy/runbook.md) for recovery procedures.
 
 ## Where in the code
 

@@ -14,7 +14,7 @@ For an operator standing up wallet-backend outside the compose quickstart. After
 - [Run multiple networks](#run-multiple-networks)
 - [Where in the code](#where-in-the-code)
 
-Config names use the environment-variable form. Every variable and its default is in the [configuration reference](../configuration.md).
+Config names use the environment-variable form. Every variable and its default is in the [configuration reference](configuration.md).
 
 ## Requirements
 
@@ -84,7 +84,7 @@ Nothing runs migrations automatically. Run `migrate up` before the first start a
    NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
    ```
 
-   `ARCHIVE_URL` defaults to the testnet archive. For pubnet, also set the values below. All presets are in [network presets](../configuration.md#network-presets).
+   `ARCHIVE_URL` defaults to the testnet archive. For pubnet, also set the values below. All presets are in [network presets](configuration.md#network-presets).
 
    ```bash
    RPC_URL=<PUBNET_RPC_URL>
@@ -98,7 +98,7 @@ Nothing runs migrations automatically. Run `migrate up` before the first start a
    wallet-backend ingest
    ```
 
-   On an empty database the first start loads the ledger-entry balances (native, classic, SAC, liquidity pool) from the archive's latest checkpoint before it ingests any ledger. SEP-41 balances are not in the archive; see [protocol data migrations](data-migrations.md). How long that takes depends on the archive download and the size of the network's ledger state. Watch for these log lines in order:
+   On an empty database the first start loads the ledger-entry balances (native, classic, SAC, liquidity pool) from the archive's latest checkpoint before it ingests any ledger. SEP-41 balances are not in the archive; see [protocol data migrations](protocols.md). How long that takes depends on the archive download and the size of the network's ledger state. Watch for these log lines in order:
 
    ```text
    Populating from checkpoint ledger = <LEDGER>
@@ -145,7 +145,7 @@ DATASTORE_BUCKET_PATH=aws-public-blockchain/v1.1/stellar/ledgers/pubnet
 DATASTORE_REGION=us-east-2
 ```
 
-The path above is the public pubnet data lake. No testnet path is published in this repository. Ask your data-lake provider for one. Tuning variables are in [ledger source](../configuration.md#ledger-source).
+The path above is the public pubnet data lake. No testnet path is published in this repository. Ask your data-lake provider for one. Tuning variables are in [ledger source](configuration.md#ledger-source).
 
 ## Start the API
 
@@ -219,7 +219,7 @@ Live ingestion starts at the checkpoint ledger it bootstrapped from. To serve ol
 
    Use the datastore source for any range outside the RPC's retention window. Give the backfill its own `INGEST_SERVER_PORT` when it shares a host with the live ingester. Backfill only fills gaps: ledgers already in the database are skipped. It leaves retention and compression policies to the live ingester.
 
-   Tuning lives in [backfill tuning](../configuration.md#backfill-tuning). `BACKFILL_WORKERS` defaults to one per CPU. Lower it, or the batch sizes, to cut memory use.
+   Tuning lives in [backfill tuning](configuration.md#backfill-tuning). `BACKFILL_WORKERS` defaults to one per CPU. Lower it, or the batch sizes, to cut memory use.
 
 3. Verify. Each batch logs `Batch <I>/<N> [<START> - <END>] completed`, and the run ends with `Backfilling completed in <DURATION>: <N> batches`. `wallet_ingestion_oldest_ledger` on the live ingester's `/ingest-metrics` drops toward `START_LEDGER`.
 

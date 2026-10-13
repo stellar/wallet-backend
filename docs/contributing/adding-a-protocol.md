@@ -275,7 +275,7 @@ SEP-41 is the reference implementation. Every code block below is trimmed from i
 
 9. **Backfill history for an existing deployment.**
 
-   Live ingestion produces the protocol's rows only after its migration cursors exist. Ledgers already ingested need `protocol-setup` and both `protocol-migrate` runs. Follow [Protocol data migrations](../operations/data-migrations.md).
+   Live ingestion produces the protocol's rows only after its migration cursors exist. Ledgers already ingested need `protocol-setup` and both `protocol-migrate` runs. Follow [Protocol data migrations](../deploy/protocols.md).
 
 ## Checklist
 

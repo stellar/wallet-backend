@@ -128,7 +128,7 @@ Pool size and lifetimes come from `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_L
 | `timescaledb.enable_chunk_skipping = on` | `enable_chunk_skipping()` calls fail without it |
 | `timescaledb.enable_sparse_index_bloom = on` | `tsdb.sparse_index = 'bloom(...)'` fails without it |
 
-Migrations are forward-only in production. `migrate down` exists for development; see [upgrading](../operations/upgrading.md).
+Migrations are forward-only in production. `migrate down` exists for development; see [upgrading](../deploy/upgrading.md).
 
 ## Where in the code
 

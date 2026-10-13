@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks that docs/configuration.md documents every CLI flag and no flag that does not exist.
+# Checks that docs/deploy/configuration.md documents every CLI flag and no flag that does not exist.
 # Flags come from `--help` of each subcommand. The doc may name a flag as `--foo-bar` or as
 # its env var `FOO_BAR` (both in backticks, optionally followed by =value). Env tokens need an
 # underscore so enum values like `INFO` are not read as flags; wildcards like `--db-*` are skipped.
@@ -8,7 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-doc="${CONFIG_DOC:-docs/configuration.md}"
+doc="${CONFIG_DOC:-docs/deploy/configuration.md}"
 if [[ ! -f "$doc" ]]; then
   echo "ERROR: $doc not found" >&2
   exit 1

@@ -22,7 +22,7 @@ Docs on `main` describe unreleased behavior. For the version you run, read the d
 | stellar-rpc for the same network | 28.x |
 | Container image | `public.ecr.aws/stellar/wallet-backend:<TAG>` |
 | Go (source builds only) | see `go.mod` |
-| Hardware | [runbook](docs/operations/runbook.md#hardware): 4 CPU / 16 GiB for the pubnet ingester, 8 CPU / 32 GiB and 1 TB SSD for a year of pubnet history in PostgreSQL; a fraction of that for testnet |
+| Hardware | [runbook](docs/deploy/runbook.md#hardware): 4 CPU / 16 GiB for the pubnet ingester, 8 CPU / 32 GiB and 1 TB SSD for a year of pubnet history in PostgreSQL; a fraction of that for testnet |
 
 ## Quickstart
 
@@ -48,20 +48,20 @@ curl -s -X POST localhost:8001/graphql/query \
   -d '{"query":"{ accountByAddress(address: \"GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H\") { address balances(first: 5) { edges { node { __typename } } } } }"}'
 ```
 
-Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`. For mainnet and real deployments, read [Running wallet-backend](docs/operations/running.md).
+Pin a release with `WALLET_BACKEND_VERSION=v1.0.0 docker compose up`. For mainnet and real deployments, read [Running wallet-backend](docs/deploy/install.md).
 
 ## Documentation
 
 | I want to | Read |
 |---|---|
 | Try it end to end on testnet | [Getting started](docs/getting-started.md) |
-| Run it for real: database, ingestion, API, backfill | [Running wallet-backend](docs/operations/running.md) |
-| Look up a flag or environment variable | [Configuration reference](docs/configuration.md) |
+| Run it for real: database, ingestion, API, backfill | [Running wallet-backend](docs/deploy/install.md) |
+| Look up a flag or environment variable | [Configuration reference](docs/deploy/configuration.md) |
 | Query the API | [GraphQL guide](docs/api/graphql.md), [schema reference](docs/api/schema.md) |
 | Sign requests from any language | [Request authentication](docs/api/authentication.md) |
 | Use the Go client | [Go client](docs/api/go-client.md) |
-| Operate it: sizing, alerts, failures | [Runbook](docs/operations/runbook.md), [Observability](docs/operations/observability.md) |
-| Upgrade between releases | [Upgrading](docs/operations/upgrading.md) |
+| Operate it: sizing, alerts, failures | [Runbook](docs/deploy/runbook.md), [Observability](docs/deploy/observability.md) |
+| Upgrade between releases | [Upgrading](docs/deploy/upgrading.md) |
 | Understand how it works | [Architecture](docs/architecture/overview.md) |
 | Contribute | [CONTRIBUTING](CONTRIBUTING.md), [docs index](docs/README.md) |
 
@@ -73,7 +73,7 @@ Releases follow semantic versioning from `v1.0.0`. Within a major version:
 - Flag and environment variable names do not change.
 - Database migrations are forward-only; upgrading is `migrate up` with the new binary.
 
-Release notes list the stellar-rpc, protocol, PostgreSQL and TimescaleDB versions each release was tested with. See [Releasing](docs/releasing.md) for the cadence.
+Release notes list the stellar-rpc, protocol, PostgreSQL and TimescaleDB versions each release was tested with. See [Releasing](docs/contributing/releasing.md) for the cadence.
 
 ## Support
 

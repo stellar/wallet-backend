@@ -97,7 +97,7 @@ Maintainers may close pull requests that do not meet these requirements without 
 4. Run `make integration-test` when your change touches ingestion, the database or the API. It needs Docker and takes about 30 minutes.
 5. Run `make check` before you push. It is not read-only: it formats code with `gofmt` and `gofumpt`, fixes imports with `goimports`, then runs vet, lint, shadow and deadcode. Verify: it exits 0, then commit anything it rewrote, since CI runs the read-only variants and fails on unformatted code.
 
-[Getting started](docs/getting-started.md) walks through the stack, and [Integration tests](docs/development/integration-tests.md) explains the harness.
+[Getting started](docs/getting-started.md) walks through the stack, and [Integration tests](docs/contributing/integration-tests.md) explains the harness.
 
 ## Release notes and labels
 
@@ -113,7 +113,7 @@ Release notes are generated from merged pull request titles, grouped by label (`
 | `ci` | CI and tooling |
 | `skip-changelog` | Left out of release notes |
 
-The title is the changelog line, so keep it under 72 characters and make it read on its own. Releases are cut from `main`; see [Releasing](docs/releasing.md).
+The title is the changelog line, so keep it under 72 characters and make it read on its own. Releases are cut from `main`; see [Releasing](docs/contributing/releasing.md).
 
 ## Schema, mocks and migrations
 
@@ -123,7 +123,7 @@ The title is the changelog line, so keep it under 72 characters and make it read
 | Go interface | Update its hand-written `testify/mock` in the package's `mocks.go` in the same commit. |
 | Database schema | Add a file under `internal/db/migrations/` with both a `-- +migrate Up` and a `-- +migrate Down` block. |
 | Applied migration | Never edit it. Add a new migration that changes it. |
-| Flags or environment variables | Update `.env.example` and `docs/configuration.md`. CI diffs the reference against `--help`. |
+| Flags or environment variables | Update `.env.example` and `docs/deploy/configuration.md`. CI diffs the reference against `--help`. |
 
 ## Documentation
 

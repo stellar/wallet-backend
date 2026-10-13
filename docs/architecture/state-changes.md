@@ -107,7 +107,7 @@ Other indexer processors read the same ledger changes but emit balances and cont
 
 A processor that implements `OperationProcessorInterface` must return its rows in a fixed order derived from transaction meta, never from map iteration or goroutine timing. Ordinals are assigned from that order. It also returns its slot through `StateChangeSubBase()`. A row with an empty account is dropped before ordinals are assigned.
 
-SEP-41 rows exist only after an operator runs `protocol-setup` and `protocol-migrate history`. Live ingestion writes SEP-41 rows for a ledger only once the protocol's history cursor exists. See [Protocol data migrations](../operations/data-migrations.md).
+SEP-41 rows exist only after an operator runs `protocol-setup` and `protocol-migrate history`. Live ingestion writes SEP-41 rows for a ledger only once the protocol's history cursor exists. See [Protocol data migrations](../deploy/protocols.md).
 
 ## Participants
 
