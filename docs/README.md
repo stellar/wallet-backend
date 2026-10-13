@@ -23,6 +23,7 @@ For operators, in order on a fresh install. The [deploy guide](deploy/README.md)
 | [5. Backfill](deploy/backfill.md) | Optional. Load older history |
 | [Upgrading](deploy/upgrading.md) | Move between releases |
 | [Runbook](deploy/runbook.md) | Size hardware, set alerts, handle failures |
+| [Hiding tokens](deploy/hiding-tokens.md) | Stop the API from returning a token contract |
 | [Observability](deploy/observability.md) | Metrics, health endpoints, logs |
 | [Configuration](deploy/configuration.md) | Every flag and environment variable per command |
 
