@@ -184,7 +184,7 @@ One transaction in an account's history, with the transaction's operations and s
 | `node` | [Transaction](#transaction)! | The transaction. |
 | `cursor` | `String`! | Opaque cursor for this edge. Pass it as `after` or `before`. |
 | `operations` | \[[Operation](#operation)!\]! | This transaction's operations that the account participated in. Not paginated. |
-| `stateChanges` | \[[BaseStateChange](#basestatechange)!\]! | This transaction's state changes that affected the account. Not paginated. |
+| `stateChanges` | \[[BaseStateChange](#basestatechange)!\]! | This transaction's state changes that affected the account, newest first. Not paginated: at most 2,000 rows, and a transaction with more drops its oldest. |
 
 ### AllowanceChange
 

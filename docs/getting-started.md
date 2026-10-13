@@ -142,7 +142,7 @@ For someone with Docker who wants to see wallet-backend work on testnet. After t
 
    Verify: the first command ends with `Protocol setup completed successfully for protocols: [SEP41]`. Within about 100 ledgers of the second finishing, `docker compose logs ingest` shows `protocol SEP41 history cursor initialized; production enabled`.
 
-   SEP-41 balances need `protocol-migrate current-state` run from the first ledger with SEP-41 activity on the network, which takes a data lake with full history. See [Protocols](deploy/protocols.md).
+   SEP-41 balances need `protocol-migrate current-state` run from the first ledger with SEP-41 activity on the network. The RPC backend can serve that run only when the ledger is inside RPC retention, and on testnet it is far older than the quickstart RPC's 2,000 ledgers, so the run needs a data lake that holds it. See [Protocols](deploy/protocols.md).
 
 8. **Stop and clean up.**
 
