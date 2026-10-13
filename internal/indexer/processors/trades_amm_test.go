@@ -18,6 +18,7 @@ var (
 	ammRouter   = ammTestContract(0xF2)
 	ammPair     = ammTestContract(0xF3)
 	ammStranger = ammTestContract(0xF4)
+	ammAquaPool = ammTestContract(0xF5)
 
 	// ammPool is a Soroswap pair with ETH as token 0 and USDC as token 1.
 	ammPool = types.AMMPool{
@@ -71,8 +72,8 @@ func ammI128(v int64) xdr.ScVal {
 	return xdr.ScVal{Type: xdr.ScValTypeScvI128, I128: &parts}
 }
 
-func ammU128(hi, lo uint64) xdr.ScVal {
-	parts := xdr.UInt128Parts{Hi: xdr.Uint64(hi), Lo: xdr.Uint64(lo)}
+func ammU128(lo uint64) xdr.ScVal {
+	parts := xdr.UInt128Parts{Lo: xdr.Uint64(lo)}
 	return xdr.ScVal{Type: xdr.ScValTypeScvU128, U128: &parts}
 }
 
@@ -143,6 +144,12 @@ func ammRouterSwapEvent(data xdr.ScVal) xdr.ContractEvent {
 		ammVec(ammAddr(ethContractAddress), ammAddr(usdcContractAddress)),
 		ammAddr(ammStranger),
 	)
+}
+
+// ammAquaTradeEvent is an Aquarius pool `trade` event: ETH in, USDC out.
+func ammAquaTradeEvent(emitter string, in, out int64) xdr.ContractEvent {
+	return ammEvent(emitter, ammVec(ammI128(in), ammI128(out), ammI128(0)),
+		ammSym("trade"), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammAddr(ammStranger))
 }
 
 // ammTestOp wraps events in a successful single-operation invoke-host-function transaction.
@@ -287,7 +294,7 @@ func TestDecodeSoroswapSwap(t *testing.T) {
 		{
 			name: "amount of the wrong type is an error",
 			event: ammSwapEvent(ammPair, ammMap(
-				"amount_0_in", ammU128(0, 5), "amount_0_out", ammI128(0),
+				"amount_0_in", ammU128(5), "amount_0_out", ammI128(0),
 				"amount_1_in", ammI128(0), "amount_1_out", ammI128(3),
 			)),
 			wantErr: `field "amount_0_in": want i128, found ScValTypeScvU128`,
@@ -309,9 +316,66 @@ func TestDecodeSoroswapSwap(t *testing.T) {
 	}
 }
 
-func TestDecodeAquariusRouterSwap(t *testing.T) {
-	// 2^64 + 7: a u128 whose high word is set.
+func TestDecodeAquariusRouterPool(t *testing.T) {
+	routerData := func(items ...xdr.ScVal) xdr.ScVal { return ammVec(items...) }
+
+	testCases := []struct {
+		name     string
+		event    xdr.ContractEvent
+		wantOK   bool
+		wantPool types.AMMPool
+		wantErr  string
+	}{
+		{
+			name: "swap names the pool and its tokens",
+			event: ammRouterSwapEvent(routerData(
+				ammAddr(ammAquaPool), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(500), ammU128(1200),
+			)),
+			wantOK:   true,
+			wantPool: types.AMMPool{Pool: ammAquaPool, Venue: types.TradeVenueAquarius, Token0: ethContractAddress, Token1: usdcContractAddress},
+		},
+		{
+			name:  "other router event is ignored",
+			event: ammEvent(ammRouter, ammU32(1), ammSym("deposit"), ammAddr(ammStranger)),
+		},
+		{
+			name:    "data that is not a vec is an error",
+			event:   ammRouterSwapEvent(ammMap("pool", ammAddr(ammAquaPool))),
+			wantErr: "want a vec",
+		},
+		{
+			name: "pool that is not an address is an error",
+			event: ammRouterSwapEvent(routerData(
+				ammBytes32(), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(500), ammU128(1200),
+			)),
+			wantErr: "element 0 (pool)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pool, ok, err := decodeAquariusRouterPool(tc.event)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.False(t, ok)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantPool, pool)
+		})
+	}
+}
+
+func TestDecodeAquariusPoolTrade(t *testing.T) {
+	// 2^64 + 7: an i128 whose high word is set.
 	bigAmount := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(7))
+	bigParts := xdr.Int128Parts{Hi: 1, Lo: 7}
+	bigI128 := xdr.ScVal{Type: xdr.ScValTypeScvI128, I128: &bigParts}
+
+	tradeTopics := func(second xdr.ScVal) []xdr.ScVal {
+		return []xdr.ScVal{ammSym("trade"), second, ammAddr(usdcContractAddress), ammAddr(ammStranger)}
+	}
 
 	testCases := []struct {
 		name     string
@@ -321,10 +385,8 @@ func TestDecodeAquariusRouterSwap(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			name: "swap decodes positionally",
-			event: ammRouterSwapEvent(ammVec(
-				ammBytes32(), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500), ammU128(0, 1200),
-			)),
+			name:   "trade decodes tokens from topics and amounts from data",
+			event:  ammEvent(ammAquaPool, ammVec(ammI128(500), ammI128(1200), ammI128(3)), tradeTopics(ammAddr(ethContractAddress))...),
 			wantOK: true,
 			wantFill: fill{
 				TokenIn: ethContractAddress, AmountIn: big.NewInt(500),
@@ -333,60 +395,34 @@ func TestDecodeAquariusRouterSwap(t *testing.T) {
 			},
 		},
 		{
-			name: "u128 with a high word",
-			event: ammRouterSwapEvent(ammVec(
-				ammBytes32(), ammAddr(usdcContractAddress), ammAddr(ethContractAddress), ammU128(1, 7), ammU128(0, 3),
-			)),
+			name:   "i128 with a high word",
+			event:  ammEvent(ammAquaPool, ammVec(bigI128, ammI128(3), ammI128(0)), tradeTopics(ammAddr(ethContractAddress))...),
 			wantOK: true,
 			wantFill: fill{
-				TokenIn: usdcContractAddress, AmountIn: bigAmount,
-				TokenOut: ethContractAddress, AmountOut: big.NewInt(3),
+				TokenIn: ethContractAddress, AmountIn: bigAmount,
+				TokenOut: usdcContractAddress, AmountOut: big.NewInt(3),
 				Venue: types.TradeVenueAquarius,
 			},
 		},
 		{
-			name:  "other router event is ignored",
-			event: ammEvent(ammRouter, ammU32(1), ammSym("deposit"), ammAddr(ammStranger)),
+			name:  "other pool event is ignored",
+			event: ammEvent(ammAquaPool, ammU32(1), ammSym("deposit"), ammAddr(ammStranger)),
 		},
 		{
-			name:    "data that is not a vec is an error",
-			event:   ammRouterSwapEvent(ammMap("in_amount", ammU128(0, 1))),
-			wantErr: "want a vec, found ScValTypeScvMap",
+			name:    "token_in that is not an address is an error",
+			event:   ammEvent(ammAquaPool, ammVec(ammI128(500), ammI128(1200), ammI128(3)), tradeTopics(ammSym("ETH"))...),
+			wantErr: "topic 1 (token_in): want an address",
 		},
 		{
-			name: "vec of the wrong length is an error",
-			event: ammRouterSwapEvent(ammVec(
-				ammBytes32(), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500),
-			)),
-			wantErr: "want 5 elements, found 4",
-		},
-		{
-			name: "pool element encoded as an address decodes like bytes",
-			event: ammRouterSwapEvent(ammVec(
-				ammAddr(ethContractAddress), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500), ammU128(0, 1200),
-			)),
-			wantOK:   true,
-			wantFill: fill{TokenIn: ethContractAddress, AmountIn: big.NewInt(500), TokenOut: usdcContractAddress, AmountOut: big.NewInt(1200), Venue: types.TradeVenueAquarius},
-		},
-		{
-			name: "token that is not an address is an error",
-			event: ammRouterSwapEvent(ammVec(
-				ammBytes32(), ammAddr(ethContractAddress), ammSym("USDC"), ammU128(0, 500), ammU128(0, 1200),
-			)),
-			wantErr: "element 2 (token_out): want an address, found ScValTypeScvSymbol",
-		},
-		{
-			name: "i128 amount is an error",
-			event: ammRouterSwapEvent(ammVec(
-				ammBytes32(), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammI128(500), ammU128(0, 1200),
-			)),
-			wantErr: "element 3 (in_amount): want u128, found ScValTypeScvI128",
+			name:    "out amount that is not i128 is an error",
+			event:   ammEvent(ammAquaPool, ammVec(ammI128(500), ammU128(1200), ammI128(3)), tradeTopics(ammAddr(ethContractAddress))...),
+			wantErr: "element 1 (out_amount): want i128",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f, ok, err := decodeAquariusRouterSwap(tc.event)
+			f, ok, err := decodeAquariusPoolTrade(tc.event)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				assert.False(t, ok)
@@ -403,7 +439,16 @@ func TestAMMPoolsProcessor_ProcessOperation(t *testing.T) {
 	newPair := func(emitter string) xdr.ContractEvent {
 		return ammEvent(emitter, ammNewPairData(), ammStr("SoroswapFactory"), ammSym("new_pair"))
 	}
+	routerSwap := func(emitter string) xdr.ContractEvent {
+		ev := ammRouterSwapEvent(ammVec(
+			ammAddr(ammAquaPool), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(500), ammU128(1200),
+		))
+		id := ammContractID(emitter)
+		ev.ContractId = &id
+		return ev
+	}
 	venues := TradeVenues{SoroswapFactory: ammFactory}
+	bothVenues := TradeVenues{SoroswapFactory: ammFactory, AquariusRouter: ammRouter}
 
 	testCases := []struct {
 		name      string
@@ -414,6 +459,16 @@ func TestAMMPoolsProcessor_ProcessOperation(t *testing.T) {
 		{name: "factory new_pair registers the pool", venues: venues, events: []xdr.ContractEvent{newPair(ammFactory)}, wantPools: 1},
 		{name: "new_pair from another contract is ignored", venues: venues, events: []xdr.ContractEvent{newPair(ammStranger)}},
 		{name: "no factory configured registers nothing", venues: TradeVenues{}, events: []xdr.ContractEvent{newPair(ammFactory)}},
+		{name: "router swap registers its pool", venues: bothVenues, events: []xdr.ContractEvent{routerSwap(ammRouter)}, wantPools: 1},
+		{name: "router swap from a non-router contract is ignored", venues: bothVenues, events: []xdr.ContractEvent{routerSwap(ammStranger)}},
+		{
+			name:   "malformed router swap and new_pair are skipped without an error",
+			venues: bothVenues,
+			events: []xdr.ContractEvent{
+				ammRouterSwapEvent(ammVec(ammBytes32())),
+				ammEvent(ammFactory, ammU32(1), ammStr("SoroswapFactory"), ammSym("new_pair")),
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -429,13 +484,31 @@ func TestAMMPoolsProcessor_ProcessOperation(t *testing.T) {
 				return
 			}
 			want := ammPool
+			if tc.events[0].ContractId != nil && strkey.MustEncode(strkey.VersionByteContract, tc.events[0].ContractId[:]) == ammRouter {
+				want = types.AMMPool{Pool: ammAquaPool, Venue: types.TradeVenueAquarius, Token0: ethContractAddress, Token1: usdcContractAddress}
+			}
 			want.CreatedLedger = 12345
 			assert.Equal(t, want, pools[0])
-			got, ok := registry.Get(ammPair)
+			got, ok := registry.Get(want.Pool)
 			require.True(t, ok)
 			assert.Equal(t, want, got)
 		})
 	}
+
+	t.Run("an already registered pool is not returned again", func(t *testing.T) {
+		registry := NewAMMPoolRegistry(nil)
+		proc := NewAMMPoolsProcessor(bothVenues, registry, nil)
+		op := ammTestOp(routerSwap(ammRouter))
+
+		pools, err := proc.ProcessOperation(context.Background(), op)
+		require.NoError(t, err)
+		require.Len(t, pools, 1)
+
+		pools, err = proc.ProcessOperation(context.Background(), op)
+		require.NoError(t, err)
+		assert.Empty(t, pools)
+		assert.Equal(t, 1, registry.Len())
+	})
 }
 
 func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
@@ -446,7 +519,7 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 		AquariusRouter:  ammRouter,
 	}
 	routerSwap := ammRouterSwapEvent(ammVec(
-		ammBytes32(), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(0, 500), ammU128(0, 1200),
+		ammAddr(ammAquaPool), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(500), ammU128(1200),
 	))
 
 	testCases := []struct {
@@ -458,16 +531,18 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 		{name: "swap from an unregistered contract is ignored", event: ammSwapEvent(ammStranger, ammSwapData(500, 0, 0, 1200))},
 		{name: "swap from a registered pool is a trade", event: ammSwapEvent(ammPair, ammSwapData(500, 0, 0, 1200)), wantTrade: true, wantVenue: types.TradeVenueSoroswap},
 		{name: "venue name encoded as a symbol is also a trade", event: ammEvent(ammPair, ammSwapData(500, 0, 0, 1200), ammSym("SoroswapPair"), ammSym("swap")), wantTrade: true, wantVenue: types.TradeVenueSoroswap},
-		{name: "swap from the router is a trade", event: routerSwap, wantTrade: true, wantVenue: types.TradeVenueAquarius},
+		{name: "trade from a registered Aquarius pool is a trade", event: ammAquaTradeEvent(ammAquaPool, 500, 1200), wantTrade: true, wantVenue: types.TradeVenueAquarius},
+		{name: "trade from an unregistered contract is ignored", event: ammAquaTradeEvent(ammStranger, 500, 1200)},
+		{name: "router swap alone is never a trade", event: routerSwap},
 		// An unreadable event from a trusted contract is skipped, never an error: one lost fill
 		// must not stop the ledger.
-		{name: "unreadable router swap is skipped", event: ammRouterSwapEvent(ammVec(ammBytes32(), ammAddr(ethContractAddress)))},
+		{name: "unreadable pool trade is skipped", event: ammEvent(ammAquaPool, ammU32(1), ammSym("trade"), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammAddr(ammStranger))},
 		{name: "unreadable pair swap is skipped", event: ammSwapEvent(ammPair, ammU32(1))},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			registry := NewAMMPoolRegistry([]types.AMMPool{ammPool})
+			registry := NewAMMPoolRegistry([]types.AMMPool{ammPool, {Pool: ammAquaPool, Venue: types.TradeVenueAquarius, Token0: ethContractAddress, Token1: usdcContractAddress}})
 			proc := NewTradesProcessor(networkPassphrase, venues, registry, nil)
 
 			op := ammTestOp(tc.event)
@@ -492,4 +567,30 @@ func TestTradesProcessor_AMMFillsTrustOnlyKnownContracts(t *testing.T) {
 			assert.Equal(t, uint32(12345), got.LedgerNumber)
 		})
 	}
+}
+
+// The indexer runs the pools processor before the trades processor on each operation, so a routed
+// hop is counted once, from the pool's own trade event, even when the pool is first seen there.
+func TestAMMProcessors_RoutedHopIsCountedOnce(t *testing.T) {
+	venues := TradeVenues{
+		XLMSAC:         nativeContractAddress,
+		USDCSAC:        usdcContractAddress,
+		AquariusRouter: ammRouter,
+	}
+	registry := NewAMMPoolRegistry(nil)
+	op := ammTestOp(
+		ammAquaTradeEvent(ammAquaPool, 500, 1200),
+		ammRouterSwapEvent(ammVec(
+			ammAddr(ammAquaPool), ammAddr(ethContractAddress), ammAddr(usdcContractAddress), ammU128(500), ammU128(1200),
+		)),
+	)
+
+	pools, err := NewAMMPoolsProcessor(venues, registry, nil).ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	require.Len(t, pools, 1)
+
+	trades, err := NewTradesProcessor(networkPassphrase, venues, registry, nil).ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	require.Len(t, trades, 1)
+	assert.Equal(t, types.TradeVenueAquarius, trades[0].Venue)
 }

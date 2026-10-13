@@ -7,14 +7,17 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// AMMPoolsProcessor registers AMM pools as their venue's factory announces them, so the trades
-// processor trusts a pool's swap events from the ledger it was created in.
+// AMMPoolsProcessor registers AMM pools as the venues' fixed contracts reveal them: the Soroswap
+// factory announces each new pair, and the Aquarius router names the pool of every hop it routes.
+// The trades processor then trusts those pools' own swap events, including swaps that reach a
+// pool directly without the router.
 type AMMPoolsProcessor struct {
 	venues         TradeVenues
 	registry       *AMMPoolRegistry
@@ -31,9 +34,9 @@ func (p *AMMPoolsProcessor) Name() string {
 	return "amm_pools"
 }
 
-// ProcessOperation returns the pools the operation's factory events announce, after adding them
-// to the registry.
-func (p *AMMPoolsProcessor) ProcessOperation(_ context.Context, opWrapper *TransactionOperationWrapper) ([]types.AMMPool, error) {
+// ProcessOperation adds the pools the operation reveals to the registry and returns the ones it
+// had not seen. A venue event that does not decode is logged and skipped.
+func (p *AMMPoolsProcessor) ProcessOperation(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]types.AMMPool, error) {
 	startTime := time.Now()
 	defer func() {
 		if p.metricsService != nil {
@@ -41,7 +44,8 @@ func (p *AMMPoolsProcessor) ProcessOperation(_ context.Context, opWrapper *Trans
 		}
 	}()
 
-	if p.venues.SoroswapFactory == "" || opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction || !opWrapper.Transaction.Result.Successful() {
+	if (p.venues.SoroswapFactory == "" && p.venues.AquariusRouter == "") ||
+		opWrapper.OperationType() != xdr.OperationTypeInvokeHostFunction || !opWrapper.Transaction.Result.Successful() {
 		return nil, nil
 	}
 	events, err := opWrapper.Transaction.GetContractEventsForOperation(opWrapper.Index)
@@ -53,19 +57,28 @@ func (p *AMMPoolsProcessor) ProcessOperation(_ context.Context, opWrapper *Trans
 		if ev.Type != xdr.ContractEventTypeContract || ev.ContractId == nil {
 			continue
 		}
-		if strkey.MustEncode(strkey.VersionByteContract, ev.ContractId[:]) != p.venues.SoroswapFactory {
+		var pool types.AMMPool
+		var ok bool
+		var err error
+		switch strkey.MustEncode(strkey.VersionByteContract, ev.ContractId[:]) {
+		case p.venues.SoroswapFactory:
+			pool, ok, err = decodeSoroswapNewPair(ev)
+		case p.venues.AquariusRouter:
+			pool, ok, err = decodeAquariusRouterPool(ev)
+		default:
 			continue
 		}
-		pool, ok, err := decodeSoroswapNewPair(ev)
 		if err != nil {
-			return nil, fmt.Errorf("decoding Soroswap factory event: %w", err)
+			log.Ctx(ctx).Warnf("prices: skipping pool registration event in operation %d: %v", opWrapper.ID(), err)
+			continue
 		}
 		if !ok {
 			continue
 		}
 		pool.CreatedLedger = opWrapper.LedgerSequence
-		p.registry.Add(pool)
-		pools = append(pools, pool)
+		if p.registry.Add(pool) {
+			pools = append(pools, pool)
+		}
 	}
 	return pools, nil
 }
@@ -139,48 +152,71 @@ func decodeSoroswapSwap(ev xdr.ContractEvent, pool types.AMMPool) (fill, bool, e
 	}, true, nil
 }
 
-// decodeAquariusRouterSwap decodes a router `swap` event into a fill. ok is false for any other
-// router event.
+// decodeAquariusRouterPool reads the pool a router `swap` event names. ok is false for any other
+// router event. The router emits one such event per hop.
 //
 // Topics: [Sym "swap", tokens: Vec<Address>, user: Address].
-// Data: (pool: Address or BytesN<32>, token_in: Address, token_out: Address, in_amount: u128,
-// out_amount: u128). The pool element is not read; its encoding differs between router versions.
-func decodeAquariusRouterSwap(ev xdr.ContractEvent) (fill, bool, error) {
+// Data: (pool: Address, token_in: Address, token_out: Address, in_amount: u128, out_amount: u128).
+func decodeAquariusRouterPool(ev xdr.ContractEvent) (types.AMMPool, bool, error) {
 	topics, data, ok := contractEventV0(ev)
 	if !ok || !hasTopicNames(topics, "swap") {
-		return fill{}, false, nil
+		return types.AMMPool{}, false, nil
 	}
 	vec, ok := data.GetVec()
-	if !ok || vec == nil {
-		return fill{}, false, fmt.Errorf("swap data: want a vec, found %s", data.Type)
+	if !ok || vec == nil || len(*vec) < 3 {
+		return types.AMMPool{}, false, fmt.Errorf("router swap data: want a vec of at least 3 elements, found %s", data.Type)
 	}
 	items := *vec
-	if len(items) != 5 {
-		return fill{}, false, fmt.Errorf("swap data: want 5 elements, found %d", len(items))
+	pool, ok := scValAddress(items[0])
+	if !ok {
+		return types.AMMPool{}, false, fmt.Errorf("router swap data element 0 (pool): want an address, found %s", items[0].Type)
 	}
 	tokenIn, ok := scValAddress(items[1])
 	if !ok {
-		return fill{}, false, fmt.Errorf("swap data element 1 (token_in): want an address, found %s", items[1].Type)
+		return types.AMMPool{}, false, fmt.Errorf("router swap data element 1 (token_in): want an address, found %s", items[1].Type)
 	}
 	tokenOut, ok := scValAddress(items[2])
 	if !ok {
-		return fill{}, false, fmt.Errorf("swap data element 2 (token_out): want an address, found %s", items[2].Type)
+		return types.AMMPool{}, false, fmt.Errorf("router swap data element 2 (token_out): want an address, found %s", items[2].Type)
 	}
-	amountIn, ok := scValU128(items[3])
+	return types.AMMPool{Pool: pool, Venue: types.TradeVenueAquarius, Token0: tokenIn, Token1: tokenOut}, true, nil
+}
+
+// decodeAquariusPoolTrade decodes a pool `trade` event into a fill. ok is false for any other
+// pool event. Every swap a pool executes emits it, whether or not the router was involved.
+//
+// Topics: [Sym "trade", token_in: Address, token_out: Address, user: Address].
+// Data: (in_amount: i128, out_amount: i128, fee: i128).
+func decodeAquariusPoolTrade(ev xdr.ContractEvent) (fill, bool, error) {
+	topics, data, ok := contractEventV0(ev)
+	if !ok || !hasTopicNames(topics, "trade") {
+		return fill{}, false, nil
+	}
+	if len(topics) < 3 {
+		return fill{}, false, fmt.Errorf("pool trade topics: want at least 3, found %d", len(topics))
+	}
+	tokenIn, ok := scValAddress(topics[1])
 	if !ok {
-		return fill{}, false, fmt.Errorf("swap data element 3 (in_amount): want u128, found %s", items[3].Type)
+		return fill{}, false, fmt.Errorf("pool trade topic 1 (token_in): want an address, found %s", topics[1].Type)
 	}
-	amountOut, ok := scValU128(items[4])
+	tokenOut, ok := scValAddress(topics[2])
 	if !ok {
-		return fill{}, false, fmt.Errorf("swap data element 4 (out_amount): want u128, found %s", items[4].Type)
+		return fill{}, false, fmt.Errorf("pool trade topic 2 (token_out): want an address, found %s", topics[2].Type)
 	}
-	return fill{
-		TokenIn:   tokenIn,
-		AmountIn:  amountIn,
-		TokenOut:  tokenOut,
-		AmountOut: amountOut,
-		Venue:     types.TradeVenueAquarius,
-	}, true, nil
+	vec, ok := data.GetVec()
+	if !ok || vec == nil || len(*vec) < 2 {
+		return fill{}, false, fmt.Errorf("pool trade data: want a vec of at least 2 elements, found %s", data.Type)
+	}
+	items := *vec
+	amountIn, ok := scValI128(items[0])
+	if !ok {
+		return fill{}, false, fmt.Errorf("pool trade data element 0 (in_amount): want i128, found %s", items[0].Type)
+	}
+	amountOut, ok := scValI128(items[1])
+	if !ok {
+		return fill{}, false, fmt.Errorf("pool trade data element 1 (out_amount): want i128, found %s", items[1].Type)
+	}
+	return fill{TokenIn: tokenIn, AmountIn: amountIn, TokenOut: tokenOut, AmountOut: amountOut, Venue: types.TradeVenueAquarius}, true, nil
 }
 
 // contractEventV0 returns an event's topics and data. ok is false for a body version the decoders

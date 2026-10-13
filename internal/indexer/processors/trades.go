@@ -169,10 +169,11 @@ func (p *TradesProcessor) classicFills(opWrapper *TransactionOperationWrapper) (
 	return fills, nil
 }
 
-// ammFills decodes swap events from contracts the processor trusts: pools in the registry and
-// the venues' fixed routers. Events from any other contract are ignored, whatever their shape. An
-// event from a trusted contract that does not decode is logged and skipped: one unreadable fill
-// must not stop the ledger, and the log line is what reveals a venue's layout has changed.
+// ammFills decodes swap events from the pools in the registry, each with its venue's decoder.
+// Events from any other contract are ignored, whatever their shape; routers are not read here, so
+// a routed hop is counted once, from its pool. An event from a trusted pool that does not decode
+// is logged and skipped: one unreadable fill must not stop the ledger, and the log line is what
+// reveals a venue's layout has changed.
 func (p *TradesProcessor) ammFills(ctx context.Context, opWrapper *TransactionOperationWrapper) ([]fill, error) {
 	events, err := opWrapper.Transaction.GetContractEventsForOperation(opWrapper.Index)
 	if err != nil {
@@ -184,29 +185,29 @@ func (p *TradesProcessor) ammFills(ctx context.Context, opWrapper *TransactionOp
 			continue
 		}
 		emitter := strkey.MustEncode(strkey.VersionByteContract, ev.ContractId[:])
-		switch {
-		case p.venues.AquariusRouter != "" && emitter == p.venues.AquariusRouter:
-			f, ok, err := decodeAquariusRouterSwap(ev)
-			if err != nil {
-				log.Ctx(ctx).Warnf("prices: skipping Aquarius router event in operation %d: %v", opWrapper.ID(), err)
-				continue
-			}
-			if ok {
-				fills = append(fills, f)
-			}
+		pool, known := p.registry.Get(emitter)
+		if !known {
+			continue
+		}
+		var f fill
+		var ok bool
+		var err error
+		switch pool.Venue {
+		case types.TradeVenueSoroswap:
+			f, ok, err = decodeSoroswapSwap(ev, pool)
+		case types.TradeVenueAquarius:
+			f, ok, err = decodeAquariusPoolTrade(ev)
+		case types.TradeVenueSDEXOrderbook, types.TradeVenueSDEXPool:
+			continue
 		default:
-			pool, known := p.registry.Get(emitter)
-			if !known {
-				continue
-			}
-			f, ok, err := decodeSoroswapSwap(ev, pool)
-			if err != nil {
-				log.Ctx(ctx).Warnf("prices: skipping Soroswap pair %s event in operation %d: %v", emitter, opWrapper.ID(), err)
-				continue
-			}
-			if ok {
-				fills = append(fills, f)
-			}
+			continue
+		}
+		if err != nil {
+			log.Ctx(ctx).Warnf("prices: skipping pool %s event in operation %d: %v", emitter, opWrapper.ID(), err)
+			continue
+		}
+		if ok {
+			fills = append(fills, f)
 		}
 	}
 	return fills, nil
@@ -268,18 +269,6 @@ func scValI128(val xdr.ScVal) (*big.Int, bool) {
 		return nil, false
 	}
 	bi := big.NewInt(int64(parts.Hi))
-	bi.Lsh(bi, 64)
-	bi.Add(bi, new(big.Int).SetUint64(uint64(parts.Lo)))
-	return bi, true
-}
-
-// scValU128 converts a u128 ScVal into its raw 128-bit value.
-func scValU128(val xdr.ScVal) (*big.Int, bool) {
-	parts, ok := val.GetU128()
-	if !ok {
-		return nil, false
-	}
-	bi := new(big.Int).SetUint64(uint64(parts.Hi))
 	bi.Lsh(bi, 64)
 	bi.Add(bi, new(big.Int).SetUint64(uint64(parts.Lo)))
 	return bi, true

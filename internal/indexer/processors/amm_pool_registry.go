@@ -31,13 +31,15 @@ func (r *AMMPoolRegistry) Get(addr string) (types.AMMPool, bool) {
 	return p, ok
 }
 
-// Add registers a pool, keeping the first registration.
-func (r *AMMPoolRegistry) Add(p types.AMMPool) {
+// Add registers a pool, keeping the first registration, and reports whether the pool is new.
+func (r *AMMPoolRegistry) Add(p types.AMMPool) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.pools[p.Pool]; !exists {
-		r.pools[p.Pool] = p
+	if _, exists := r.pools[p.Pool]; exists {
+		return false
 	}
+	r.pools[p.Pool] = p
+	return true
 }
 
 // Len returns the number of registered pools.
