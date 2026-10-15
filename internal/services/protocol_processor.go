@@ -81,14 +81,15 @@ type ProtocolProcessor interface {
 	// (engine per window; live ingestion per ledger) invokes it.
 	Reset()
 
-	// PersistHistory writes the history rows accumulated by ProcessLedger since the
-	// last Reset, using the provided transaction. Called only when the CAS cursor
-	// advances. The migration engine passes the CAS-guarded transaction itself, so
-	// rows commit atomically with the cursor; live ingestion passes its
-	// state_changes sibling transaction, which commits strictly before the
-	// cursor-carrying transaction — a committed cursor still implies committed
-	// rows, and rows stranded above the cursor by a crash are removed by startup
-	// reconciliation.
+	// PersistHistory writes the history rows accumulated by ProcessLedger since
+	// the last Reset, using the provided transaction. Called only when the CAS
+	// cursor advances. Which transaction arrives depends on the caller:
+	//   - migration engine: the CAS-guarded transaction itself — rows commit
+	//     atomically with the cursor;
+	//   - live ingestion: the state_changes sibling transaction, which commits
+	//     strictly before the cursor-carrying transaction — a committed cursor
+	//     still implies committed rows, and rows stranded above the cursor by
+	//     a crash are removed by startup reconciliation.
 	PersistHistory(ctx context.Context, dbTx pgx.Tx) error
 	// PersistCurrentState writes the protocol's current state accumulated by
 	// ProcessLedger since the last Reset, using the provided transaction. Called

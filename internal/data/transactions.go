@@ -289,58 +289,7 @@ func (m *TransactionModel) BatchCopyAccounts(
 	txs []*types.Transaction,
 	stellarAddressesByToID map[int64]map[string]struct{},
 ) error {
-	if len(stellarAddressesByToID) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	// Build ToID -> LedgerCreatedAt lookup from transactions
-	ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
-	for _, tx := range txs {
-		ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
-	}
-
-	// COPY transactions_accounts using pgx binary format with native pgtype types. Upstream participants handling
-	// ensures that account address is not NULL here.
-	var taRows [][]any
-	for toID, addresses := range stellarAddressesByToID {
-		ledgerCreatedAt, ok := ledgerCreatedAtByToID[toID]
-		if !ok {
-			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
-			// the hypertable — and means the caller's transactions and
-			// participants disagree about which ToIDs exist.
-			return fmt.Errorf("no transaction supplies ledger_created_at for to_id %d", toID)
-		}
-		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-		toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
-		for addr := range addresses {
-			addrBytes, addrErr := types.AddressBytea(addr).Value()
-			if addrErr != nil {
-				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-			}
-			taRows = append(taRows, []any{
-				ledgerCreatedAtPgtype,
-				toIDPgtype,
-				addrBytes,
-			})
-		}
-	}
-
-	_, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"transactions_accounts"},
-		[]string{"ledger_created_at", "tx_to_id", "account_id"},
-		pgx.CopyFromRows(taRows),
-	)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Observe(float64(len(taRows)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchCopyAccounts", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
-	}
-
-	return nil
+	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", txs,
+		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
+		stellarAddressesByToID)
 }
