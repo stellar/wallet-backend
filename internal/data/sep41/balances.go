@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -112,7 +113,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
+	rows, err := db.QuerierFrom(ctx, m.DB).Query(ctx, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sep41_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sep41_balances").Inc()

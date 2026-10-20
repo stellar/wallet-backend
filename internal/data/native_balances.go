@@ -64,7 +64,7 @@ func (m *NativeBalanceModel) GetByAccount(ctx context.Context, accountAddress st
 		WHERE account_id = $1`
 
 	start := time.Now()
-	nb, err := db.QueryOne[NativeBalance](ctx, m.DB, query, types.AddressBytea(accountAddress))
+	nb, err := db.QueryOne[NativeBalance](ctx, db.QuerierFrom(ctx, m.DB), query, types.AddressBytea(accountAddress))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "native_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "native_balances").Inc()

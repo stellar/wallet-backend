@@ -94,6 +94,7 @@ func TestAccountResolver_LiquidityPoolBalancesCrossSourcePagination(t *testing.T
 	)
 
 	resolver := &accountResolver{&Resolver{
+		models:        &data.Models{DB: testDBConnectionPool},
 		rpcService:    rpcMock,
 		balanceReader: reader,
 		metrics:       m,

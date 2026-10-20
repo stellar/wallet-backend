@@ -217,6 +217,8 @@ The pool uses `QueryExecModeExec`. pgx then sends each query without creating a 
 
 Every history read is bounded by `latest_ingest_ledger`: the query compares the row's TOID against the cursor in the same snapshot, so rows the ingester has written but not yet acknowledged with a cursor commit are never served, and a transaction never appears without its operations and state changes.
 
+An account's `balances` field reads its sources (native, trustlines, SAC, SEP-41, liquidity pools) as separate queries inside one read-only `REPEATABLE READ` transaction, so a balance page reflects one ledger. Ingest commits every balance table with the cursor, so that ledger is always a whole one. SEP-41 balances are the exception: live ingest writes them only once the SEP-41 current-state cursor has caught up, so before that cursor exists or while `protocol-migrate current-state` is still catching it up, they reflect an older ledger than the rest of the page.
+
 Read replicas are a deployment choice. `serve` uses whatever `DATABASE_URL` points at, and nothing in the code routes reads elsewhere. `serve` only reads, so it can point at a replica. `/health` then reads `latest_ingest_ledger` from that replica, so replication lag counts toward the 50-ledger rule.
 
 ## Metrics

@@ -38,7 +38,7 @@ Required options reject an empty value. A required option with a default passes 
 | `--network-passphrase` | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | yes | Stellar network passphrase |
 | `--rpc-url` | `RPC_URL` | `http://localhost:8000` | yes | Stellar RPC URL |
 | `--admin-port` | `ADMIN_PORT` | `0` | no | Port for pprof at `/debug/pprof`. `0` disables it |
-| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 9 |
+| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 7 |
 | `--db-min-conns` | `DB_MIN_CONNS` | `5` | no | Minimum idle connections kept in the pool |
 | `--db-max-conn-lifetime` | `DB_MAX_CONN_LIFETIME` | `5m` | no | Maximum connection lifetime, as a Go duration |
 | `--db-max-conn-idle-time` | `DB_MAX_CONN_IDLE_TIME` | `10s` | no | Maximum connection idle time, as a Go duration |
@@ -187,7 +187,7 @@ Each command checks these at startup and exits with the quoted error.
 - **Bad backfill range.** `ingest` in backfill mode needs a start above zero and an end at or above the start: `--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got <start>..<end>)`.
 - **End ledger at the ceiling.** Backfill rejects an end ledger of 4294967295 or more: `--end-ledger <value> must be below 4294967295`.
 - **Bad backfill tuning.** Backfill needs `--backfill-batch-size` and `--backfill-db-insert-batch-size` between 1 and 4294967295, and `--backfill-workers` of 0 or more: `--backfill-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-db-insert-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-workers must be 0 (one per CPU) or positive (got <value>)`.
-- **Pool too small for live mode.** `ingest` in live mode fails with `db-max-conns is <n>, below the 9 connections live persist requires`.
+- **Pool too small for live mode.** `ingest` in live mode fails with `db-max-conns is <n>, below the 7 connections live persist requires`.
 - **Unknown backend in ingest.** `ingest` fails with `invalid ledger-backend-type '<value>', must be 'rpc' or 'datastore'`.
 - **Datastore without bucket in ingest.** `ingest` fails with `--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore`.
 - **No protocol given.** `protocol-setup` and `protocol-migrate` fail with `at least one --protocol-id is required`.
