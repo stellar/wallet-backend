@@ -92,6 +92,8 @@ func classifyGraphQLError(err error) string {
 					return "forbidden"
 				case "INTERNAL_SERVER_ERROR", "INTERNAL_ERROR":
 					return "internal_error"
+				case "REQUEST_TIMEOUT":
+					return "timeout"
 				default:
 					return "unknown"
 				}
