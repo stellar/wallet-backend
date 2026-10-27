@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -25,6 +27,44 @@ func TestCustomErrorPresenter(t *testing.T) {
 		assert.Equal(t, "internal server error", result.Message)
 		assert.NotContains(t, result.Message, "transactions")
 		assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"])
+	})
+
+	t.Run("an expired request deadline is reported as REQUEST_TIMEOUT", func(t *testing.T) {
+		err := fmt.Errorf("getting transaction abc: %w", context.DeadlineExceeded)
+		result := CustomErrorPresenter(ctx, err)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "request timed out", result.Message)
+		assert.Equal(t, "REQUEST_TIMEOUT", result.Extensions["code"])
+	})
+
+	t.Run("a query Postgres canceled (57014) is reported as REQUEST_TIMEOUT", func(t *testing.T) {
+		err := fmt.Errorf("getting transaction abc: %w", &pgconn.PgError{Code: "57014", Message: "canceling statement due to statement timeout"})
+		result := CustomErrorPresenter(ctx, err)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "request timed out", result.Message)
+		assert.NotContains(t, result.Message, "statement")
+		assert.Equal(t, "REQUEST_TIMEOUT", result.Extensions["code"])
+	})
+
+	t.Run("a database dial or read timeout stays an internal error", func(t *testing.T) {
+		err := fmt.Errorf("connecting: %w", &net.OpError{Op: "dial", Err: timeoutError{}})
+		result := CustomErrorPresenter(ctx, err)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"])
+	})
+
+	t.Run("a client disconnect stays an internal error, even when Postgres reports 57014", func(t *testing.T) {
+		for _, err := range []error{
+			fmt.Errorf("getting transaction abc: %w", context.Canceled),
+			errors.Join(context.Canceled, &pgconn.PgError{Code: "57014"}),
+		} {
+			result := CustomErrorPresenter(ctx, err)
+			require.NotNil(t, result)
+			assert.Equal(t, "INTERNAL_SERVER_ERROR", result.Extensions["code"], err.Error())
+		}
 	})
 
 	t.Run("gqlerror without extensions (no code) is masked as an internal error", func(t *testing.T) {
@@ -236,3 +276,10 @@ func TestCustomErrorPresenter(t *testing.T) {
 		assert.Equal(t, "Unknown field 'input'", result.Message)
 	})
 }
+
+// timeoutError is a net.Error whose Timeout() is true, as a dial to an unreachable database reports.
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
