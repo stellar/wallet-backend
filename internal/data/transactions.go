@@ -145,21 +145,32 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 //   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
 //   - Clearing these bits yields the transaction's to_id
 //
+// Callers supply each operation's ledger_created_at (an operation shares its transaction's
+// ledger), so the LATERAL matches the complete transactions primary key (to_id, ledger_created_at)
+// and runs as one per-key probe with runtime chunk exclusion. The LIMIT 1 keeps the planner from
+// flattening the subquery into a join that decompresses the whole hypertable (see
+// BatchGetByStateChangeIDs).
+//
+// The probe reads transactions only and does not check that the operation row exists. Callers
+// pass the IDs of operations they already loaded.
+//
 // See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
-func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id", "ledger_created_at")
-	// Join operations to transactions using TOID encoding:
-	// An operation ID's lower 12 bits encode the operation index within the transaction.
-	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.TransactionWithOperationID, error) {
+	if len(operationIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
+	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 	query := fmt.Sprintf(`
-		SELECT %s, o.id as operation_id
-		FROM operations o
-		INNER JOIN transactions
-		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
-		WHERE o.id = ANY($1)`, columns)
+		SELECT %s, k.operation_id
+		FROM UNNEST($1::bigint[], $2::timestamptz[]) AS k(operation_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT %s FROM transactions t
+			WHERE t.to_id = (k.operation_id & (~x'FFF'::bigint)) AND t.ledger_created_at = k.ledger_created_at
+			LIMIT 1
+		) t`, columns, columns)
 	start := time.Now()
 	// QueryManyPtrs uses RowToAddrOfStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs, ledgerCreatedAts)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(float64(len(operationIDs)))

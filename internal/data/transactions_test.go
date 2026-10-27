@@ -303,7 +303,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 		Metrics: dbMetrics,
 	}
 
-	now := time.Now()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	// Create test transactions with specific ToIDs
 	// Operations IDs must be in TOID range for each transaction: (to_id, to_id + 4096)
@@ -335,7 +335,7 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test BatchGetByOperationIDs
-	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193, 4098}, "")
+	transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193, 4098}, []time.Time{now, now, now}, "")
 	require.NoError(t, err)
 	assert.Len(t, transactions, 3)
 
@@ -347,6 +347,38 @@ func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
 	assert.Equal(t, opTestHash1, operationIDsFound[4097])
 	assert.Equal(t, opTestHash2, operationIDsFound[8193])
 	assert.Equal(t, opTestHash1, operationIDsFound[4098])
+
+	t.Run("the ledger time selects between rows sharing a to_id in different chunks", func(t *testing.T) {
+		earlier := now.Add(-48 * time.Hour)
+		earlierHash := types.HashBytea("a076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+			VALUES ($1, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $2, false)
+		`, earlierHash, earlier)
+		require.NoError(t, err)
+
+		transactions, err := m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{earlier}, "")
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, earlierHash, transactions[0].Hash)
+
+		transactions, err = m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{now}, "")
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, opTestHash1, transactions[0].Hash)
+	})
+
+	t.Run("wrong ledger_created_at for a key returns no transaction for that key (ledger time must match)", func(t *testing.T) {
+		transactions, err := m.BatchGetByOperationIDs(ctx, []int64{8193}, []time.Time{now.Add(-24 * time.Hour)}, "")
+		require.NoError(t, err)
+		assert.Empty(t, transactions)
+	})
+
+	t.Run("mismatched array lengths error", func(t *testing.T) {
+		_, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193}, []time.Time{now}, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parallel arrays of equal length")
+	})
 }
 
 func TestTransactionModel_BatchGetByStateChangeIDs(t *testing.T) {
