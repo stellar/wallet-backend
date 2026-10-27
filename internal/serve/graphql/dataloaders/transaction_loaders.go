@@ -17,7 +17,7 @@ type TransactionColumnsKey struct {
 	OperationID     int64
 	StateChangeID   string
 	Columns         string
-	LedgerCreatedAt time.Time // parent state change's ledger time; pins the partition column for BatchGetByStateChangeIDs
+	LedgerCreatedAt time.Time // parent operation's or state change's ledger time; limits the lookup to the transactions chunk for that time
 }
 
 // txByOperationIDLoader creates a dataloader for fetching transactions by operation ID
@@ -27,11 +27,13 @@ func transactionByOperationIDLoader(models *data.Models, m *metrics.DataloaderMe
 	return newOneToOneLoader(
 		func(ctx context.Context, keys []TransactionColumnsKey) ([]*types.TransactionWithOperationID, error) {
 			operationIDs := make([]int64, len(keys))
+			ledgerCreatedAts := make([]time.Time, len(keys))
 			columns := keys[0].Columns
 			for i, key := range keys {
 				operationIDs[i] = key.OperationID
+				ledgerCreatedAts[i] = key.LedgerCreatedAt
 			}
-			return models.Transactions.BatchGetByOperationIDs(ctx, operationIDs, columns)
+			return models.Transactions.BatchGetByOperationIDs(ctx, operationIDs, ledgerCreatedAts, columns)
 		},
 		func(item *types.TransactionWithOperationID) int64 {
 			return item.OperationID

@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
@@ -33,8 +34,9 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
 
 	loaderKey := dataloaders.TransactionColumnsKey{
-		OperationID: obj.ID,
-		Columns:     strings.Join(dbColumns, ", "),
+		OperationID:     obj.ID,
+		Columns:         strings.Join(dbColumns, ", "),
+		LedgerCreatedAt: obj.LedgerCreatedAt,
 	}
 
 	// Use dataloader to efficiently batch-load transaction for this operation
@@ -42,6 +44,11 @@ func (r *operationResolver) Transaction(ctx context.Context, obj *types.Operatio
 	transaction, err := loaders.TransactionsByOperationIDLoader.Load(ctx, loaderKey)
 	if err != nil {
 		return nil, err
+	}
+	// transaction is non-null in the schema; a missing transactions row is a data-integrity
+	// failure surfaced as a diagnosable error.
+	if transaction == nil {
+		return nil, fmt.Errorf("transaction for operation %d at %s not found", obj.ID, obj.LedgerCreatedAt.UTC().Format(time.RFC3339))
 	}
 	return transaction, nil
 }

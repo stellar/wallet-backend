@@ -174,6 +174,7 @@ Protocol registration files in `internal/db/migrations/protocols/` are not track
 
 | Name | Table | Columns | Used by |
 | --- | --- | --- | --- |
+| Primary key | `transactions` | `to_id, ledger_created_at` | A transaction from its operation or state change (`TransactionModel.BatchGetByOperationIDs`, `BatchGetByStateChangeIDs`) |
 | Primary key | `transactions_accounts` | `account_id, ledger_created_at, tx_to_id` | An account's transaction list (`TransactionModel.BatchGetByAccountAddress`) |
 | Primary key | `operations_accounts` | `account_id, ledger_created_at, operation_id` | An account's operation list (`OperationModel.BatchGetByAccountAddress`, `BatchGetAccountOperationsByToIDs`) |
 | Primary key | `state_changes` | `ledger_created_at, to_id, operation_id, state_change_id` | State changes of a transaction or operation (`BatchGetByToID`, `BatchGetByOperationID`, `BatchGetByOperationIDs`) |
