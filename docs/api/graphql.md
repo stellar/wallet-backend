@@ -64,12 +64,12 @@ The server starts a 30 second deadline for the request. It checks the JWT only w
 | Query | Returns | When the result is null |
 |---|---|---|
 | `accountByAddress(address: String!)` | `Account` for a `G...` account or `C...` contract | Only for an invalid address, with `INVALID_ADDRESS`. A valid address with no indexed activity returns an `Account` whose connections are empty. |
-| `transactionByHash(hash: String!)` | `Transaction` | A malformed hash returns `INVALID_TRANSACTION_HASH`. An unknown hash returns `INTERNAL_SERVER_ERROR`. |
+| `transactionByHash(hash: String!)` | `Transaction` | A malformed hash returns `INVALID_TRANSACTION_HASH`. An unknown hash returns `null` with no error. |
 | `operationById(id: Int64!)` | `Operation` | An unknown ID returns `INTERNAL_SERVER_ERROR`. |
 
 A muxed address (`M...`) is not accepted. Pass the underlying `G...` address.
 
-The server does not tell a missing transaction or operation apart from a database failure. Both return `null` with the message `internal server error` and code `INTERNAL_SERVER_ERROR`.
+`operationById` does not tell a missing operation apart from a database failure: both return `null` with the message `internal server error` and code `INTERNAL_SERVER_ERROR`.
 
 ## Pagination
 
@@ -583,7 +583,7 @@ For an account's full history in one call, select `operations` and `stateChanges
 | Query complexity | 10000 | `GRAPHQL_COMPLEXITY_LIMIT` | HTTP 200, `COMPLEXITY_LIMIT_EXCEEDED`, `data: null` |
 | Query depth | 15 | Fixed (`MaxQueryDepth`) | HTTP 200, `QUERY_TOO_DEEP`, `data: null` |
 | Page size | 100 per connection | Fixed | HTTP 200, `BAD_USER_INPUT` |
-| Request time | 30 s | Fixed (`requestContextTimeout`) | Fields still waiting on the database fail with `INTERNAL_SERVER_ERROR` |
+| Request time | 30 s | Fixed (`requestContextTimeout`) | Fields still waiting on the database fail with `REQUEST_TIMEOUT` |
 | Body size, auth on | 102400 bytes | `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` | HTTP 401: the server hashes only that many bytes, so the signature fails |
 
 Complexity: each selected field costs 1. A connection multiplies the cost of what you select inside it by `first` or `last`, or by 50 when neither is set. `Transaction.accounts` and `Operation.accounts` multiply by 50. The unpaginated lists on `AccountTransactionEdge` are not multiplied.
@@ -641,7 +641,8 @@ Error codes:
 | `QUERY_TOO_DEEP` | See [Limits](#limits) |
 | `PERSISTED_QUERY_NOT_FOUND` | See [Persisted queries](#persisted-queries) |
 | `INTERNAL_ERROR` | Balances could not be read. Message: `failed to process account balances`. |
-| `INTERNAL_SERVER_ERROR` | Anything else, including a missing transaction or operation, a disabled introspection query, and a timeout. The message is always `internal server error`; details stay in the server log. |
+| `REQUEST_TIMEOUT` | The request ran past its 30 s deadline, or the database canceled the query. Message: `request timed out`. |
+| `INTERNAL_SERVER_ERROR` | Anything else, including a missing operation and a disabled introspection query. The message is always `internal server error`; details stay in the server log. |
 
 HTTP status codes:
 

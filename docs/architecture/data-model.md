@@ -92,6 +92,7 @@ Legend:
 | `operations` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, id DESC` | `bloom(operation_type)` | One row per operation: type, XDR, result code, success flag |
 | `operations_accounts` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, operation_id DESC` | None | Links each operation to every account that took part in it |
 | `state_changes` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC` | `bloom(state_change_category)`, `bloom(state_change_reason)` | One row per change to an account: balances, signers, thresholds, flags, trustlines, data entries, allowances |
+| `transaction_hashes` | `ledger_close_epoch` (unix seconds) | 7 days (`TX_HASH_CHUNK_INTERVAL`) | `hash_bucket` | `hash_prefix` | None | Finds a transaction's chunk from its hash. One row per transaction: the top 40 bits of the hash, the top 12 of those as the bucket, and the close time. About 7 to 8 bytes per row compressed |
 
 The chunk interval in the migrations is 1 day. On every start, the live ingester sets it again from `CHUNK_INTERVAL` (default `1 day`), which affects chunks created after that point.
 
@@ -170,6 +171,18 @@ Other bookkeeping objects:
 
 Protocol registration files in `internal/db/migrations/protocols/` are not tracked in `gorp_migrations`. They are idempotent and run on every `migrate up` and `protocol-setup`.
 
+## Hash lookups
+
+`transactions` is partitioned by time, and a hash says nothing about time. `transactionByHash` and the `transactionHash` filter on state changes read `transaction_hashes` first:
+
+1. Compute `hash_bucket` and `hash_prefix` from the hash (`types.HashBytea.LookupKey`).
+2. Find the close times stored for that `(hash_bucket, hash_prefix)`, newest first. Each compressed chunk answers from its `hash_bucket` index.
+3. Read `transactions` in that close second, matching the full hash, as a second statement with the second written into it. The planner then expands only that one chunk; a single statement joining the two tables would be planned over every chunk of `transactions` on every lookup.
+
+Two hashes can share the 40-bit prefix. Step 3 rejects the other one.
+
+Ingestion writes the lookup row in the same database transaction as the `transactions` row. A database that already holds history when the migration runs has no lookup rows for it, and `transactionByHash` returns `null` for those transactions until that history is re-backfilled or filled with the one-off script in the [upgrade guide](../deploy/upgrading.md#filling-transaction_hashes-for-history-ingested-before-it-existed).
+
 ## Indexes
 
 | Name | Table | Columns | Used by |
@@ -177,7 +190,7 @@ Protocol registration files in `internal/db/migrations/protocols/` are not track
 | Primary key | `transactions_accounts` | `account_id, ledger_created_at, tx_to_id` | An account's transaction list (`TransactionModel.BatchGetByAccountAddress`) |
 | Primary key | `operations_accounts` | `account_id, ledger_created_at, operation_id` | An account's operation list (`OperationModel.BatchGetByAccountAddress`, `BatchGetAccountOperationsByToIDs`) |
 | Primary key | `state_changes` | `ledger_created_at, to_id, operation_id, state_change_id` | State changes of a transaction or operation (`BatchGetByToID`, `BatchGetByOperationID`, `BatchGetByOperationIDs`) |
-| `idx_transactions_hash` | `transactions` | `hash` | `transactionByHash` (`TransactionModel.GetByHash`) and the transaction-hash filter on state changes |
+| `idx_transaction_hashes_bucket_prefix` | `transaction_hashes` | `hash_bucket, hash_prefix` | `transactionByHash` (`TransactionModel.GetByHash`) and the transaction-hash filter on state changes, on chunks not yet compressed. Compressed chunks use their own `hash_bucket` index |
 | `idx_transactions_accounts_tx_to_id` | `transactions_accounts` | `tx_to_id` | Accounts of a transaction (`AccountModel.BatchGetByToIDs`) |
 | `idx_operations_accounts_operation_id` | `operations_accounts` | `operation_id` | Accounts of an operation (`AccountModel.BatchGetByOperationIDs`) |
 | `idx_state_changes_account_id` | `state_changes` | `account_id, ledger_created_at DESC, to_id DESC, operation_id DESC, state_change_id DESC` | An account's state changes (`StateChangeModel.BatchGetByAccountAddress`, `BatchGetAccountStateChangesByToIDs`) |
@@ -217,7 +230,7 @@ Check constraints:
 
 ## Compression and retention
 
-The five hypertables are created with the TimescaleDB columnstore on. TimescaleDB creates one compression policy per hypertable at that point. Compressed chunks are stored in columns, grouped by `segmentby` and sorted by `orderby` from the [Hypertables](#hypertables) table. TimescaleDB creates each policy with `compress_after` equal to the chunk interval, so a chunk becomes eligible one day after it closes unless `COMPRESSION_COMPRESS_AFTER` changes it (measured on TimescaleDB 2.28.2).
+The hypertables are created with the TimescaleDB columnstore on. TimescaleDB creates one compression policy per hypertable at that point. Compressed chunks are stored in columns, grouped by `segmentby` and sorted by `orderby` from the [Hypertables](#hypertables) table. TimescaleDB creates each policy with `compress_after` equal to the chunk interval, so a chunk becomes eligible one day after it closes unless `COMPRESSION_COMPRESS_AFTER` changes it (measured on TimescaleDB 2.28.2).
 
 | Who | What it does |
 | --- | --- |

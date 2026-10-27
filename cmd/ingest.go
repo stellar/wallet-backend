@@ -104,6 +104,14 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
+			Name:        "tx-hash-chunk-interval",
+			Usage:       "TimescaleDB chunk interval for the transaction_hashes lookup table. Only affects future chunks. Keep a few million transactions per chunk: the table is segmented into 4096 buckets and a chunk with fewer rows compresses into near-empty batches (measured 8 bytes per row at 2M rows, 36 at 130k, 250 at 20k). Each hash lookup also checks every chunk, so longer is better, until the open chunk's (hash_bucket, hash_prefix) index (about 27 bytes per transaction) no longer fits in shared_buffers. Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.TransactionHashesChunkInterval,
+			FlagDefault: "7 days",
+			Required:    false,
+		},
+		{
 			Name:        "retention-period",
 			Usage:       "TimescaleDB data retention period. Chunks older than this are automatically dropped. Empty disables retention. Uses PostgreSQL INTERVAL syntax.",
 			OptType:     types.String,

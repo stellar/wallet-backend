@@ -390,6 +390,13 @@ func setupComplexityTestDB(ctx context.Context, t *testing.T, dbConnectionPool *
 			transaction.Hash, transaction.ToID, transaction.FeeCharged, transaction.ResultCode, transaction.LedgerNumber, transaction.LedgerCreatedAt, transaction.IsFeeBump)
 		require.NoError(t, err)
 
+		bucket, prefix, err := transaction.Hash.LookupKey()
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx,
+			`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch) VALUES ($1, $2, $3)`,
+			bucket, prefix, transaction.LedgerCreatedAt.Unix())
+		require.NoError(t, err)
+
 		_, err = tx.Exec(ctx,
 			`INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id) VALUES ($1, $2, $3)`,
 			transaction.LedgerCreatedAt, transaction.ToID, stateChange.AccountID)

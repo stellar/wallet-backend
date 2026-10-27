@@ -66,7 +66,7 @@ Only the indexes a query uses exist. Hypertables do not get the default time ind
 
 | Index | Serves |
 |---|---|
-| `idx_transactions_hash` | `transactionByHash` |
+| `idx_transaction_hashes_bucket_prefix` | `transactionByHash`, through the `transaction_hashes` lookup table |
 | `idx_transactions_accounts_tx_to_id`, `idx_operations_accounts_operation_id`, `idx_state_changes_operation_id` | joins from a transaction or operation to its rows |
 | `idx_state_changes_account_id` | an account's state changes, newest first |
 | `idx_state_changes_account_category` | an account's state changes filtered by category and reason |

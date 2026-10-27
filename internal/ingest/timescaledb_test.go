@@ -590,3 +590,67 @@ func TestConfigureHypertableSettings(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigureTransactionHashesSettings(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	jobConfig := func(proc string) (jobID int, schedule string, config map[string]any) {
+		t.Helper()
+		err := pool.QueryRow(ctx,
+			`SELECT job_id, schedule_interval::text, config FROM timescaledb_information.jobs
+			 WHERE proc_name = $1 AND hypertable_name = 'transaction_hashes'`, proc,
+		).Scan(&jobID, &schedule, &config)
+		require.NoError(t, err, proc)
+		return jobID, schedule, config
+	}
+
+	err = configureTransactionHashesSettings(ctx, pool, "1 day", "30 days", "4 hours", "1 hour", 5)
+	require.NoError(t, err)
+
+	interval, err := db.QueryOne[int64](ctx, pool,
+		`SELECT integer_interval FROM timescaledb_information.dimensions WHERE hypertable_name = 'transaction_hashes'`)
+	require.NoError(t, err)
+	assert.Equal(t, int64(86400), interval, "chunk interval is stored in seconds")
+
+	retentionJob, _, retention := jobConfig("policy_retention")
+	assert.EqualValues(t, 30*86400, retention["drop_after"], "drop_after is stored in seconds")
+
+	compressionJob, schedule, compression := jobConfig("policy_compression")
+	assert.Equal(t, "04:00:00", schedule)
+	assert.EqualValues(t, 3600, compression["compress_after"], "compress_after is stored in seconds")
+	assert.EqualValues(t, 5, compression["maxchunks_to_compress"])
+
+	t.Run("a repeated call with the same settings keeps the jobs", func(t *testing.T) {
+		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "30 days", "4 hours", "1 hour", 5))
+		sameRetention, _, _ := jobConfig("policy_retention")
+		sameCompression, _, _ := jobConfig("policy_compression")
+		assert.Equal(t, retentionJob, sameRetention)
+		assert.Equal(t, compressionJob, sameCompression)
+	})
+
+	t.Run("a new retention period alters the existing job", func(t *testing.T) {
+		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "90 days", "", "", 0))
+		altered, _, retention := jobConfig("policy_retention")
+		assert.Equal(t, retentionJob, altered)
+		assert.EqualValues(t, 90*86400, retention["drop_after"])
+	})
+
+	t.Run("an empty retention period removes the policy", func(t *testing.T) {
+		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "", "", "", 0))
+		count, err := db.QueryOne[int](ctx, pool,
+			`SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention' AND hypertable_name = 'transaction_hashes'`)
+		require.NoError(t, err)
+		assert.Zero(t, count)
+	})
+
+	t.Run("an empty compress_after sets one day, not the chunk interval", func(t *testing.T) {
+		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "", "", "", 0))
+		_, _, compression := jobConfig("policy_compression")
+		assert.EqualValues(t, 86400, compression["compress_after"])
+	})
+}

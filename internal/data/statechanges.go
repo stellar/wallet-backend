@@ -100,13 +100,21 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
 
-	// Add transaction hash filter if provided (uses subquery to find to_id(s) by hash).
-	// idx_transactions_hash is non-unique (TimescaleDB can't enforce unique(hash) on a
-	// hypertable), so this must tolerate more than one matching row instead of erroring.
+	// Transaction hash filter: resolve the hash to its transaction's primary key first, then
+	// filter on the key as parameters so the planner prunes state_changes to that transaction's
+	// chunk. A hash with no committed transaction matches no state changes. A hash a data bug
+	// stored twice resolves to the newest transaction, not an error.
 	if txHash != nil {
-		fmt.Fprintf(&queryBuilder, " AND to_id IN (SELECT to_id FROM transactions WHERE hash = $%d)", argIndex)
-		args = append(args, types.HashBytea(*txHash))
-		argIndex++
+		toID, ledgerCreatedAt, found, err := transactionKeyByHash(ctx, m.DB, *txHash)
+		if err != nil {
+			return nil, fmt.Errorf("resolving transaction hash filter: %w", err)
+		}
+		if !found {
+			return []*types.StateChangeWithCursor{}, nil
+		}
+		fmt.Fprintf(&queryBuilder, " AND to_id = $%d AND ledger_created_at = $%d", argIndex, argIndex+1)
+		args = append(args, toID, ledgerCreatedAt)
+		argIndex += 2
 	}
 
 	// Add operation ID filter if provided
