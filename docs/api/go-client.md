@@ -249,7 +249,7 @@ State-change and balance queries always select every type's fields. They take no
 
 Parse and validation failures arrive as HTTP 422, so they come back as the `unexpected statusCode` error, not as `GraphQLErrors`. A 401 from the auth check does the same.
 
-The server pairs a null `transactionByHash` or `operationById` with an `INTERNAL_SERVER_ERROR` entry. A missing transaction or operation therefore returns `GraphQLErrors` with that code, not `ErrTransactionNotFound` or `ErrOperationNotFound`. `accountByAddress` returns an account for every valid address, so a valid address never produces `ErrAccountNotFound`. An invalid one returns `GraphQLErrors` with `INVALID_ADDRESS`.
+A missing transaction or operation comes back as `null` with no error, so `GetTransactionByHash` and `GetOperationByID` (and the other transaction- and operation-scoped methods) return `ErrTransactionNotFound` or `ErrOperationNotFound`. `accountByAddress` returns an account for every valid address, so a valid address never produces `ErrAccountNotFound`. An invalid one returns `GraphQLErrors` with `INVALID_ADDRESS`.
 
 ```go
 _, err := client.GetTransactionByHash(ctx, "<TX_HASH>")
