@@ -65,11 +65,9 @@ The server starts a 30 second deadline for the request. It checks the JWT only w
 |---|---|---|
 | `accountByAddress(address: String!)` | `Account` for a `G...` account or `C...` contract | Only for an invalid address, with `INVALID_ADDRESS`. A valid address with no indexed activity returns an `Account` whose connections are empty. |
 | `transactionByHash(hash: String!)` | `Transaction` | A malformed hash returns `INVALID_TRANSACTION_HASH`. An unknown hash returns `null` with no error. |
-| `operationById(id: Int64!)` | `Operation` | An unknown ID returns `INTERNAL_SERVER_ERROR`. |
+| `operationById(id: Int64!)` | `Operation` | An unknown ID returns `null` with no error. |
 
 A muxed address (`M...`) is not accepted. Pass the underlying `G...` address.
-
-`operationById` does not tell a missing operation apart from a database failure: both return `null` with the message `internal server error` and code `INTERNAL_SERVER_ERROR`.
 
 ## Pagination
 
@@ -642,7 +640,7 @@ Error codes:
 | `PERSISTED_QUERY_NOT_FOUND` | See [Persisted queries](#persisted-queries) |
 | `INTERNAL_ERROR` | Balances could not be read. Message: `failed to process account balances`. |
 | `REQUEST_TIMEOUT` | The request ran past its 30 s deadline, or the database canceled the query. Message: `request timed out`. |
-| `INTERNAL_SERVER_ERROR` | Anything else, including a missing operation and a disabled introspection query. The message is always `internal server error`; details stay in the server log. |
+| `INTERNAL_SERVER_ERROR` | Anything else, including a disabled introspection query. The message is always `internal server error`; details stay in the server log. |
 
 HTTP status codes:
 

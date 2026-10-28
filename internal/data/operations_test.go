@@ -665,8 +665,9 @@ func TestOperationModel_IngestCursorBound(t *testing.T) {
 	})
 
 	t.Run("by-id does not resolve an operation past the cursor", func(t *testing.T) {
-		_, qErr := m.GetByID(ctx, aboveCursor, "")
-		require.Error(t, qErr)
+		operation, qErr := m.GetByID(ctx, aboveCursor, "")
+		require.NoError(t, qErr)
+		assert.Nil(t, operation)
 	})
 
 	t.Run("the account list hides a ledger past the cursor", func(t *testing.T) {
