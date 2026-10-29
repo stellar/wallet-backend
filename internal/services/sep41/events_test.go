@@ -471,6 +471,34 @@ func mustMuxedAddressScVal(t *testing.T, baseG string, id uint64) xdr.ScVal {
 	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
 }
 
+// mustMuxedContractScVal builds an ScVal holding a CAP-84 muxed contract ScAddress over baseC
+// with the given id, as a custom token could emit it in a transfer to/from topic.
+func mustMuxedContractScVal(t *testing.T, baseC string, id uint64) xdr.ScVal {
+	t.Helper()
+	var contractID xdr.ContractId
+	copy(contractID[:], strkey.MustDecode(strkey.VersionByteContract, baseC))
+	scAddr := xdr.ScAddress{
+		Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+		MuxedContract: &xdr.MuxedContract{Id: xdr.Uint64(id), ContractId: contractID},
+	}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+// TestParseTransferEvent_MuxedContractTopicNormalizedToContract verifies that a muxed contract
+// address in a transfer topic is decoded to its base contract rather than its W-strkey.
+func TestParseTransferEvent_MuxedContractTopicNormalizedToContract(t *testing.T) {
+	const baseC = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	event := contractEvent(
+		[]xdr.ScVal{symScVal(EventTransfer), mustAddressScVal(t, testAccountB), mustMuxedContractScVal(t, baseC, 9)},
+		i128ScVal(500),
+	)
+
+	got, err := ParseTransferEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, baseC, got.To, "muxed contract `to` topic must decode to its base contract")
+}
+
 // TestParseTransferEvent_MuxedTopicNormalizedToBase verifies that a muxed address in a
 // transfer topic is decoded to its base account rather than its full M-strkey.
 func TestParseTransferEvent_MuxedTopicNormalizedToBase(t *testing.T) {
@@ -535,6 +563,7 @@ func TestExtractAddressFromScVal(t *testing.T) {
 		{name: "account", val: mustAddressScVal(t, testAccountA), want: testAccountA},
 		{name: "contract", val: xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &contractScAddr}, want: contractAddr},
 		{name: "muxed_reduces_to_base", val: mustMuxedAddressScVal(t, testAccountB, 9), want: testAccountB},
+		{name: "muxed_contract_reduces_to_contract", val: mustMuxedContractScVal(t, contractAddr, 9), want: contractAddr},
 		{name: "claimable_balance_rejected", val: claimableBalanceScVal(), wantErr: "ScAddressTypeScAddressTypeClaimableBalance"},
 		{name: "liquidity_pool_rejected", val: liquidityPoolScVal(), wantErr: "ScAddressTypeScAddressTypeLiquidityPool"},
 		{name: "not_an_address", val: symScVal("x"), wantErr: "invalid address"},

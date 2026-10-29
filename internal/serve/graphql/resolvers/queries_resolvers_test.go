@@ -96,6 +96,22 @@ func TestQueryResolver_Account(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, acc)
 	})
+
+	// An account is never muxed: both the M... account form and the W... contract form (CAP-84)
+	// are rejected as invalid addresses.
+	for name, address := range map[string]string{
+		"muxed account address":  "MA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAACJUQ",
+		"muxed contract address": "WA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAAWWC",
+	} {
+		t.Run(name, func(t *testing.T) {
+			acc, err := resolver.AccountByAddress(testCtx, address)
+			require.Error(t, err)
+			assert.Nil(t, acc)
+			var gqlErr *gqlerror.Error
+			require.ErrorAs(t, err, &gqlErr)
+			assert.Equal(t, "INVALID_ADDRESS", gqlErr.Extensions["code"])
+		})
+	}
 }
 
 func TestQueryResolver_OperationByID(t *testing.T) {
