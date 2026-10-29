@@ -18,7 +18,7 @@ For API consumers who read `accountByAddress.balances`, and for contributors who
 
 ## Balance kinds
 
-`accountByAddress` accepts a G-address (account) or a C-address (contract). Muxed M-addresses fail address validation and return an `INVALID_ADDRESS` error.
+`accountByAddress` accepts a G-address (account) or a C-address (contract). Muxed M-addresses (accounts) and W-addresses (contracts, CAP-84) fail address validation and return an `INVALID_ADDRESS` error.
 
 | Kind | Holder address kinds | Source of truth | Table | GraphQL type |
 | --- | --- | --- | --- | --- |
@@ -157,7 +157,7 @@ SEP-41 metadata is missing in these cases:
 | Claimable balances | No table and no balance type. Creating or claiming one produces only the creator's debit or the claimer's credit as a state change. |
 | Offers | No table. Amounts locked in offers appear only as `buyingLiabilities` and `sellingLiabilities`. |
 | Non-SEP-41 contract tokens | A WASM contract that fails the signature check has no balance rows, even when it emits transfer-shaped events. |
-| Muxed M-addresses as holders | Balances are stored per G- or C-address. SEP-41 transfer and mint events carry a CAP-67 destination memo as `toMuxedId` on the state change only. |
+| Muxed M- and W-addresses as holders | Balances are stored per G- or C-address; a muxed destination credits its base address. The mux id (CAP-67 memo id or CAP-84 `to_muxed_id`) is recorded as `toMuxedId` on the recipient's state change only: the CREDIT row, or the MINT row of a SEP-41 mint. |
 | Balances during backfill | Backfill never writes balance tables. |
 
 ## Reading balances
