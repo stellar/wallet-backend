@@ -88,8 +88,8 @@ All containers join one Docker network and carry the label `org.testcontainers.s
 | Container | Image | Role | Exposed port |
 | --- | --- | --- | --- |
 | `core-postgres` | `postgres:9.6.17-alpine` | Database for stellar-core. | 5432 |
-| `stellar-core` | `stellar/stellar-core:28` | Standalone validator and history archive. | 11625 peer, 11626 HTTP, 1570 archive |
-| `stellar-rpc` | `stellar/stellar-rpc:28.0.0` | RPC over the standalone network. | 8000 |
+| `stellar-core` | `stellar/stellar-core:30` | Standalone validator and history archive. | 11625 peer, 11626 HTTP, 1570 archive |
+| `stellar-rpc` | `stellar/stellar-rpc:30.0.0` | RPC over the standalone network. | 8000 |
 | `object-store` | `chrislusf/seaweedfs:4.46` | S3-compatible store for the datastore ledger backend. | 8333 |
 | `wallet-backend-db` | `timescale/timescaledb:latest-pg17` | wallet-backend database. | 5432 |
 | `wallet-backend-ingest` | `wallet-backend:integration-test-<SHORT_SHA>` | Runs `migrate up`, then `ingest`. | 8003 |
@@ -100,7 +100,7 @@ All containers join one Docker network and carry the label `org.testcontainers.s
 Setup runs in this order:
 
 1. Build the wallet-backend image from the repository's `Dockerfile` with `--build-arg GIT_COMMIT=<SHORT_SHA>`, unless the tag exists and `FORCE_REBUILD` is not `true`.
-2. Start `core-postgres`, `stellar-core`, `stellar-rpc` and `object-store`. stellar-core runs standalone with the network passphrase `Standalone Network ; February 2017` and upgrades to protocol 28.
+2. Start `core-postgres`, `stellar-core`, `stellar-rpc` and `object-store`. stellar-core runs standalone with the network passphrase `Standalone Network ; February 2017` and upgrades to protocol 30.
 3. Create test accounts and trustlines, deploy the native and credit-asset SACs, upload and deploy the SEP-41 token and a holder contract, then mint and transfer. Wait for the next checkpoint so these appear in the archive.
 4. Start `wallet-backend-db` and `wallet-backend-ingest`. On the empty database ingest bootstraps from the latest checkpoint.
 5. Wait until RPC's latest ledger minus `latest_ingest_ledger` is 50 or less, polling every 2 seconds for up to 5 minutes.
