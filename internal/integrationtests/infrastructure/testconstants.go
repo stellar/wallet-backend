@@ -37,6 +37,13 @@ const (
 	TestSEP41MintStroops     = 5000000000 // 500 SEP41
 	TestXLMTransferStroops   = 100000000  // 10 XLM (with 7 decimals)
 
+	// SAC transfers to muxed destinations. The credit lands on the base address and the
+	// id is recorded as to_muxed_id on the credit state change.
+	TestUSDCMuxedContractTransferStroops = 300000000 // 30 USDC to W(holder contract, TestHolderContractMuxedID)
+	TestUSDCMuxedAccountTransferStroops  = 400000000 // 40 USDC to M(balance account 1, TestBalanceAccount1MuxedID)
+	TestHolderContractMuxedID            = uint64(4242)
+	TestBalanceAccount1MuxedID           = uint64(9393)
+
 	// Timeouts and intervals
 	DefaultHTTPTimeout        = 30 * time.Second
 	TransactionConfirmTimeout = 10 * time.Second

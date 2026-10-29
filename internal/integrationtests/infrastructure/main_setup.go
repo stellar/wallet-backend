@@ -286,6 +286,14 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), s.holderContractAddress, TestUSDCTransferStroops)
 	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", s.holderContractAddress)
 
+	// SAC transfers to muxed destinations (CAP-84 W... contract, CAP-67 M... account)
+	holderW := MuxedContractAddress(s.holderContractAddress, TestHolderContractMuxedID)
+	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), holderW, TestUSDCMuxedContractTransferStroops)
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to muxed contract %s", holderW)
+	account1M := MuxedAccountAddress(s.balanceTestAccount1KeyPair.Address(), TestBalanceAccount1MuxedID)
+	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), account1M, TestUSDCMuxedAccountTransferStroops)
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to muxed account %s", account1M)
+
 	// Create SEP-41 Balance for C-Address
 	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.holderContractAddress, TestSEP41MintStroops)
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", s.holderContractAddress)

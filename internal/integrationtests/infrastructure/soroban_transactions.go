@@ -187,10 +187,32 @@ func waitForTransactionConfirmation(
 	return nil
 }
 
-// parseAddressToScAddress converts a Stellar address (G... or C...) to xdr.ScAddress.
+// parseAddressToScAddress converts a Stellar address to xdr.ScAddress.
 // G-addresses are account addresses (user wallets).
 // C-addresses are contract addresses (smart contracts).
+// M-addresses are muxed accounts (CAP-67) and W-addresses muxed contracts (CAP-84).
 func parseAddressToScAddress(address string) (xdr.ScAddress, error) {
+	switch {
+	case strings.HasPrefix(address, "M"):
+		muxed, err := xdr.AddressToMuxedAccount(address)
+		if err != nil {
+			return xdr.ScAddress{}, fmt.Errorf("decoding muxed account address: %w", err)
+		}
+		return xdr.ScAddress{
+			Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+			MuxedAccount: &xdr.MuxedEd25519Account{Id: muxed.Med25519.Id, Ed25519: muxed.Med25519.Ed25519},
+		}, nil
+	case strings.HasPrefix(address, "W"):
+		muxed, err := strkey.DecodeMuxedContract(address)
+		if err != nil {
+			return xdr.ScAddress{}, fmt.Errorf("decoding muxed contract address: %w", err)
+		}
+		return xdr.ScAddress{
+			Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+			MuxedContract: &xdr.MuxedContract{Id: xdr.Uint64(muxed.ID()), ContractId: xdr.ContractId(muxed.Contract())},
+		}, nil
+	}
+
 	if len(address) != 56 {
 		return xdr.ScAddress{}, fmt.Errorf("invalid address length: expected 56, got %d", len(address))
 	}
@@ -216,7 +238,7 @@ func parseAddressToScAddress(address string) (xdr.ScAddress, error) {
 		}, nil
 	}
 
-	return xdr.ScAddress{}, fmt.Errorf("invalid address format: must start with G or C")
+	return xdr.ScAddress{}, fmt.Errorf("invalid address format: must start with G, C, M or W")
 }
 
 // signAuthEntries signs Soroban authorization entries with the provided keypair.
