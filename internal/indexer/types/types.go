@@ -74,11 +74,12 @@ func (a *AddressBytea) Scan(value any) error {
 
 // Value implements driver.Valuer - converts StrKey string to 33-byte []byte.
 //
-// Muxed addresses (M...) carry a 40-byte payload — a 32-byte ed25519 key followed by an
-// 8-byte multiplexing id (SEP-23). They are reduced to their base account here: the id is
+// Muxed addresses carry a 40-byte payload: a 32-byte key followed by an 8-byte multiplexing
+// id (SEP-23). A muxed account (M...) wraps an ed25519 key and a muxed contract (W...,
+// CAP-84) wraps a contract id. Both are reduced to their base address here: the id is
 // off-chain routing metadata, not part of the stored key. This is a storage-layer backstop;
-// ingestion is expected to normalize muxed addresses to their base account before this point
-// (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()). Any other
+// ingestion is expected to normalize muxed addresses to their base address before this point
+// (see StorableAddressString and the classic path's MuxedAccount.ToAccountId()). Any other
 // payload length is rejected rather than silently truncated, so a malformed address surfaces
 // as an error instead of corrupt data. That covers signer keys too: signer columns store
 // them via SignerKeyBytea, so a signed-payload key (P...) reaching an account column is a
@@ -91,14 +92,18 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
-	if versionByte == strkey.VersionByteMuxedAccount {
-		// Guard the payload length before slicing, since the decoder may not enforce
-		// it: a muxed payload must be exactly 40 bytes (32-byte ed25519 key + 8-byte id).
+	if versionByte == strkey.VersionByteMuxedAccount || versionByte == strkey.VersionByteMuxedContract {
+		// Defence in depth before slicing: the decoder already rejects a muxed payload
+		// that is not exactly 40 bytes (32-byte key + 8-byte id).
 		if len(rawBytes) != 40 {
 			return nil, fmt.Errorf("stellar muxed address %s has a %d-byte payload; expected 40 bytes", a, len(rawBytes))
 		}
-		versionByte = strkey.VersionByteAccountID
-		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the trailing 8-byte id
+		if versionByte == strkey.VersionByteMuxedAccount {
+			versionByte = strkey.VersionByteAccountID
+		} else {
+			versionByte = strkey.VersionByteContract
+		}
+		rawBytes = rawBytes[:32] // keep the key; drop the trailing 8-byte id
 	}
 	if len(rawBytes) != 32 {
 		return nil, fmt.Errorf("stellar address %s has a %d-byte key payload; the account_id column stores only 32-byte account/contract keys", a, len(rawBytes))
@@ -115,13 +120,14 @@ func (a AddressBytea) String() string {
 }
 
 // StorableAddressString converts an ScAddress to the strkey form an AddressBytea column
-// stores, reporting ok=false for any kind other than account, contract or muxed account.
+// stores, reporting ok=false for any kind other than account, contract, muxed account or
+// muxed contract.
 //
-// A muxed account reduces to its base G-address: the multiplexing id is off-chain routing
-// metadata, not account identity. Returning the M-form would let one account enter a
-// participant set as two distinct strings, which AddressBytea.Value() then collapses to one
-// key. Claimable-balance and liquidity-pool addresses have no account row to key on, so
-// callers skip them.
+// A muxed account reduces to its base G-address and a muxed contract (CAP-84) to its base
+// C-address: the multiplexing id is off-chain routing metadata, not identity. Returning the
+// M- or W-form would let one holder enter a participant set as two distinct strings, which
+// AddressBytea.Value() then collapses to one key. Claimable-balance and liquidity-pool
+// addresses have no account row to key on, so callers skip them.
 func StorableAddressString(addr xdr.ScAddress) (string, bool, error) {
 	switch addr.Type {
 	case xdr.ScAddressTypeScAddressTypeAccount, xdr.ScAddressTypeScAddressTypeContract:
@@ -130,6 +136,13 @@ func StorableAddressString(addr xdr.ScAddress) (string, bool, error) {
 		addrStr, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
 		if err != nil {
 			return "", false, fmt.Errorf("encoding muxed account base address: %w", err)
+		}
+		return addrStr, true, nil
+	case xdr.ScAddressTypeScAddressTypeMuxedContract:
+		muxed := addr.MustMuxedContract()
+		addrStr, err := strkey.Encode(strkey.VersionByteContract, muxed.ContractId[:])
+		if err != nil {
+			return "", false, fmt.Errorf("encoding muxed contract base address: %w", err)
 		}
 		return addrStr, true, nil
 	default:
