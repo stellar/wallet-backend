@@ -355,9 +355,10 @@ func extractAmountAndMuxedID(val xdr.ScVal) (*big.Int, *uint64, error) {
 // extractAddressFromScVal decodes an address ScVal to its strkey-encoded form, rejecting any
 // kind a balance or allowance row cannot key on so the caller skips the event.
 //
-// A muxed address reduces to its base account (see types.StorableAddressString). When a
-// token carries a muxed id it travels separately in the event's to_muxed_id data field (see
-// extractAmountAndMuxedID), which is where it is surfaced for history.
+// A muxed account or muxed contract reduces to its base address (see
+// types.StorableAddressString). When a token carries a muxed id it travels separately in the
+// event's to_muxed_id data field (see extractAmountAndMuxedID), which is where it is surfaced
+// for history.
 func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {

@@ -409,6 +409,11 @@ func Test_ResolveToGAddress(t *testing.T) {
 			address: "INVALID",
 			wantErr: `parsing address "INVALID"`,
 		},
+		{
+			name:    "w_address_returns_error",
+			address: "WA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAAWWC",
+			wantErr: `parsing address "WA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAAWWC"`,
+		},
 	}
 
 	for _, tc := range testCases {

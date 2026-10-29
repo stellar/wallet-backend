@@ -198,8 +198,8 @@ func ConvertOperation(
 
 // deployerAddressString converts a create-contract preimage's deployer address to its strkey
 // form, reporting ok=false when it is a kind types.AddressBytea cannot store. Muxed deployers
-// reduce to their base account, mirroring the classic path's MuxedAccount.ToAccountId(), so
-// one account cannot produce duplicate rows that violate the operations_accounts primary key.
+// reduce to their base address, mirroring the classic path's MuxedAccount.ToAccountId(), so
+// one holder cannot produce duplicate rows that violate the operations_accounts primary key.
 func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
 	return types.StorableAddressString(addr) //nolint:wrapcheck // thin delegate; the callee wraps its errors
 }

@@ -47,6 +47,14 @@ func TestExtractAddressFromScVal(t *testing.T) {
 			want: accountAddr,
 		},
 		{
+			name: "muxed_contract_reduces_to_contract",
+			addr: xdr.ScAddress{
+				Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+				MuxedContract: &xdr.MuxedContract{Id: 9, ContractId: contractID},
+			},
+			want: contractAddr,
+		},
+		{
 			name: "claimable_balance_rejected",
 			addr: xdr.ScAddress{
 				Type: xdr.ScAddressTypeScAddressTypeClaimableBalance,

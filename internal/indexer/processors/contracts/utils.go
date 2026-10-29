@@ -9,8 +9,8 @@ import (
 )
 
 // extractAddressFromScVal extracts the strkey form of an address ScVal, rejecting any kind
-// an account column cannot store so the caller skips the event. Muxed addresses reduce to
-// their base account (see types.StorableAddressString).
+// an account column cannot store so the caller skips the event. Muxed accounts and muxed
+// contracts reduce to their base address (see types.StorableAddressString).
 func extractAddressFromScVal(val xdr.ScVal) (string, error) {
 	addr, ok := val.GetAddress()
 	if !ok {
