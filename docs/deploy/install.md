@@ -19,7 +19,7 @@ Config names use the environment-variable form. Every variable and its default i
 | TimescaleDB | 2.28.x | The extension must exist in the database before `migrate up`. Migrations never run `CREATE EXTENSION` |
 | `timescaledb.enable_chunk_skipping` | `on` | Server setting. Migrations call `enable_chunk_skipping()` on the hypertables, which TimescaleDB refuses while the setting is off, so `migrate up` fails |
 | `timescaledb.enable_sparse_index_bloom` | `on` | Server setting. The hypertable migrations declare `bloom(...)` sparse indexes, which TimescaleDB only accepts with this setting on |
-| stellar-rpc | 28.x or 29.x, same network. The integration suite runs 28.0.0 and the quickstart 29.0.1 | Used for `getHealth`, `getLedgers`, `getLedgerEntries`, `simulateTransaction` |
+| stellar-rpc | 29.x or 30.x, same network. The integration suite and the quickstart run 30.0.0 | Used for `getHealth`, `getLedgers`, `getLedgerEntries`, `simulateTransaction` |
 | History archive | any | `ARCHIVE_URL`. First start reads balances from the latest checkpoint |
 | S3 data lake | optional | Only for `LEDGER_BACKEND_TYPE=datastore`. See [Choose a ledger source](ingest.md#choose-a-ledger-source) |
 | Hardware | see [runbook](runbook.md#hardware) | Minimum and recommended CPU, memory and disk per component, for pubnet and testnet |
