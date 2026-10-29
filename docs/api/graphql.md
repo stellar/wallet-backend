@@ -206,7 +206,8 @@ The query declares them as `$since: Time, $until: Time` and passes them to `oper
 |---|---|
 | `G...` account | `NativeBalance`, `TrustlineBalance`, `SEP41Balance`, `LiquidityPoolBalance` |
 | `C...` contract | `SACBalance`, `SEP41Balance` |
-| `M...` muxed | Not accepted. `INVALID_ADDRESS`. |
+| `M...` muxed account | Not accepted. `INVALID_ADDRESS`. |
+| `W...` muxed contract | Not accepted. `INVALID_ADDRESS`. |
 
 The types always come in that order. Inside one type the order is stable across pages but is not alphabetical.
 
