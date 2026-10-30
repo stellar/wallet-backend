@@ -10,6 +10,10 @@ type IngestionMetrics struct {
 	// OldestLedger tracks the oldest ingested ledger (backfill boundary).
 	// PromQL: wallet_ingestion_oldest_ledger
 	OldestLedger prometheus.Gauge
+	// BackfillWindowsRemaining counts the chunk windows a backfill still has
+	// to fill, from the run's estimate at start down to zero.
+	// PromQL: wallet_ingestion_backfill_windows_remaining
+	BackfillWindowsRemaining prometheus.Gauge
 	// Duration observes one ledger's processing time: its process_ledger plus
 	// its amortized share of the batch's prepare_classification and
 	// insert_into_db. With batches > 1 it therefore does not equal the sum of
@@ -97,6 +101,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_oldest_ledger",
 			Help: "Oldest ledger ingested (backfill boundary).",
 		}),
+		BackfillWindowsRemaining: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "wallet_ingestion_backfill_windows_remaining",
+			Help: "Chunk windows the running backfill still has to fill.",
+		}),
 		Duration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_duration_seconds",
 			Help:    "Duration of ledger processing (process + amortized share of the batch's classify and persist). Excludes the ledger-fetch phase, including tip-wait; see wallet_ingestion_ledger_fetch_duration_seconds for that.",
@@ -181,6 +189,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 	reg.MustRegister(
 		m.LatestLedger,
 		m.OldestLedger,
+		m.BackfillWindowsRemaining,
 		m.Duration,
 		m.PhaseDuration,
 		m.LedgersProcessed,
