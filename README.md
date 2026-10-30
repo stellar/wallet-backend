@@ -18,7 +18,7 @@ Docs on `main` describe unreleased behavior. For the version you run, read the d
 
 | Component | Version |
 |---|---|
-| PostgreSQL with the TimescaleDB extension | 17 with TimescaleDB 2.28 or newer |
+| PostgreSQL with the TimescaleDB extension | 17 with TimescaleDB 2.31 or newer |
 | stellar-rpc for the same network | 28.x or 29.x |
 | Container image | `public.ecr.aws/stellar/wallet-backend:<TAG>` |
 | Go (source builds only) | see `go.mod` |

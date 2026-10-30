@@ -368,7 +368,7 @@ func createObjectStoreContainer(ctx context.Context, testNetwork *testcontainers
 func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  walletBackendDBContainerName,
-		Image: "timescale/timescaledb:latest-pg17",
+		Image: "timescale/timescaledb:2.31.0-pg17",
 		Cmd:   []string{"postgres", "-c", "timescaledb.enable_chunk_skipping=on", "-c", "timescaledb.enable_sparse_index_bloom=on"},
 		Labels: map[string]string{
 			"org.testcontainers.session-id": "wallet-backend-integration-tests",

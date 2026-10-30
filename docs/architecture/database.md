@@ -124,7 +124,7 @@ Pool size and lifetimes come from `DB_MAX_CONNS`, `DB_MIN_CONNS`, `DB_MAX_CONN_L
 | Requirement | Why |
 |---|---|
 | PostgreSQL 17 | Tested version; CI and the published database image use it |
-| TimescaleDB 2.28 or newer, extension already created | Migrations use `CREATE TABLE ... WITH (tsdb.hypertable, ...)` and `enable_chunk_skipping`, and never run `CREATE EXTENSION` |
+| TimescaleDB 2.31 or newer, extension already created | Migrations use `CREATE TABLE ... WITH (tsdb.hypertable, ...)` and `enable_chunk_skipping`, and never run `CREATE EXTENSION` |
 | `timescaledb.enable_chunk_skipping = on` | `enable_chunk_skipping()` calls fail without it |
 | `timescaledb.enable_sparse_index_bloom = on` | `tsdb.sparse_index = 'bloom(...)'` fails without it |
 
