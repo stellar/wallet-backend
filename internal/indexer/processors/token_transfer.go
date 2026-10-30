@@ -116,10 +116,27 @@ func (p *TokenTransferProcessor) ProcessTransaction(ctx context.Context, tx inge
 		// For non-fee events, we need operation details to determine the correct state change type
 		opID, opType, opSourceAccount := p.parseOperationDetails(tx, ledgerNumber, tx.Index, opIdx)
 		changes := p.processNonFeeEvent(event, contractAddress, builder.Clone(), opID, opType, opSourceAccount)
+		setToMuxedID(changes, meta.GetToMuxedInfo())
 		stateChanges = append(stateChanges, changes...)
 	}
 
 	return stateChanges, nil
+}
+
+// setToMuxedID records the CAP-67 destination id on the credit rows of a transfer or mint.
+// The SDK derives it from an M... destination, a W... destination's to_muxed_id (CAP-84) or
+// a classic payment's MEMO_ID; text and hash memos are not ids and are left out. Only the
+// Id content counts, since GetId() is zero for both an absent id and an id of zero.
+func setToMuxedID(changes []types.StateChange, info *ttp.MuxedInfo) {
+	content, ok := info.GetContent().(*ttp.MuxedInfo_Id)
+	if !ok {
+		return
+	}
+	for i := range changes {
+		if changes[i].StateChangeReason == types.StateChangeReasonCredit {
+			changes[i].ToMuxedID = toMuxedIDValue(content.Id)
+		}
+	}
 }
 
 // parseOperationDetails extracts operation metadata needed for processing token transfer events.

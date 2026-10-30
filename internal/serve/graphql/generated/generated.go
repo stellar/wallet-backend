@@ -3386,9 +3386,16 @@ type BalanceChange implements BaseStateChange {
   """Amount moved, as an integer string in the token's smallest unit (stroops for XLM and classic assets)."""
   amount:                     String! @goField(forceResolver: true)
   """
-  CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and
-  MINT only). Rendered as a decimal string so u64 values above 2^53-1 survive
-  JSON number quantization.
+  CAP-67 destination id on the recipient's row: the id of a muxed destination
+  (M... account, or W... contract via the CAP-84 to_muxed_id event field) or,
+  for a classic operation that credits an account (payment, path payment,
+  create account, account merge, claimable balance claim, liquidity pool
+  withdraw), the transaction's MEMO_ID. Set on the CREDIT row of SAC and
+  classic transfers and mints, and on the CREDIT/MINT row of SEP-41
+  transfer/mint events. Null on debits, issuer MINT rows, fee rows and for
+  text/hash memos. Recorded from the release that added each source
+  onward; rows ingested earlier stay null. Rendered as a decimal string so
+  u64 values above 2^53-1 survive JSON number quantization.
   """
   toMuxedId:                  String @goField(forceResolver: true)
 }

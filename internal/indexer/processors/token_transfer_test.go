@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func TestTokenTransferProcessor_Process(t *testing.T) {
@@ -185,6 +186,119 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		assertFeeEvent(t, changes[0], "100")
 		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", usdcContractAddress)
 		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", usdcContractAddress)
+	})
+
+	t.Run("Payment - G to M USDC transfer records the destination id on the credit only", func(t *testing.T) {
+		muxedB, err := xdr.MuxedAccountFromAccountId(accountB.ToAccountId().Address(), 42)
+		require.NoError(t, err)
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: muxedB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		tx := createTx(paymentOp, nil, &xdr.OperationResult{}, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		changes := processTransaction(t, processor, tx)
+		requireEventCount(t, changes, 3)
+
+		assertDebitEvent(t, changes[1], accountA.ToAccountId().Address(), "1000000000", usdcContractAddress)
+		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", usdcContractAddress)
+		require.False(t, changes[1].ToMuxedID.Valid)
+		require.Equal(t, utils.SQLNullString("42"), changes[2].ToMuxedID)
+	})
+
+	t.Run("Payment - G to G with MEMO_ID records the memo as the destination id (CAP-67)", func(t *testing.T) {
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		tx := withMemo(createTx(paymentOp, nil, &xdr.OperationResult{}, false), xdr.MemoID(77))
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		changes := processTransaction(t, processor, tx)
+		requireEventCount(t, changes, 3)
+		require.False(t, changes[1].ToMuxedID.Valid)
+		require.Equal(t, utils.SQLNullString("77"), changes[2].ToMuxedID)
+	})
+
+	t.Run("Payment - G to G with MEMO_HASH records no destination id", func(t *testing.T) {
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		tx := withMemo(createTx(paymentOp, nil, &xdr.OperationResult{}, false), xdr.MemoHash(xdr.Hash{1, 2, 3}))
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		changes := processTransaction(t, processor, tx)
+		requireEventCount(t, changes, 3)
+		require.False(t, changes[2].ToMuxedID.Valid)
+	})
+
+	t.Run("Payment - G to G with MEMO_TEXT records no destination id", func(t *testing.T) {
+		paymentOp := xdr.Operation{
+			SourceAccount: &accountA,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: accountB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		tx := withMemo(createTx(paymentOp, nil, &xdr.OperationResult{}, false), xdr.MemoText("invoice"))
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		changes := processTransaction(t, processor, tx)
+		requireEventCount(t, changes, 3)
+		require.False(t, changes[2].ToMuxedID.Valid)
+	})
+
+	t.Run("Payment - G (issuer) to M mints USDC with the id on the credit, not the mint", func(t *testing.T) {
+		muxedB, err := xdr.MuxedAccountFromAccountId(accountB.ToAccountId().Address(), 42)
+		require.NoError(t, err)
+		mintPaymentOp := xdr.Operation{
+			SourceAccount: &usdcAccount,
+			Body: xdr.OperationBody{
+				Type: xdr.OperationTypePayment,
+				PaymentOp: &xdr.PaymentOp{
+					Destination: muxedB,
+					Asset:       usdcAsset,
+					Amount:      100 * oneUnit,
+				},
+			},
+		}
+		tx := createTx(mintPaymentOp, nil, &xdr.OperationResult{}, false)
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		changes := processTransaction(t, processor, tx)
+		requireEventCount(t, changes, 3)
+
+		assertMintEvent(t, changes[1], usdcIssuer, "1000000000", usdcContractAddress)
+		assertCreditEvent(t, changes[2], accountB.ToAccountId().Address(), "1000000000", usdcContractAddress)
+		require.False(t, changes[1].ToMuxedID.Valid)
+		require.Equal(t, utils.SQLNullString("42"), changes[2].ToMuxedID)
 	})
 
 	t.Run("Payment - G (issuer) to G mints USDC", func(t *testing.T) {
@@ -830,8 +944,64 @@ func TestTokenTransferProcessor_Process(t *testing.T) {
 		stateChanges := processTransaction(t, processor, tx)
 		requireEventCount(t, stateChanges, 3)
 		assertFeeEvent(t, stateChanges[0], "1234")
-		assertContractEvent(t, stateChanges[1], types.StateChangeCategoryBalance, types.StateChangeReasonDebit, fromContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
-		assertContractEvent(t, stateChanges[2], types.StateChangeCategoryBalance, types.StateChangeReasonCredit, toContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonDebit, fromContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+		assertContractEvent(t, stateChanges[2], types.StateChangeReasonCredit, toContract, "100", strkey.MustEncode(strkey.VersionByteContract, assetContractID[:]))
+	})
+
+	t.Run("Contract events - SAC transfer to a muxed contract records to_muxed_id on the credit", func(t *testing.T) {
+		// CAP-84: the `to` topic is the bare C address and the id travels in the data map.
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		sacAddress := strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])
+		fromContract := strkey.MustEncode(strkey.VersionByteContract, make([]byte, 32))
+		toContract := strkey.MustEncode(strkey.VersionByteContract, append([]byte{1}, make([]byte, 31)...))
+		muxedID := uint64(999)
+
+		tx := createV4SacEventTx("transfer", fromContract, toContract, asset, 100, &muxedID)
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		stateChanges := processTransaction(t, processor, tx)
+		requireEventCount(t, stateChanges, 3)
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonDebit, fromContract, "100", sacAddress)
+		assertContractEvent(t, stateChanges[2], types.StateChangeReasonCredit, toContract, "100", sacAddress)
+		require.False(t, stateChanges[1].ToMuxedID.Valid)
+		require.Equal(t, utils.SQLNullString("999"), stateChanges[2].ToMuxedID)
+	})
+
+	t.Run("Contract events - SAC mint to a muxed contract records to_muxed_id on the credit", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", admin)
+		assetContractID, err := asset.ContractID(networkPassphrase)
+		require.NoError(t, err)
+		sacAddress := strkey.MustEncode(strkey.VersionByteContract, assetContractID[:])
+		toContract := strkey.MustEncode(strkey.VersionByteContract, append([]byte{1}, make([]byte, 31)...))
+		muxedID := uint64(0)
+
+		tx := createV4SacEventTx("mint", "", toContract, asset, 250, &muxedID)
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		stateChanges := processTransaction(t, processor, tx)
+		requireEventCount(t, stateChanges, 3)
+		assertContractEvent(t, stateChanges[1], types.StateChangeReasonMint, admin, "250", sacAddress)
+		assertContractEvent(t, stateChanges[2], types.StateChangeReasonCredit, toContract, "250", sacAddress)
+		require.False(t, stateChanges[1].ToMuxedID.Valid)
+		require.Equal(t, utils.SQLNullString("0"), stateChanges[2].ToMuxedID, "an id of zero is still an id")
+	})
+
+	t.Run("Contract events - SAC transfer without to_muxed_id records no destination id", func(t *testing.T) {
+		admin := keypair.MustRandom().Address()
+		asset := xdr.MustNewCreditAsset("USDC", admin)
+		fromContract := strkey.MustEncode(strkey.VersionByteContract, make([]byte, 32))
+		toContract := strkey.MustEncode(strkey.VersionByteContract, append([]byte{1}, make([]byte, 31)...))
+
+		tx := createV4SacEventTx("transfer", fromContract, toContract, asset, 100, nil)
+
+		processor := NewTokenTransferProcessor(networkPassphrase, nil)
+		stateChanges := processTransaction(t, processor, tx)
+		requireEventCount(t, stateChanges, 3)
+		require.False(t, stateChanges[2].ToMuxedID.Valid)
 	})
 
 	t.Run("Contract events - non-SAC SEP-41 / unclassified contracts are skipped", func(t *testing.T) {

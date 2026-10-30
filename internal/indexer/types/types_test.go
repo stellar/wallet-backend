@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/hex"
+	"math"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -584,6 +585,50 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 	assert.NotEqual(t, baseBytes, vOther)
 }
 
+// muxedContractOver builds the W... strkey (CAP-84) for contract baseC with the given id.
+func muxedContractOver(t *testing.T, baseC string, id uint64) string {
+	t.Helper()
+	var muxed strkey.MuxedContract
+	require.NoError(t, muxed.SetContractID(baseC))
+	muxed.SetID(id)
+	address, err := muxed.Address()
+	require.NoError(t, err)
+	return address
+}
+
+// TestMuxedContractAddressBytea_NormalizesToContract verifies that a muxed contract address
+// stores as its base contract key, the same way a muxed account stores as its base account.
+func TestMuxedContractAddressBytea_NormalizesToContract(t *testing.T) {
+	// SEP-23 test vector: contract CA7Q...UWDA with id 0.
+	const (
+		sep23W = "WA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAAWWC"
+		sep23C = "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+	)
+	require.Equal(t, sep23W, muxedContractOver(t, sep23C, 0), "sanity: the builder reproduces the SEP-23 vector")
+
+	baseBytes, err := AddressBytea(sep23C).Value()
+	require.NoError(t, err)
+	vW, err := AddressBytea(sep23W).Value()
+	require.NoError(t, err)
+	require.Len(t, baseBytes.([]byte), 33)
+	assert.Equal(t, baseBytes, vW, "the W-address must store as its base contract")
+	assert.Equal(t, byte(strkey.VersionByteContract), vW.([]byte)[0],
+		"stored version byte must be the contract (C) byte, not the muxed contract (W) byte")
+
+	// Two ids over the same contract collapse to the same key.
+	vA, err := AddressBytea(muxedContractOver(t, sep23C, 1)).Value()
+	require.NoError(t, err)
+	vB, err := AddressBytea(muxedContractOver(t, sep23C, math.MaxUint64)).Value()
+	require.NoError(t, err)
+	assert.Equal(t, baseBytes, vA)
+	assert.Equal(t, baseBytes, vB)
+
+	// Round trip: the stored bytes scan back as the base contract address.
+	var scanned AddressBytea
+	require.NoError(t, scanned.Scan(vW))
+	assert.Equal(t, AddressBytea(sep23C), scanned)
+}
+
 // signedPayloadOver builds the P... strkey for a CAP-40 signed-payload signer over baseG.
 func signedPayloadOver(t *testing.T, baseG string, payload []byte) string {
 	t.Helper()
@@ -617,6 +662,15 @@ func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), shortMuxed)
+
+	// A short muxed contract (W...) payload is rejected the same way.
+	shortMuxedContract, err := strkey.Encode(strkey.VersionByteMuxedContract, []byte{1, 2, 3, 4, 5})
+	require.NoError(t, err)
+	require.NotPanics(t, func() {
+		_, err = AddressBytea(shortMuxedContract).Value()
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), shortMuxedContract)
 
 	// Control: a normal contract address still encodes fine.
 	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
@@ -898,6 +952,15 @@ func TestStorableAddressString(t *testing.T) {
 				MuxedAccount: &xdr.MuxedEd25519Account{Id: 9, Ed25519: ed},
 			},
 			want:   accountAddr,
+			wantOK: true,
+		},
+		{
+			name: "muxed_contract_reduces_to_base",
+			addr: xdr.ScAddress{
+				Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+				MuxedContract: &xdr.MuxedContract{Id: 9, ContractId: contractID},
+			},
+			want:   contractAddr,
 			wantOK: true,
 		},
 		{

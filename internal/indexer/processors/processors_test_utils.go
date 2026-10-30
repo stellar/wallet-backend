@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/contractevents"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -350,6 +351,120 @@ func createInvocationTx(
 		resp.Result.Result.Result.Results = &[]xdr.OperationResult{*opResult}
 	}
 	return resp
+}
+
+// withMemo returns a copy of tx carrying memo, without touching the shared someTx envelope.
+func withMemo(tx ingest.LedgerTransaction, memo xdr.Memo) ingest.LedgerTransaction {
+	env := *tx.Envelope.V1
+	env.Tx.Memo = memo
+	tx.Envelope.V1 = &env
+	return tx
+}
+
+// scAddressFromStrkey converts a G... or C... strkey into an ScAddress.
+func scAddressFromStrkey(address string) xdr.ScAddress {
+	if address[0] == 'C' {
+		var id xdr.ContractId
+		copy(id[:], strkey.MustDecode(strkey.VersionByteContract, address))
+		return xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &id}
+	}
+	accountID := xdr.MustAddress(address)
+	return xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeAccount, AccountId: &accountID}
+}
+
+// createV4SacEventTx returns a transaction with a single invokeHostFunction operation whose
+// TransactionMetaV4 carries one CAP-67 unified SAC event. For "transfer" the topics are
+// [transfer, from, to, asset]; for "mint" they are [mint, to, asset]. The data is the
+// {amount, to_muxed_id} map; to_muxed_id is omitted when toMuxedID is nil.
+func createV4SacEventTx(eventType, from, to string, asset xdr.Asset, amount int64, toMuxedID *uint64) ingest.LedgerTransaction {
+	rawContractID, err := asset.ContractID(networkPassphrase)
+	if err != nil {
+		panic(err)
+	}
+	contractID := xdr.ContractId(rawContractID)
+
+	sym := xdr.ScSymbol(eventType)
+	assetStr := xdr.ScString(asset.StringCanonical())
+	toAddr := scAddressFromStrkey(to)
+	topics := []xdr.ScVal{{Type: xdr.ScValTypeScvSymbol, Sym: &sym}}
+	if eventType == "transfer" {
+		fromAddr := scAddressFromStrkey(from)
+		topics = append(topics, xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &fromAddr})
+	}
+	topics = append(topics,
+		xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &toAddr},
+		xdr.ScVal{Type: xdr.ScValTypeScvString, Str: &assetStr},
+	)
+
+	amountKey := xdr.ScSymbol("amount")
+	data := xdr.ScMap{{
+		Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &amountKey},
+		Val: xdr.ScVal{Type: xdr.ScValTypeScvI128, I128: &xdr.Int128Parts{Lo: xdr.Uint64(amount)}},
+	}}
+	if toMuxedID != nil {
+		muxKey := xdr.ScSymbol("to_muxed_id")
+		id := xdr.Uint64(*toMuxedID)
+		data = append(data, xdr.ScMapEntry{
+			Key: xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &muxKey},
+			Val: xdr.ScVal{Type: xdr.ScValTypeScvU64, U64: &id},
+		})
+	}
+
+	dataPtr := &data
+	event := xdr.ContractEvent{
+		Type:       xdr.ContractEventTypeContract,
+		ContractId: &contractID,
+		Body: xdr.ContractEventBody{
+			V:  0,
+			V0: &xdr.ContractEventV0{Topics: topics, Data: xdr.ScVal{Type: xdr.ScValTypeScvMap, Map: &dataPtr}},
+		},
+	}
+
+	envelope := xdr.TransactionV1Envelope{
+		Tx: xdr.Transaction{
+			SourceAccount: someTxAccount,
+			SeqNum:        xdr.SequenceNumber(54321),
+			Operations: []xdr.Operation{{
+				Body: xdr.OperationBody{
+					Type:                 xdr.OperationTypeInvokeHostFunction,
+					InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{},
+				},
+			}},
+		},
+	}
+	opResult := xdr.OperationResult{
+		Code: xdr.OperationResultCodeOpInner,
+		Tr: &xdr.OperationResultTr{
+			Type:                     xdr.OperationTypeInvokeHostFunction,
+			InvokeHostFunctionResult: &xdr.InvokeHostFunctionResult{},
+		},
+	}
+
+	tx := ingest.LedgerTransaction{
+		Index:  0,
+		Ledger: someLcm,
+		Envelope: xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1:   &envelope,
+		},
+		Result: xdr.TransactionResultPair{
+			TransactionHash: xdr.Hash([32]byte{}),
+			Result: xdr.TransactionResult{
+				FeeCharged: 1234,
+				Result: xdr.TransactionResultResult{
+					Code:    xdr.TransactionResultCodeTxSuccess,
+					Results: &[]xdr.OperationResult{opResult},
+				},
+			},
+		},
+		UnsafeMeta: xdr.TransactionMeta{
+			V: 4,
+			V4: &xdr.TransactionMetaV4{
+				Operations: []xdr.OperationMetaV2{{Events: []xdr.ContractEvent{event}}},
+			},
+		},
+	}
+	return tx
 }
 
 func createTx(op xdr.Operation, changes xdr.LedgerEntryChanges, opResult *xdr.OperationResult, isFailed bool) ingest.LedgerTransaction {
@@ -736,8 +851,8 @@ func assertBurnEvent(t *testing.T, change types.StateChange, expectedAccount str
 	assert.Equal(t, types.StateChangeReasonBurn, change.StateChangeReason)
 }
 
-func assertContractEvent(t *testing.T, change types.StateChange, category types.StateChangeCategory, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedContractID string) {
+func assertContractEvent(t *testing.T, change types.StateChange, reason types.StateChangeReason, expectedAccount string, expectedAmount string, expectedContractID string) {
 	t.Helper()
-	assertStateChangeBase(t, change, category, expectedAccount, expectedAmount, expectedContractID)
+	assertStateChangeBase(t, change, types.StateChangeCategoryBalance, expectedAccount, expectedAmount, expectedContractID)
 	require.Equal(t, reason, change.StateChangeReason)
 }
