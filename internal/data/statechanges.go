@@ -261,12 +261,19 @@ func BuildStateChangeCopyRows(stateChanges []types.StateChange) ([][]any, error)
 // pgx's binary COPY protocol and returns the number of rows written. It carries the
 // same duplicate-failure semantics as BatchCopy.
 func (m *StateChangeModel) CopyRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return m.CopyRowsInto(ctx, pgxTx, pgx.Identifier{"state_changes"}, rows)
+}
+
+// CopyRowsInto streams state_changes tuples into relation, a table with the
+// state_changes columns: the hypertable itself or a backfill staging table
+// that becomes one of its chunks. Metrics are recorded against the hypertable.
+func (m *StateChangeModel) CopyRowsInto(ctx context.Context, pgxTx pgx.Tx, relation pgx.Identifier, rows [][]any) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{"state_changes"}, stateChangeCopyColumns, pgx.CopyFromRows(rows))
+	copyCount, err := pgxTx.CopyFrom(ctx, relation, stateChangeCopyColumns, pgx.CopyFromRows(rows))
 	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(time.Since(start).Seconds())
 	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "state_changes").Observe(float64(len(rows)))
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "state_changes").Inc()

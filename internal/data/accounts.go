@@ -118,8 +118,10 @@ func BuildAccountLinkCopyRows[T any](
 }
 
 // copyAccountLinkRows streams pre-built account-link tuples (see
-// BuildAccountLinkCopyRows) into table with pgx's binary COPY protocol and returns the
-// number of rows written. idColumn names the link table's parent-ID column.
+// BuildAccountLinkCopyRows) into relation with pgx's binary COPY protocol and returns the
+// number of rows written. table names the link hypertable the rows belong to, for
+// metrics; relation is that hypertable or a backfill staging table with its columns.
+// idColumn names the link table's parent-ID column.
 //
 // IMPORTANT: like the parent table's BatchCopy, this FAILS on duplicates — COPY has no
 // conflict handling.
@@ -129,6 +131,7 @@ func copyAccountLinkRows(
 	dbMetrics *metrics.DBMetrics,
 	table string,
 	idColumn string,
+	relation pgx.Identifier,
 	rows [][]any,
 ) (int64, error) {
 	if len(rows) == 0 {
@@ -136,7 +139,7 @@ func copyAccountLinkRows(
 	}
 
 	start := time.Now()
-	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{table}, accountLinkCopyColumns(idColumn), pgx.CopyFromRows(rows))
+	copyCount, err := pgxTx.CopyFrom(ctx, relation, accountLinkCopyColumns(idColumn), pgx.CopyFromRows(rows))
 	duration := time.Since(start).Seconds()
 	dbMetrics.QueryDuration.WithLabelValues("BatchCopyAccounts", table).Observe(duration)
 	dbMetrics.BatchSize.WithLabelValues("BatchCopyAccounts", table).Observe(float64(len(rows)))
