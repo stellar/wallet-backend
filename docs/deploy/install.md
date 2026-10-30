@@ -16,7 +16,7 @@ Config names use the environment-variable form. Every variable and its default i
 | Component | Version | Notes |
 | --- | --- | --- |
 | PostgreSQL | 17 | One database per network |
-| TimescaleDB | 2.28.x | The extension must exist in the database before `migrate up`. Migrations never run `CREATE EXTENSION` |
+| TimescaleDB | 2.31.x | The extension must exist in the database before `migrate up`. Migrations never run `CREATE EXTENSION` |
 | `timescaledb.enable_chunk_skipping` | `on` | Server setting. Migrations call `enable_chunk_skipping()` on the hypertables, which TimescaleDB refuses while the setting is off, so `migrate up` fails |
 | `timescaledb.enable_sparse_index_bloom` | `on` | Server setting. The hypertable migrations declare `bloom(...)` sparse indexes, which TimescaleDB only accepts with this setting on |
 | stellar-rpc | 28.x or 29.x, same network. The integration suite runs 28.0.0 and the quickstart 29.0.1 | Used for `getHealth`, `getLedgers`, `getLedgerEntries`, `simulateTransaction` |
@@ -65,7 +65,7 @@ docker run --rm -e DATABASE_URL=<DATABASE_URL> public.ecr.aws/stellar/wallet-bac
    \dx timescaledb
    ```
 
-   The count matches the number of migrations in the release, and `\dx` lists `timescaledb` at 2.28.x.
+   The count matches the number of migrations in the release, and `\dx` lists `timescaledb` at 2.31.x.
 
 Nothing runs migrations automatically. Run `migrate up` before the first start and after every upgrade.
 

@@ -5,10 +5,10 @@
 # TimescaleDB from the apt repo and layers it onto the CNPG base image.
 #
 # Usage:
-#   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.28.2 -t cnpg-timescaledb .
+#   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.31.0 -t cnpg-timescaledb .
 
 ARG PG_MAJOR=17
-ARG TSDB_VERSION=2.28.2
+ARG TSDB_VERSION=2.31.0
 
 # ---------------------------------------------------------------------------
 # Stage 1: Install TimescaleDB via apt to capture extension artifacts
@@ -47,8 +47,8 @@ RUN echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg m
 # the newest published release and the control file then names a version whose
 # install script and library this image does not carry.
 # The glob (=${TSDB_VERSION}*) matches the distro suffix automatically
-# (e.g., 2.28.2~debian12-1710); the dpkg-query check rejects a longer upstream
-# version that the same glob would also match (e.g., 2.28.21).
+# (e.g., 2.31.0~debian12-1710); the dpkg-query check rejects a longer upstream
+# version that the same glob would also match (e.g., 2.31.01).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         timescaledb-2-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \
         timescaledb-2-loader-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \

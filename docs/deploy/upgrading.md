@@ -6,6 +6,7 @@ For an operator moving a running deployment to a later wallet-backend release. A
 
 - [Compatibility promise](#compatibility-promise)
 - [Procedure](#procedure)
+- [Upgrading the TimescaleDB extension](#upgrading-the-timescaledb-extension)
 - [Filling `transaction_hashes` for history ingested before it existed](#filling-transaction_hashes-for-history-ingested-before-it-existed)
 - [Version skew](#version-skew)
 - [Rolling back](#rolling-back)
@@ -56,6 +57,34 @@ Releases follow semantic versioning from v1.0.0.
    `version` prints `wallet-backend <VERSION> (commit <SHA>, <GO_VERSION>)`. A promoted image reports the release candidate it was built as, for example `v1.2.0-rc.2`. Every service also logs `wallet-backend <VERSION> (commit <SHA>)` at startup. Both `/health` calls return `"status":"ok"` once ingest is within 50 ledgers of the RPC.
 
 If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](protocols.md).
+
+## Upgrading the TimescaleDB extension
+
+The wallet-backend images and migrations require TimescaleDB 2.31.0 or newer. `ingest` refuses to start on an older extension and names the version it found and the version it requires.
+
+To upgrade the extension:
+
+1. Stop any running backfill.
+
+2. Deploy the new database image. For Docker Compose, use the pinned `timescale/timescaledb:2.31.0-pg17`. For a managed or operator-run cluster, use the operator's image update.
+
+3. In every database that has the extension, run this as the first statement of a fresh session started with `psql -X`.
+
+   ```sql
+   ALTER EXTENSION timescaledb UPDATE;
+   ```
+
+   The update must run before the old version is loaded into the session. A second attempt in the same session fails with `cannot be updated after the old version has already been loaded`. Running it again in a new session is harmless and reports that the version is already installed.
+
+4. Verify.
+
+   ```sql
+   SELECT extversion FROM pg_extension WHERE extname = 'timescaledb';
+   ```
+
+The update leaves your data, compressed and uncompressed chunks, compression settings, and policies with their schedules intact. The background scheduler restarts itself during the update.
+
+TimescaleDB 2.31.0 removes two settings: `timescaledb.enable_direct_compress_insert_sort_batches` and `timescaledb.enable_direct_compress_copy_sort_batches`. A leftover entry in `postgresql.conf` does not block startup. Remove it when convenient.
 
 ## Filling `transaction_hashes` for history ingested before it existed
 
