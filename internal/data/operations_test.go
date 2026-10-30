@@ -964,3 +964,49 @@ func TestOperationModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T) {
 	require.Len(t, batched, 1)
 	assert.True(t, now.Equal(batched[0].Operation.LedgerCreatedAt), "BatchGetByToID with minimal projection must hydrate ledger_created_at")
 }
+
+func TestOperationModel_CopyRowsMatchesBatchCopy(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	m := &OperationModel{Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	ops, addressesByOpID := generateTestOperations(5, 1000)
+	ops[1].Successful = true
+	ops[1].ResultCode = "OperationResultCodeOpInner"
+	// A second participant on one operation exercises several links per parent.
+	addressesByOpID[ops[0].ID][keypair.MustRandom().Address()] = struct{}{}
+
+	t.Run("operations", func(t *testing.T) {
+		requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery("operations", operationCopyColumns, "id"),
+			func(pgxTx pgx.Tx) error {
+				_, err := m.BatchCopy(ctx, pgxTx, ops)
+				return err
+			},
+			func(pgxTx pgx.Tx) error {
+				n, err := m.CopyRows(ctx, pgxTx, BuildOperationCopyRows(ops))
+				assert.Equal(t, int64(len(ops)), n)
+				return err
+			})
+	})
+
+	t.Run("operations_accounts", func(t *testing.T) {
+		requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery("operations_accounts", accountLinkCopyColumns("operation_id"), "operation_id, account_id"),
+			func(pgxTx pgx.Tx) error {
+				return m.BatchCopyAccounts(ctx, pgxTx, ops, addressesByOpID)
+			},
+			func(pgxTx pgx.Tx) error {
+				rows, err := BuildOperationAccountCopyRows(ops, addressesByOpID)
+				if err != nil {
+					return err
+				}
+				n, err := m.CopyAccountRows(ctx, pgxTx, rows)
+				assert.Equal(t, int64(len(ops)+1), n)
+				return err
+			})
+	})
+}
