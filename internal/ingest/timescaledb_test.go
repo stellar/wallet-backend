@@ -654,3 +654,63 @@ func TestConfigureTransactionHashesSettings(t *testing.T) {
 		assert.EqualValues(t, 86400, compression["compress_after"])
 	})
 }
+
+func TestTimescaleDBVersionAtLeast(t *testing.T) {
+	testCases := []struct {
+		name     string
+		found    string
+		required string
+		want     bool
+		wantErr  bool
+	}{
+		{name: "equal", found: "2.31.0", required: "2.31.0", want: true},
+		{name: "newer_patch", found: "2.31.1", required: "2.31.0", want: true},
+		{name: "newer_minor", found: "2.32.0", required: "2.31.0", want: true},
+		{name: "newer_major", found: "3.0.0", required: "2.31.0", want: true},
+		{name: "older_patch", found: "2.31.0", required: "2.31.1", want: false},
+		{name: "older_minor", found: "2.28.2", required: "2.31.0", want: false},
+		{name: "older_major", found: "1.99.99", required: "2.31.0", want: false},
+		{name: "minor_compared_numerically", found: "2.9.0", required: "2.31.0", want: false},
+		{name: "two_components", found: "2.31", required: "2.31.0", want: true},
+		{name: "pre_release_suffix", found: "2.31.0-dev", required: "2.31.0", want: true},
+		{name: "build_suffix", found: "2.31.0+build1", required: "2.31.0", want: true},
+		{name: "single_component", found: "2", required: "2.31.0", wantErr: true},
+		{name: "four_components", found: "2.31.0.1", required: "2.31.0", wantErr: true},
+		{name: "non_numeric", found: "2.x.0", required: "2.31.0", wantErr: true},
+		{name: "empty", found: "", required: "2.31.0", wantErr: true},
+		{name: "malformed_required", found: "2.31.0", required: "latest", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := timescaleDBVersionAtLeast(tc.found, tc.required)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestRequireTimescaleDBVersion(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	installed, err := db.QueryOne[string](ctx, dbConnectionPool, timescaleDBVersionQuery)
+	require.NoError(t, err)
+	supported, err := timescaleDBVersionAtLeast(installed, minTimescaleDBVersion)
+	require.NoError(t, err)
+
+	err = requireTimescaleDBVersion(ctx, dbConnectionPool)
+	if supported {
+		require.NoError(t, err)
+		return
+	}
+	require.EqualError(t, err, "timescaledb "+installed+" is installed, "+minTimescaleDBVersion+" or newer is required")
+}
