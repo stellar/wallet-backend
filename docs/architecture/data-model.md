@@ -236,7 +236,7 @@ The hypertables are created with the TimescaleDB columnstore on. TimescaleDB cre
 | --- | --- |
 | TimescaleDB compression job | Compresses closed chunks on its schedule. |
 | Live ingester at startup | Changes the job's schedule, `compress_after`, and `maxchunks_to_compress` only when `COMPRESSION_SCHEDULE_INTERVAL`, `COMPRESSION_COMPRESS_AFTER`, or `COMPRESSION_MAX_CHUNKS` is set. |
-| Backfill | Writes uncompressed rows, then runs `compress_chunk` on chunks its finished batches fully cover. |
+| Backfill | Pauses every compression policy for the run and schedules them again at exit. Compresses the chunks it finished writing, for the five history tables and `transaction_hashes`, with `compress_chunk` on its own connections. Chunks that also hold live rows stay with the live policies. |
 
 Retention is off unless `RETENTION_PERIOD` is set on the live ingester. With a value, every hypertable gets a retention policy that drops chunks older than that interval, and the `reconcile_oldest_cursor` job keeps `oldest_ingest_ledger` in step. With it empty, the live ingester removes any retention policy on start. Current-state, protocol, and bookkeeping tables are never compressed or dropped.
 

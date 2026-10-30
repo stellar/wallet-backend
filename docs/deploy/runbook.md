@@ -22,7 +22,7 @@ Figures come from the same pubnet and testnet deployments measured in [Sizing](#
 | Component | Pubnet minimum | Pubnet recommended | Testnet | What drives it |
 | --- | --- | --- | --- | --- |
 | Live ingester (one per network) | 2 CPU, 12 GiB RAM | 4 CPU, 16 GiB RAM | 1 CPU, 4 GiB RAM | The first start loads the ledger-entry balances (native, trustline, liquidity pool, SAC) from the history archive checkpoint; SEP-41 balances come from `protocol-migrate current-state`. The load it peaked at 1.8 cores and 9.4 GiB on pubnet, 0.8 cores and 1.9 GiB on testnet. Steady state is 0.1 cores and 0.4 GiB |
-| Backfill (optional, runs alongside) | 2 CPU, 4 GiB RAM | as many CPUs as you want speed; 1 GiB per worker | same | CPU-bound; `BACKFILL_WORKERS` defaults to one per CPU and memory grows with workers × `BACKFILL_BATCH_SIZE` |
+| Backfill (optional, runs alongside) | 2 CPU, 4 GiB RAM | as many CPUs as you want speed; size RAM from the formula | same | CPU-bound; `BACKFILL_WORKERS` defaults to one per CPU. Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` at mainnet density, so it grows with each of the three. The run logs the estimate at start |
 | API (per instance) | 0.5 CPU, 512 MiB RAM | 1 CPU, 1 GiB RAM, two or more instances | same | Stateless; near zero at low traffic (20 MiB resident). Scale out for throughput, not up |
 | PostgreSQL + TimescaleDB | 4 CPU, 16 GiB RAM, SSD | 8 CPU, 32 GiB RAM, SSD | 2 CPU, 4 GiB RAM, SSD | Working set of about 20 GiB on pubnet (shared buffers and the current-state tables), 1.5 GiB on testnet; CPU peaks under 1 core |
 | Disk for PostgreSQL | 11 GB + 1.7 GB per retained day + 20 GB headroom | 1 TB for a year of pubnet history | 1 GB + 0.12 GB per retained day | See [Sizing](#sizing) |
@@ -48,7 +48,7 @@ Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28
 
 Disk plan for pubnet: about 11 GB fixed, plus about 1.7 GB per retained day compressed, plus headroom for one uncompressed day (about 20 GB). A year of history is roughly 0.6 TB compressed. Testnet is a fraction of this.
 
-Backfill is CPU-bound in the ingest process (`BACKFILL_WORKERS` defaults to one per CPU) and write-bound in the database. Give it more CPU and memory than live ingest and set `COMPRESSION_MAX_CHUNKS` (around 10) so the compression job does not overlap itself while chunks fill fast.
+Backfill is CPU-bound in the ingest process (`BACKFILL_WORKERS` defaults to one per CPU) and write-bound in the database. Give it more CPU and memory than live ingest. It compresses the chunks it writes on its own connections and pauses the compression policies for the run, so it needs no `COMPRESSION_MAX_CHUNKS` change. Plan disk for about `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1) × 15 GB` of uncompressed windows on top of the compressed history, and for the live ingester's recent chunks, which stay uncompressed until the run ends. Both are mainnet estimates. The database needs `DB_MAX_CONNS` of at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1. See [backfill](backfill.md#sizing-and-tuning).
 
 ## Metrics to alert on
 
@@ -84,7 +84,9 @@ A batch of ledgers (one by default) is written by a set of transactions whose cu
 |---|---|---|
 | Ingest exits with `advisory lock not acquired` | Another live ingester for the same network passphrase holds the lock on this database | Run one live ingester per network. After a database failover the new ingester takes the lock once the old session is gone. |
 | Ingest exits with `--start-ledger and --end-ledger apply to --ingestion-mode=backfill only` | `START_LEDGER` or `END_LEDGER` set on a live process | Unset them. |
-| Backfill exits with `end ledger ... cannot be greater than latest ingested ledger` | Range extends past what live ingest has written | Set `END_LEDGER` at or below `latest_ingest_ledger`. |
+| Backfill exits with `--end-ledger does not apply to backfill` | `END_LEDGER` is set on a backfill process | Unset it. The backfill always ends at the history live ingest holds. |
+| Backfill exits with `no ingestion cursors yet` | Live ingestion has never run on this database | Start live ingestion once, then rerun. |
+| Backfill exits non-zero after a window failed | A fetch, write or compression error that retries did not clear | Read the log, fix the cause, and rerun with the same `START_LEDGER`. It resumes from `oldest_ingest_ledger`. |
 | First start takes a long time with no ledgers ingested | Checkpoint bootstrap is downloading the history archive and filling balance tables | Wait. Watch the ingest log for the checkpoint completion line, then `wallet_ingestion_latest_ledger` starts moving. |
 | `/health` 500 or 503, logs show `getHealth` errors | RPC unreachable (500) or not synced (503) | Fix RPC. Ingest retries; API serves stale data but reports unhealthy. |
 | Datastore backend exits with a buffer error | The data-lake reader died (missing files, credentials, throttling) | This is classified permanent; the process exits. Restart after fixing access. |
@@ -103,11 +105,11 @@ The live ingester converges these on every start:
 | `RETENTION_PERIOD` | Adds or updates a drop-chunks policy. Empty removes it and the reconcile job. |
 | `COMPRESSION_SCHEDULE_INTERVAL` | How often the compression job wakes. Empty leaves the job alone. |
 | `COMPRESSION_COMPRESS_AFTER` | How long after a chunk closes it becomes eligible. On the measured deployment, 1 hour removed persist-latency spikes that a 1-minute setting caused. |
-| `COMPRESSION_MAX_CHUNKS` | Chunks compressed per job run. Set around 10 during backfill. |
+| `COMPRESSION_MAX_CHUNKS` | Chunks compressed per job run. |
 
 Retention drops whole chunks, so the oldest data disappears in `CHUNK_INTERVAL`-sized steps. A reconcile job runs hourly to move `oldest_ingest_ledger` to the real minimum after a drop.
 
-Backfill processes never change these policies.
+A backfill never changes these settings. It pauses every compression policy while it runs, compresses the chunks it wrote itself, and schedules the policies again when it exits. The live ingester schedules them again at every start, so a killed backfill leaves nothing to repair. Chunks that also hold live rows stay with the live policies.
 
 ## Database maintenance
 
@@ -121,7 +123,8 @@ Backfill processes never change these policies.
 |---|---|
 | `internal/ingest/timescaledb.go` | Chunk interval, retention, compression job tuning, reconcile job |
 | `internal/services/ingest_live.go` | Advisory lock, cursor resume, checkpoint bootstrap trigger |
-| `internal/services/ingest_backfill.go` | Gap calculation and range checks |
+| `internal/services/ingest_backfill.go` | Backfill windows, cursor, retries |
+| `internal/services/backfill_compressor.go` | Backfill compression and policy pause |
 | `internal/serve/httphandler/health.go` | `/health` rules (500 vs 503) |
 | `internal/metrics/` | Every `wallet_*` metric |
 | `internal/data/ingest_store.go` | Cursor keys |

@@ -26,7 +26,7 @@ For operators and contributors who need to know how a Stellar ledger becomes row
 | --- | --- | --- | --- |
 | API server | `wallet-backend serve` | No. Reads only. | Any number |
 | Live ingester | `wallet-backend ingest` with `INGESTION_MODE=live` (default) | Yes | One per network |
-| Backfill | `wallet-backend ingest` with `INGESTION_MODE=backfill` | The five history tables and `oldest_ingest_ledger` only | Takes no lock. Runs next to the live ingester. |
+| Backfill | `wallet-backend ingest` with `INGESTION_MODE=backfill` | The five history tables, `transaction_hashes` and `oldest_ingest_ledger` only | One per network, under its own advisory lock. Runs next to the live ingester. |
 
 The live ingester holds a PostgreSQL session-level advisory lock (`pg_try_advisory_lock`). The lock key is a hash of the string `wallet-backend-ingest-` plus `NETWORK_PASSPHRASE`, so each network gets its own lock. A second live ingester for the same network fails to get the lock and exits with `advisory lock not acquired`.
 
@@ -39,7 +39,7 @@ Live mode follows the network tip, one ledger after another, and in normal opera
 ### Startup
 
 1. The command rejects `START_LEDGER` and `END_LEDGER` in live mode. Live mode resumes from the stored cursor.
-2. The process checks the pool size before it opens the pool. Live persist holds 6 connections at its commit barrier (five siblings and the coordinator) and the advisory-lock session holds a seventh, so a `DB_MAX_CONNS` below 7 stops the process with `db-max-conns is <n>, below the 7 connections live persist requires`. The default `DB_MAX_CONNS` is 12, which leaves room for the classification reads. Backfill skips this check.
+2. The process checks the pool size before it opens the pool. Live persist holds 6 connections at its commit barrier (five siblings and the coordinator) and the advisory-lock session holds a seventh, so a `DB_MAX_CONNS` below 7 stops the process with `db-max-conns is <n>, below the 7 connections live persist requires`. The default `DB_MAX_CONNS` is 12, which leaves room for the classification reads. Backfill has its own pool check, described under [Backfill mode](#backfill-mode).
 3. The process opens the database pool and applies the settings listed under [TimescaleDB policies the live ingester applies](#timescaledb-policies-the-live-ingester-applies).
 4. It builds the ledger source, the RPC client, the history archive client, the protocol validators and processors, and starts the HTTP servers.
 5. It takes the advisory lock on a dedicated connection. That connection stays checked out for the life of the process.
@@ -137,6 +137,7 @@ Retry ladders:
 | Live ledger fetch | 10 | 1, 2, 4, 8, 16 s, then 30 s | Datastore buffer death |
 | Classification read of `protocol_wasms` | 5 | 1, 2, 4, 8 s | The permanent persist errors above |
 | Persist batch | 5 | 1, 2, 4, 8 s | The permanent persist errors above |
+| Backfill window | 3 | 1, 2 s | The permanent persist errors above and datastore buffer death |
 
 If the context ends during an attempt or a wait, the ladder returns the cancellation, not an exhaustion, and logs no retry. Every retry adds to `wallet_ingestion_retries_total`, with the operation label `ledger_fetch`, `classification_read`, or `db_persist`. An exhausted persist ladder also adds to `wallet_ingestion_retry_exhaustions_total`.
 
@@ -155,40 +156,40 @@ SIGINT or SIGTERM cancels the root context. A batch that has not reached its com
 The live loop releases the advisory lock as it returns, on a context detached from the cancelled one with a 10 s timeout. If the unlock fails, the process logs `releasing advisory lock, destroying connection to end its session` and closes that connection, so PostgreSQL ends the session and drops the lock. Cleanup then runs in this order:
 
 1. Stop the HTTP servers, with a 10 s timeout.
-2. Stop the indexer and backfill worker pools and any validator that owns resources.
+2. Stop the indexer worker pool and any validator that owns resources.
 3. Close the ledger source.
 4. Close the WASM spec extractor, with a 5 s timeout.
 5. Close the database pool.
 
 ## Backfill mode
 
-Backfill fills holes in history that live ingestion did not write. Run it with `INGESTION_MODE=backfill`, `START_LEDGER` greater than 0, and `END_LEDGER` at least `START_LEDGER`.
+Backfill makes the range `[START_LEDGER, latest_ingest_ledger]` contiguous. Run it with `INGESTION_MODE=backfill` and `START_LEDGER` greater than 0. `END_LEDGER` is rejected. The run needs `latest_ingest_ledger` and `oldest_ingest_ledger` to exist, so live ingestion must have run once.
 
 ```mermaid
 flowchart LR
-    Check[Check END_LEDGER] --> Gaps[Find gaps]
-    Gaps --> Split[Split into batches]
-    Split --> Pool[Worker pool]
-    Pool --> Flush[Flush to database]
-    Flush --> Cursor[Lower oldest cursor]
-    Pool --> Compress[Compress done chunks]
+    Pre[Preflight] --> Holes[Fill holes above cursor]
+    Holes --> Plan[Place next window]
+    Plan --> Fill[Fetch, process, flush]
+    Fill --> Cursor[Lower oldest cursor]
+    Cursor --> Plan
+    Cursor --> Compress[Compress window chunks]
 ```
 
-- **Check END_LEDGER.** `END_LEDGER` must be at most `latest_ingest_ledger`. Otherwise backfill exits with `end ledger <end> cannot be greater than latest ingested ledger <latest> for backfilling`.
-- **Find gaps.** Backfill reads the ledger of the oldest row in `transactions` and lists missing ledger numbers between it and `END_LEDGER`. It adds the range from `START_LEDGER` up to the oldest ledger when the request starts earlier. Gaps are clipped to `[START_LEDGER, END_LEDGER]`.
-- **Split into batches.** Each gap is cut into batches of `BACKFILL_BATCH_SIZE` ledgers (default 250).
-- **Worker pool.** `BACKFILL_WORKERS` batches run at once. The default 0 means one per CPU the Go runtime may use (`GOMAXPROCS`). Each batch opens its own ledger source for a bounded range and reuses one indexer buffer.
-- **Flush to database.** Each batch writes every `BACKFILL_DB_INSERT_BATCH_SIZE` ledgers (default 100). A flush is one transaction with `synchronous_commit = off` that writes the five bulk tables in turn. Backfill does not use the live commit set or its sibling transactions. A failed flush is retried up to 5 times, waiting 1, 2, 4, 8 s, and stops at once on the permanent persist errors.
-- **Lower oldest cursor.** The last flush of a batch sets `oldest_ingest_ledger` to the lower of its current value and the batch's first ledger, in the same transaction. When the last flush had no ledgers left, a separate transaction does it.
-- **Compress done chunks.** When a contiguous run of batches from the start has finished, backfill runs `compress_chunk` on the uncompressed chunks that end inside that run, for each table in the bulk-table list. Backfill waits for compression to finish before it exits.
+- **Preflight.** The run checks that `DB_MAX_CONNS` is at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1, takes a backfill advisory lock for the network, reads both cursors, and refuses to start when the retention policy would drop `START_LEDGER`. A second backfill for the same network exits with `another backfill holds the lock for this network`. The lock is separate from the live ingester's lock. It logs the window count and the memory and disk estimates.
+- **Pause policies.** The run pauses every compression policy with `alter_job(scheduled => false)` and schedules them again at exit. Live ingestion schedules them again at every start.
+- **Holes above the cursor.** The run lists the missing ledgers between `oldest_ingest_ledger` and `latest_ingest_ledger` and fills each hole first.
+- **Windows below the cursor.** A window is one chunk of the five history tables: the chunk interval, 1 day by default, aligned the way TimescaleDB aligns chunks. The run finds each window's first ledger from ledger close times. It starts at the ledger just below `oldest_ingest_ledger` and works downward, newest window first. The last window stops at `START_LEDGER`. A ledger whose close time falls outside its window fails the run.
+- **Fill a window.** One fetcher reads the window's ledgers in order. `BACKFILL_WORKERS` workers process them. One writer flushes every `BACKFILL_FLUSH_SIZE` ledgers. A flush writes the five history tables in parallel, one transaction per table on its own connection, with `synchronous_commit = off`. The transaction for `transactions` also writes `transaction_hashes`. Backfill does not use the live commit set.
+- **Lower the cursor.** `oldest_ingest_ledger` drops to the window's first ledger, in its own transaction, only after every flush of the window has committed. Everything from the cursor to the tip is always present.
+- **Compress.** The run compresses the chunks it finished, for the five history tables and for `transaction_hashes`, on `BACKFILL_COMPRESS_CONCURRENCY` connections of its own. A `transaction_hashes` chunk spans several windows, so it is compressed once the run has moved past its range. The run keeps at most `ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1` windows uncompressed and waits for a slot before it starts another window. It waits for all compression to finish before it exits. Chunks that also hold live rows, the newest window and any hole above the cursor, are left to the live policies. The live ingester's recent chunks stay uncompressed while the run lasts.
 
-A ledger fetch in backfill retries up to 10 times with the same waits as live fetch, and retries every error, including datastore buffer death.
+Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` for a decoded mainnet ledger. Disk needs about `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1) × 15 GB` of uncompressed windows on top of the compressed history. Both are estimates at current mainnet density.
 
-A ledger with no transactions has no row in `transactions`. Gap detection lists it as a gap, so backfill fetches it again and writes nothing.
+**Retries.** A ledger fetch retries up to 10 times with the same waits as live fetch. A window that fails with a transient error is redone, up to 3 attempts. A permanent error ends the run at once. A dead datastore buffer is permanent. Each retry of a window adds to `wallet_ingestion_retries_total{operation="backfill_window"}`.
 
-Backfill writes only `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, and `state_changes`, plus `oldest_ingest_ledger`. It does not write balance tables, protocol tables, or `latest_ingest_ledger`, and it does not change TimescaleDB policies or run the pool-size check. That is why it takes no advisory lock and can run while the live ingester runs.
+**Failure and rerun.** Any fetch, process, write or compression failure ends the run with a non-zero exit. A cancelled run also exits non-zero. A rerun with the same `START_LEDGER` resumes from `oldest_ingest_ledger` and fills the holes that remain. Flushes commit one at a time, so a failed window can leave rows behind. Before it writes a window, the run deletes that window's ledgers from the five history tables. Duplicates in `transaction_hashes` are tolerated.
 
-A cancelled backfill exits with an error, not status 0. Batches that never started are logged as `Backfill batches cancelled before starting`. Rerun it with the same range. Gap detection skips what was written.
+Backfill writes only the five history tables, `transaction_hashes` and `oldest_ingest_ledger`. It does not write balance tables, protocol tables or `latest_ingest_ledger`, and it never changes the schedule, retention or settings of a policy other than the pause above. That is why it can run while the live ingester runs.
 
 ## Ledger sources
 
@@ -295,11 +296,11 @@ The buffer stores data this way:
 
 **State change IDs.** Each state-change processor numbers its own changes 1 to N within each `(to_id, operation_id)` group and adds its own fixed base, so IDs do not depend on processor order. Re-processing a ledger yields the same IDs, so a duplicate insert fails on the primary key. The indexer checks the bases at startup and refuses to start if one is invalid or two overlap.
 
-**Buffer reuse.** Both modes reuse buffers instead of allocating one per ledger. Live mode rotates its `2 × LIVE_PERSIST_MAX_BATCH_SIZE + 1` buffers and clears each one when process takes it, never while persist still reads it. Backfill clears its one buffer after every flush. A clear keeps the maps' allocated space, and the parsed-asset cache is never cleared because a given asset string always parses the same way.
+**Buffer reuse.** Both modes reuse buffers instead of allocating one per ledger. Live mode rotates its `2 × LIVE_PERSIST_MAX_BATCH_SIZE + 1` buffers and clears each one when process takes it, never while persist still reads it. Backfill gives each worker its own buffer and recycles it once the flush that streamed its rows is done. A clear keeps the maps' allocated space, and the parsed-asset cache is never cleared because a given asset string always parses the same way.
 
 ## TimescaleDB policies the live ingester applies
 
-The live ingester applies these settings on every start. Backfill does not. All of them apply to the five bulk tables that ingestion loads with `COPY`: `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes`. One list in the code drives these settings, startup reconciliation, and backfill compression.
+The live ingester applies these settings on every start. Backfill does not change them. All of them apply to the five bulk tables that ingestion loads with `COPY`: `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes`. One list in the code drives these settings, startup reconciliation, the backfill's cleanup of half-written windows, and backfill compression.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
@@ -324,7 +325,7 @@ When `RETENTION_PERIOD` is set, the ingester also creates the `reconcile_oldest_
 | Commit fails after the first sibling committed | The process exits with `ledger persist partially committed`. | Restart. Startup reconciliation deletes the orphaned bulk rows, and the batch re-ingests. |
 | Permanent persist error | The process exits with `failed with a permanent error`. | Read the wrapped error. A SQLSTATE class 22, 23, or 42 points to bad data or schema drift, and a restart alone does not fix it. |
 | Transient persist errors on all 5 attempts | The process exits with `retries exhausted`. | Check database health, then restart. |
-| Datastore buffer dead | A download worker ran out of retries, or a bounded range hit a missing file. Live mode exits at once with `ledger buffer permanently cancelled`, without retrying. A backfill batch fails after its 10 fetch attempts. | Check bucket access, then restart. A restart builds a fresh buffer. |
+| Datastore buffer dead | A download worker ran out of retries, or a bounded range hit a missing file. Live mode exits at once with `ledger buffer permanently cancelled`, without retrying. A backfill window fails at once, without retrying, and ends the run with a non-zero exit. | Check bucket access, then restart. A restart builds a fresh buffer. |
 | Start ledger older than the RPC's retention window | Preparing the `rpc` source fails and the process exits at startup with `preparing unbounded ledger backend range from`. | Restart with `LEDGER_BACKEND_TYPE=datastore` until caught up, or use an RPC with longer retention. |
 | RPC tip is behind the network | The `rpc` source waits at the RPC tip. Ingestion runs only as fresh as the RPC. `/health` returns 503 when RPC `getHealth` reports unhealthy, and 500 when the RPC cannot be reached. | Fix the RPC node. |
 | Ingester falls behind the RPC | `/health` returns 503 with `wallet backend is not in sync with the RPC` when the RPC's latest ledger minus `latest_ingest_ledger` is more than 50. | Check `wallet_ingestion_phase_duration_seconds` for the slow phase: `process_ledger`, `prepare_classification`, or `insert_into_db`. Check `wallet_ingestion_persist_batch_size` for a backlog. |
@@ -343,7 +344,9 @@ See the [Runbook](../deploy/runbook.md) for recovery procedures.
 | `internal/ingest/timescaledb.go` | Chunk interval, retention, compression, and `reconcile_oldest_cursor` setup |
 | `internal/services/ingest.go` | Ingest service, advisory lock key, retry constants, bulk-table inserts |
 | `internal/services/ingest_live.go` | Live startup, the three-stage pipeline, batch classification, the commit set and barrier, error classification, lock-session check, lock release |
-| `internal/services/ingest_backfill.go` | Gap calculation, batches, flushes, progressive compression |
+| `internal/services/ingest_backfill.go` | Backfill run, windows, flushes, cursor |
+| `internal/services/backfill_planner.go` | Window placement on chunk boundaries, holes above the cursor |
+| `internal/services/backfill_compressor.go` | Backfill compression and the compression policy pause |
 | `internal/services/protocol_validation_dispatch.go` | Classification plan: matching and RPC prefetch outside the transaction, validator writes inside it |
 | `internal/services/token_ingestion.go` | Balance upserts and deletes, split by foreign-key parent |
 | `internal/services/checkpoint.go` | Checkpoint bootstrap from the history archive |

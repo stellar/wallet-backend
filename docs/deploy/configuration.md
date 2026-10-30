@@ -38,7 +38,7 @@ Required options reject an empty value. A required option with a default passes 
 | `--network-passphrase` | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | yes | Stellar network passphrase |
 | `--rpc-url` | `RPC_URL` | `http://localhost:8000` | yes | Stellar RPC URL |
 | `--admin-port` | `ADMIN_PORT` | `0` | no | Port for pprof at `/debug/pprof`. `0` disables it |
-| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 7. |
+| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 7. Backfill needs at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1 |
 | `--db-min-conns` | `DB_MIN_CONNS` | `5` | no | Minimum idle connections kept in the pool |
 | `--db-max-conn-lifetime` | `DB_MAX_CONN_LIFETIME` | `5m` | no | Maximum connection lifetime, as a Go duration |
 | `--db-max-conn-idle-time` | `DB_MAX_CONN_IDLE_TIME` | `10s` | no | Maximum connection idle time, as a Go duration |
@@ -80,9 +80,9 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--ingestion-mode` | `INGESTION_MODE` | `live` | yes | `live` follows the chain tip. `backfill` fills a fixed range |
-| `--start-ledger` | `START_LEDGER` | `0` | when backfill | First ledger of the backfill range. Any explicit value, even `0`, is rejected in live mode |
-| `--end-ledger` | `END_LEDGER` | `0` | when backfill | Last ledger of the backfill range, below 4294967295. Any explicit value, even `0`, is rejected in live mode |
+| `--ingestion-mode` | `INGESTION_MODE` | `live` | yes | `live` follows the chain tip. `backfill` fills every ledger from `--start-ledger` up to the history live ingestion already holds |
+| `--start-ledger` | `START_LEDGER` | `0` | when backfill | First ledger the backfill fills, between 1 and 4294967294. Any explicit value, even `0`, is rejected in live mode |
+| `--end-ledger` | `END_LEDGER` | `0` | no | Rejected in both modes when set, even to `0`. A backfill always ends at the history live ingestion holds |
 | `--ingest-server-port` | `INGEST_SERVER_PORT` | `8002` | no | Port for `/health` and `/ingest-metrics` |
 
 ### Ledger source
@@ -121,12 +121,14 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `--backfill-workers` | `BACKFILL_WORKERS` | `0` | no | Concurrent backfill workers. `0` uses one per CPU. Lower values use less RAM |
-| `--backfill-batch-size` | `BACKFILL_BATCH_SIZE` | `250` | no | Ledgers per backfill batch. Lower values use less RAM |
-| `--backfill-db-insert-batch-size` | `BACKFILL_DB_INSERT_BATCH_SIZE` | `100` | no | Ledgers buffered before each database flush. Lower values use less RAM |
+| `--backfill-flush-size` | `BACKFILL_FLUSH_SIZE` | `100` | no | Ledgers written per database flush. Each flush is one transaction per history table. Lower values use less RAM |
+| `--backfill-compress-concurrency` | `BACKFILL_COMPRESS_CONCURRENCY` | `5` | no | Chunks compressed at once, each on its own database connection. The run keeps at most `ceil(value / 5) + 1` windows uncompressed on disk. Needs `DB_MAX_CONNS` of at least 5 + value + 1 |
+
+Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` for a decoded mainnet ledger. Uncompressed windows take about `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1) × 15 GB` of disk on top of the compressed history. Both are estimates for mainnet at current density, and the run logs them at start. See [backfill](backfill.md#sizing-and-tuning).
 
 ### TimescaleDB policies
 
-Only `--ingestion-mode=live` applies these. Backfill leaves the database's policies untouched. Interval values use PostgreSQL `INTERVAL` syntax.
+Only `--ingestion-mode=live` applies these. A backfill does not change them, except that it pauses every compression policy while it runs and schedules them again when it exits. It compresses the chunks it writes itself. Interval values use PostgreSQL `INTERVAL` syntax.
 
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
@@ -185,9 +187,10 @@ Each command checks these at startup and exits with the quoted error.
 - **Required option empty.** Any option marked required fails with `Invalid config: <name> is blank. Please specify --<name> on the command line or set the <ENV_VAR> environment variable.`
 - **Unknown ingestion mode.** `ingest` rejects a mode other than `live` or `backfill` with `invalid ingestion-mode '<value>', must be 'live' or 'backfill'`.
 - **Range in live mode.** `ingest` in live mode rejects an explicitly set start or end ledger, including `0`, whether it came as a flag or an environment variable: `--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor`.
-- **Bad backfill range.** `ingest` in backfill mode needs a start above zero and an end at or above the start: `--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got <start>..<end>)`.
-- **End ledger at the ceiling.** Backfill rejects an end ledger of 4294967295 or more: `--end-ledger <value> must be below 4294967295`.
-- **Bad backfill tuning.** Backfill needs `--backfill-batch-size` and `--backfill-db-insert-batch-size` between 1 and 4294967295, and `--backfill-workers` of 0 or more: `--backfill-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-db-insert-batch-size must be between 1 and 4294967295 (got <value>)`, `--backfill-workers must be 0 (one per CPU) or positive (got <value>)`.
+- **Bad backfill start.** `ingest` in backfill mode needs a start between 1 and 4294967294: `--ingestion-mode=backfill needs --start-ledger between 1 and 4294967294 (got <value>)`.
+- **End ledger in backfill mode.** Backfill rejects an explicitly set end ledger: `--end-ledger does not apply to backfill: the run fills every ledger from --start-ledger up to the live ingester's history`.
+- **Bad backfill tuning.** Backfill needs positive `--backfill-flush-size` and `--backfill-compress-concurrency`, and `--backfill-workers` of 0 or more: `--backfill-flush-size must be positive (got <value>)`, `--backfill-compress-concurrency must be positive (got <value>)`, `--backfill-workers must be 0 (one per CPU) or positive (got <value>)`.
+- **Pool too small for backfill.** `ingest` in backfill mode needs `DB_MAX_CONNS` of at least 5 + `--backfill-compress-concurrency` + 1: `db-max-conns is <n>, below the <m> connections a backfill with compress concurrency <k> requires`.
 - **Pool too small for live mode.** `ingest` in live mode fails with `db-max-conns is <n>, below the 7 connections live persist requires`.
 - **Unknown backend in ingest.** `ingest` fails with `invalid ledger-backend-type '<value>', must be 'rpc' or 'datastore'`.
 - **Datastore without bucket in ingest.** `ingest` fails with `--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore`.

@@ -149,7 +149,7 @@ The pgx pool of each process. No labels.
 
 ### Worker pools
 
-Ingest worker pools. Each series carries a constant `pool_name` label: `ledger_indexer` or `backfill`.
+Ingest worker pools. Each series carries a constant `pool_name` label, for example `ledger_indexer`.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -183,19 +183,20 @@ Recorded on `ingest`. The lag gauge updates once per second in live mode only.
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
 | `wallet_ingestion_latest_ledger` | gauge | none | Latest ledger ingested |
-| `wallet_ingestion_oldest_ledger` | gauge | none | Oldest ledger ingested |
+| `wallet_ingestion_oldest_ledger` | gauge | none | Oldest ledger ingested. A backfill lowers it as each window commits |
+| `wallet_ingestion_backfill_windows_remaining` | gauge | none | Chunk windows the running backfill still has to fill. Counts down to 0 |
 | `wallet_ingestion_lag_ledgers` | gauge | none | Ledger backend tip minus the ingest position |
 | `wallet_ingestion_duration_seconds` | histogram | none | Time to process and persist one ledger. Excludes the fetch |
 | `wallet_ingestion_persist_batch_size` | histogram | none | Ledgers coalesced into one commit set. 1 while the pipeline keeps pace; larger means the persist stage is amortizing a backlog |
-| `wallet_ingestion_phase_duration_seconds` | histogram | `phase` | Time per live phase: `process_ledger` per ledger, `prepare_classification` and `insert_into_db` once per batch at the batch's full wall time, so with batches larger than 1 the phases do not sum to `wallet_ingestion_duration_seconds`, which records a per-ledger share. `insert_into_db` includes failed attempts and retry backoff |
+| `wallet_ingestion_phase_duration_seconds` | histogram | `phase` | Time per phase: `process_ledger` per ledger, `prepare_classification` and `insert_into_db` once per batch at the batch's full wall time, so with batches larger than 1 the phases do not sum to `wallet_ingestion_duration_seconds`, which records a per-ledger share. `insert_into_db` includes failed attempts and retry backoff. A backfill records `fetch` per ledger, `process_ledger` per ledger, `insert_into_db` per flush and `compress` per chunk compressed |
 | `wallet_ingestion_ledger_fetch_duration_seconds` | histogram | none | Time to fetch one ledger, including retries and waiting at the tip. At the tip its floor is the ledger close interval, not I/O latency |
 | `wallet_ingestion_ledgers_total` | counter | none | Ledgers ingested |
 | `wallet_ingestion_transactions_total` | counter | none | Transactions ingested |
 | `wallet_ingestion_operations_total` | counter | none | Operations ingested |
 | `wallet_ingestion_participants_per_ledger` | histogram | none | Unique participant accounts per ingest batch |
-| `wallet_ingestion_retries_total` | counter | `operation` | Single retry attempts: `ledger_fetch`, `db_persist`, `batch_flush`, `classification_read` |
-| `wallet_ingestion_retry_exhaustions_total` | counter | `operation` | Every attempt failed and ingest gave up: `db_persist`, `batch_flush` |
-| `wallet_ingestion_errors_total` | counter | `operation` | Ingest errors: `ingest_live`, `db_persist`, `batch_flush` |
+| `wallet_ingestion_retries_total` | counter | `operation` | Single retry attempts: `ledger_fetch`, `db_persist`, `classification_read`, `backfill_window` |
+| `wallet_ingestion_retry_exhaustions_total` | counter | `operation` | Every attempt failed and ingest gave up: `db_persist`, `backfill_window` |
+| `wallet_ingestion_errors_total` | counter | `operation` | Ingest errors: `ingest_live`, `db_persist`, `backfill_window`, `compress` |
 | `wallet_ingestion_state_change_processing_duration_seconds` | histogram | `processor` | Time per state-change processor, for example `EffectsProcessor` or `TokenTransferProcessor` |
 | `wallet_ingestion_state_changes_total` | counter | `type`, `category` | State changes written. `type` holds the state-change reason |
 | `wallet_ingestion_protocol_state_processing_duration_seconds` | histogram | `protocol_id`, `phase` | Protocol state time per phase: `process_ledger`, `persist_history`, `persist_current_state` |
