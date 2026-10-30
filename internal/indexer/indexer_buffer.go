@@ -96,6 +96,15 @@ type IndexerBuffer struct {
 	wasmBytecodesByHash   map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
 	protocolContractsByID map[string]data.ProtocolContracts // contractID → ProtocolContracts
 	contractEventsByKey   map[ContractEventKey][]xdr.ContractEvent
+
+	// COPY rows for the bulk tables, built by BuildCopyRows from the buffer's
+	// contents and dropped by Clear(). Read only for consumers.
+	transactionCopyRows        [][]any
+	transactionHashCopyRows    [][]any
+	operationCopyRows          [][]any
+	transactionAccountCopyRows [][]any
+	operationAccountCopyRows   [][]any
+	stateChangeCopyRows        [][]any
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
@@ -369,6 +378,82 @@ func (b *IndexerBuffer) GetStateChanges() []types.StateChange {
 	return b.stateChanges
 }
 
+// BuildCopyRows builds the COPY rows of every bulk table (transactions,
+// transaction_hashes, operations, transactions_accounts, operations_accounts,
+// state_changes) from the buffer's current contents and stores them for the
+// Get*CopyRows getters, replacing rows a previous call stored. Building is pure
+// CPU work, so a worker can call it on its own buffer while another goroutine
+// streams a different buffer's rows. A failed build leaves no rows stored.
+func (b *IndexerBuffer) BuildCopyRows() error {
+	b.dropCopyRows()
+	txs := b.GetTransactions()
+	ops := b.GetOperations()
+
+	txRows, err := data.BuildTransactionCopyRows(txs)
+	if err != nil {
+		return fmt.Errorf("building transactions COPY rows: %w", err)
+	}
+	txHashRows, err := data.BuildTransactionHashCopyRows(txs)
+	if err != nil {
+		return fmt.Errorf("building transaction_hashes COPY rows: %w", err)
+	}
+	txAccountRows, err := data.BuildTransactionAccountCopyRows(txs, b.participantsByToID)
+	if err != nil {
+		return fmt.Errorf("building transactions_accounts COPY rows: %w", err)
+	}
+	opAccountRows, err := data.BuildOperationAccountCopyRows(ops, b.participantsByOpID)
+	if err != nil {
+		return fmt.Errorf("building operations_accounts COPY rows: %w", err)
+	}
+	// BuildStateChangeCopyRows wraps its failures in data.ErrRowEncoding.
+	stateChangeRows, err := data.BuildStateChangeCopyRows(b.stateChanges)
+	if err != nil {
+		return fmt.Errorf("building state_changes COPY rows: %w", err)
+	}
+
+	b.transactionCopyRows = txRows
+	b.transactionHashCopyRows = txHashRows
+	b.operationCopyRows = data.BuildOperationCopyRows(ops)
+	b.transactionAccountCopyRows = txAccountRows
+	b.operationAccountCopyRows = opAccountRows
+	b.stateChangeCopyRows = stateChangeRows
+	return nil
+}
+
+// dropCopyRows releases the rows BuildCopyRows stored.
+func (b *IndexerBuffer) dropCopyRows() {
+	b.transactionCopyRows = nil
+	b.transactionHashCopyRows = nil
+	b.operationCopyRows = nil
+	b.transactionAccountCopyRows = nil
+	b.operationAccountCopyRows = nil
+	b.stateChangeCopyRows = nil
+}
+
+// GetTransactionCopyRows returns the transactions COPY rows BuildCopyRows stored;
+// callers must not modify them.
+func (b *IndexerBuffer) GetTransactionCopyRows() [][]any { return b.transactionCopyRows }
+
+// GetTransactionHashCopyRows returns the transaction_hashes COPY rows BuildCopyRows
+// stored; callers must not modify them.
+func (b *IndexerBuffer) GetTransactionHashCopyRows() [][]any { return b.transactionHashCopyRows }
+
+// GetOperationCopyRows returns the operations COPY rows BuildCopyRows stored;
+// callers must not modify them.
+func (b *IndexerBuffer) GetOperationCopyRows() [][]any { return b.operationCopyRows }
+
+// GetTransactionAccountCopyRows returns the transactions_accounts COPY rows
+// BuildCopyRows stored; callers must not modify them.
+func (b *IndexerBuffer) GetTransactionAccountCopyRows() [][]any { return b.transactionAccountCopyRows }
+
+// GetOperationAccountCopyRows returns the operations_accounts COPY rows
+// BuildCopyRows stored; callers must not modify them.
+func (b *IndexerBuffer) GetOperationAccountCopyRows() [][]any { return b.operationAccountCopyRows }
+
+// GetStateChangeCopyRows returns the state_changes COPY rows BuildCopyRows stored;
+// callers must not modify them.
+func (b *IndexerBuffer) GetStateChangeCopyRows() [][]any { return b.stateChangeCopyRows }
+
 // TransactionResult is the per-transaction output produced by a parallel worker in
 // ProcessLedgerTransactions. Workers build these independently (no shared buffer, no locks); the
 // serial fold (IngestTransactionResult) then replays them into one ledger buffer. This avoids
@@ -495,6 +580,8 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.sacBalanceChangesByKey)
 	clear(b.lpShareChangesByKey)
 	clear(b.lpChangesByPoolID)
+
+	b.dropCopyRows()
 }
 
 // GetUniqueTrustlineAssets returns all unique trustline assets with pre-computed IDs.

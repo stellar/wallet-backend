@@ -2,12 +2,16 @@ package indexer
 
 import (
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 func participantSet(addrs ...string) map[string]struct{} {
@@ -914,5 +918,120 @@ func TestIndexerBuffer_PushTrustlineChange_MemoizedAssets(t *testing.T) {
 		buffer.PushTrustlineChange(trustline(addrA, 100, types.TrustlineOpAdd))
 		assert.Len(t, buffer.GetTrustlineChanges(), 1)
 		require.Len(t, buffer.GetUniqueTrustlineAssets(), 1)
+	})
+}
+
+func TestIndexerBuffer_BuildCopyRows(t *testing.T) {
+	now := time.Now()
+	alice := keypair.MustRandom().Address()
+	bob := keypair.MustRandom().Address()
+	carol := keypair.MustRandom().Address()
+
+	tx1 := types.Transaction{Hash: "a76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48761", ToID: 1, LedgerNumber: 1, LedgerCreatedAt: now}
+	tx2 := types.Transaction{Hash: "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762", ToID: 2, LedgerNumber: 1, LedgerCreatedAt: now}
+	op1 := types.Operation{ID: 11, OperationType: types.OperationTypePayment, LedgerNumber: 1, LedgerCreatedAt: now}
+	op2 := types.Operation{ID: 12, OperationType: types.OperationTypePayment, LedgerNumber: 1, LedgerCreatedAt: now}
+
+	fill := func(b *IndexerBuffer) {
+		b.PushOperation(alice, &op1, &tx1)
+		b.PushOperation(bob, &op2, &tx2)
+		b.PushTransaction(carol, &tx1)
+		sc := buildStateChange(tx1.ToID, types.StateChangeReasonDebit, alice, op1.ID)
+		sc.LedgerCreatedAt = now
+		b.PushStateChange(&tx1, &op1, sc)
+		b.PushStateChange(&tx2, nil, buildStateChange(tx2.ToID, types.StateChangeReasonDebit, bob, 0))
+	}
+
+	requireNoCopyRows := func(t *testing.T, b *IndexerBuffer) {
+		t.Helper()
+		assert.Empty(t, b.GetTransactionCopyRows())
+		assert.Empty(t, b.GetTransactionHashCopyRows())
+		assert.Empty(t, b.GetOperationCopyRows())
+		assert.Empty(t, b.GetTransactionAccountCopyRows())
+		assert.Empty(t, b.GetOperationAccountCopyRows())
+		assert.Empty(t, b.GetStateChangeCopyRows())
+	}
+
+	t.Run("rows_match_the_data_builders", func(t *testing.T) {
+		b := NewIndexerBuffer()
+		fill(b)
+		requireNoCopyRows(t, b)
+		require.NoError(t, b.BuildCopyRows())
+
+		txs := b.GetTransactions()
+		ops := b.GetOperations()
+		wantTxRows, err := data.BuildTransactionCopyRows(txs)
+		require.NoError(t, err)
+		wantHashRows, err := data.BuildTransactionHashCopyRows(txs)
+		require.NoError(t, err)
+		wantTxAccountRows, err := data.BuildTransactionAccountCopyRows(txs, b.GetTransactionsParticipants())
+		require.NoError(t, err)
+		wantOpAccountRows, err := data.BuildOperationAccountCopyRows(ops, b.GetOperationsParticipants())
+		require.NoError(t, err)
+		wantStateChangeRows, err := data.BuildStateChangeCopyRows(b.GetStateChanges())
+		require.NoError(t, err)
+
+		// The buffer's maps iterate in random order, so the row sets are compared unordered.
+		assert.ElementsMatch(t, wantTxRows, b.GetTransactionCopyRows())
+		assert.ElementsMatch(t, wantHashRows, b.GetTransactionHashCopyRows())
+		assert.ElementsMatch(t, data.BuildOperationCopyRows(ops), b.GetOperationCopyRows())
+		assert.ElementsMatch(t, wantTxAccountRows, b.GetTransactionAccountCopyRows())
+		assert.ElementsMatch(t, wantOpAccountRows, b.GetOperationAccountCopyRows())
+		assert.Equal(t, wantStateChangeRows, b.GetStateChangeCopyRows())
+
+		// Counts follow the buffer: tx1 links alice and carol, tx2 links bob, each
+		// operation links one participant.
+		assert.Len(t, b.GetTransactionCopyRows(), b.GetNumberOfTransactions())
+		assert.Len(t, b.GetTransactionHashCopyRows(), b.GetNumberOfTransactions())
+		assert.Len(t, b.GetOperationCopyRows(), b.GetNumberOfOperations())
+		assert.Len(t, b.GetTransactionAccountCopyRows(), 3)
+		assert.Len(t, b.GetOperationAccountCopyRows(), 2)
+		assert.Len(t, b.GetStateChangeCopyRows(), len(b.GetStateChanges()))
+
+		// Each row carries its parent key: to_id for transactions and state changes, id for operations.
+		firstInt8s := func(rows [][]any, col int) []int64 {
+			ids := make([]int64, 0, len(rows))
+			for _, row := range rows {
+				v, ok := row[col].(pgtype.Int8)
+				require.True(t, ok)
+				ids = append(ids, v.Int64)
+			}
+			return ids
+		}
+		assert.ElementsMatch(t, []int64{tx1.ToID, tx2.ToID}, firstInt8s(b.GetTransactionCopyRows(), 1))
+		assert.ElementsMatch(t, []int64{op1.ID, op2.ID}, firstInt8s(b.GetOperationCopyRows(), 0))
+		assert.Equal(t, []int64{tx1.ToID, tx2.ToID}, firstInt8s(b.GetStateChangeCopyRows(), 0))
+	})
+
+	t.Run("clear_drops_rows", func(t *testing.T) {
+		b := NewIndexerBuffer()
+		fill(b)
+		require.NoError(t, b.BuildCopyRows())
+		require.NotEmpty(t, b.GetTransactionCopyRows())
+
+		b.Clear()
+		requireNoCopyRows(t, b)
+	})
+
+	t.Run("failed_build_stores_no_rows", func(t *testing.T) {
+		b := NewIndexerBuffer()
+		fill(b)
+		require.NoError(t, b.BuildCopyRows())
+
+		b.PushTransaction("not-a-strkey", &tx2)
+		err := b.BuildCopyRows()
+		require.ErrorContains(t, err, "building transactions_accounts COPY rows")
+		requireNoCopyRows(t, b)
+	})
+
+	t.Run("state_change_encoding_failure_is_row_encoding", func(t *testing.T) {
+		b := NewIndexerBuffer()
+		fill(b)
+		bad := buildStateChange(tx2.ToID, types.StateChangeReasonDebit, bob, 0)
+		bad.SignerAccountID = utils.NullSignerKeyBytea("not-a-strkey")
+		b.PushStateChange(&tx2, nil, bad)
+
+		require.ErrorIs(t, b.BuildCopyRows(), data.ErrRowEncoding)
+		requireNoCopyRows(t, b)
 	})
 }

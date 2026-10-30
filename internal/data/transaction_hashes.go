@@ -102,43 +102,65 @@ func transactionKeyByHash(ctx context.Context, conn db.Querier, hash string) (to
 	return 0, time.Time{}, false, nil
 }
 
-// BatchCopyHashes writes the transaction_hashes rows for txs using pgx's binary COPY protocol. It
+// BatchCopyHashes writes the transaction_hashes rows for txs using pgx's binary COPY protocol: it
+// builds every row with BuildTransactionHashCopyRows, then streams them with CopyHashRows. It
 // runs in the same database transaction as BatchCopy, so a transaction and its lookup row commit
 // together. transaction_hashes has no unique constraint: re-ingesting a ledger after a crash
 // writes the same rows again, and lookups tolerate the duplicates.
 func (m *TransactionModel) BatchCopyHashes(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) (int, error) {
-	if len(txs) == 0 {
+	rows, err := BuildTransactionHashCopyRows(txs)
+	if err != nil {
+		return 0, fmt.Errorf("building %s COPY rows: %w", TransactionHashesTable, err)
+	}
+	copyCount, err := m.CopyHashRows(ctx, pgxTx, rows)
+	if err != nil {
+		return 0, err
+	}
+	return int(copyCount), nil
+}
+
+// transactionHashCopyColumns is the transaction_hashes COPY column order, matching the tuple
+// order BuildTransactionHashCopyRows produces.
+var transactionHashCopyColumns = []string{"hash_bucket", "hash_prefix", "ledger_close_epoch"}
+
+// BuildTransactionHashCopyRows returns one transactionHashCopyColumns-shaped tuple per
+// transaction, in input order. It touches no database and no metrics, so callers can build
+// rows on any goroutine.
+func BuildTransactionHashCopyRows(txs []*types.Transaction) ([][]any, error) {
+	rows := make([][]any, 0, len(txs))
+	for _, tx := range txs {
+		bucket, prefix, err := tx.Hash.LookupKey()
+		if err != nil {
+			return nil, fmt.Errorf("computing lookup key for hash %s: %w", tx.Hash, err)
+		}
+		rows = append(rows, []any{
+			pgtype.Int2{Int16: bucket, Valid: true},
+			pgtype.Int8{Int64: prefix, Valid: true},
+			pgtype.Int8{Int64: tx.LedgerCreatedAt.Unix(), Valid: true},
+		})
+	}
+	return rows, nil
+}
+
+// CopyHashRows streams pre-built transaction_hashes tuples (see BuildTransactionHashCopyRows)
+// with pgx's binary COPY protocol and returns the number of rows written.
+func (m *TransactionModel) CopyHashRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-	copyCount, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{TransactionHashesTable},
-		[]string{"hash_bucket", "hash_prefix", "ledger_close_epoch"},
-		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
-			tx := txs[i]
-			bucket, prefix, err := tx.Hash.LookupKey()
-			if err != nil {
-				return nil, fmt.Errorf("computing lookup key for hash %s: %w", tx.Hash, err)
-			}
-			return []any{
-				pgtype.Int2{Int16: bucket, Valid: true},
-				pgtype.Int8{Int64: prefix, Valid: true},
-				pgtype.Int8{Int64: tx.LedgerCreatedAt.Unix(), Valid: true},
-			}, nil
-		}),
-	)
+	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{TransactionHashesTable}, transactionHashCopyColumns, pgx.CopyFromRows(rows))
 	m.Metrics.QueryDuration.WithLabelValues("BatchCopyHashes", TransactionHashesTable).Observe(time.Since(start).Seconds())
-	m.Metrics.BatchSize.WithLabelValues("BatchCopyHashes", TransactionHashesTable).Observe(float64(len(txs)))
+	m.Metrics.BatchSize.WithLabelValues("BatchCopyHashes", TransactionHashesTable).Observe(float64(len(rows)))
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopyHashes", TransactionHashesTable).Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopyHashes", TransactionHashesTable, utils.GetDBErrorType(err)).Inc()
 		return 0, fmt.Errorf("pgx CopyFrom %s: %w", TransactionHashesTable, err)
 	}
-	if int(copyCount) != len(txs) {
+	if int(copyCount) != len(rows) {
 		m.Metrics.QueryErrors.WithLabelValues("BatchCopyHashes", TransactionHashesTable, "row_count_mismatch").Inc()
-		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
+		return 0, fmt.Errorf("expected %d rows copied, got %d", len(rows), copyCount)
 	}
-	return len(txs), nil
+	return copyCount, nil
 }

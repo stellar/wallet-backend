@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -563,5 +564,127 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 		tx, qErr := m.GetByHash(ctx, hashAboveCursor.String(), "")
 		require.NoError(t, qErr)
 		assert.Nil(t, tx, "a transaction past the committed cursor reads as not found")
+	})
+}
+
+// copiedColumnsQuery selects exactly the columns a COPY writes, so columns the database
+// fills on insert (such as ingestion timestamps) do not differ between two writes.
+func copiedColumnsQuery(table string, columns []string, orderBy string) string {
+	return fmt.Sprintf("SELECT %s FROM %s ORDER BY %s", strings.Join(columns, ", "), table, orderBy)
+}
+
+// requireCopyPathsWriteSameRows runs viaBatch and viaRows, each in its own transaction on
+// conn that is rolled back afterwards, and requires both to leave the same non-empty
+// result for query. It pins a model's BatchCopy against its row builder plus CopyRows.
+func requireCopyPathsWriteSameRows(t *testing.T, ctx context.Context, conn *pgx.Conn, query string, viaBatch, viaRows func(pgx.Tx) error) {
+	t.Helper()
+
+	snapshot := func(write func(pgx.Tx) error) [][]any {
+		pgxTx, err := conn.Begin(ctx)
+		require.NoError(t, err)
+		defer pgxTx.Rollback(ctx)
+
+		require.NoError(t, write(pgxTx))
+		rows, err := pgxTx.Query(ctx, query)
+		require.NoError(t, err)
+		defer rows.Close()
+		var got [][]any
+		for rows.Next() {
+			values, err := rows.Values()
+			require.NoError(t, err)
+			got = append(got, values)
+		}
+		require.NoError(t, rows.Err())
+		return got
+	}
+
+	viaBatchRows := snapshot(viaBatch)
+	require.NotEmpty(t, viaBatchRows)
+	assert.Equal(t, viaBatchRows, snapshot(viaRows))
+}
+
+func TestTransactionModel_CopyRowsMatchesBatchCopy(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	m := &TransactionModel{Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	txs, addressesByToID := generateTestTransactions(5, 100)
+	// A second participant on one transaction exercises several links per parent.
+	addressesByToID[txs[0].ToID][keypair.MustRandom().Address()] = struct{}{}
+
+	t.Run("transactions", func(t *testing.T) {
+		requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery("transactions", transactionCopyColumns, "to_id"),
+			func(pgxTx pgx.Tx) error {
+				_, err := m.BatchCopy(ctx, pgxTx, txs)
+				return err
+			},
+			func(pgxTx pgx.Tx) error {
+				rows, err := BuildTransactionCopyRows(txs)
+				if err != nil {
+					return err
+				}
+				n, err := m.CopyRows(ctx, pgxTx, rows)
+				assert.Equal(t, int64(len(txs)), n)
+				return err
+			})
+	})
+
+	t.Run("transaction_hashes", func(t *testing.T) {
+		requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery(TransactionHashesTable, transactionHashCopyColumns, "hash_bucket, hash_prefix, ledger_close_epoch"),
+			func(pgxTx pgx.Tx) error {
+				_, err := m.BatchCopyHashes(ctx, pgxTx, txs)
+				return err
+			},
+			func(pgxTx pgx.Tx) error {
+				rows, err := BuildTransactionHashCopyRows(txs)
+				if err != nil {
+					return err
+				}
+				n, err := m.CopyHashRows(ctx, pgxTx, rows)
+				assert.Equal(t, int64(len(txs)), n)
+				return err
+			})
+	})
+
+	t.Run("transactions_accounts", func(t *testing.T) {
+		requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery("transactions_accounts", accountLinkCopyColumns("tx_to_id"), "tx_to_id, account_id"),
+			func(pgxTx pgx.Tx) error {
+				return m.BatchCopyAccounts(ctx, pgxTx, txs, addressesByToID)
+			},
+			func(pgxTx pgx.Tx) error {
+				rows, err := BuildTransactionAccountCopyRows(txs, addressesByToID)
+				if err != nil {
+					return err
+				}
+				n, err := m.CopyAccountRows(ctx, pgxTx, rows)
+				assert.Equal(t, int64(len(txs)+1), n)
+				return err
+			})
+	})
+}
+
+func TestBuildAccountLinkCopyRows(t *testing.T) {
+	now := time.Now()
+	txs := []*types.Transaction{{ToID: 7, LedgerCreatedAt: now}}
+
+	t.Run("no_participants", func(t *testing.T) {
+		rows, err := BuildTransactionAccountCopyRows(txs, nil)
+		require.NoError(t, err)
+		assert.Empty(t, rows)
+	})
+
+	t.Run("participant_without_parent", func(t *testing.T) {
+		_, err := BuildTransactionAccountCopyRows(txs, map[int64]map[string]struct{}{8: {keypair.MustRandom().Address(): {}}})
+		require.ErrorContains(t, err, "no row supplies ledger_created_at for tx_to_id 8")
+	})
+
+	t.Run("invalid_address", func(t *testing.T) {
+		_, err := BuildTransactionAccountCopyRows(txs, map[int64]map[string]struct{}{7: {"not-a-strkey": {}}})
+		require.ErrorContains(t, err, "converting address not-a-strkey to bytes")
 	})
 }
