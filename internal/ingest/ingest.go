@@ -65,12 +65,12 @@ type Configs struct {
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.GOMAXPROCS(0). Lower values reduce RAM usage.
 	BackfillWorkers int
-	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
-	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillBatchSize int
-	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillDBInsertBatchSize int
+	// BackfillFlushSize is the number of ledgers written per database flush
+	// during backfill.
+	BackfillFlushSize int
+	// BackfillCompressConcurrency is the number of chunks a backfill compresses
+	// at once; it also sets how many uncompressed windows a run may hold.
+	BackfillCompressConcurrency int
 	// LivePersistMaxBatchSize caps how many consecutive ledgers live
 	// ingestion coalesces into one persist commit when persist falls behind.
 	// 1 persists every ledger in its own commit.
@@ -156,13 +156,13 @@ func Ingest(cfg Configs) error {
 	}
 	defer cleanup()
 
-	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger))
+	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger))
 	if runErr != nil {
 		if isCleanShutdown(ctx, runErr, cfg.IngestionMode) {
 			log.Ctx(ctx).Infof("shutdown requested; exiting cleanly: %v", runErr)
 			return nil
 		}
-		return fmt.Errorf("running 'ingest' from %d to %d: %w", cfg.StartLedger, cfg.EndLedger, runErr)
+		return fmt.Errorf("running 'ingest' from ledger %d: %w", cfg.StartLedger, runErr)
 	}
 
 	return nil
@@ -182,18 +182,6 @@ func isCleanShutdown(ctx context.Context, err error, ingestionMode string) bool 
 		return true
 	}
 	return errors.Is(err, context.Canceled)
-}
-
-// backfillWorkerCount returns how many backfill workers run: the configured count (one per CPU
-// by default), lowered so that every worker gets at least one of each setting the workers
-// share. Memory then follows those settings and not the CPU count.
-func backfillWorkerCount(cfg Configs) int {
-	workers := min(services.BackfillWorkerCount(cfg.BackfillWorkers), max(1, cfg.BackfillDBInsertBatchSize))
-	if cfg.LedgerBackendType == LedgerBackendTypeDatastore {
-		ds := cfg.Datastore.withDefaults()
-		workers = min(workers, int(ds.BufferSize), int(ds.NumWorkers))
-	}
-	return workers
 }
 
 // setupDeps builds the ingest service and its dependencies. The returned
@@ -227,6 +215,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		}
 		if err := configureTransactionHashesMaintenance(ctx, dbConnectionPool, cfg.TransactionHashesMaintenanceInterval, cfg.TransactionHashesMaintenanceWorkers); err != nil {
 			return nil, nil, fmt.Errorf("configuring transaction_hashes maintenance: %w", err)
+		}
+		if err := scheduleCompressionPolicies(ctx, dbConnectionPool); err != nil {
+			return nil, nil, fmt.Errorf("scheduling compression policies: %w", err)
 		}
 	}
 
@@ -323,24 +314,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		MetricsService:            m.Ingestion,
 	})
 
-	// Create a factory function for parallel backfill (each batch needs its own backend).
-	// The batches run concurrently, one per backfill worker, so the workers share the
-	// configured datastore buffer, download workers and ledgers buffered before a database
-	// flush instead of each taking the full amount.
-	backfillWorkers := backfillWorkerCount(cfg)
-	perWorkerCfg := cfg
-	perWorkerCfg.Datastore = cfg.Datastore.splitAcross(backfillWorkers)
-	perWorkerCfg.BackfillDBInsertBatchSize = cfg.BackfillDBInsertBatchSize / backfillWorkers
-	if cfg.IngestionMode == services.IngestionModeBackfill {
-		if requested := services.BackfillWorkerCount(cfg.BackfillWorkers); backfillWorkers < requested {
-			log.Ctx(ctx).Infof("backfill: running %d workers instead of %d so that each gets a share of DATASTORE_BUFFER_SIZE, DATASTORE_NUM_WORKERS and BACKFILL_DB_INSERT_BATCH_SIZE; raise those to run more workers",
-				backfillWorkers, requested)
-		}
-		log.Ctx(ctx).Infof("backfill: %d workers, each with a datastore buffer of %d files, %d download workers and a database flush every %d ledgers",
-			backfillWorkers, perWorkerCfg.Datastore.BufferSize, perWorkerCfg.Datastore.NumWorkers, perWorkerCfg.BackfillDBInsertBatchSize)
-	}
+	// Create a factory function for parallel backfill (each batch needs its own backend)
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-		return NewLedgerBackend(ctx, perWorkerCfg)
+		return NewLedgerBackend(ctx, cfg)
 	}
 
 	// Resolve protocol processors and validators from the registries.
@@ -371,20 +347,21 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		LedgerBackendFactory: ledgerBackendFactory,
 		// Never matches for the RPC backend (it never wraps ErrBufferDead), so this is safe
 		// to wire unconditionally rather than branching on cfg.LedgerBackendType.
-		IsPermanentFetchError:     func(err error) bool { return errors.Is(err, ErrBufferDead) },
-		TokenIngestionService:     tokenIngestionService,
-		CheckpointService:         checkpointService,
-		Metrics:                   m,
-		NetworkPassphrase:         cfg.NetworkPassphrase,
-		Archive:                   archive,
-		BackfillWorkers:           backfillWorkers,
-		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: perWorkerCfg.BackfillDBInsertBatchSize,
-		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
-		ProtocolProcessors:        protocolProcessors,
-		ProtocolValidators:        protocolValidators,
-		WasmSpecExtractor:         wasmExtractor,
-		PostLockTasks:             postLockTasks,
+		IsPermanentFetchError:       func(err error) bool { return errors.Is(err, ErrBufferDead) },
+		TokenIngestionService:       tokenIngestionService,
+		CheckpointService:           checkpointService,
+		Metrics:                     m,
+		NetworkPassphrase:           cfg.NetworkPassphrase,
+		Archive:                     archive,
+		BackfillWorkers:             cfg.BackfillWorkers,
+		BackfillFlushSize:           cfg.BackfillFlushSize,
+		BackfillCompressConcurrency: cfg.BackfillCompressConcurrency,
+		DatastoreBufferSize:         int(cfg.Datastore.BufferSize),
+		LivePersistMaxBatchSize:     cfg.LivePersistMaxBatchSize,
+		ProtocolProcessors:          protocolProcessors,
+		ProtocolValidators:          protocolValidators,
+		WasmSpecExtractor:           wasmExtractor,
+		PostLockTasks:               postLockTasks,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)

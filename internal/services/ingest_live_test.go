@@ -66,7 +66,7 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	})
 	require.NoError(t, err)
 
-	err = svc.Run(ctx, 0, 0)
+	err = svc.Run(ctx, 0)
 	require.Error(t, err, "run should surface the context cancellation")
 
 	// Verify the lock was released using a second, independent pool: Postgres
