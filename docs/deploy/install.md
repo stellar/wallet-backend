@@ -16,7 +16,7 @@ Config names use the environment-variable form. Every variable and its default i
 | Component | Version | Notes |
 | --- | --- | --- |
 | PostgreSQL | 17 | One database per network |
-| TimescaleDB | 2.31.x | The extension must exist in the database before `migrate up`. Migrations never run `CREATE EXTENSION` |
+| TimescaleDB | 2.31.x | The extension must exist in the database before `migrate up`. Migrations never run `CREATE EXTENSION`. Backfill refuses to start below 2.31.0 |
 | `timescaledb.enable_chunk_skipping` | `on` | Server setting. Migrations call `enable_chunk_skipping()` on the hypertables, which TimescaleDB refuses while the setting is off, so `migrate up` fails |
 | `timescaledb.enable_sparse_index_bloom` | `on` | Server setting. The hypertable migrations declare `bloom(...)` sparse indexes, which TimescaleDB only accepts with this setting on |
 | stellar-rpc | 29.x or 30.x, same network. The integration suite and the quickstart run 30.0.0 | Used for `getHealth`, `getLedgers`, `getLedgerEntries`, `simulateTransaction` |

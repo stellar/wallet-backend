@@ -60,7 +60,7 @@ If the release adds a protocol, run its data migration after step 5. See [protoc
 
 ## Upgrading the TimescaleDB extension
 
-The wallet-backend images and migrations require TimescaleDB 2.31.0 or newer. `ingest` refuses to start on an older extension and names the version it found and the version it requires.
+Backfill requires TimescaleDB 2.31.0 or newer. `ingest --ingestion-mode=backfill` refuses to start on an older extension and names the version it found and the version it requires. Live ingestion does not check the version. The pinned images, CI and the integration tests use 2.31.0, so upgrade before your first backfill.
 
 To upgrade the extension:
 

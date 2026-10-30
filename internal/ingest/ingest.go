@@ -211,6 +211,11 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to the database: %w", err)
 	}
+	if cfg.IngestionMode == services.IngestionModeBackfill {
+		if err := requireTimescaleDBVersion(ctx, dbConnectionPool); err != nil {
+			return nil, nil, fmt.Errorf("checking the timescaledb version for backfill: %w", err)
+		}
+	}
 
 	// Retention and compression policies live in shared database state, so only
 	// the live deployment configures them. A backfill runs with ad-hoc flags and
