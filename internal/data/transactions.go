@@ -283,12 +283,19 @@ func BuildTransactionCopyRows(txs []*types.Transaction) ([][]any, error) {
 // pgx's binary COPY protocol and returns the number of rows written. It carries the
 // same duplicate-failure semantics as BatchCopy.
 func (m *TransactionModel) CopyRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
+	return m.CopyRowsInto(ctx, pgxTx, pgx.Identifier{"transactions"}, rows)
+}
+
+// CopyRowsInto streams transactions tuples into relation, a table with the
+// transactions columns: the hypertable itself or a backfill staging table that
+// becomes one of its chunks. Metrics are recorded against the hypertable.
+func (m *TransactionModel) CopyRowsInto(ctx context.Context, pgxTx pgx.Tx, relation pgx.Identifier, rows [][]any) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
 
 	start := time.Now()
-	copyCount, err := pgxTx.CopyFrom(ctx, pgx.Identifier{"transactions"}, transactionCopyColumns, pgx.CopyFromRows(rows))
+	copyCount, err := pgxTx.CopyFrom(ctx, relation, transactionCopyColumns, pgx.CopyFromRows(rows))
 	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(time.Since(start).Seconds())
 	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(rows)))
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
@@ -338,5 +345,11 @@ func BuildTransactionAccountCopyRows(txs []*types.Transaction, stellarAddressesB
 // CopyAccountRows streams pre-built transactions_accounts tuples (see
 // BuildTransactionAccountCopyRows) and returns the number of rows written.
 func (m *TransactionModel) CopyAccountRows(ctx context.Context, pgxTx pgx.Tx, rows [][]any) (int64, error) {
-	return copyAccountLinkRows(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", rows)
+	return m.CopyAccountRowsInto(ctx, pgxTx, pgx.Identifier{"transactions_accounts"}, rows)
+}
+
+// CopyAccountRowsInto streams transactions_accounts tuples into relation (the
+// hypertable or a backfill staging table with its columns).
+func (m *TransactionModel) CopyAccountRowsInto(ctx context.Context, pgxTx pgx.Tx, relation pgx.Identifier, rows [][]any) (int64, error) {
+	return copyAccountLinkRows(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", relation, rows)
 }
