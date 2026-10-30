@@ -25,13 +25,9 @@ type backfillWindow struct {
 	RangeEnd    time.Time
 	FirstLedger uint32
 	LastLedger  uint32
-	// Attachable is true when none of the bulk hypertables has a chunk
-	// overlapping the range, so the window's rows can be staged and attached
-	// as new chunks. Otherwise the window is written with plain COPY into the
-	// existing chunks.
-	Attachable bool
 	// BelowCursor is true for the contiguous region under oldest_ingest_ledger:
-	// closing such a window lowers the cursor to FirstLedger.
+	// closing such a window lowers the cursor to FirstLedger. Only such a
+	// window can be attached as a chunk; a gap window is written in place.
 	BelowCursor bool
 }
 
@@ -247,10 +243,8 @@ func findFirstLedgerAtOrAfter(ctx context.Context, probe ledgerCloseTimeProbe, t
 // window is placed only when it is reached, so a run never spends probes on
 // windows it has not got to.
 type backfillPlanner struct {
-	pool       db.Querier
 	probe      ledgerCloseTimeProbe
 	interval   time.Duration
-	tables     []string
 	startLeger uint32
 
 	// The window above the next one: its first ledger and range start bound
@@ -266,7 +260,7 @@ type backfillPlanner struct {
 
 // newBackfillPlanner prepares the walk below the cursor. cursor is
 // oldest_ingest_ledger; the first window ends at cursor-1.
-func newBackfillPlanner(ctx context.Context, pool db.Querier, probe ledgerCloseTimeProbe, interval time.Duration, startLedger, cursor uint32) (*backfillPlanner, error) {
+func newBackfillPlanner(ctx context.Context, probe ledgerCloseTimeProbe, interval time.Duration, startLedger, cursor uint32) (*backfillPlanner, error) {
 	if startLedger >= cursor {
 		return &backfillPlanner{done: true}, nil
 	}
@@ -276,10 +270,8 @@ func newBackfillPlanner(ctx context.Context, pool db.Querier, probe ledgerCloseT
 		return nil, fmt.Errorf("placing the ledger below the cursor: %w", err)
 	}
 	return &backfillPlanner{
-		pool:           pool,
 		probe:          probe,
 		interval:       interval,
-		tables:         data.BulkCopyTableNames(),
 		startLeger:     startLedger,
 		nextLastLedger: last,
 		nextRangeEnd:   alignToChunk(lastClose, interval).Add(interval),
@@ -289,8 +281,7 @@ func newBackfillPlanner(ctx context.Context, pool db.Querier, probe ledgerCloseT
 }
 
 // Next returns the next window below the previous one, or ok=false once the
-// start ledger has been reached. Chunk overlap is read fresh for every
-// window: the live ingester may create chunks while the run goes on.
+// start ledger has been reached.
 func (p *backfillPlanner) Next(ctx context.Context) (backfillWindow, bool, error) {
 	if p.done {
 		return backfillWindow{}, false, nil
@@ -303,16 +294,11 @@ func (p *backfillPlanner) Next(ctx context.Context) (backfillWindow, bool, error
 		return backfillWindow{}, false, fmt.Errorf("placing window starting %s: %w", rangeStart.UTC().Format(time.RFC3339), err)
 	}
 
-	ranges, err := readChunkRanges(ctx, p.pool, p.tables)
-	if err != nil {
-		return backfillWindow{}, false, err
-	}
 	w := backfillWindow{
 		RangeStart:  rangeStart,
 		RangeEnd:    rangeEnd,
 		FirstLedger: first,
 		LastLedger:  p.nextLastLedger,
-		Attachable:  !overlapsAnyChunk(ranges, rangeStart, rangeEnd),
 		BelowCursor: true,
 	}
 
@@ -360,7 +346,6 @@ func gapWindows(ctx context.Context, probe ledgerCloseTimeProbe, gaps []data.Led
 			RangeEnd:    alignToChunk(lastClose, interval).Add(interval),
 			FirstLedger: gap.GapStart,
 			LastLedger:  gap.GapEnd,
-			Attachable:  false,
 			BelowCursor: false,
 		})
 	}
