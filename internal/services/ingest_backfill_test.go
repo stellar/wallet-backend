@@ -41,8 +41,14 @@ type backfillTestChain struct {
 	first   uint32
 }
 
-// backfillTestFirstLedger is the first ledger every test chain starts at.
-const backfillTestFirstLedger = 1000
+// backfillTestFirstLedger is the first ledger every test chain starts at;
+// live ingestion in the tests covers backfillTestLiveFirstLedger to
+// backfillTestLastLedger.
+const (
+	backfillTestFirstLedger     = 1000
+	backfillTestLiveFirstLedger = 1100
+	backfillTestLastLedger      = 1130
+)
 
 func newBackfillTestChain(t *testing.T, last uint32) *backfillTestChain {
 	first := uint32(backfillTestFirstLedger)
@@ -119,8 +125,9 @@ func newBackfillTestService(t *testing.T, models *data.Models, factory LedgerBac
 
 // writeLiveLedgers writes ledgers the way live ingestion would, one commit
 // per ledger through the shared insert path, and sets the cursors around them.
-func writeLiveLedgers(t *testing.T, ctx context.Context, svc *ingestService, pool *pgxpool.Pool, chain *backfillTestChain, first, last uint32) {
+func writeLiveLedgers(t *testing.T, ctx context.Context, svc *ingestService, pool *pgxpool.Pool, chain *backfillTestChain) {
 	t.Helper()
+	first, last := uint32(backfillTestLiveFirstLedger), uint32(backfillTestLastLedger)
 	buffer := indexer.NewIndexerBuffer()
 	for seq := first; seq <= last; seq++ {
 		buffer.Clear()
@@ -182,7 +189,7 @@ func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 	// ingested 1100-1130, so hour 1's chunk exists and is shared.
 	chain := newBackfillTestChain(t, 1130)
 	svc := newBackfillTestService(t, models, chain.factory(nil))
-	writeLiveLedgers(t, ctx, svc, pool, chain, 1100, 1130)
+	writeLiveLedgers(t, ctx, svc, pool, chain)
 	liveLedgers := distinctLedgers(t, ctx, pool, 1100, 1130)
 	require.Equal(t, 31, liveLedgers)
 
@@ -203,13 +210,25 @@ func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 
 	// Hour 0 ends before the first live ledger (01:40), so the backfill
 	// compressed it; hour 1 holds live rows and is left to the live policy.
+	// Hour 0 had no chunk in any table, so it was staged and attached; hour
+	// 1 already had live chunks, so it was written in place.
 	hour0 := chain.base
 	hour1 := chain.base.Add(time.Hour)
 	for _, table := range data.BulkCopyTableNames() {
 		state := compressedChunksByStart(t, ctx, pool, table)
 		assert.True(t, state[hour0], "%s hour 0 compressed: %v", table, state)
 		assert.False(t, state[hour1], "%s hour 1 left uncompressed: %v", table, state)
+
+		schemas := chunkSchemasByStart(t, ctx, pool, table)
+		assert.Equal(t, data.BackfillStagingSchema, schemas[hour0], "%s hour 0 is an attached staging table", table)
+		assert.Equal(t, "_timescaledb_internal", schemas[hour1], "%s hour 1 is the live chunk", table)
 	}
+	var byTOID int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(DISTINCT ledger_number) FROM transactions WHERE to_id BETWEEN (1020::bigint << 32) AND ((1030::bigint << 32) - 1)`).Scan(&byTOID))
+	assert.Equal(t, 10, byTOID, "TOID-keyed reads see the attached window")
+	orphans, err := models.IngestStore.ListOrphanStagingTables(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, orphans)
 	lookupState := compressedChunksByStart(t, ctx, pool, transactionHashesTable)
 	for start, compressed := range lookupState {
 		assert.False(t, compressed, "lookup chunk %s holds live rows and stays uncompressed", start)
@@ -236,16 +255,17 @@ func Test_startBackfilling_failsFastAndARerunConverges(t *testing.T) {
 	// Ledger 1030 cannot be fetched: hour 1 (1060-1099 below live) fills and
 	// lowers the cursor, hour 0 fails after some flushes committed.
 	broken := newBackfillTestService(t, models, chain.factory(map[uint32]error{1030: errLedgerSourceBroken}))
-	writeLiveLedgers(t, ctx, broken, pool, chain, 1100, 1130)
+	writeLiveLedgers(t, ctx, broken, pool, chain)
 
 	err := broken.startBackfilling(ctx, 1010)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errLedgerSourceBroken)
 	assert.Equal(t, uint32(1060), cursorValue(t, ctx, pool, data.OldestLedgerCursorName), "cursor stops at the last complete window")
 	assert.Equal(t, 71, distinctLedgers(t, ctx, pool, 1060, 1130))
-	partial := distinctLedgers(t, ctx, pool, 1010, 1059)
-	assert.Greater(t, partial, 0, "the failed window committed some flushes before failing")
-	assert.Less(t, partial, 50)
+	assert.Zero(t, distinctLedgers(t, ctx, pool, 1010, 1059), "the failed window was staged, nothing reached the hypertables")
+	orphans, err := models.IngestStore.ListOrphanStagingTables(ctx)
+	require.NoError(t, err)
+	assert.Len(t, orphans, len(data.BulkCopyTableNames()), "the failed window's staging tables are left for the next start")
 	assert.Equal(t, float64(1), testutil.ToFloat64(broken.appMetrics.Ingestion.ErrorsTotal.WithLabelValues("backfill_window")))
 	assert.Zero(t, testutil.ToFloat64(broken.appMetrics.Ingestion.RetriesTotal.WithLabelValues("backfill_window")), "a permanent error is not retried")
 
@@ -261,6 +281,62 @@ func Test_startBackfilling_failsFastAndARerunConverges(t *testing.T) {
 	var duplicates int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
+	orphans, err = models.IngestStore.ListOrphanStagingTables(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, orphans, "the rerun dropped the leftover staging tables")
+}
+
+func chunkSchemasByStart(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) map[time.Time]string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT range_start, chunk_schema FROM timescaledb_information.chunks WHERE hypertable_name = $1 AND range_start IS NOT NULL`, table)
+	require.NoError(t, err)
+	defer rows.Close()
+	out := map[time.Time]string{}
+	for rows.Next() {
+		var start time.Time
+		var schema string
+		require.NoError(t, rows.Scan(&start, &schema))
+		out[start.UTC()] = schema
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+func Test_startBackfilling_halfAttachedWindowConverges(t *testing.T) {
+	pool, models := openBackfillTestDB(t)
+	ctx := context.Background()
+	setHourlyChunks(t, ctx, pool)
+	chain := newBackfillTestChain(t, 1130)
+	svc := newBackfillTestService(t, models, chain.factory(nil))
+	writeLiveLedgers(t, ctx, svc, pool, chain)
+
+	// An earlier run died after attaching only transactions for hour 0 and
+	// left the other four staging tables behind, one of them with rows.
+	hour0 := chain.base
+	require.NoError(t, models.IngestStore.CreateStagingTables(ctx, hour0))
+	_, err := pool.Exec(ctx, `INSERT INTO `+data.StagingRelation("transactions", hour0).Sanitize()+` (to_id, hash, fee_charged, result_code, ledger_number, is_fee_bump, ledger_created_at)
+		VALUES ((1020::bigint << 32) + 1, decode(md5('stale'), 'hex') || decode(md5('stale2'), 'hex'), 1, 'stale', 1020, false, $1)`, hour0.Add(20*time.Minute))
+	require.NoError(t, err)
+	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		return data.AttachChunk(ctx, tx, "transactions", hour0, hour0.Add(time.Hour))
+	}))
+
+	require.NoError(t, svc.startBackfilling(ctx, 1010))
+
+	assert.Equal(t, uint32(1010), cursorValue(t, ctx, pool, data.OldestLedgerCursorName))
+	assert.Equal(t, 121, distinctLedgers(t, ctx, pool, 1010, 1130))
+	var stale, duplicates int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions WHERE result_code = 'stale'`).Scan(&stale))
+	assert.Zero(t, stale, "the half-attached window's rows were replaced")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
+	assert.Zero(t, duplicates)
+	orphans, err := models.IngestStore.ListOrphanStagingTables(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, orphans, "the leftover staging tables were dropped")
+	schemas := chunkSchemasByStart(t, ctx, pool, "transactions")
+	assert.Equal(t, data.BackfillStagingSchema, schemas[hour0], "the attached transactions chunk was filled in place")
+	schemas = chunkSchemasByStart(t, ctx, pool, "operations")
+	assert.Equal(t, "_timescaledb_internal", schemas[hour0], "the other tables got ordinary chunks")
 }
 
 func Test_startBackfilling_fillsGapsAboveTheCursor(t *testing.T) {
@@ -269,7 +345,7 @@ func Test_startBackfilling_fillsGapsAboveTheCursor(t *testing.T) {
 	setHourlyChunks(t, ctx, pool)
 	chain := newBackfillTestChain(t, 1130)
 	svc := newBackfillTestService(t, models, chain.factory(nil))
-	writeLiveLedgers(t, ctx, svc, pool, chain, 1100, 1130)
+	writeLiveLedgers(t, ctx, svc, pool, chain)
 
 	// Punch a hole in live history.
 	for _, table := range data.BulkCopyTables {

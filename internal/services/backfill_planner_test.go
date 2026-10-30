@@ -169,7 +169,6 @@ func Test_gapWindows(t *testing.T) {
 	assert.Equal(t, uint32(2100), windows[0].LastLedger)
 	assert.True(t, windows[0].RangeStart.Equal(midnight))
 	assert.True(t, windows[0].RangeEnd.Equal(midnight.Add(day)))
-	assert.False(t, windows[0].Attachable)
 	assert.False(t, windows[0].BelowCursor)
 
 	assert.True(t, windows[1].RangeStart.Equal(midnight), "starts in the first day")

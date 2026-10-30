@@ -95,6 +95,11 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 	if err != nil {
 		return err
 	}
+	if orphans, err := m.models.IngestStore.DropOrphanStagingTables(ctx); err != nil {
+		return fmt.Errorf("dropping staging tables left by an earlier run: %w", err)
+	} else if len(orphans) > 0 {
+		log.Ctx(ctx).Infof("Dropped %d staging tables left by an earlier run: %v", len(orphans), orphans)
+	}
 	probe, closeProbe, err := newLedgerCloseTimeProbe(ctx, m.ledgerBackendFactory)
 	if err != nil {
 		return err
@@ -170,7 +175,7 @@ func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *back
 		}
 	}
 
-	planner, err := newBackfillPlanner(ctx, m.models.DB, probe, interval, startLedger, oldest)
+	planner, err := newBackfillPlanner(ctx, probe, interval, startLedger, oldest)
 	if err != nil {
 		return err
 	}
@@ -263,12 +268,39 @@ func (m *ingestService) runWindowWithRetry(ctx context.Context, w backfillWindow
 // runWindow fetches, processes and writes one window: one fetcher streaming
 // the window's ledgers in order, N workers processing them on the shared
 // indexer, one flusher writing every flush-size ledgers through the five
-// bulk-table connections. Rows go straight into the hypertables, so the
-// window first deletes whatever an earlier attempt left in its range.
+// bulk-table connections.
+//
+// A window below the cursor whose range has no chunk in any bulk table is
+// written into staging tables and attached as new chunks once complete:
+// the rows are copied without index maintenance and the indexes are built
+// once, at attach. Any other window (a gap above the cursor, a range that
+// already has a chunk, or a window a failed attempt left half attached) is
+// written straight into the hypertables after deleting whatever an earlier
+// attempt left in its range, so every attempt converges.
 func (m *ingestService) runWindow(ctx context.Context, w backfillWindow) error {
-	if err := m.reconcileWindow(ctx, w); err != nil {
-		return err
+	attach := false
+	if w.BelowCursor {
+		ranges, err := readChunkRanges(ctx, m.models.DB, data.BulkCopyTableNames())
+		if err != nil {
+			return err
+		}
+		attach = !overlapsAnyChunk(ranges, w.RangeStart, w.RangeEnd)
 	}
+	targets := hypertableTargets()
+	if attach {
+		if err := m.models.IngestStore.CreateStagingTables(ctx, w.RangeStart); err != nil {
+			return fmt.Errorf("creating staging tables for %s: %w", w, err)
+		}
+		targets = stagingTargets(w.RangeStart)
+	} else {
+		if err := m.models.IngestStore.DropStagingTables(ctx, w.RangeStart); err != nil {
+			return fmt.Errorf("dropping staging tables of %s: %w", w, err)
+		}
+		if err := m.reconcileWindow(ctx, w); err != nil {
+			return err
+		}
+	}
+	log.Ctx(ctx).Infof("%s: filling %d ledgers (%s)", w, w.ledgerCount(), targets.mode)
 
 	backend, err := m.ledgerBackendFactory(ctx)
 	if err != nil {
@@ -305,8 +337,64 @@ func (m *ingestService) runWindow(ctx context.Context, w backfillWindow) error {
 		defer close(processed)
 		return workers.Wait() //nolint:wrapcheck // worker errors are wrapped
 	})
-	g.Go(func() error { return m.flushWindow(gctx, w, processed, freeBuffers) })
-	return g.Wait() //nolint:wrapcheck // stage errors are wrapped
+	g.Go(func() error { return m.flushWindow(gctx, w, targets, processed, freeBuffers) })
+	if err := g.Wait(); err != nil {
+		return err //nolint:wrapcheck // stage errors are wrapped
+	}
+	if attach {
+		return m.attachWindow(ctx, w)
+	}
+	return nil
+}
+
+// attachWindow turns the window's five staging tables into chunks, one
+// session per table so the index builds run side by side. Each attach
+// commits on its own; a failure leaves the window half attached, and the
+// next attempt writes it in place.
+func (m *ingestService) attachWindow(ctx context.Context, w backfillWindow) error {
+	start := time.Now()
+	g, gctx := errgroup.WithContext(ctx)
+	for _, table := range data.BulkCopyTableNames() {
+		g.Go(func() error {
+			conn, err := m.models.DB.Acquire(gctx)
+			if err != nil {
+				return fmt.Errorf("acquiring connection to attach %s: %w", table, err)
+			}
+			defer conn.Release()
+			return pgx.BeginFunc(gctx, conn, func(tx pgx.Tx) error {
+				return data.AttachChunk(gctx, tx, table, w.RangeStart, w.RangeEnd) //nolint:wrapcheck // AttachChunk names the table
+			})
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("attaching %s: %w", w, err)
+	}
+	m.appMetrics.Ingestion.PhaseDuration.WithLabelValues("attach").Observe(time.Since(start).Seconds())
+	log.Ctx(ctx).Infof("%s: attached in %s", w, time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// windowTargets names the relation each bulk table's rows are written to for
+// one window: the hypertables themselves, or the window's staging tables.
+type windowTargets struct {
+	mode      string
+	relations map[string]pgx.Identifier
+}
+
+func hypertableTargets() windowTargets {
+	t := windowTargets{mode: "in place", relations: make(map[string]pgx.Identifier, len(data.BulkCopyTableNames()))}
+	for _, table := range data.BulkCopyTableNames() {
+		t.relations[table] = pgx.Identifier{table}
+	}
+	return t
+}
+
+func stagingTargets(rangeStart time.Time) windowTargets {
+	t := windowTargets{mode: "staging, attach at close", relations: make(map[string]pgx.Identifier, len(data.BulkCopyTableNames()))}
+	for _, table := range data.BulkCopyTableNames() {
+		t.relations[table] = data.StagingRelation(table, rangeStart)
+	}
+	return t
 }
 
 // reconcileWindow deletes the window's ledgers from the bulk tables before a
@@ -401,14 +489,14 @@ func (m *ingestService) processWindowLedgers(ctx context.Context, w backfillWind
 
 // flushWindow streams processed ledgers to the database every flush-size
 // ledgers and once more at the end, then checks that the window is complete.
-func (m *ingestService) flushWindow(ctx context.Context, w backfillWindow, processed <-chan processedLedger, freeBuffers chan<- *indexer.IndexerBuffer) error {
+func (m *ingestService) flushWindow(ctx context.Context, w backfillWindow, targets windowTargets, processed <-chan processedLedger, freeBuffers chan<- *indexer.IndexerBuffer) error {
 	var pending []processedLedger
 	var written uint32
 	flush := func() error {
 		if len(pending) == 0 {
 			return nil
 		}
-		if err := m.flushLedgers(ctx, pending); err != nil {
+		if err := m.flushLedgers(ctx, targets, pending); err != nil {
 			return err
 		}
 		written += uint32(len(pending))
@@ -448,10 +536,10 @@ func (m *ingestService) flushWindow(ctx context.Context, w backfillWindow, proce
 // writes a different table, so no two of this process's transactions insert
 // into the same hypertable (two of them creating the same chunk could wait on
 // each other in Go, out of sight of the deadlock detector).
-func (m *ingestService) flushLedgers(ctx context.Context, items []processedLedger) error {
+func (m *ingestService) flushLedgers(ctx context.Context, targets windowTargets, items []processedLedger) error {
 	start := time.Now()
 	g, gctx := errgroup.WithContext(ctx)
-	for _, sibling := range m.backfillSiblings() {
+	for _, sibling := range m.backfillSiblings(targets) {
 		g.Go(func() error {
 			return m.runBackfillSibling(gctx, sibling, items)
 		})
@@ -470,29 +558,32 @@ type backfillSibling struct {
 	write func(ctx context.Context, tx pgx.Tx, item processedLedger) error
 }
 
-func (m *ingestService) backfillSiblings() []backfillSibling {
+func (m *ingestService) backfillSiblings(targets windowTargets) []backfillSibling {
+	rel := targets.relations
 	return []backfillSibling{
 		{"transactions", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			if _, err := m.models.Transactions.CopyRows(ctx, tx, it.buffer.GetTransactionCopyRows()); err != nil {
+			if _, err := m.models.Transactions.CopyRowsInto(ctx, tx, rel["transactions"], it.buffer.GetTransactionCopyRows()); err != nil {
 				return err //nolint:wrapcheck // caller wraps with table and ledger
 			}
+			// Lookup rows always go to the hypertable: its 7-day chunks span
+			// several windows, so they are never staged.
 			_, err := m.models.Transactions.CopyHashRows(ctx, tx, it.buffer.GetTransactionHashCopyRows())
 			return err //nolint:wrapcheck // caller wraps with table and ledger
 		}},
 		{"transactions_accounts", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Transactions.CopyAccountRows(ctx, tx, it.buffer.GetTransactionAccountCopyRows())
+			_, err := m.models.Transactions.CopyAccountRowsInto(ctx, tx, rel["transactions_accounts"], it.buffer.GetTransactionAccountCopyRows())
 			return err //nolint:wrapcheck // caller wraps with table and ledger
 		}},
 		{"operations", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Operations.CopyRows(ctx, tx, it.buffer.GetOperationCopyRows())
+			_, err := m.models.Operations.CopyRowsInto(ctx, tx, rel["operations"], it.buffer.GetOperationCopyRows())
 			return err //nolint:wrapcheck // caller wraps with table and ledger
 		}},
 		{"operations_accounts", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Operations.CopyAccountRows(ctx, tx, it.buffer.GetOperationAccountCopyRows())
+			_, err := m.models.Operations.CopyAccountRowsInto(ctx, tx, rel["operations_accounts"], it.buffer.GetOperationAccountCopyRows())
 			return err //nolint:wrapcheck // caller wraps with table and ledger
 		}},
 		{"state_changes", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.StateChanges.CopyRows(ctx, tx, it.buffer.GetStateChangeCopyRows())
+			_, err := m.models.StateChanges.CopyRowsInto(ctx, tx, rel["state_changes"], it.buffer.GetStateChangeCopyRows())
 			return err //nolint:wrapcheck // caller wraps with table and ledger
 		}},
 	}
