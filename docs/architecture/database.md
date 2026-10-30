@@ -108,6 +108,8 @@ When retention is on, a `reconcile_oldest_cursor` job runs every hour and moves 
 
 Live ingest writes each batch of ledgers (one ledger by default, up to `LIVE_PERSIST_MAX_BATCH_SIZE`) through six transactions on separate connections: five siblings stream the bulk tables by `COPY`, and a coordinating transaction writes all current state (contracts, protocol state, every balance table) and the cursor. The siblings commit first without waiting on the WAL flush; the coordinator commits last, synchronously, and its flush covers them. A crash before the first commit loses nothing. A crash between the commits can leave bulk rows above the cursor; startup reconciliation deletes them, and every read query is bounded by the cursor so they are never served. Current state commits with the cursor and is never ahead of it. Details in [ingestion](ingestion.md#live-mode).
 
+A backfill writes a window below the cursor into staging tables in the `backfill` schema and attaches them to the hypertables as chunks. An attached chunk keeps its name and schema, so the chunks a backfill built appear as `backfill.<table>_<window start>` in `timescaledb_information.chunks`. After compression, their compressed relations sit in the same schema as `<name>_compressed`. The run creates the schema, so the role that runs it needs permission to create it. Details in [ingestion](ingestion.md#backfill-mode).
+
 Live ingest holds a session-level advisory lock keyed on the network passphrase for its whole life. The lock is what stops two live ingesters from writing the same network. Protocol migrations hold their own lock per protocol and strategy.
 
 ## Connections
