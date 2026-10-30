@@ -57,7 +57,7 @@ Server timeouts:
 
 When `--admin-port` is above 0, a second listener serves pprof at `/debug/pprof/`. A bind failure there is logged and the API keeps running.
 
-Errors are filtered before they reach the client. An error whose `code` extension is on the client-safe list passes through. Any other error is logged with the operation name and field path, then replaced with `internal server error` and code `INTERNAL_SERVER_ERROR`. SQL text and table names never leak.
+Errors are filtered before they reach the client. An error whose `code` extension is on the client-safe list passes through. An error caused by the request deadline expiring, or by Postgres canceling the query, becomes `request timed out` with code `REQUEST_TIMEOUT`. A client that disconnected also cancels its queries; that case is not reported as a timeout. Any other error is logged with the operation name and field path, then replaced with `internal server error` and code `INTERNAL_SERVER_ERROR`. SQL text and table names never leak.
 
 ## Schema and codegen
 

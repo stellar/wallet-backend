@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,23 +22,39 @@ type TransactionModel struct {
 	Metrics *metrics.DBMetrics
 }
 
+// GetByHash returns the transaction with the given hash, or nil when no committed transaction has
+// it. The hash goes through transaction_hashes to find the close times of its candidate rows,
+// then reads transactions within that one second, so the read is planned and run on one chunk
+// of transactions instead of every chunk (see transactionInSecondQuery).
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
-	var queryBuilder strings.Builder
-	fmt.Fprintf(&queryBuilder, `SELECT %s FROM transactions WHERE hash = $1`, columns)
-	appendIngestCursorBound(&queryBuilder, "to_id")
+	bucket, prefix, hashBytes, err := hashLookupArgs(hash)
+	if err != nil {
+		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
+	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 
-	query := queryBuilder.String()
 	start := time.Now()
-	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, types.HashBytea(hash))
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("GetByHash", "transactions").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
+	defer func() {
+		m.Metrics.QueryDuration.WithLabelValues("GetByHash", "transactions").Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
+	}()
+	closeTimes, err := lookupCloseTimes(ctx, m.DB, bucket, prefix)
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByHash", "transactions", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
 	}
-	return &transaction, nil
+	for _, closeTime := range closeTimes {
+		transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, transactionInSecondQuery(columns, closeTime), hashBytes)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue // a different hash shares the prefix
+		}
+		if err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("GetByHash", "transactions", utils.GetDBErrorType(err)).Inc()
+			return nil, fmt.Errorf("getting transaction %s: %w", hash, err)
+		}
+		return &transaction, nil
+	}
+	return nil, nil
 }
 
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.

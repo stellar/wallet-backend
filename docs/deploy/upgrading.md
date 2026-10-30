@@ -6,6 +6,7 @@ For an operator moving a running deployment to a later wallet-backend release. A
 
 - [Compatibility promise](#compatibility-promise)
 - [Procedure](#procedure)
+- [Filling `transaction_hashes` for history ingested before it existed](#filling-transaction_hashes-for-history-ingested-before-it-existed)
 - [Version skew](#version-skew)
 - [Rolling back](#rolling-back)
 - [Where in the code](#where-in-the-code)
@@ -55,6 +56,88 @@ Releases follow semantic versioning from v1.0.0.
    `version` prints `wallet-backend <VERSION> (commit <SHA>, <GO_VERSION>)`. A promoted image reports the release candidate it was built as, for example `v1.2.0-rc.2`. Every service also logs `wallet-backend <VERSION> (commit <SHA>)` at startup. Both `/health` calls return `"status":"ok"` once ingest is within 50 ledgers of the RPC.
 
 If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](protocols.md).
+
+## Filling `transaction_hashes` for history ingested before it existed
+
+The `transaction_hashes` lookup table (migration `2026-10-27.0`) gets a row for every transaction ingested after the migration. A database that already held history when the migration ran has no rows for that history, so `transactionByHash` returns `null` for those transactions. Two ways to fill it:
+
+- Re-backfill the history with this release. Backfill writes the lookup rows with the transactions.
+- Run the script below once. Save it as `fill-transaction-hashes.sql` and run:
+
+  ```bash
+  psql "<DATABASE_URL>" -v ON_ERROR_STOP=1 -f fill-transaction-hashes.sql
+  ```
+
+  It walks the history in 7-day ranges and commits after each one, writing compressed batches directly (TimescaleDB 2.28 or later): about a minute per 50 million transactions, measured. It prints one line per range. Run it with this release's ingester running or stopped, never while an older release ingests: transactions ingested by this release while the script runs get their rows from ingestion, an older release writes none. If the script stops part way, run it again; it skips complete ranges and writes only the rows a range is missing. It turns off `statement_timeout` for its own session, because the whole run is one statement.
+
+```sql
+SET statement_timeout = 0;
+
+CREATE OR REPLACE PROCEDURE populate_transaction_hashes(from_epoch BIGINT DEFAULT NULL)
+LANGUAGE plpgsql AS $$
+DECLARE
+    range_seconds CONSTANT BIGINT := 604800;
+    range_start BIGINT;
+    range_end BIGINT;
+    newest BIGINT;
+    lookup_rows BIGINT;
+    transaction_rows BIGINT;
+    inserted BIGINT;
+BEGIN
+    SELECT floor(extract(epoch FROM ledger_created_at))::bigint INTO newest
+    FROM transactions ORDER BY ledger_created_at DESC LIMIT 1;
+    IF newest IS NULL THEN
+        RETURN;
+    END IF;
+    IF from_epoch IS NULL THEN
+        SELECT floor(extract(epoch FROM ledger_created_at))::bigint INTO from_epoch
+        FROM transactions ORDER BY ledger_created_at ASC LIMIT 1;
+    END IF;
+    range_start := from_epoch / range_seconds * range_seconds;
+    WHILE range_start <= newest LOOP
+        range_end := range_start + range_seconds;
+        SELECT count(*) INTO lookup_rows FROM transaction_hashes
+        WHERE ledger_close_epoch >= range_start AND ledger_close_epoch < range_end;
+        SELECT count(*) INTO transaction_rows FROM transactions
+        WHERE ledger_created_at >= to_timestamp(range_start) AND ledger_created_at < to_timestamp(range_end);
+        IF lookup_rows <> transaction_rows THEN
+            IF lookup_rows = 0 THEN
+                SET LOCAL timescaledb.enable_direct_compress_insert = on;
+                SET LOCAL timescaledb.enable_direct_compress_insert_client_sorted = on;
+                INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
+                SELECT ((('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint) >> 28)::smallint,
+                       ('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint,
+                       floor(extract(epoch FROM ledger_created_at))::bigint
+                FROM transactions
+                WHERE ledger_created_at >= to_timestamp(range_start) AND ledger_created_at < to_timestamp(range_end)
+                ORDER BY 1, 2;
+            ELSE
+                INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
+                SELECT ((('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint) >> 28)::smallint,
+                       ('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint,
+                       floor(extract(epoch FROM ledger_created_at))::bigint
+                FROM transactions t
+                WHERE t.ledger_created_at >= to_timestamp(range_start) AND t.ledger_created_at < to_timestamp(range_end)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM transaction_hashes h
+                    WHERE h.hash_bucket = ((('x' || encode(substr(t.hash, 1, 5), 'hex'))::bit(40)::bigint) >> 28)::smallint
+                      AND h.hash_prefix = ('x' || encode(substr(t.hash, 1, 5), 'hex'))::bit(40)::bigint
+                      AND h.ledger_close_epoch = floor(extract(epoch FROM t.ledger_created_at))::bigint
+                  )
+                ORDER BY 1, 2;
+            END IF;
+            GET DIAGNOSTICS inserted = ROW_COUNT;
+            RAISE NOTICE 'transaction_hashes: wrote % rows for % .. %', inserted, to_timestamp(range_start), to_timestamp(range_end);
+        END IF;
+        COMMIT;
+        range_start := range_end;
+    END LOOP;
+END
+$$;
+
+CALL populate_transaction_hashes();
+DROP PROCEDURE IF EXISTS populate_transaction_hashes(BIGINT);
+```
 
 ## Version skew
 

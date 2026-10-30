@@ -274,14 +274,17 @@ func (m *ingestService) insertIntoDB(ctx context.Context, dbTx pgx.Tx, buffer in
 	return nil
 }
 
-// insertTransactions batch inserts transactions into the database.
+// insertTransactions batch inserts transactions and their transaction_hashes lookup rows into the
+// database, in the same database transaction so the two commit together.
 func (m *ingestService) insertTransactions(ctx context.Context, pgxTx pgx.Tx, txs []*types.Transaction) error {
 	if len(txs) == 0 {
 		return nil
 	}
-	_, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs)
-	if err != nil {
+	if _, err := m.models.Transactions.BatchCopy(ctx, pgxTx, txs); err != nil {
 		return fmt.Errorf("batch inserting transactions: %w", err)
+	}
+	if _, err := m.models.Transactions.BatchCopyHashes(ctx, pgxTx, txs); err != nil {
+		return fmt.Errorf("batch inserting transaction hashes: %w", err)
 	}
 	return nil
 }

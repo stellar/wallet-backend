@@ -300,7 +300,9 @@ func BulkCopyTableNames() []string {
 }
 
 // DeleteRowsAboveLedger removes every row belonging to a ledger past the given
-// one from the five bulk-COPY tables, in one transaction. It is live
+// one from the five bulk-COPY tables and from transaction_hashes, in one
+// transaction. transaction_hashes has no TOID column, so its rows are removed
+// by close time only, and stay when no close-time bound resolves. It is live
 // ingestion's startup reconciliation: sibling COPY transactions commit before
 // the coordinating transaction that carries the cursor, so a crash between
 // those commits leaves orphaned bulk rows for the persist batch past the
@@ -359,6 +361,24 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 			if tag.RowsAffected() > 0 {
 				log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", tag.RowsAffected(), target.Table, ledger)
 			}
+		}
+
+		// transaction_hashes rows are written by the same sibling transaction but carry no
+		// TOID, so the close-time bound is their only key. Without one they stay; lookups
+		// tolerate the duplicate the re-ingested ledger then writes.
+		if bound.IsZero() {
+			return nil
+		}
+		start := time.Now()
+		tag, execErr := dbTx.Exec(ctx, `DELETE FROM transaction_hashes WHERE ledger_close_epoch > $1`, bound.Unix())
+		m.Metrics.QueryDuration.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable).Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable).Inc()
+		if execErr != nil {
+			m.Metrics.QueryErrors.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable, utils.GetDBErrorType(execErr)).Inc()
+			return fmt.Errorf("deleting %s rows above ledger %d: %w", TransactionHashesTable, ledger, execErr)
+		}
+		if tag.RowsAffected() > 0 {
+			log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", tag.RowsAffected(), TransactionHashesTable, ledger)
 		}
 		return nil
 	})

@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -746,9 +747,24 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 			 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
 			txTOID, opTOID, ledger, []byte{1}, closedAt)
 		require.NoError(t, seedErr)
+		// The transaction's lookup row, written by the same sibling COPY transaction.
+		_, seedErr = dbConnectionPool.Exec(ctx,
+			`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
+			 VALUES (1, 1, extract(epoch FROM $1::timestamptz)::bigint)`, closedAt)
+		require.NoError(t, seedErr)
 	}
 	seedLedger(t, cursorLedger, "2026-01-01T00:00:00Z")
 	seedLedger(t, cursorLedger+1, "2026-01-01T00:00:05Z")
+
+	// Lookup rows carry no TOID; they are split at the cursor ledger's close time.
+	countHashes := func(t *testing.T) [2]int {
+		var atCursor, aboveCursor int
+		require.NoError(t, dbConnectionPool.QueryRow(ctx,
+			`SELECT count(*) FILTER (WHERE ledger_close_epoch <= $1), count(*) FILTER (WHERE ledger_close_epoch > $1) FROM transaction_hashes`,
+			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix()).Scan(&atCursor, &aboveCursor))
+		return [2]int{atCursor, aboveCursor}
+	}
+	require.Equal(t, [2]int{1, 1}, countHashes(t))
 
 	countRows := func(t *testing.T) map[string][2]int {
 		counts := make(map[string][2]int)
@@ -771,6 +787,7 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 	for table, c := range countRows(t) {
 		assert.Equal(t, [2]int{1, 0}, c, "%s must keep the cursor ledger's row and lose the orphan", table)
 	}
+	assert.Equal(t, [2]int{1, 0}, countHashes(t), "transaction_hashes must keep the cursor ledger's row and lose the orphan")
 
 	// Idempotent: nothing above the cursor remains, so a second run changes nothing.
 	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
@@ -799,4 +816,5 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 		}
 		assert.Equal(t, [2]int{1, 0}, c, "%s must lose its orphan even without a resolvable close-time bound", table)
 	}
+	assert.Equal(t, [2]int{1, 1}, countHashes(t), "without a close-time bound the orphan lookup row stays; lookups tolerate it")
 }

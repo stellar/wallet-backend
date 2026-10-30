@@ -47,11 +47,11 @@ func TestQueryResolver_TransactionByHash(t *testing.T) {
 		assert.Equal(t, uint32(1), tx.LedgerNumber)
 	})
 
-	t.Run("non-existent hash", func(t *testing.T) {
+	t.Run("non-existent hash returns null without an error", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		tx, err := resolver.TransactionByHash(ctx, "0000000000000000000000000000000000000000000000000000000000000000")
 
-		require.Error(t, err)
+		require.NoError(t, err)
 		assert.Nil(t, tx)
 	})
 
@@ -123,11 +123,11 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 		assert.Equal(t, uint32(1), op.LedgerNumber)
 	})
 
-	t.Run("non-existent ID", func(t *testing.T) {
+	t.Run("unknown ID returns null without an error", func(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"id"})
 		op, err := resolver.OperationByID(ctx, 999)
 
-		require.Error(t, err)
+		require.NoError(t, err)
 		assert.Nil(t, op)
 	})
 
@@ -135,7 +135,7 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"id"})
 		op, err := resolver.OperationByID(ctx, 0)
 
-		require.Error(t, err)
+		require.NoError(t, err)
 		assert.Nil(t, op)
 	})
 
@@ -143,7 +143,7 @@ func TestQueryResolver_OperationByID(t *testing.T) {
 		ctx := getTestCtx("operations", []string{"id"})
 		op, err := resolver.OperationByID(ctx, -1)
 
-		require.Error(t, err)
+		require.NoError(t, err)
 		assert.Nil(t, op)
 	})
 }

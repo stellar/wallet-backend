@@ -352,7 +352,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	now := time.Now()
+	now := time.Now().UTC().Truncate(time.Second)
 
 	address := keypair.MustRandom().Address()
 
@@ -369,6 +369,7 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1)
 	`, now, types.HashBytea(testHash1), types.HashBytea(testHash2), types.HashBytea(testHash3))
 	require.NoError(t, err)
+	insertTransactionHashesFromTransactions(ctx, t, dbConnectionPool)
 
 	// Create test state changes with different operation IDs, categories, and reasons
 	// State changes must reference valid transaction to_ids (1, 2, or 3)
@@ -562,10 +563,9 @@ func TestStateChangeModel_BatchGetByAccountAddress_WithFilters(t *testing.T) {
 	})
 }
 
-// TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated covers SQL-07: idx_transactions_hash
-// is non-unique (TimescaleDB can't enforce unique(hash) on a hypertable), so a data bug could
-// duplicate a hash across two to_ids. The txHash filter must tolerate this ("IN" rather than "=" /
-// a scalar subquery) instead of erroring with "more than one row returned by a subquery".
+// TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated covers SQL-07: TimescaleDB can't
+// enforce unique(hash) on a hypertable, so a data bug could duplicate a hash across two to_ids. The
+// txHash filter must not error; it resolves the hash to the newest transaction with it.
 func TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -574,26 +574,28 @@ func TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated(t *tes
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	now := time.Now()
+	now := time.Now().UTC().Truncate(time.Second)
+	earlier := now.Add(-time.Hour)
 	address := keypair.MustRandom().Address()
 	dupHash := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000009")
 
 	// Two different transactions (different to_id, the hypertable's real uniqueness boundary)
-	// sharing the same hash.
+	// sharing the same hash, in different ledgers.
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
 		VALUES
 			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $2),
-			($1, 2, 100, 'TransactionResultCodeTxSuccess', 2, $2)
-	`, dupHash, now)
+			($1, 2, 100, 'TransactionResultCodeTxSuccess', 2, $3)
+	`, dupHash, earlier, now)
 	require.NoError(t, err)
+	insertTransactionHashesFromTransactions(ctx, t, dbConnectionPool)
 
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456)
-	`, now, types.AddressBytea(address))
+			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $3, 123),
+			(2, 1, 'BALANCE', 'CREDIT', $2, 2, $3, 456)
+	`, earlier, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
 	reg := prometheus.NewRegistry()
@@ -602,15 +604,9 @@ func TestStateChangeModel_BatchGetByAccountAddress_DuplicateHashTolerated(t *tes
 
 	txHash := dupHash.String()
 	stateChanges, err := m.BatchGetByAccountAddress(ctx, address, &txHash, nil, nil, nil, "", nil, nil, ASC, nil)
-	require.NoError(t, err, "duplicate hash must not error as 'more than one row returned by a subquery'")
-	assert.Len(t, stateChanges, 2, "state changes from both to_ids sharing the hash must be returned")
-
-	toIDsFound := make(map[int64]bool)
-	for _, sc := range stateChanges {
-		toIDsFound[sc.StateChange.ToID] = true
-	}
-	assert.True(t, toIDsFound[1])
-	assert.True(t, toIDsFound[2])
+	require.NoError(t, err, "duplicate hash must not error")
+	require.Len(t, stateChanges, 1, "the hash resolves to one transaction")
+	assert.Equal(t, int64(2), stateChanges[0].StateChange.ToID, "the newest transaction with the hash wins")
 }
 
 func TestStateChangeModel_BatchGetByToIDs(t *testing.T) {

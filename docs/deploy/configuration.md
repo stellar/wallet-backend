@@ -38,7 +38,7 @@ Required options reject an empty value. A required option with a default passes 
 | `--network-passphrase` | `NETWORK_PASSPHRASE` | `Test SDF Network ; September 2015` | yes | Stellar network passphrase |
 | `--rpc-url` | `RPC_URL` | `http://localhost:8000` | yes | Stellar RPC URL |
 | `--admin-port` | `ADMIN_PORT` | `0` | no | Port for pprof at `/debug/pprof`. `0` disables it |
-| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 7 |
+| `--db-max-conns` | `DB_MAX_CONNS` | `12` | no | Maximum connections in the pool. Live ingest needs at least 7. |
 | `--db-min-conns` | `DB_MIN_CONNS` | `5` | no | Minimum idle connections kept in the pool |
 | `--db-max-conn-lifetime` | `DB_MAX_CONN_LIFETIME` | `5m` | no | Maximum connection lifetime, as a Go duration |
 | `--db-max-conn-idle-time` | `DB_MAX_CONN_IDLE_TIME` | `10s` | no | Maximum connection idle time, as a Go duration |
@@ -131,9 +131,10 @@ Only `--ingestion-mode=live` applies these. Backfill leaves the database's polic
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `--chunk-interval` | `CHUNK_INTERVAL` | `1 day` | no | Chunk time interval for hypertables. Applies to future chunks only |
+| `--tx-hash-chunk-interval` | `TX_HASH_CHUNK_INTERVAL` | `7 days` | no | Chunk interval for the `transaction_hashes` lookup table. Applies to future chunks only. Keep a few million transactions per chunk: the table is segmented into 4096 buckets, and a chunk with fewer rows compresses into near-empty batches (8 bytes per row at 2M rows, 36 at 130k, 250 at 20k, measured). A hash lookup also checks every chunk, so longer is better, until the newest chunk's index (about 27 bytes per transaction) no longer fits in `shared_buffers` |
 | `--retention-period` | `RETENTION_PERIOD` | (none) | no | Drop chunks older than this. Empty removes the retention policy |
 | `--compression-schedule-interval` | `COMPRESSION_SCHEDULE_INTERVAL` | (none) | no | How often the compression job runs. Empty leaves it unchanged |
-| `--compression-compress-after` | `COMPRESSION_COMPRESS_AFTER` | (none) | no | Age at which a closed chunk becomes eligible for compression. Empty leaves it unchanged |
+| `--compression-compress-after` | `COMPRESSION_COMPRESS_AFTER` | (none) | no | Age at which a closed chunk becomes eligible for compression. Empty leaves the other hypertables' policies unchanged and sets `transaction_hashes` to `1 day` |
 | `--compression-max-chunks` | `COMPRESSION_MAX_CHUNKS` | `0` | no | Maximum chunks compressed per job run. `0` leaves it unchanged |
 
 ## migrate

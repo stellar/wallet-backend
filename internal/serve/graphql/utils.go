@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
@@ -36,6 +37,7 @@ var clientSafeErrorCodes = map[string]bool{
 	"UNAUTHENTICATED":           true,
 	"FORBIDDEN":                 true,
 	"PERSISTED_QUERY_NOT_FOUND": true, // gqlgen extension.AutomaticPersistedQuery: hash-only cache miss; the client must receive it verbatim to retry with the full query
+	"REQUEST_TIMEOUT":           true, // CustomErrorPresenter: the request deadline expired or the database canceled the query
 }
 
 // CustomErrorPresenter provides more detailed error messages for GraphQL validation errors, and
@@ -78,10 +80,22 @@ func CustomErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 
 	oc := safeGetOperationContext(ctx)
 	fc := graphql.GetFieldContext(ctx)
-	log.Ctx(ctx).WithFields(log.F{
+	logger := log.Ctx(ctx).WithFields(log.F{
 		"graphql_operation": middleware.GetOperationIdentifier(oc),
 		"graphql_field":     middleware.GetFieldPath(fc),
-	}).Errorf("internal GraphQL error: %v", err)
+	})
+
+	if isRequestTimeout(err) {
+		logger.Warnf("GraphQL request timed out: %v", err)
+		return &gqlerror.Error{
+			Message:    "request timed out",
+			Path:       presented.Path,
+			Locations:  presented.Locations,
+			Extensions: map[string]interface{}{"code": "REQUEST_TIMEOUT"},
+		}
+	}
+
+	logger.Errorf("internal GraphQL error: %v", err)
 
 	return &gqlerror.Error{
 		Message:    "internal server error",
@@ -89,6 +103,23 @@ func CustomErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 		Locations:  presented.Locations,
 		Extensions: map[string]interface{}{"code": "INTERNAL_SERVER_ERROR"},
 	}
+}
+
+// isRequestTimeout reports whether err comes from the request running out of time: the request
+// deadline (RequestTimeoutMiddleware) expired, or Postgres canceled the query (SQLSTATE 57014,
+// query_canceled, which is also what statement_timeout raises). A client that disconnected
+// cancels the context too, and pgx then also sees 57014, so context.Canceled is checked first and
+// stays an internal error: nobody is left to read the response. A network timeout talking to the
+// database is a database problem, not the request's, and stays an internal error as well.
+func isRequestTimeout(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "57014"
 }
 
 // safeGetOperationContext returns the request's OperationContext, or nil if none is set.

@@ -77,6 +77,9 @@ type Configs struct {
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
+	// TransactionHashesChunkInterval sets the chunk interval of the transaction_hashes lookup table,
+	// which is partitioned by close time in seconds. Uses PostgreSQL INTERVAL syntax (e.g., "7 days").
+	TransactionHashesChunkInterval string
 	// RetentionPeriod configures automatic data retention. Chunks older than this are dropped.
 	// Empty string disables retention. Uses PostgreSQL INTERVAL syntax (e.g., "30 days", "6 months").
 	RetentionPeriod string
@@ -195,6 +198,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	if cfg.IngestionMode == services.IngestionModeLive {
 		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, data.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, nil, fmt.Errorf("configuring hypertable settings: %w", err)
+		}
+		if err := configureTransactionHashesSettings(ctx, dbConnectionPool, cfg.TransactionHashesChunkInterval, cfg.RetentionPeriod, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
+			return nil, nil, fmt.Errorf("configuring transaction_hashes settings: %w", err)
 		}
 	}
 

@@ -249,18 +249,23 @@ State-change and balance queries always select every type's fields. They take no
 
 Parse and validation failures arrive as HTTP 422, so they come back as the `unexpected statusCode` error, not as `GraphQLErrors`. A 401 from the auth check does the same.
 
-The server pairs a null `transactionByHash` or `operationById` with an `INTERNAL_SERVER_ERROR` entry. A missing transaction or operation therefore returns `GraphQLErrors` with that code, not `ErrTransactionNotFound` or `ErrOperationNotFound`. `accountByAddress` returns an account for every valid address, so a valid address never produces `ErrAccountNotFound`. An invalid one returns `GraphQLErrors` with `INVALID_ADDRESS`.
+A missing transaction or operation comes back as `null` with no error, so `GetTransactionByHash` and `GetOperationByID` (and the other transaction- and operation-scoped methods) return `ErrTransactionNotFound` or `ErrOperationNotFound`. `accountByAddress` returns an account for every valid address, so a valid address never produces `ErrAccountNotFound`. An invalid one returns `GraphQLErrors` with `INVALID_ADDRESS`.
 
 ```go
 _, err := client.GetTransactionByHash(ctx, "<TX_HASH>")
+if errors.Is(err, wbclient.ErrTransactionNotFound) {
+    // Not indexed.
+}
 var gqlErrs wbclient.GraphQLErrors
 if errors.As(err, &gqlErrs) {
     for _, e := range gqlErrs {
         switch e.Extensions["code"] {
         case "INVALID_TRANSACTION_HASH":
             // The hash is not 64 hex characters.
+        case "REQUEST_TIMEOUT":
+            // The request ran past the server's 30 s deadline.
         case "INTERNAL_SERVER_ERROR":
-            // Not indexed, or a server-side failure. The server does not say which.
+            // A server-side failure.
         }
     }
 }

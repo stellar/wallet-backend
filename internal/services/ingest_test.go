@@ -1076,6 +1076,15 @@ func Test_ingestService_flushBatchBufferWithRetry(t *testing.T) {
 					hashBytes).Scan(&txCount)
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantTxCount, txCount, "transaction count mismatch")
+
+				// Ingestion writes each transaction's lookup row with it, so it is found by hash.
+				if tc.wantTxCount == len(tc.txHashes) {
+					for _, h := range tc.txHashes {
+						found, err := models.Transactions.GetByHash(ctx, h, "hash")
+						require.NoError(t, err)
+						assert.NotNil(t, found, "transaction %s must be found by hash after a flush", h)
+					}
+				}
 			}
 
 			// Verify operation count in database
