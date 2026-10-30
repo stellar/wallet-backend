@@ -48,19 +48,19 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "backfill-batch-size",
-			Usage:       "Number of ledgers per batch during backfill. Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.",
+			Name:        "backfill-flush-size",
+			Usage:       "Ledgers written per database flush during backfill. Each flush is one transaction per bulk table. Memory grows with this value plus the datastore prefetch and the worker count.",
 			OptType:     types.Int,
-			ConfigKey:   &cfg.BackfillBatchSize,
-			FlagDefault: 250,
+			ConfigKey:   &cfg.BackfillFlushSize,
+			FlagDefault: 100,
 			Required:    false,
 		},
 		{
-			Name:        "backfill-db-insert-batch-size",
-			Usage:       "Number of ledgers to process before flushing buffer to DB during backfill. Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.",
+			Name:        "backfill-compress-concurrency",
+			Usage:       "Chunks compressed at once during backfill, each on its own database connection. The run keeps at most ceil(value/5)+1 windows uncompressed on disk.",
 			OptType:     types.Int,
-			ConfigKey:   &cfg.BackfillDBInsertBatchSize,
-			FlagDefault: 100,
+			ConfigKey:   &cfg.BackfillCompressConcurrency,
+			FlagDefault: 5,
 			Required:    false,
 		},
 		{
@@ -137,7 +137,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "compression-max-chunks",
-			Usage:       "Maximum chunks compressed per compression job run (maxchunks_to_compress). 0 leaves the job's current setting unchanged. Set to a small value (e.g. 10) during backfill to prevent job run overlap.",
+			Usage:       "Maximum chunks compressed per compression job run (maxchunks_to_compress). 0 leaves the job's current setting unchanged.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxChunksToCompress,
 			FlagDefault: 0,
@@ -176,20 +176,20 @@ func (c *ingestCmd) Command() *cobra.Command {
 				// Live mode resumes from the stored cursor; a start or end ledger would be
 				// silently ignored, so reject any explicitly supplied value, including 0.
 				if config.IsExplicitlySet(startLedgerOpt) || config.IsExplicitlySet(endLedgerOpt) {
-					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
+					return fmt.Errorf("--start-ledger applies to --ingestion-mode=backfill only and --end-ledger is not used by ingest; live mode resumes from the stored cursor")
 				}
 			case services.IngestionModeBackfill:
-				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
-					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got %d..%d)", cfg.StartLedger, cfg.EndLedger)
+				if cfg.StartLedger <= 0 || cfg.StartLedger >= math.MaxUint32 {
+					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger between 1 and %d (got %d)", uint32(math.MaxUint32)-1, cfg.StartLedger)
 				}
-				if cfg.EndLedger >= math.MaxUint32 {
-					return fmt.Errorf("--end-ledger %d must be below %d", cfg.EndLedger, uint32(math.MaxUint32))
+				if config.IsExplicitlySet(endLedgerOpt) {
+					return fmt.Errorf("--end-ledger does not apply to backfill: the run fills every ledger from --start-ledger up to the live ingester's history")
 				}
-				if cfg.BackfillBatchSize <= 0 || cfg.BackfillBatchSize > math.MaxUint32 {
-					return fmt.Errorf("--backfill-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillBatchSize)
+				if cfg.BackfillFlushSize <= 0 {
+					return fmt.Errorf("--backfill-flush-size must be positive (got %d)", cfg.BackfillFlushSize)
 				}
-				if cfg.BackfillDBInsertBatchSize <= 0 || cfg.BackfillDBInsertBatchSize > math.MaxUint32 {
-					return fmt.Errorf("--backfill-db-insert-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillDBInsertBatchSize)
+				if cfg.BackfillCompressConcurrency <= 0 {
+					return fmt.Errorf("--backfill-compress-concurrency must be positive (got %d)", cfg.BackfillCompressConcurrency)
 				}
 				if cfg.BackfillWorkers < 0 {
 					return fmt.Errorf("--backfill-workers must be 0 (one per CPU) or positive (got %d)", cfg.BackfillWorkers)

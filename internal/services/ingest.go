@@ -84,10 +84,16 @@ type IngestServiceConfig struct {
 	WasmSpecExtractor WasmSpecExtractor
 
 	// === Backfill Tuning ===
-	BackfillWorkers           int
-	BackfillBatchSize         int
-	BackfillDBInsertBatchSize int
-	LivePersistMaxBatchSize   int
+	// BackfillWorkers is the number of ledgers processed at once; 0 means one
+	// per CPU. BackfillFlushSize is the number of ledgers written per database
+	// flush. BackfillCompressConcurrency is the number of chunks compressed at
+	// once. DatastoreBufferSize is the ledger source's prefetch depth, used
+	// only to report the run's memory estimate.
+	BackfillWorkers             int
+	BackfillFlushSize           int
+	BackfillCompressConcurrency int
+	DatastoreBufferSize         int
+	LivePersistMaxBatchSize     int
 }
 
 // generateAdvisoryLockID derives the live-ingest advisory lock ID from the network passphrase,
@@ -97,7 +103,7 @@ func generateAdvisoryLockID(networkPassphrase string) int {
 }
 
 type IngestService interface {
-	Run(ctx context.Context, startLedger uint32, endLedger uint32) error
+	Run(ctx context.Context, startLedger uint32) error
 	// Close stops the worker pools this service owns. Call it after Run has
 	// returned (no ledger indexing/backfill in flight) and before the shared
 	// DB pool is closed.
@@ -107,27 +113,28 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
-	ingestionMode             string
-	models                    *data.Models
-	advisoryLockID            int
-	rpcService                RPCService
-	ledgerBackend             ledgerbackend.LedgerBackend
-	ledgerBackendFactory      LedgerBackendFactory
-	isPermanentFetchError     func(error) bool
-	tokenIngestionService     TokenIngestionService
-	checkpointService         CheckpointService
-	appMetrics                *metrics.Metrics
-	networkPassphrase         string
-	ledgerIndexer             *indexer.Indexer
-	archive                   historyarchive.ArchiveInterface
-	ledgerIndexerPool         pond.Pool
-	backfillPool              pond.Pool
-	backfillBatchSize         uint32
-	backfillDBInsertBatchSize uint32
-	livePersistMaxBatchSize   int
-	protocolProcessors        map[string]ProtocolProcessor
-	protocolValidators        []ProtocolValidator
-	wasmSpecExtractor         WasmSpecExtractor
+	ingestionMode               string
+	models                      *data.Models
+	advisoryLockID              int
+	rpcService                  RPCService
+	ledgerBackend               ledgerbackend.LedgerBackend
+	ledgerBackendFactory        LedgerBackendFactory
+	isPermanentFetchError       func(error) bool
+	tokenIngestionService       TokenIngestionService
+	checkpointService           CheckpointService
+	appMetrics                  *metrics.Metrics
+	networkPassphrase           string
+	ledgerIndexer               *indexer.Indexer
+	archive                     historyarchive.ArchiveInterface
+	ledgerIndexerPool           pond.Pool
+	backfillWorkers             int
+	backfillFlushSize           int
+	backfillCompressConcurrency int
+	datastoreBufferSize         int
+	livePersistMaxBatchSize     int
+	protocolProcessors          map[string]ProtocolProcessor
+	protocolValidators          []ProtocolValidator
+	wasmSpecExtractor           WasmSpecExtractor
 	// protocolCursors tracks, per protocol, whether its history/current-state
 	// ingest_store cursor rows exist. See casProtocolCursor and
 	// snapshotProtocolCursors in ingest_live.go. Always non-nil; empty maps
@@ -145,8 +152,8 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	ledgerIndexerPool := pond.NewPool(2 * runtime.GOMAXPROCS(0))
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
-	// Create backfill pool with bounded size to control memory usage.
-	// Default to GOMAXPROCS if not specified, for the same reason as above.
+	// Backfill workers process whole ledgers side by side on the shared
+	// indexer; the default is one per CPU for the same reason as above.
 	backfillWorkers := cfg.BackfillWorkers
 	if backfillWorkers <= 0 {
 		backfillWorkers = runtime.GOMAXPROCS(0)
@@ -155,8 +162,6 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// A batch cap below 1 cannot hold even a single ledger; clamp so the
 	// zero value means unbatched persists.
 	livePersistMaxBatchSize := max(1, cfg.LivePersistMaxBatchSize)
-	backfillPool := pond.NewPool(backfillWorkers)
-	cfg.Metrics.RegisterPoolMetrics("backfill", backfillPool)
 
 	// Build protocol processor map from slice
 	for i, p := range cfg.ProtocolProcessors {
@@ -177,27 +182,28 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	}
 
 	return &ingestService{
-		ingestionMode:             cfg.IngestionMode,
-		models:                    cfg.Models,
-		advisoryLockID:            generateAdvisoryLockID(cfg.NetworkPassphrase),
-		rpcService:                cfg.RPCService,
-		ledgerBackend:             cfg.LedgerBackend,
-		ledgerBackendFactory:      cfg.LedgerBackendFactory,
-		isPermanentFetchError:     cfg.IsPermanentFetchError,
-		tokenIngestionService:     cfg.TokenIngestionService,
-		checkpointService:         cfg.CheckpointService,
-		appMetrics:                cfg.Metrics,
-		networkPassphrase:         cfg.NetworkPassphrase,
-		ledgerIndexer:             ledgerIndexer,
-		ledgerIndexerPool:         ledgerIndexerPool,
-		protocolValidators:        cfg.ProtocolValidators,
-		wasmSpecExtractor:         cfg.WasmSpecExtractor,
-		archive:                   cfg.Archive,
-		backfillPool:              backfillPool,
-		backfillBatchSize:         uint32(cfg.BackfillBatchSize),
-		backfillDBInsertBatchSize: uint32(cfg.BackfillDBInsertBatchSize),
-		livePersistMaxBatchSize:   livePersistMaxBatchSize,
-		protocolProcessors:        ppMap,
+		ingestionMode:               cfg.IngestionMode,
+		models:                      cfg.Models,
+		advisoryLockID:              generateAdvisoryLockID(cfg.NetworkPassphrase),
+		rpcService:                  cfg.RPCService,
+		ledgerBackend:               cfg.LedgerBackend,
+		ledgerBackendFactory:        cfg.LedgerBackendFactory,
+		isPermanentFetchError:       cfg.IsPermanentFetchError,
+		tokenIngestionService:       cfg.TokenIngestionService,
+		checkpointService:           cfg.CheckpointService,
+		appMetrics:                  cfg.Metrics,
+		networkPassphrase:           cfg.NetworkPassphrase,
+		ledgerIndexer:               ledgerIndexer,
+		ledgerIndexerPool:           ledgerIndexerPool,
+		protocolValidators:          cfg.ProtocolValidators,
+		wasmSpecExtractor:           cfg.WasmSpecExtractor,
+		archive:                     cfg.Archive,
+		backfillWorkers:             backfillWorkers,
+		backfillFlushSize:           max(1, cfg.BackfillFlushSize),
+		backfillCompressConcurrency: max(1, cfg.BackfillCompressConcurrency),
+		datastoreBufferSize:         cfg.DatastoreBufferSize,
+		livePersistMaxBatchSize:     livePersistMaxBatchSize,
+		protocolProcessors:          ppMap,
 		protocolCursors: &protocolCursorSnapshot{
 			historyExists:      make(map[string]bool, len(ppMap)),
 			currentStateExists: make(map[string]bool, len(ppMap)),
@@ -208,12 +214,12 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 // Run starts the ingestion service in the configured mode (live or backfill).
 // For live mode, startLedger and endLedger are ignored and ingestion runs continuously from the last checkpoint.
 // For backfill mode, processes ledgers in the range [startLedger, endLedger].
-func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger uint32) error {
+func (m *ingestService) Run(ctx context.Context, startLedger uint32) error {
 	switch m.ingestionMode {
 	case IngestionModeLive:
 		return m.startLiveIngestion(ctx)
 	case IngestionModeBackfill:
-		return m.startBackfilling(ctx, startLedger, endLedger)
+		return m.startBackfilling(ctx, startLedger)
 	default:
 		return fmt.Errorf("unsupported ingestion mode %q, must be %q or %q", m.ingestionMode, IngestionModeLive, IngestionModeBackfill)
 	}
@@ -226,7 +232,6 @@ func (m *ingestService) Run(ctx context.Context, startLedger uint32, endLedger u
 // shared DB pool closes, since a draining task may still issue DB work.
 func (m *ingestService) Close() {
 	m.ledgerIndexerPool.StopAndWait()
-	m.backfillPool.StopAndWait()
 	for _, v := range m.protocolValidators {
 		if closer, ok := v.(interface{ Close() }); ok {
 			closer.Close()

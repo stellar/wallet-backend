@@ -103,6 +103,37 @@ func parseTimescaleDBVersion(version string) ([3]int, error) {
 	return parts, nil
 }
 
+// scheduleCompressionPolicies turns scheduling back on for every columnstore
+// policy that is paused. A backfill pauses the policies for its run and
+// resumes them when it exits; a backfill killed before that point leaves them
+// paused, so live mode schedules them again at every start.
+func scheduleCompressionPolicies(ctx context.Context, pool *pgxpool.Pool) error {
+	rows, err := pool.Query(ctx,
+		`SELECT job_id, hypertable_name FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND NOT scheduled`)
+	if err != nil {
+		return fmt.Errorf("listing paused compression policies: %w", err)
+	}
+	type pausedJob struct {
+		id    int
+		table string
+	}
+	paused, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (pausedJob, error) {
+		var j pausedJob
+		err := row.Scan(&j.id, &j.table)
+		return j, err //nolint:wrapcheck // CollectRows wraps
+	})
+	if err != nil {
+		return fmt.Errorf("collecting paused compression policies: %w", err)
+	}
+	for _, job := range paused {
+		if _, err := pool.Exec(ctx, `SELECT alter_job($1, scheduled => true)`, job.id); err != nil {
+			return fmt.Errorf("scheduling compression policy %d of %s: %w", job.id, job.table, err)
+		}
+		log.Ctx(ctx).Infof("Scheduled the compression policy of %s again (job %d); a backfill had paused it", job.table, job.id)
+	}
+	return nil
+}
+
 // intervalSQL says how a PostgreSQL INTERVAL string reaches a hypertable's
 // partition column type. The bulk-loaded hypertables are partitioned by a
 // timestamptz and take the interval as is; transaction_hashes is partitioned

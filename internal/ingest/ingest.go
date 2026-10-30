@@ -64,12 +64,12 @@ type Configs struct {
 	// BackfillWorkers limits concurrent batch processing during backfill.
 	// Defaults to runtime.GOMAXPROCS(0). Lower values reduce RAM usage.
 	BackfillWorkers int
-	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
-	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillBatchSize int
-	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
-	BackfillDBInsertBatchSize int
+	// BackfillFlushSize is the number of ledgers written per database flush
+	// during backfill.
+	BackfillFlushSize int
+	// BackfillCompressConcurrency is the number of chunks a backfill compresses
+	// at once; it also sets how many uncompressed windows a run may hold.
+	BackfillCompressConcurrency int
 	// LivePersistMaxBatchSize caps how many consecutive ledgers live
 	// ingestion coalesces into one persist commit when persist falls behind.
 	// 1 persists every ledger in its own commit.
@@ -147,13 +147,13 @@ func Ingest(cfg Configs) error {
 	}
 	defer cleanup()
 
-	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger))
+	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger))
 	if runErr != nil {
 		if isCleanShutdown(ctx, runErr, cfg.IngestionMode) {
 			log.Ctx(ctx).Infof("shutdown requested; exiting cleanly: %v", runErr)
 			return nil
 		}
-		return fmt.Errorf("running 'ingest' from %d to %d: %w", cfg.StartLedger, cfg.EndLedger, runErr)
+		return fmt.Errorf("running 'ingest' from ledger %d: %w", cfg.StartLedger, runErr)
 	}
 
 	return nil
@@ -204,6 +204,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		}
 		if err := configureTransactionHashesSettings(ctx, dbConnectionPool, cfg.TransactionHashesChunkInterval, cfg.RetentionPeriod, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, nil, fmt.Errorf("configuring transaction_hashes settings: %w", err)
+		}
+		if err := scheduleCompressionPolicies(ctx, dbConnectionPool); err != nil {
+			return nil, nil, fmt.Errorf("scheduling compression policies: %w", err)
 		}
 	}
 
@@ -313,19 +316,20 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		LedgerBackendFactory: ledgerBackendFactory,
 		// Never matches for the RPC backend (it never wraps ErrBufferDead), so this is safe
 		// to wire unconditionally rather than branching on cfg.LedgerBackendType.
-		IsPermanentFetchError:     func(err error) bool { return errors.Is(err, ErrBufferDead) },
-		TokenIngestionService:     tokenIngestionService,
-		CheckpointService:         checkpointService,
-		Metrics:                   m,
-		NetworkPassphrase:         cfg.NetworkPassphrase,
-		Archive:                   archive,
-		BackfillWorkers:           cfg.BackfillWorkers,
-		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
-		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
-		ProtocolProcessors:        protocolProcessors,
-		ProtocolValidators:        protocolValidators,
-		WasmSpecExtractor:         wasmExtractor,
+		IsPermanentFetchError:       func(err error) bool { return errors.Is(err, ErrBufferDead) },
+		TokenIngestionService:       tokenIngestionService,
+		CheckpointService:           checkpointService,
+		Metrics:                     m,
+		NetworkPassphrase:           cfg.NetworkPassphrase,
+		Archive:                     archive,
+		BackfillWorkers:             cfg.BackfillWorkers,
+		BackfillFlushSize:           cfg.BackfillFlushSize,
+		BackfillCompressConcurrency: cfg.BackfillCompressConcurrency,
+		DatastoreBufferSize:         int(cfg.Datastore.BufferSize),
+		LivePersistMaxBatchSize:     cfg.LivePersistMaxBatchSize,
+		ProtocolProcessors:          protocolProcessors,
+		ProtocolValidators:          protocolValidators,
+		WasmSpecExtractor:           wasmExtractor,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)

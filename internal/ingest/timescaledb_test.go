@@ -714,3 +714,32 @@ func TestRequireTimescaleDBVersion(t *testing.T) {
 	}
 	require.EqualError(t, err, "timescaledb "+installed+" is installed, "+minTimescaleDBVersion+" or newer is required")
 }
+
+func TestScheduleCompressionPolicies(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	scheduled := func() int {
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND scheduled`).Scan(&n))
+		return n
+	}
+	total := scheduled()
+	require.Positive(t, total)
+
+	// A backfill that died mid-run leaves every policy paused.
+	_, err = pool.Exec(ctx, `SELECT alter_job(job_id, scheduled => false) FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression'`)
+	require.NoError(t, err)
+	require.Equal(t, 0, scheduled())
+
+	require.NoError(t, scheduleCompressionPolicies(ctx, pool))
+	assert.Equal(t, total, scheduled())
+
+	// Nothing paused: nothing to do.
+	require.NoError(t, scheduleCompressionPolicies(ctx, pool))
+	assert.Equal(t, total, scheduled())
+}
