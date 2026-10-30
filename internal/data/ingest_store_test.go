@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
@@ -721,40 +722,8 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 	}
 
 	const cursorLedger = uint32(100)
-	seedLedger := func(t *testing.T, ledger uint32, closedAt string) {
-		txTOID := toid.New(int32(ledger), 1, 0).ToInt64()
-		opTOID := toid.New(int32(ledger), 1, 1).ToInt64()
-		_, seedErr := dbConnectionPool.Exec(ctx,
-			`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
-			 VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, $4::timestamptz)`,
-			fmt.Appendf(nil, "hash-%d", ledger), txTOID, ledger, closedAt)
-		require.NoError(t, seedErr)
-		_, seedErr = dbConnectionPool.Exec(ctx,
-			`INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
-			 VALUES ($1::timestamptz, $2, $3)`, closedAt, txTOID, []byte{1})
-		require.NoError(t, seedErr)
-		_, seedErr = dbConnectionPool.Exec(ctx,
-			`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-			 VALUES ($1, 'PAYMENT', $2, 'op_success', true, $3, $4::timestamptz)`,
-			opTOID, []byte{0}, ledger, closedAt)
-		require.NoError(t, seedErr)
-		_, seedErr = dbConnectionPool.Exec(ctx,
-			`INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
-			 VALUES ($1::timestamptz, $2, $3)`, closedAt, opTOID, []byte{1})
-		require.NoError(t, seedErr)
-		_, seedErr = dbConnectionPool.Exec(ctx,
-			`INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category, state_change_reason, ledger_number, account_id, ledger_created_at)
-			 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
-			txTOID, opTOID, ledger, []byte{1}, closedAt)
-		require.NoError(t, seedErr)
-		// The transaction's lookup row, written by the same sibling COPY transaction.
-		_, seedErr = dbConnectionPool.Exec(ctx,
-			`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
-			 VALUES (1, 1, extract(epoch FROM $1::timestamptz)::bigint)`, closedAt)
-		require.NoError(t, seedErr)
-	}
-	seedLedger(t, cursorLedger, "2026-01-01T00:00:00Z")
-	seedLedger(t, cursorLedger+1, "2026-01-01T00:00:05Z")
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, cursorLedger, "2026-01-01T00:00:00Z")
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, cursorLedger+1, "2026-01-01T00:00:05Z")
 
 	// Lookup rows carry no TOID; they are split at the cursor ledger's close time.
 	countHashes := func(t *testing.T) [2]int {
@@ -805,7 +774,7 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 	// The close-time bound comes from the cursor ledger's own transactions
 	// rows. With no such row the bound is unresolvable and the deletes fall
 	// back to scanning unbounded — slower, but orphans must still go.
-	seedLedger(t, cursorLedger+2, "2026-01-01T00:00:10Z")
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, cursorLedger+2, "2026-01-01T00:00:10Z")
 	_, delErr := dbConnectionPool.Exec(ctx, `DELETE FROM transactions`)
 	require.NoError(t, delErr)
 	require.NoError(t, m.DeleteRowsAboveLedger(ctx, cursorLedger))
@@ -817,4 +786,186 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 		assert.Equal(t, [2]int{1, 0}, c, "%s must lose its orphan even without a resolvable close-time bound", table)
 	}
 	assert.Equal(t, [2]int{1, 1}, countHashes(t), "without a close-time bound the orphan lookup row stays; lookups tolerate it")
+}
+
+// seedBulkCopyLedger writes one row per bulk-COPY table for the given ledger, all
+// closed at closedAt, plus that transaction's transaction_hashes lookup row.
+func seedBulkCopyLedger(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool, ledger uint32, closedAt string) {
+	t.Helper()
+	txTOID := toid.New(int32(ledger), 1, 0).ToInt64()
+	opTOID := toid.New(int32(ledger), 1, 1).ToInt64()
+	_, seedErr := dbConnectionPool.Exec(ctx,
+		`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		 VALUES ($1, $2, 100, 'TransactionResultCodeTxSuccess', $3, $4::timestamptz)`,
+		fmt.Appendf(nil, "hash-%d", ledger), txTOID, ledger, closedAt)
+	require.NoError(t, seedErr)
+	_, seedErr = dbConnectionPool.Exec(ctx,
+		`INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		 VALUES ($1::timestamptz, $2, $3)`, closedAt, txTOID, []byte{1})
+	require.NoError(t, seedErr)
+	_, seedErr = dbConnectionPool.Exec(ctx,
+		`INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		 VALUES ($1, 'PAYMENT', $2, 'op_success', true, $3, $4::timestamptz)`,
+		opTOID, []byte{0}, ledger, closedAt)
+	require.NoError(t, seedErr)
+	_, seedErr = dbConnectionPool.Exec(ctx,
+		`INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+		 VALUES ($1::timestamptz, $2, $3)`, closedAt, opTOID, []byte{1})
+	require.NoError(t, seedErr)
+	_, seedErr = dbConnectionPool.Exec(ctx,
+		`INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category, state_change_reason, ledger_number, account_id, ledger_created_at)
+		 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
+		txTOID, opTOID, ledger, []byte{1}, closedAt)
+	require.NoError(t, seedErr)
+	// The transaction's lookup row, written by the same sibling COPY transaction.
+	_, seedErr = dbConnectionPool.Exec(ctx,
+		`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
+		 VALUES (1, 1, extract(epoch FROM $1::timestamptz)::bigint)`, closedAt)
+	require.NoError(t, seedErr)
+}
+
+// bulkCopyLedgersPerTable returns, for each bulk-COPY table, the ledgers its rows
+// belong to, read from the high 32 bits of the table's TOID column.
+func bulkCopyLedgersPerTable(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) map[string][]uint32 {
+	t.Helper()
+	ledgers := make(map[string][]uint32)
+	for _, target := range BulkCopyTables {
+		rows, err := dbConnectionPool.Query(ctx,
+			fmt.Sprintf(`SELECT (%s >> 32)::bigint FROM %s ORDER BY 1`, target.TOIDColumn, target.Table))
+		require.NoError(t, err)
+		found, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		require.NoError(t, err)
+		ledgers[target.Table] = []uint32{}
+		for _, l := range found {
+			ledgers[target.Table] = append(ledgers[target.Table], uint32(l))
+		}
+	}
+	return ledgers
+}
+
+// Test_IngestStoreModel_DeleteRowsInLedgerRange seeds ledgers around a backfill window and
+// verifies that only rows inside both the window's ledger range and its close-time range are
+// deleted from the five bulk-COPY tables, and that transaction_hashes is left alone.
+func Test_IngestStoreModel_DeleteRowsInLedgerRange(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &IngestStoreModel{
+		DB:      dbConnectionPool,
+		Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB,
+	}
+
+	rangeStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rangeEnd := rangeStart.Add(time.Hour)
+	const firstLedger, lastLedger = uint32(100), uint32(102)
+
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 99, "2026-01-01T00:00:10Z")  // below the ledger range, inside the time range
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 100, "2026-01-01T00:00:20Z") // inside both
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 101, "2026-01-01T00:00:25Z") // inside both
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 102, "2026-01-01T02:00:00Z") // inside the ledger range, outside the time range
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 103, "2026-01-01T00:00:30Z") // above the ledger range, inside the time range
+
+	for table, ledgers := range bulkCopyLedgersPerTable(ctx, t, dbConnectionPool) {
+		require.Equal(t, []uint32{99, 100, 101, 102, 103}, ledgers, "seed should place one row per ledger in %s", table)
+	}
+	countHashes := func(t *testing.T) int {
+		n, countErr := db.QueryOne[int](ctx, dbConnectionPool, `SELECT count(*) FROM transaction_hashes`)
+		require.NoError(t, countErr)
+		return n
+	}
+	require.Equal(t, 5, countHashes(t))
+
+	t.Run("rejects ranges that would silently delete nothing", func(t *testing.T) {
+		for name, call := range map[string]func(tx pgx.Tx) error{
+			"first after last": func(tx pgx.Tx) error {
+				_, e := m.DeleteRowsInLedgerRange(ctx, tx, lastLedger, firstLedger, rangeStart, rangeEnd)
+				return e
+			},
+			"ledger past the toid range": func(tx pgx.Tx) error {
+				_, e := m.DeleteRowsInLedgerRange(ctx, tx, firstLedger, math.MaxInt32+1, rangeStart, rangeEnd)
+				return e
+			},
+			"empty close-time range": func(tx pgx.Tx) error {
+				_, e := m.DeleteRowsInLedgerRange(ctx, tx, firstLedger, lastLedger, rangeStart, rangeStart)
+				return e
+			},
+		} {
+			require.Error(t, db.RunInTransaction(ctx, dbConnectionPool, call), name)
+		}
+		for table, ledgers := range bulkCopyLedgersPerTable(ctx, t, dbConnectionPool) {
+			assert.Equal(t, []uint32{99, 100, 101, 102, 103}, ledgers, "%s must be untouched by a rejected range", table)
+		}
+	})
+
+	t.Run("deletes only rows inside both bounds", func(t *testing.T) {
+		var deleted int64
+		require.NoError(t, db.RunInTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+			var delErr error
+			deleted, delErr = m.DeleteRowsInLedgerRange(ctx, tx, firstLedger, lastLedger, rangeStart, rangeEnd)
+			return delErr
+		}))
+
+		// Ledgers 100 and 101 go from each of the five tables. Ledger 102 stays: its
+		// TOIDs are in range but its close time is not, and a row needs both.
+		assert.Equal(t, int64(2*len(BulkCopyTables)), deleted)
+		for table, ledgers := range bulkCopyLedgersPerTable(ctx, t, dbConnectionPool) {
+			assert.Equal(t, []uint32{99, 102, 103}, ledgers, "%s must keep only rows outside one of the bounds", table)
+		}
+		assert.Equal(t, 5, countHashes(t), "transaction_hashes must be untouched")
+
+		// Idempotent: a second run over the same window finds nothing.
+		require.NoError(t, db.RunInTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+			var delErr error
+			deleted, delErr = m.DeleteRowsInLedgerRange(ctx, tx, firstLedger, lastLedger, rangeStart, rangeEnd)
+			return delErr
+		}))
+		assert.Zero(t, deleted)
+	})
+}
+
+// Test_IngestStoreModel_DeleteRowsInLedgerRange_CompressedChunks verifies the delete removes
+// the window's rows when every chunk of the five tables is already compressed.
+func Test_IngestStoreModel_DeleteRowsInLedgerRange_CompressedChunks(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &IngestStoreModel{
+		DB:      dbConnectionPool,
+		Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB,
+	}
+
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 100, "2026-01-01T00:00:10Z")
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 101, "2026-01-01T00:00:15Z")
+	seedBulkCopyLedger(ctx, t, dbConnectionPool, 102, "2026-01-01T00:00:20Z")
+
+	for _, table := range BulkCopyTableNames() {
+		_, err = dbConnectionPool.Exec(ctx, fmt.Sprintf(`SELECT compress_chunk(c) FROM show_chunks('%s') c`, table))
+		require.NoError(t, err)
+	}
+	uncompressed, err := db.QueryOne[int](ctx, dbConnectionPool,
+		`SELECT count(*) FROM timescaledb_information.chunks WHERE hypertable_name = ANY($1) AND NOT is_compressed`,
+		BulkCopyTableNames())
+	require.NoError(t, err)
+	require.Zero(t, uncompressed, "every chunk of the five tables is compressed")
+
+	var deleted int64
+	require.NoError(t, db.RunInTransaction(ctx, dbConnectionPool, func(tx pgx.Tx) error {
+		var delErr error
+		deleted, delErr = m.DeleteRowsInLedgerRange(ctx, tx, 100, 101,
+			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+		return delErr
+	}))
+
+	assert.Equal(t, int64(2*len(BulkCopyTables)), deleted)
+	for table, ledgers := range bulkCopyLedgersPerTable(ctx, t, dbConnectionPool) {
+		assert.Equal(t, []uint32{102}, ledgers, "%s must lose the window's rows from its compressed chunk", table)
+	}
 }

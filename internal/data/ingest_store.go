@@ -387,3 +387,59 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 	}
 	return nil
 }
+
+// DeleteRowsInLedgerRange removes every row of ledgers [firstLedger, lastLedger]
+// from the five bulk-COPY tables on the given transaction and returns how many
+// rows it removed. A backfill window is written with plain COPY that commits per
+// flush, so a crash leaves part of the window in the tables below the cursor; the
+// rerun calls this before filling the window again, because COPY has no ON
+// CONFLICT and a duplicate primary key would fail the rerun. transaction_hashes
+// is not touched: it has no ledger column, and lookups tolerate its duplicates.
+//
+// Each delete is bounded twice. The TOID range selects exactly the window's
+// ledgers. The close-time range [rangeStart, rangeEnd) is on the partitioning
+// column, so the planner excludes every chunk outside the window, including
+// uncompressed chunks that TOID chunk-skipping stats do not cover, instead of
+// scanning them on the tables whose primary key does not lead with the TOID
+// column. A row must satisfy both bounds to be deleted.
+//
+// The window may sit in compressed chunks, so the delete lifts TimescaleDB's
+// per-transaction DML decompression cap with SET LOCAL; the setting holds for
+// the rest of the caller's transaction.
+func (m *IngestStoreModel) DeleteRowsInLedgerRange(ctx context.Context, tx pgx.Tx, firstLedger, lastLedger uint32, rangeStart, rangeEnd time.Time) (int64, error) {
+	// toid packs the ledger into the high 32 bits of a signed int64, so a ledger
+	// above MaxInt32 wraps negative and the bounds below match no rows: a delete
+	// that removes nothing, leaving the rerun to collide on primary keys. An empty
+	// ledger or close-time range has the same silent effect; all three fail loudly.
+	if firstLedger > lastLedger || lastLedger > math.MaxInt32 {
+		return 0, fmt.Errorf("invalid ledger range [%d,%d]: want first <= last <= %d", firstLedger, lastLedger, int64(math.MaxInt32))
+	}
+	if !rangeEnd.After(rangeStart) {
+		return 0, fmt.Errorf("invalid close-time range [%s,%s) for ledgers [%d,%d]: end must be after start", rangeStart, rangeEnd, firstLedger, lastLedger)
+	}
+	minTOID := toid.New(int32(firstLedger), 0, 0).ToInt64()
+	// AfterLedger is the largest TOID within lastLedger, ((lastLedger+1)<<32)-1,
+	// hence the inclusive upper bound.
+	maxTOID := toid.AfterLedger(int32(lastLedger)).ToInt64()
+
+	if _, err := tx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); err != nil {
+		return 0, fmt.Errorf("lifting DML decompression cap: %w", err)
+	}
+
+	var deleted int64
+	for _, target := range BulkCopyTables {
+		query := fmt.Sprintf(
+			`DELETE FROM %s WHERE %s BETWEEN $1 AND $2 AND ledger_created_at >= $3 AND ledger_created_at < $4`,
+			target.Table, target.TOIDColumn)
+		start := time.Now()
+		tag, err := tx.Exec(ctx, query, minTOID, maxTOID, rangeStart, rangeEnd)
+		m.Metrics.QueryDuration.WithLabelValues("DeleteRowsInLedgerRange", target.Table).Observe(time.Since(start).Seconds())
+		m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsInLedgerRange", target.Table).Inc()
+		if err != nil {
+			m.Metrics.QueryErrors.WithLabelValues("DeleteRowsInLedgerRange", target.Table, utils.GetDBErrorType(err)).Inc()
+			return 0, fmt.Errorf("deleting %s rows in ledgers [%d,%d]: %w", target.Table, firstLedger, lastLedger, err)
+		}
+		deleted += tag.RowsAffected()
+	}
+	return deleted, nil
+}
