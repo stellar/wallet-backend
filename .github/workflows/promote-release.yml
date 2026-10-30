@@ -17,7 +17,7 @@ on:
 env:
   # Versions listed under "Tested with" in the release notes.
   PG_MAJOR: "17"
-  TSDB_VERSION: "2.28.2"
+  TSDB_VERSION: "2.31.0"
   # Public image, created by Terraform in stellar/terraform (aws/sdf/ecr/public_repos.auto.tfvars.json).
   PUBLIC_IMAGE: public.ecr.aws/stellar/wallet-backend
   # Docker Hub is kept for existing users until it is deprecated. Public ECR is the primary registry.
