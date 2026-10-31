@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/indexer"
 )
 
 func Test_alignToChunk(t *testing.T) {
@@ -174,4 +176,21 @@ func Test_gapWindows(t *testing.T) {
 
 	assert.True(t, windows[1].RangeStart.Equal(midnight), "starts in the first day")
 	assert.True(t, windows[1].RangeEnd.Equal(midnight.Add(2*day)), "ends after the second day")
+}
+
+func Test_concatCopyRows(t *testing.T) {
+	a, b, c := indexer.NewIndexerBuffer(), indexer.NewIndexerBuffer(), indexer.NewIndexerBuffer()
+	hash := func(b string) string { return strings.Repeat(b, 64) }
+	txA, txB, txC := createTestTransaction(hash("a"), 1), createTestTransaction(hash("b"), 2), createTestTransaction(hash("c"), 3)
+	a.PushTransaction("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON", &txA)
+	b.PushTransaction("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON", &txB)
+	b.PushTransaction("GBXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON", &txC)
+	for _, buf := range []*indexer.IndexerBuffer{a, b, c} {
+		require.NoError(t, buf.BuildCopyRows())
+	}
+	items := []processedLedger{{seq: 1, buffer: a}, {seq: 2, buffer: b}, {seq: 3, buffer: c}}
+	rows := concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)
+	assert.Len(t, rows, 3, "one row per transaction across the three ledgers, empty ledgers contribute none")
+	assert.Equal(t, 3, cap(rows), "sized once")
+	assert.Empty(t, concatCopyRows(nil, (*indexer.IndexerBuffer).GetTransactionCopyRows))
 }
