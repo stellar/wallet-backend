@@ -30,6 +30,14 @@ Live ingestion must have run once before you start. The backfill reads `latest_i
    - `DB_MAX_CONNS` is at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1. The default pool of 12 covers the default concurrency of 5.
    - The retention policy keeps the whole range. The run refuses to start when `RETENTION_PERIOD` would drop `START_LEDGER`. Raise retention on the live ingester first.
    - No other backfill is running for the same network.
+   - The database role the backfill connects as can record chunk-skipping statistics for the chunks it attaches. Grant it once, as a superuser:
+
+     ```sql
+     GRANT INSERT ON _timescaledb_catalog.chunk_column_stats TO <ingest role>;
+     GRANT USAGE ON SEQUENCE _timescaledb_catalog.chunk_column_stats_id_seq TO <ingest role>;
+     ```
+
+     TimescaleDB creates these rows for chunks it makes itself but not for attached ones, and the planner skips a chunk that has none. Without the grant the first attach fails with `permission denied for table chunk_column_stats`.
 
 3. Run a backfill alongside the live ingester. Set `START_LEDGER` and no end. The run always fills up to the history the live ingester already holds, and it rejects `END_LEDGER`.
 
