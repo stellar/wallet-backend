@@ -530,9 +530,10 @@ func (m *ingestService) flushWindow(ctx context.Context, w backfillWindow, targe
 	}
 }
 
-// flushLedgers writes a batch of processed ledgers: one transaction per bulk
-// table on its own connection, all committing with synchronous_commit off.
-// The transactions connection also writes the lookup rows. Each connection
+// flushLedgers writes a batch of processed ledgers: one transaction and one
+// COPY per bulk table on its own connection, all committing with
+// synchronous_commit off. The transactions connection also writes the lookup
+// rows. Each connection
 // writes a different table, so no two of this process's transactions insert
 // into the same hypertable (two of them creating the same chunk could wait on
 // each other in Go, out of sight of the deadlock detector).
@@ -551,40 +552,56 @@ func (m *ingestService) flushLedgers(ctx context.Context, targets windowTargets,
 	return nil
 }
 
-// backfillSibling is one bulk table's write: the rows a processed ledger
-// holds for it and the model call that streams them.
+// backfillSibling is one bulk table's write: the rows a flush holds for it,
+// concatenated across its ledgers, and the model call that streams them.
 type backfillSibling struct {
 	table string
-	write func(ctx context.Context, tx pgx.Tx, item processedLedger) error
+	write func(ctx context.Context, tx pgx.Tx, items []processedLedger) error
+}
+
+// concatCopyRows joins the rows get yields for each ledger into one slice,
+// so a flush is one COPY per table rather than one per ledger. The
+// per-statement round trip dominates a COPY of a few hundred rows, and a
+// flush of 100 ledgers would otherwise cost 500 of them.
+func concatCopyRows(items []processedLedger, get func(*indexer.IndexerBuffer) [][]any) [][]any {
+	total := 0
+	for _, it := range items {
+		total += len(get(it.buffer))
+	}
+	rows := make([][]any, 0, total)
+	for _, it := range items {
+		rows = append(rows, get(it.buffer)...)
+	}
+	return rows
 }
 
 func (m *ingestService) backfillSiblings(targets windowTargets) []backfillSibling {
 	rel := targets.relations
 	return []backfillSibling{
-		{"transactions", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			if _, err := m.models.Transactions.CopyRowsInto(ctx, tx, rel["transactions"], it.buffer.GetTransactionCopyRows()); err != nil {
-				return err //nolint:wrapcheck // caller wraps with table and ledger
+		{"transactions", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
+			if _, err := m.models.Transactions.CopyRowsInto(ctx, tx, rel["transactions"], concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)); err != nil {
+				return err //nolint:wrapcheck // caller wraps with the table and ledger range
 			}
 			// Lookup rows always go to the hypertable: its 7-day chunks span
 			// several windows, so they are never staged.
-			_, err := m.models.Transactions.CopyHashRows(ctx, tx, it.buffer.GetTransactionHashCopyRows())
-			return err //nolint:wrapcheck // caller wraps with table and ledger
+			_, err := m.models.Transactions.CopyHashRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionHashCopyRows))
+			return err //nolint:wrapcheck // caller wraps with the table and ledger range
 		}},
-		{"transactions_accounts", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Transactions.CopyAccountRowsInto(ctx, tx, rel["transactions_accounts"], it.buffer.GetTransactionAccountCopyRows())
-			return err //nolint:wrapcheck // caller wraps with table and ledger
+		{"transactions_accounts", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
+			_, err := m.models.Transactions.CopyAccountRowsInto(ctx, tx, rel["transactions_accounts"], concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionAccountCopyRows))
+			return err //nolint:wrapcheck // caller wraps with the table and ledger range
 		}},
-		{"operations", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Operations.CopyRowsInto(ctx, tx, rel["operations"], it.buffer.GetOperationCopyRows())
-			return err //nolint:wrapcheck // caller wraps with table and ledger
+		{"operations", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
+			_, err := m.models.Operations.CopyRowsInto(ctx, tx, rel["operations"], concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationCopyRows))
+			return err //nolint:wrapcheck // caller wraps with the table and ledger range
 		}},
-		{"operations_accounts", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.Operations.CopyAccountRowsInto(ctx, tx, rel["operations_accounts"], it.buffer.GetOperationAccountCopyRows())
-			return err //nolint:wrapcheck // caller wraps with table and ledger
+		{"operations_accounts", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
+			_, err := m.models.Operations.CopyAccountRowsInto(ctx, tx, rel["operations_accounts"], concatCopyRows(items, (*indexer.IndexerBuffer).GetOperationAccountCopyRows))
+			return err //nolint:wrapcheck // caller wraps with the table and ledger range
 		}},
-		{"state_changes", func(ctx context.Context, tx pgx.Tx, it processedLedger) error {
-			_, err := m.models.StateChanges.CopyRowsInto(ctx, tx, rel["state_changes"], it.buffer.GetStateChangeCopyRows())
-			return err //nolint:wrapcheck // caller wraps with table and ledger
+		{"state_changes", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
+			_, err := m.models.StateChanges.CopyRowsInto(ctx, tx, rel["state_changes"], concatCopyRows(items, (*indexer.IndexerBuffer).GetStateChangeCopyRows))
+			return err //nolint:wrapcheck // caller wraps with the table and ledger range
 		}},
 	}
 }
@@ -599,15 +616,10 @@ func (m *ingestService) runBackfillSibling(ctx context.Context, sibling backfill
 		if _, err := tx.Exec(ctx, `SET LOCAL synchronous_commit = off`); err != nil {
 			return fmt.Errorf("setting synchronous_commit: %w", err)
 		}
-		for _, item := range items {
-			if err := sibling.write(ctx, tx, item); err != nil {
-				return fmt.Errorf("ledger %d: %w", item.seq, err)
-			}
-		}
-		return nil
+		return sibling.write(ctx, tx, items)
 	})
 	if err != nil {
-		return fmt.Errorf("writing %s: %w", sibling.table, err)
+		return fmt.Errorf("writing %s for ledgers %d-%d: %w", sibling.table, items[0].seq, items[len(items)-1].seq, err)
 	}
 	return nil
 }
