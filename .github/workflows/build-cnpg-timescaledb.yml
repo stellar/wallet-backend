@@ -69,4 +69,14 @@ jobs:
             --build-arg PG_MAJOR="${PG_MAJOR}" \
             --build-arg TSDB_VERSION="${TSDB_VERSION}" \
             -t "${TAG}" .
+          # The base image tracks the current PostgreSQL minor, so the same
+          # major/TimescaleDB pair can resolve to a different server over
+          # time. Tag the image with the exact minor as well, so a catalog can
+          # pin it and a rebuild never hides behind an unchanged tag.
+          PG_FULL="$(docker run --rm --platform linux/amd64 "${TAG}" postgres --version | awk '{print $3}')"
+          [[ "$PG_FULL" =~ ^${PG_MAJOR}\.[0-9]+$ ]] || { echo "::error::Unexpected postgres version '$PG_FULL' in the built image"; exit 1; }
+          FULL_TAG="${ECR_REGISTRY}/${ECR_REPO}:pg${PG_FULL}-tsdb${TSDB_VERSION}"
+          docker tag "${TAG}" "${FULL_TAG}"
           ecr-push "${TAG}"
+          ecr-push "${FULL_TAG}"
+          echo "Pushed ${TAG} and ${FULL_TAG}"

@@ -4,6 +4,13 @@
 # data directory paths, init sequences, and permission models. This builds
 # TimescaleDB from the apt repo and layers it onto the CNPG base image.
 #
+# Base image: the `system` family (ghcr.io/cloudnative-pg/postgresql:NN-system-bookworm)
+# tracks the current PostgreSQL minor from PGDG. The legacy `NN-bookworm` tags
+# stopped at 17.6, and a TimescaleDB package compiled against a newer minor
+# fails to load on it (undefined symbol at ALTER EXTENSION). Both stages use
+# the same base, and the server package is held during the TimescaleDB
+# install, so the extension is built for exactly the server this image runs.
+#
 # Usage:
 #   docker build -f Dockerfile-timescale-cnpg --build-arg PG_MAJOR=17 --build-arg TSDB_VERSION=2.31.0 -t cnpg-timescaledb .
 
@@ -13,7 +20,7 @@ ARG TSDB_VERSION=2.31.0
 # ---------------------------------------------------------------------------
 # Stage 1: Install TimescaleDB via apt to capture extension artifacts
 # ---------------------------------------------------------------------------
-FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-bookworm AS timescaledb-builder
+FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-system-bookworm AS timescaledb-builder
 
 ARG PG_MAJOR
 ARG TSDB_VERSION
@@ -49,7 +56,8 @@ RUN echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg m
 # The glob (=${TSDB_VERSION}*) matches the distro suffix automatically
 # (e.g., 2.31.0~debian12-1710); the dpkg-query check rejects a longer upstream
 # version that the same glob would also match (e.g., 2.31.01).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-mark hold postgresql-${PG_MAJOR} postgresql-client-${PG_MAJOR} libpq5 \
+    && apt-get update && apt-get install -y --no-install-recommends \
         timescaledb-2-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \
         timescaledb-2-loader-postgresql-${PG_MAJOR}=${TSDB_VERSION}* \
     && rm -rf /var/lib/apt/lists/* \
@@ -65,7 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 # Stage 2: Assemble final image — only extension artifacts, no build deps
 # ---------------------------------------------------------------------------
-FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-bookworm
+FROM ghcr.io/cloudnative-pg/postgresql:${PG_MAJOR}-system-bookworm
 
 ARG PG_MAJOR
 ARG TSDB_VERSION
