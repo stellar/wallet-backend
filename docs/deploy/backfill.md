@@ -27,7 +27,7 @@ Live ingestion must have run once before you start. The backfill reads `latest_i
 
 2. Check the limits the run enforces.
 
-   - `DB_MAX_CONNS` is at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1. The default pool of 12 covers the default concurrency of 5.
+   - `DB_MAX_CONNS` is at least 5 × (`BACKFILL_WINDOWS` + 1) + `BACKFILL_COMPRESS_CONCURRENCY` + 1. With the defaults that is 16, above the default pool of 12, so set `DB_MAX_CONNS` for the backfill.
    - The retention policy keeps the whole range. The run refuses to start when `RETENTION_PERIOD` would drop `START_LEDGER`. Raise retention on the live ingester first.
    - No other backfill is running for the same network.
    - The database role the backfill connects as can record chunk-skipping statistics for the chunks it attaches. Grant it once, as a superuser:
@@ -61,8 +61,9 @@ Measure the backfill rate on your hardware. The per-window log line reports ledg
 A backfill makes every ledger from `START_LEDGER` to `latest_ingest_ledger` present. It works in this order.
 
 1. **Holes above the cursor.** It fills any hole between `oldest_ingest_ledger` and the live tip first.
-2. **History below the cursor.** It then extends history one window at a time, newest first. A window is one chunk of the history tables: the chunk interval (`CHUNK_INTERVAL`, 1 day by default) aligned the way TimescaleDB aligns chunks. The first window ends at the ledger just below `oldest_ingest_ledger`. The last window stops at `START_LEDGER`.
-3. **Cursor.** `oldest_ingest_ledger` drops to a window's first ledger only after every row of that window is committed. Everything from the cursor to the tip is always present, so a stop at any point leaves a consistent database.
+2. **History below the cursor.** It then extends history window by window, newest first. A window is one chunk of the history tables: the chunk interval (`CHUNK_INTERVAL`, 1 day by default) aligned the way TimescaleDB aligns chunks. The first window ends at the ledger just below `oldest_ingest_ledger`. The last window stops at `START_LEDGER`.
+3. **Overlap.** A window's attach runs while the next window fills. With `BACKFILL_WINDOWS` above 1, that many windows also fill side by side, each with its own ledger source, workers and writer.
+4. **Cursor.** `oldest_ingest_ledger` drops to a window's first ledger only after every row of that window and of every newer window is committed. Windows can finish out of order, and the cursor waits for the newer ones. Everything from the cursor to the tip is always present, so a stop at any point leaves a consistent database.
 
 Inside a window, one fetcher reads ledgers in order, `BACKFILL_WORKERS` workers process them, and one writer flushes every `BACKFILL_FLUSH_SIZE` ledgers. Each flush writes the five history tables in parallel, one transaction per table. The lookup rows in `transaction_hashes` go in the same transaction as `transactions`.
 
@@ -92,15 +93,25 @@ The three options are in [backfill tuning](configuration.md#backfill-tuning). Th
 
 | Resource | Estimate | Reduce it with |
 | --- | --- | --- |
-| Memory | `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` | Lower any of the three terms |
-| Disk | `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1) × 15 GB` of uncompressed windows, on top of the compressed history | Lower `BACKFILL_COMPRESS_CONCURRENCY` |
-| Database connections | `5 + BACKFILL_COMPRESS_CONCURRENCY + 1` | Lower `BACKFILL_COMPRESS_CONCURRENCY` |
+| Memory | `BACKFILL_WINDOWS × (DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` | Lower `BACKFILL_WINDOWS` or any of the other terms |
+| Disk | `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + BACKFILL_WINDOWS + 1) × 15 GB` of uncompressed windows, on top of the compressed history | Lower `BACKFILL_COMPRESS_CONCURRENCY` or `BACKFILL_WINDOWS` |
+| Database connections | `5 × (BACKFILL_WINDOWS + 1) + BACKFILL_COMPRESS_CONCURRENCY + 1` | Lower `BACKFILL_COMPRESS_CONCURRENCY` or `BACKFILL_WINDOWS` |
 
 Both estimates are for mainnet at current density. A decoded mainnet ledger takes about 30 MB. One uncompressed day of mainnet rows takes about 15 GB with its indexes. A quieter network uses less.
 
-- `BACKFILL_WORKERS` defaults to one per CPU. It sets how many ledgers process at once.
+- `BACKFILL_WORKERS` defaults to one per CPU. It sets how many ledgers of one window process at once.
 - `BACKFILL_FLUSH_SIZE` defaults to 100. A larger value means fewer, larger transactions and more memory.
-- `BACKFILL_COMPRESS_CONCURRENCY` defaults to 5. The run lets at most `ceil(value / 5) + 1` windows sit uncompressed. When compression falls behind, the run waits before it starts the next window. A higher value compresses faster, costs more disk and needs more connections.
+- `BACKFILL_COMPRESS_CONCURRENCY` defaults to 5. The run lets at most `ceil(value / 5) + BACKFILL_WINDOWS + 1` windows sit uncompressed. When compression falls behind, the run waits before it starts the next window. A higher value compresses faster, costs more disk and needs more connections.
+- `BACKFILL_WINDOWS` defaults to 1. It sets how many windows fill at once. Raise it when the ingest process and the database both have spare CPU and the phase timings show no single slow stage. Memory, connections and the uncompressed-window budget grow with it, and `BACKFILL_WORKERS` applies to each window, so lower it to keep the same total.
+
+### Database load
+
+A mainnet backfill writes write-ahead log at around 100 MB/s, far more than live ingestion. Plan for it before the run:
+
+- **Storage throughput.** Size the throughput of the data and write-ahead log volumes for that rate, on the primary and on any synchronous standby. A volume capped near 125 MB/s becomes the bottleneck.
+- **WAL archiving.** An archiver that uploads slower than the run writes lets unarchived segments pile up until the log volume fills and the database stops. Size it for the run's rate, or pause archiving for the run and take a fresh base backup afterwards.
+- **Synchronous replication.** Every commit waits for the synchronous standby to flush the log, so a standby that falls behind slows the run and live ingestion together. Run with asynchronous replication for the backfill and restore it afterwards.
+- **Replicas.** A replica replays the log on one process, slower than the run writes it. A replica that falls behind during the run may not catch up until the run ends, and a replica that loses the log it needs has to be rebuilt.
 
 ## What to watch
 
@@ -133,7 +144,7 @@ A failed window that was being staged leaves its staging tables behind until the
 | `--end-ledger does not apply to backfill: ...` | `END_LEDGER` is set | Unset it |
 | `no ingestion cursors yet: run live ingestion once before backfilling` | The live ingester has not written its cursors | Run live ingestion once |
 | `another backfill holds the lock for this network` | A second backfill is running | Wait for it, or stop it |
-| `db-max-conns is <n>, below the <m> connections a backfill with compress concurrency <k> requires` | Pool too small | Raise `DB_MAX_CONNS` or lower `BACKFILL_COMPRESS_CONCURRENCY` |
+| `db-max-conns is <n>, below the <m> connections a backfill with compress concurrency <k> and <w> windows at once requires` | Pool too small | Raise `DB_MAX_CONNS`, or lower `BACKFILL_COMPRESS_CONCURRENCY` or `BACKFILL_WINDOWS` |
 | `start ledger closed at <time>, before the retention policy's earliest kept time <time>; raise retention before backfilling that far` | Retention would drop the range | Raise `RETENTION_PERIOD` on the live ingester |
 
 If a run is killed, every compression policy and the lookup table's maintenance jobs stay paused until live ingestion starts again. Restart the live ingester, or schedule the jobs again with `alter_job(<job_id>, scheduled => true)`.
