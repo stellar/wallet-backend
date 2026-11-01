@@ -94,11 +94,13 @@ type IngestServiceConfig struct {
 	// BackfillWorkers is the number of ledgers processed at once; 0 means one
 	// per CPU. BackfillFlushSize is the number of ledgers written per database
 	// flush. BackfillCompressConcurrency is the number of chunks compressed at
-	// once. DatastoreBufferSize is the ledger source's prefetch depth, used
+	// once. BackfillWindows is the number of chunk windows filled at once.
+	// DatastoreBufferSize is the ledger source's prefetch depth, used
 	// only to report the run's memory estimate.
 	BackfillWorkers             int
 	BackfillFlushSize           int
 	BackfillCompressConcurrency int
+	BackfillWindows             int
 	DatastoreBufferSize         int
 	LivePersistMaxBatchSize     int
 }
@@ -141,6 +143,7 @@ type ingestService struct {
 	backfillWorkers             int
 	backfillFlushSize           int
 	backfillCompressConcurrency int
+	backfillWindows             int
 	datastoreBufferSize         int
 	livePersistMaxBatchSize     int
 	protocolProcessors          map[string]ProtocolProcessor
@@ -213,6 +216,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 		backfillWorkers:             backfillWorkers,
 		backfillFlushSize:           max(1, cfg.BackfillFlushSize),
 		backfillCompressConcurrency: max(1, cfg.BackfillCompressConcurrency),
+		backfillWindows:             max(1, cfg.BackfillWindows),
 		datastoreBufferSize:         cfg.DatastoreBufferSize,
 		livePersistMaxBatchSize:     livePersistMaxBatchSize,
 		protocolProcessors:          ppMap,
