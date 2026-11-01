@@ -69,8 +69,9 @@ Inside a window, one fetcher reads ledgers in order, `BACKFILL_WORKERS` workers 
 How a window is written depends on where it sits.
 
 - **Staged window.** A window below the cursor whose time range has no chunk in any of the five history tables is written into staging tables. There is one per history table, in the `backfill` schema, named `<table>_<window start>`, for example `backfill.transactions_202610270000`. Staging tables have the table's columns and constraints but no primary key and no indexes. When the window is complete, each one is attached to its hypertable as a chunk. TimescaleDB builds the primary key and the indexes once, during the attach. This costs much less database work and write-ahead log than maintaining the indexes row by row.
-- **In-place window.** A window that overlaps an existing chunk in any table, a hole above the cursor, and a window a failed attempt left half attached are written straight into the hypertables. The run first deletes the window's rows from the five history tables.
-- **`transaction_hashes`.** Its rows are never staged. They go to the hypertable with every flush.
+- **Redone window.** A window that lies wholly below the live ingester's first ledger but already has chunks, left by a stopped or failed run, is staged again: the run drops those chunks first. They hold only rows earlier attempts wrote.
+- **In-place window.** The window that shares a chunk with live rows and a hole above the cursor are written straight into the hypertables. The run first deletes the window's rows from the five history tables.
+- **`transaction_hashes`.** Its rows are never staged. They go to the hypertable with every flush. Before a window is filled, the run deletes the lookup rows of the window's ledgers, so a redone window leaves no duplicates.
 
 The attach holds a lock on the hypertable while the indexes build. Live inserts into the newest chunk can wait on it for part of that time. An attached chunk keeps its staging name and schema, so the chunks a backfill built appear as `backfill.<table>_<window start>` in `timescaledb_information.chunks`. After compression, their compressed relations sit in the same schema as `<name>_compressed`.
 
@@ -102,6 +103,15 @@ Both estimates are for mainnet at current density. A decoded mainnet ledger take
 - `BACKFILL_FLUSH_SIZE` defaults to 100. A larger value means fewer, larger transactions and more memory.
 - `BACKFILL_COMPRESS_CONCURRENCY` defaults to 5. The run lets at most `ceil(value / 5) + 1` windows sit uncompressed. When compression falls behind, the run waits before it starts the next window. A higher value compresses faster, costs more disk and needs more connections.
 
+### Database load
+
+A mainnet backfill writes write-ahead log at around 100 MB/s, far more than live ingestion. Plan for it before the run:
+
+- **Storage throughput.** Size the throughput of the data and write-ahead log volumes for that rate, on the primary and on any synchronous standby. A volume capped near 125 MB/s becomes the bottleneck.
+- **WAL archiving.** An archiver that uploads slower than the run writes lets unarchived segments pile up until the log volume fills and the database stops. Size it for the run's rate, or pause archiving for the run and take a fresh base backup afterwards.
+- **Synchronous replication.** Every commit waits for the synchronous standby to flush the log, so a standby that falls behind slows the run and live ingestion together. Run with asynchronous replication for the backfill and restore it afterwards.
+- **Replicas.** A replica replays the log on one process, slower than the run writes it. A replica that falls behind during the run may not catch up until the run ends, and a replica that loses the log it needs has to be rebuilt.
+
 ## What to watch
 
 | Signal | Meaning |
@@ -126,7 +136,7 @@ Any fetch, process, write or compression failure ends the run with a non-zero ex
 
 A rerun with the same `START_LEDGER` resumes from the cursor and fills the remaining holes. Each flush commits on its own, so a failed window can leave rows behind. Before it writes a window, the run deletes that window's rows from the five history tables. Duplicate rows in `transaction_hashes` are tolerated. A backfill never deletes lookup rows.
 
-A failed window that was being staged leaves its staging tables behind until the next run starts. Nothing from it reaches the hypertables. At start, the run drops every table in the `backfill` schema that TimescaleDB does not know as a chunk or a compressed relation. Attached chunks and their compressed relations are never touched. A window a failed attempt left half attached is written in place on the next run.
+A failed window that was being staged leaves its staging tables behind until the next run starts. Nothing from it reaches the hypertables. At start, the run drops every table in the `backfill` schema that TimescaleDB does not know as a chunk or a compressed relation. Attached chunks and their compressed relations are never touched. A window a stopped or failed run left attached, in full or in part, has its chunks dropped and is staged again on the next run.
 
 | Message | Cause | Action |
 | --- | --- | --- |
