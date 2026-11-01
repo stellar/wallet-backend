@@ -27,6 +27,14 @@ const (
 	maxWindowAttempts     = 3
 	maxWindowRetryBackoff = 30 * time.Second
 
+	// flushTimeout bounds one flush. A flush of flush-size ledgers takes
+	// seconds, and a minute or two when a synchronous standby falls behind.
+	// A COPY can also stall with the server waiting for the client and the
+	// client waiting for the server (seen once locally on pgx 5.7.6); the
+	// deadline cancels it so the window is redone instead of holding the run
+	// forever.
+	flushTimeout = 10 * time.Minute
+
 	// decodedLedgerBytes is the working-set estimate for one decoded pubnet
 	// ledger, used only to tell the operator what the configured buffers
 	// cost. Measured on 2026-10 pubnet ledgers.
@@ -660,6 +668,8 @@ func (m *ingestService) flushWindow(ctx context.Context, w backfillWindow, targe
 // each other in Go, out of sight of the deadlock detector).
 func (m *ingestService) flushLedgers(ctx context.Context, targets windowTargets, items []processedLedger) error {
 	start := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, flushTimeout)
+	defer cancel()
 	g, gctx := errgroup.WithContext(ctx)
 	for _, sibling := range m.backfillSiblings(targets) {
 		g.Go(func() error {
