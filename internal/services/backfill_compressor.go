@@ -87,17 +87,16 @@ type compressJob struct {
 }
 
 // maxWindowsInFlight derives the uncompressed-window budget from the
-// compressor's connection count and the number of windows filled at once:
-// one window's chunks can occupy up to five connections, so K connections
-// keep ceil(K/5) windows compressing while the filling windows and the one
-// attaching behind them wait for nothing.
-func maxWindowsInFlight(concurrency, windows int) int {
-	return (concurrency+len(data.BulkCopyTableNames())-1)/len(data.BulkCopyTableNames()) + windows + 1
+// compressor's connection count: one window's chunks can occupy up to five
+// connections, so K connections keep ceil(K/5) windows compressing while one
+// more fills.
+func maxWindowsInFlight(concurrency int) int {
+	return (concurrency+len(data.BulkCopyTableNames())-1)/len(data.BulkCopyTableNames()) + 1
 }
 
 // newBackfillCompressor starts concurrency workers that drain the job queue.
 // Errors other than the already-compressed collision fail the run.
-func newBackfillCompressor(ctx context.Context, pool db.Querier, ingestionMetrics *metrics.IngestionMetrics, concurrency, windows int, runTop time.Time) (*backfillCompressor, context.Context) {
+func newBackfillCompressor(ctx context.Context, pool db.Querier, ingestionMetrics *metrics.IngestionMetrics, concurrency int, runTop time.Time) (*backfillCompressor, context.Context) {
 	group, gctx := errgroup.WithContext(ctx)
 	c := &backfillCompressor{
 		pool:     pool,
@@ -108,7 +107,7 @@ func newBackfillCompressor(ctx context.Context, pool db.Querier, ingestionMetric
 		gctx:     gctx,
 		workers:  concurrency,
 		enqueued: make(map[string]struct{}),
-		slots:    make(chan struct{}, maxWindowsInFlight(concurrency, windows)),
+		slots:    make(chan struct{}, maxWindowsInFlight(concurrency)),
 	}
 	for range concurrency {
 		group.Go(func() error { return c.worker(gctx) })

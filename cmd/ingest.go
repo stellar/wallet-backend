@@ -57,18 +57,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "backfill-compress-concurrency",
-			Usage:       "Chunks compressed at once during backfill, each on its own database connection. The run keeps at most ceil(value/5) + backfill-windows + 1 windows uncompressed on disk.",
+			Usage:       "Chunks compressed at once during backfill, each on its own database connection. The run keeps at most ceil(value/5)+1 windows uncompressed on disk.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillCompressConcurrency,
 			FlagDefault: 5,
-			Required:    false,
-		},
-		{
-			Name:        "backfill-windows",
-			Usage:       "Chunk windows filled at once during backfill. A window's attach always overlaps the next window's fill; above 1, windows also fill side by side. Memory, flush connections and the uncompressed-window budget grow with this value.",
-			OptType:     types.Int,
-			ConfigKey:   &cfg.BackfillWindows,
-			FlagDefault: 1,
 			Required:    false,
 		},
 		{
@@ -212,9 +204,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 				}
 				if cfg.BackfillCompressConcurrency <= 0 {
 					return fmt.Errorf("--backfill-compress-concurrency must be positive (got %d)", cfg.BackfillCompressConcurrency)
-				}
-				if cfg.BackfillWindows <= 0 {
-					return fmt.Errorf("--backfill-windows must be positive (got %d)", cfg.BackfillWindows)
 				}
 				if cfg.BackfillWorkers < 0 {
 					return fmt.Errorf("--backfill-workers must be 0 (one per CPU) or positive (got %d)", cfg.BackfillWorkers)
