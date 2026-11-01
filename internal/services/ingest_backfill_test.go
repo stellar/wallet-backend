@@ -106,6 +106,11 @@ var errLedgerSourceBroken = errors.New("ledger source broken")
 
 func newBackfillTestService(t *testing.T, models *data.Models, factory LedgerBackendFactory) *ingestService {
 	t.Helper()
+	return newBackfillTestServiceWithWindows(t, models, factory, 1)
+}
+
+func newBackfillTestServiceWithWindows(t *testing.T, models *data.Models, factory LedgerBackendFactory, windows int) *ingestService {
+	t.Helper()
 	svc, err := NewIngestService(IngestServiceConfig{
 		IngestionMode:               IngestionModeBackfill,
 		Models:                      models,
@@ -116,6 +121,7 @@ func newBackfillTestService(t *testing.T, models *data.Models, factory LedgerBac
 		BackfillWorkers:             3,
 		BackfillFlushSize:           7,
 		BackfillCompressConcurrency: 2,
+		BackfillWindows:             windows,
 		DatastoreBufferSize:         10,
 	})
 	require.NoError(t, err)
@@ -202,6 +208,14 @@ func partialLookupChunks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 }
 
 func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
+	for _, windows := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d windows at once", windows), func(t *testing.T) {
+			testExtendsHistoryBelowTheCursor(t, windows)
+		})
+	}
+}
+
+func testExtendsHistoryBelowTheCursor(t *testing.T, windows int) {
 	pool, models := openBackfillTestDB(t)
 	ctx := context.Background()
 	setHourlyChunks(t, ctx, pool)
@@ -211,7 +225,7 @@ func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 	// hour 0 = 1000-1059, hour 1 = 1060-1119, hour 2 = 1120-1130. Live
 	// ingested 1100-1130, so hour 1's chunk exists and is shared.
 	chain := newBackfillTestChain(t, 1130)
-	svc := newBackfillTestService(t, models, chain.factory(nil))
+	svc := newBackfillTestServiceWithWindows(t, models, chain.factory(nil), windows)
 	writeLiveLedgers(t, ctx, svc, pool, chain)
 	liveLedgers := distinctLedgers(t, ctx, pool, 1100, 1130)
 	require.Equal(t, 31, liveLedgers)
@@ -404,7 +418,7 @@ func Test_startBackfilling_preflight(t *testing.T) {
 
 	t.Run("refuses a pool below the connection floor", func(t *testing.T) {
 		svc := newBackfillTestService(t, models, chain.factory(nil))
-		svc.backfillCompressConcurrency = int(pool.Config().MaxConns) // 5 + K + 1 > MaxConns
+		svc.backfillCompressConcurrency = int(pool.Config().MaxConns) // 5 × (windows + 1) + K + 1 > MaxConns
 		err := svc.startBackfilling(ctx, 1000)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "db-max-conns")

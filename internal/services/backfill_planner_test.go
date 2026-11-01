@@ -55,11 +55,12 @@ func Test_overlapsAnyChunk(t *testing.T) {
 }
 
 func Test_maxWindowsInFlight(t *testing.T) {
-	assert.Equal(t, 2, maxWindowsInFlight(1))
-	assert.Equal(t, 2, maxWindowsInFlight(5))
-	assert.Equal(t, 3, maxWindowsInFlight(6))
-	assert.Equal(t, 3, maxWindowsInFlight(10))
-	assert.Equal(t, 4, maxWindowsInFlight(15))
+	assert.Equal(t, 3, maxWindowsInFlight(1, 1))
+	assert.Equal(t, 3, maxWindowsInFlight(5, 1))
+	assert.Equal(t, 4, maxWindowsInFlight(6, 1))
+	assert.Equal(t, 4, maxWindowsInFlight(10, 1))
+	assert.Equal(t, 5, maxWindowsInFlight(10, 2))
+	assert.Equal(t, 5, maxWindowsInFlight(15, 1))
 }
 
 // ledgerClock is a fake close-time source: ledger seq closes at
@@ -192,4 +193,37 @@ func Test_concatCopyRows(t *testing.T) {
 	assert.Len(t, rows, 3, "one row per transaction across the three ledgers, empty ledgers contribute none")
 	assert.Equal(t, 3, cap(rows), "sized once")
 	assert.Empty(t, concatCopyRows(nil, (*indexer.IndexerBuffer).GetTransactionCopyRows))
+}
+
+func Test_windowCursor_lowersOverClosedWindowsInPlanOrder(t *testing.T) {
+	ctx := context.Background()
+	var lowered []uint32
+	cursor := newWindowCursor(func(_ context.Context, w backfillWindow) error {
+		lowered = append(lowered, w.FirstLedger)
+		return nil
+	})
+	win := func(first uint32) backfillWindow { return backfillWindow{FirstLedger: first, BelowCursor: true} }
+
+	// Window 1 (older) closes before window 0 (newer): the cursor must not
+	// pass window 0's ledgers while they are still being written.
+	require.NoError(t, cursor.closed(ctx, 1, win(200)))
+	assert.Empty(t, lowered)
+	require.NoError(t, cursor.closed(ctx, 0, win(300)))
+	assert.Equal(t, []uint32{300, 200}, lowered, "both move once the newer one closes, newest first")
+
+	require.NoError(t, cursor.closed(ctx, 3, win(0)))
+	require.NoError(t, cursor.closed(ctx, 2, win(100)))
+	assert.Equal(t, []uint32{300, 200, 100, 0}, lowered)
+}
+
+func Test_windowCursor_stopsAtAFailedLower(t *testing.T) {
+	ctx := context.Background()
+	fail := errors.New("db down")
+	calls := 0
+	cursor := newWindowCursor(func(context.Context, backfillWindow) error {
+		calls++
+		return fail
+	})
+	require.ErrorIs(t, cursor.closed(ctx, 0, backfillWindow{FirstLedger: 10}), fail)
+	assert.Equal(t, 1, calls)
 }
