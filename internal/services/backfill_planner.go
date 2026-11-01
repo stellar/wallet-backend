@@ -25,6 +25,12 @@ type backfillWindow struct {
 	RangeEnd    time.Time
 	FirstLedger uint32
 	LastLedger  uint32
+	// CloseFrom and CloseTo bound the close times of the window's own
+	// ledgers, inclusive: no ledger outside [FirstLedger, LastLedger] closes
+	// in between. transaction_hashes is keyed by close time, so its rows for
+	// the window are found by this range.
+	CloseFrom time.Time
+	CloseTo   time.Time
 	// BelowCursor is true for the contiguous region under oldest_ingest_ledger:
 	// closing such a window lowers the cursor to FirstLedger. Only such a
 	// window can be attached as a chunk; a gap window is written in place.
@@ -299,6 +305,8 @@ func (p *backfillPlanner) Next(ctx context.Context) (backfillWindow, bool, error
 		RangeEnd:    rangeEnd,
 		FirstLedger: first,
 		LastLedger:  p.nextLastLedger,
+		CloseFrom:   rangeStart,
+		CloseTo:     p.nextLastClose,
 		BelowCursor: true,
 	}
 
@@ -346,6 +354,8 @@ func gapWindows(ctx context.Context, probe ledgerCloseTimeProbe, gaps []data.Led
 			RangeEnd:    alignToChunk(lastClose, interval).Add(interval),
 			FirstLedger: gap.GapStart,
 			LastLedger:  gap.GapEnd,
+			CloseFrom:   firstClose,
+			CloseTo:     lastClose,
 			BelowCursor: false,
 		})
 	}

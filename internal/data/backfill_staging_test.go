@@ -174,6 +174,12 @@ func Test_IngestStoreModel_StagingTablesAndAttachChunk(t *testing.T) {
 		assert.Equal(t, 501, count)
 	})
 
+	t.Run("an attached chunk gets autovacuum back", func(t *testing.T) {
+		var reloptions []string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT coalesce(reloptions, '{}') FROM pg_class WHERE oid = $1::regclass`, StagingRelation("transactions", start).Sanitize()).Scan(&reloptions))
+		assert.NotContains(t, reloptions, "autovacuum_enabled=off")
+	})
+
 	t.Run("DropStagingTables is idempotent", func(t *testing.T) {
 		require.NoError(t, m.DropStagingTables(ctx, start.Add(day)))
 		require.NoError(t, m.CreateStagingTables(ctx, start.Add(day)))
@@ -185,3 +191,42 @@ func Test_IngestStoreModel_StagingTablesAndAttachChunk(t *testing.T) {
 }
 
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
+
+func Test_IngestStoreModel_DropWindowChunksAndDeleteLookupRows(t *testing.T) {
+	pool, m := openStagingTestDB(t)
+	ctx := context.Background()
+	day := 24 * time.Hour
+	d27 := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	insert := func(ledger int64, at time.Time) {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO transactions (to_id, hash, fee_charged, result_code, ledger_number, is_fee_bump, ledger_created_at)
+			 VALUES (($1::bigint << 32), decode(md5($1::text), 'hex') || decode(md5($1::text || 'b'), 'hex'), 100, 'txSUCCESS', $1, false, $2)`, ledger, at)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch) VALUES (1, $1, $2)`, ledger, at.Unix())
+		require.NoError(t, err)
+	}
+	insert(1000, d27.Add(time.Hour))
+	insert(1001, d27.Add(time.Hour+5*time.Second))
+	insert(2000, d27.Add(day+time.Hour))
+	count := func(table string) int {
+		var n int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&n))
+		return n
+	}
+
+	dropped, err := m.DropWindowChunks(ctx, d27, d27.Add(day))
+	require.NoError(t, err)
+	assert.Equal(t, 1, dropped, "only the window's transactions chunk")
+	assert.Equal(t, 1, count("transactions"), "the next day is untouched")
+	assert.Equal(t, 3, count("transaction_hashes"), "lookup chunks span windows and are not dropped")
+	_, err = m.DropWindowChunks(ctx, d27, d27)
+	require.Error(t, err)
+
+	// The bounds are inclusive and exact: ledger 1001 is outside [1000's close, 1000's close].
+	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		n, err := m.DeleteLookupRows(ctx, tx, d27.Add(time.Hour), d27.Add(time.Hour))
+		assert.Equal(t, int64(1), n)
+		return err
+	}))
+	assert.Equal(t, 2, count("transaction_hashes"))
+}

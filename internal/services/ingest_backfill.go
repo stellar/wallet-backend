@@ -325,7 +325,7 @@ func (m *ingestService) runWindowAndClose(ctx context.Context, compressor *backf
 		startOnce.Do(func() { start = time.Now() })
 		admitted()
 	}
-	if err := m.runWindowWithRetry(ctx, gate, w, admit); err != nil {
+	if err := m.runWindowWithRetry(ctx, gate, w, compressor.Owns(w), admit); err != nil {
 		compressor.releaseSlot()
 		return err
 	}
@@ -354,13 +354,13 @@ func (m *ingestService) lowerOldestCursor(ctx context.Context, firstLedger uint3
 // runWindowWithRetry redoes a window after a transient failure. A permanent
 // error (a constraint violation, a dead ledger buffer, a row that cannot be
 // encoded) or a cancelled context ends the run.
-func (m *ingestService) runWindowWithRetry(ctx context.Context, gate fillGate, w backfillWindow, admitted func()) error {
+func (m *ingestService) runWindowWithRetry(ctx context.Context, gate fillGate, w backfillWindow, owned bool, admitted func()) error {
 	isPermanent := func(err error) bool {
 		return isPermanentPersistError(err) || (m.isPermanentFetchError != nil && m.isPermanentFetchError(err))
 	}
 	_, err := utils.RetryWithBackoff(ctx, maxWindowAttempts, maxWindowRetryBackoff,
 		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, m.runWindow(ctx, gate, w, admitted)
+			return struct{}{}, m.runWindow(ctx, gate, w, owned, admitted)
 		},
 		func(attempt int, err error, backoff time.Duration) {
 			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("backfill_window").Inc()
@@ -389,11 +389,13 @@ func (m *ingestService) runWindowWithRetry(ctx context.Context, gate fillGate, w
 // A window below the cursor whose range has no chunk in any bulk table is
 // written into staging tables and attached as new chunks once complete:
 // the rows are copied without index maintenance and the indexes are built
-// once, at attach. Any other window (a gap above the cursor, a range that
-// already has a chunk, or a window a failed attempt left half attached) is
-// written straight into the hypertables after deleting whatever an earlier
-// attempt left in its range, so every attempt converges.
-func (m *ingestService) runWindow(ctx context.Context, gate fillGate, w backfillWindow, admitted func()) error {
+// once, at attach. An owned window (wholly below the live ingester's first
+// ledger) that already has chunks holds only rows earlier attempts wrote, so
+// those chunks are dropped and the window is staged again. Any other window
+// (a gap above the cursor, or the window that shares a chunk with live rows)
+// is written straight into the hypertables after deleting whatever an
+// earlier attempt left in its range, so every attempt converges.
+func (m *ingestService) runWindow(ctx context.Context, gate fillGate, w backfillWindow, owned bool, admitted func()) error {
 	if err := gate.enter(ctx); err != nil {
 		return err
 	}
@@ -411,12 +413,28 @@ func (m *ingestService) runWindow(ctx context.Context, gate fillGate, w backfill
 		if err != nil {
 			return err
 		}
+		if owned && overlapsAnyChunk(ranges, w.RangeStart, w.RangeEnd) {
+			dropped, err := m.models.IngestStore.DropWindowChunks(ctx, w.RangeStart, w.RangeEnd)
+			if err != nil {
+				return fmt.Errorf("dropping what an earlier attempt left of %s: %w", w, err)
+			}
+			log.Ctx(ctx).Infof("%s: dropped %d chunks an earlier attempt left; staging the window again", w, dropped)
+			if ranges, err = readChunkRanges(ctx, m.models.DB, data.BulkCopyTableNames()); err != nil {
+				return err
+			}
+		}
 		attach = !overlapsAnyChunk(ranges, w.RangeStart, w.RangeEnd)
 	}
 	targets := hypertableTargets()
 	if attach {
 		if err := m.models.IngestStore.CreateStagingTables(ctx, w.RangeStart); err != nil {
 			return fmt.Errorf("creating staging tables for %s: %w", w, err)
+		}
+		if err := pgx.BeginFunc(ctx, m.models.DB, func(tx pgx.Tx) error {
+			_, err := m.models.IngestStore.DeleteLookupRows(ctx, tx, w.CloseFrom, w.CloseTo)
+			return err //nolint:wrapcheck // wrapped below
+		}); err != nil {
+			return fmt.Errorf("clearing lookup rows of %s: %w", w, err)
 		}
 		targets = stagingTargets(w.RangeStart)
 	} else {
@@ -534,6 +552,11 @@ func (m *ingestService) reconcileWindow(ctx context.Context, w backfillWindow) e
 	err := pgx.BeginFunc(ctx, m.models.DB, func(tx pgx.Tx) error {
 		var err error
 		deleted, err = m.models.IngestStore.DeleteRowsInLedgerRange(ctx, tx, w.FirstLedger, w.LastLedger, w.RangeStart, w.RangeEnd)
+		if err != nil {
+			return err //nolint:wrapcheck // wrapped below
+		}
+		lookup, err := m.models.IngestStore.DeleteLookupRows(ctx, tx, w.CloseFrom, w.CloseTo)
+		deleted += lookup
 		return err //nolint:wrapcheck // wrapped below
 	})
 	if err != nil {
