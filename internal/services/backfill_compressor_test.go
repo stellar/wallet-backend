@@ -21,10 +21,7 @@ func openBackfillTestDB(t *testing.T) (*pgxpool.Pool, *data.Models) {
 	t.Helper()
 	dbt := dbtest.Open(t)
 	t.Cleanup(func() { dbt.Close() })
-	// Room for two windows filling, one attaching and the tests' compressor.
-	poolCfg := db.DefaultPoolConfig()
-	poolCfg.MaxConns = 24
-	pool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN, poolCfg)
+	pool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
 	require.NoError(t, err)
 	t.Cleanup(func() { pool.Close() })
 	m := metrics.NewMetrics(prometheus.NewRegistry())
@@ -91,7 +88,7 @@ func Test_readChunkRanges_andWindowChunks(t *testing.T) {
 	assert.True(t, overlapsAnyChunk(ranges, d27, d27.Add(day)))
 	assert.False(t, overlapsAnyChunk(ranges, d27.Add(-day), d27))
 
-	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, 1, d27.Add(10*day))
+	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, d27.Add(10*day))
 	defer func() { require.NoError(t, c.Close()) }()
 	chunks, err := c.windowChunks(ctx, backfillWindow{RangeStart: d27, RangeEnd: d27.Add(day)})
 	require.NoError(t, err)
@@ -141,7 +138,7 @@ func Test_backfillCompressor_compressesOwnedWindows(t *testing.T) {
 
 	// The run's top is inside the second day, so only the first day is owned.
 	runTop := d27.Add(day + 2*time.Hour)
-	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 2, 1, runTop)
+	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 2, runTop)
 
 	owned := backfillWindow{RangeStart: d27, RangeEnd: d27.Add(day), FirstLedger: 1000, LastLedger: 1000, BelowCursor: true}
 	shared := backfillWindow{RangeStart: d27.Add(day), RangeEnd: d27.Add(2 * day), FirstLedger: 2000, LastLedger: 2000, BelowCursor: true}
@@ -166,7 +163,7 @@ func Test_backfillCompressor_compressesOwnedWindows(t *testing.T) {
 	assert.Equal(t, 1, compressedCount, "exactly the owned day is compressed: %v", state)
 
 	// Compressing an already compressed chunk is not an error.
-	c2, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, 1, runTop)
+	c2, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
 	for chunk, compressed := range state {
 		if compressed {
 			require.NoError(t, c2.compress(ctx, chunk))
@@ -178,12 +175,11 @@ func Test_backfillCompressor_compressesOwnedWindows(t *testing.T) {
 func Test_backfillCompressor_slotsBoundWindowsInFlight(t *testing.T) {
 	pool, _ := openBackfillTestDB(t)
 	ctx := context.Background()
-	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 5, 1, time.Now())
+	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 5, time.Now())
 	defer func() { require.NoError(t, c.Close()) }()
 
-	// K=5 with one window filling allows three windows in flight; the fourth
-	// acquire must block until a window closes.
-	require.NoError(t, c.AcquireSlot(ctx))
+	// K=5 allows two windows in flight; the third acquire must block until a
+	// window closes.
 	require.NoError(t, c.AcquireSlot(ctx))
 	require.NoError(t, c.AcquireSlot(ctx))
 	blocked, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
@@ -224,7 +220,7 @@ func Test_backfillCompressor_LookupRows(t *testing.T) {
 
 	t.Run("the pending rows queue a recompression at the threshold", func(t *testing.T) {
 		// Two connections: the pass runs as two share jobs over disjoint chunks.
-		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 2, 1, runTop)
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 2, runTop)
 		require.NoError(t, c.LookupRows(ctx, lookupRecompressRows-1)) // not yet
 		require.Equal(t, 1, partialLookupChunksCount(t, pool))
 		require.NoError(t, c.LookupRows(ctx, 1)) // queues it
@@ -235,7 +231,7 @@ func Test_backfillCompressor_LookupRows(t *testing.T) {
 	t.Run("Close recompresses once more when rows are pending", func(t *testing.T) {
 		insertTestLookupRow(t, pool, 1792627400)
 		require.Equal(t, 1, partialLookupChunksCount(t, pool))
-		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, 1, runTop)
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
 		require.NoError(t, c.LookupRows(ctx, 1))
 		require.NoError(t, c.Close())
 		assert.Zero(t, partialLookupChunksCount(t, pool))
@@ -243,7 +239,7 @@ func Test_backfillCompressor_LookupRows(t *testing.T) {
 
 	t.Run("Close does nothing when no rows were written", func(t *testing.T) {
 		insertTestLookupRow(t, pool, 1792627500)
-		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, 1, runTop)
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
 		require.NoError(t, c.Close())
 		assert.Equal(t, 1, partialLookupChunksCount(t, pool))
 	})

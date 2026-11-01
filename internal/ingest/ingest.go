@@ -71,8 +71,6 @@ type Configs struct {
 	// BackfillCompressConcurrency is the number of chunks a backfill compresses
 	// at once; it also sets how many uncompressed windows a run may hold.
 	BackfillCompressConcurrency int
-	// BackfillWindows is the number of chunk windows a backfill fills at once.
-	BackfillWindows int
 	// LivePersistMaxBatchSize caps how many consecutive ledgers live
 	// ingestion coalesces into one persist commit when persist falls behind.
 	// 1 persists every ledger in its own commit.
@@ -356,7 +354,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		BackfillWorkers:             cfg.BackfillWorkers,
 		BackfillFlushSize:           cfg.BackfillFlushSize,
 		BackfillCompressConcurrency: cfg.BackfillCompressConcurrency,
-		BackfillWindows:             cfg.BackfillWindows,
 		DatastoreBufferSize:         int(cfg.Datastore.BufferSize),
 		LivePersistMaxBatchSize:     cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:          protocolProcessors,
