@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,10 +38,11 @@ const (
 )
 
 // backfillConnections is the pool floor for a backfill: one connection per
-// bulk table for the flush, the compressor's connections, and one for the
-// cursor, catalog reads and the advisory lock.
-func backfillConnections(compressConcurrency int) int {
-	return len(data.BulkCopyTableNames()) + compressConcurrency + 1
+// bulk table for each window filling and for the window attaching behind
+// them, the compressor's connections, and one for the cursor, catalog reads
+// and the advisory lock.
+func backfillConnections(compressConcurrency, windows int) int {
+	return len(data.BulkCopyTableNames())*(windows+1) + compressConcurrency + 1
 }
 
 // generateBackfillAdvisoryLockID derives the backfill advisory lock from the
@@ -61,8 +63,8 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 		return fmt.Errorf("start ledger must be positive")
 	}
 	pool := m.models.DB
-	if floor := backfillConnections(m.backfillCompressConcurrency); int(pool.Config().MaxConns) < floor {
-		return fmt.Errorf("db-max-conns is %d, below the %d connections a backfill with compress concurrency %d requires", pool.Config().MaxConns, floor, m.backfillCompressConcurrency)
+	if floor := backfillConnections(m.backfillCompressConcurrency, m.backfillWindows); int(pool.Config().MaxConns) < floor {
+		return fmt.Errorf("db-max-conns is %d, below the %d connections a backfill with compress concurrency %d and %d windows at once requires", pool.Config().MaxConns, floor, m.backfillCompressConcurrency, m.backfillWindows)
 	}
 
 	// The lock lives on one connection for the whole run.
@@ -122,10 +124,10 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 		}
 		windows := int64(runTop.Sub(startClose)/interval) + 1
 		m.appMetrics.Ingestion.BackfillWindowsRemaining.Set(float64(windows))
-		log.Ctx(ctx).Infof("Backfill of ledgers %d-%d: about %d windows of %s; memory ≈ %d MB for %d prefetched + %d in-process + %d buffered ledgers; disk ≈ %d GB of uncompressed windows at compress concurrency %d",
-			startLedger, oldest-1, windows, interval,
-			int64(m.datastoreBufferSize+m.backfillWorkers+m.backfillFlushSize)*decodedLedgerBytes>>20, m.datastoreBufferSize, m.backfillWorkers, m.backfillFlushSize,
-			int64(maxWindowsInFlight(m.backfillCompressConcurrency))*uncompressedWindowBytes>>30, m.backfillCompressConcurrency)
+		log.Ctx(ctx).Infof("Backfill of ledgers %d-%d: about %d windows of %s, %d filling at once; memory ≈ %d MB for %d × (%d prefetched + %d in-process + %d buffered ledgers); disk ≈ %d GB of uncompressed windows at compress concurrency %d",
+			startLedger, oldest-1, windows, interval, m.backfillWindows,
+			int64(m.backfillWindows*(m.datastoreBufferSize+m.backfillWorkers+m.backfillFlushSize))*decodedLedgerBytes>>20, m.backfillWindows, m.datastoreBufferSize, m.backfillWorkers, m.backfillFlushSize,
+			int64(maxWindowsInFlight(m.backfillCompressConcurrency, m.backfillWindows))*uncompressedWindowBytes>>30, m.backfillCompressConcurrency)
 	}
 
 	pausedJobs, err := pauseCompressionPolicies(ctx, pool)
@@ -140,7 +142,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 		}
 	}()
 
-	compressor, cctx := newBackfillCompressor(ctx, pool, m.appMetrics.Ingestion, m.backfillCompressConcurrency, runTop)
+	compressor, cctx := newBackfillCompressor(ctx, pool, m.appMetrics.Ingestion, m.backfillCompressConcurrency, m.backfillWindows, runTop)
 	runErr := m.runBackfillWindows(cctx, compressor, probe, interval, startLedger, oldest, latest)
 	closeErr := compressor.Close()
 	switch {
@@ -161,6 +163,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 // windows below it. It runs under the compressor's context so a compression
 // failure stops the fill.
 func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *backfillCompressor, probe ledgerCloseTimeProbe, interval time.Duration, startLedger, oldest, latest uint32) error {
+	gate := make(fillGate, m.backfillWindows)
 	gaps, err := m.models.IngestStore.GetLedgerGaps(ctx, oldest, latest)
 	if err != nil {
 		return fmt.Errorf("finding gaps above the cursor: %w", err)
@@ -170,7 +173,10 @@ func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *back
 		return err
 	}
 	for _, w := range gapWins {
-		if err := m.runWindowAndClose(ctx, compressor, w); err != nil {
+		if err := compressor.AcquireSlot(ctx); err != nil {
+			return err
+		}
+		if err := m.runWindowAndClose(ctx, compressor, gate, w, func() {}); err != nil {
 			return err
 		}
 	}
@@ -179,40 +185,141 @@ func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *back
 	if err != nil {
 		return err
 	}
-	for {
-		w, ok, err := planner.Next(ctx)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			break
-		}
-		if err := m.runWindowAndClose(ctx, compressor, w); err != nil {
-			return err
-		}
-		m.appMetrics.Ingestion.BackfillWindowsRemaining.Dec()
+	if err := m.runPlannedWindows(ctx, compressor, gate, planner); err != nil {
+		return err
 	}
 	m.appMetrics.Ingestion.BackfillWindowsRemaining.Set(0)
 	return nil
 }
 
-// runWindowAndClose takes a window slot, fills the window (retrying the whole
-// window on transient failure), lowers the cursor if the window is below it,
-// and hands the window and its lookup row count to the compressor.
-func (m *ingestService) runWindowAndClose(ctx context.Context, compressor *backfillCompressor, w backfillWindow) error {
-	if err := compressor.AcquireSlot(ctx); err != nil {
-		return err
-	}
-	start := time.Now()
-	if err := m.runWindowWithRetry(ctx, w); err != nil {
-		compressor.releaseSlot()
-		return err
-	}
-	if w.BelowCursor {
+// runPlannedWindows runs the windows below the cursor, newest first. Each
+// window starts in plan order: it takes a slot in the uncompressed-window
+// budget, then waits for the fill gate, and only then is the next window
+// planned. Windows that have passed the gate run side by side: up to the
+// gate's size fill at once, and any number attach or wait for the cursor.
+// They can close out of order; the cursor only moves over the closed windows
+// in plan order.
+func (m *ingestService) runPlannedWindows(ctx context.Context, compressor *backfillCompressor, gate fillGate, planner *backfillPlanner) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	g, gctx := errgroup.WithContext(runCtx)
+	cursor := newWindowCursor(func(ctx context.Context, w backfillWindow) error {
 		if err := m.lowerOldestCursor(ctx, w.FirstLedger); err != nil {
-			compressor.releaseSlot()
 			return err
 		}
+		m.appMetrics.Ingestion.BackfillWindowsRemaining.Dec()
+		return nil
+	})
+
+	dispatch := func() error {
+		for seq := 0; ; seq++ {
+			w, ok, err := planner.Next(gctx)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
+			if err := compressor.AcquireSlot(gctx); err != nil {
+				return err
+			}
+			admitted := make(chan struct{})
+			var admitOnce sync.Once
+			admit := func() { admitOnce.Do(func() { close(admitted) }) }
+			g.Go(func() error {
+				if err := m.runWindowAndClose(gctx, compressor, gate, w, admit); err != nil {
+					return err
+				}
+				return cursor.closed(gctx, seq, w)
+			})
+			select {
+			case <-admitted:
+			case <-gctx.Done():
+				return gctx.Err() //nolint:wrapcheck // the window's own error is what g.Wait returns
+			}
+		}
+	}
+	dispatchErr := dispatch()
+	if dispatchErr != nil {
+		cancel()
+	}
+	waitErr := g.Wait()
+	// A window failure cancels the dispatcher, whose error is then only the
+	// cancellation; a planning failure cancels the windows, whose errors are
+	// then only the cancellation. Report the cause.
+	if dispatchErr != nil && !errors.Is(dispatchErr, context.Canceled) {
+		return dispatchErr
+	}
+	if waitErr != nil {
+		return waitErr //nolint:wrapcheck // window errors are wrapped
+	}
+	return dispatchErr
+}
+
+// windowCursor lowers oldest_ingest_ledger over closed windows in plan
+// order. Windows run side by side and can close out of order; the cursor
+// passes a window only once every newer window has closed, so it never
+// claims a ledger whose window is still being written.
+type windowCursor struct {
+	mu    sync.Mutex
+	next  int
+	done  map[int]backfillWindow
+	lower func(context.Context, backfillWindow) error
+}
+
+func newWindowCursor(lower func(context.Context, backfillWindow) error) *windowCursor {
+	return &windowCursor{done: make(map[int]backfillWindow), lower: lower}
+}
+
+// closed records window seq as committed and lowers the cursor over every
+// window that is now closed in order.
+func (c *windowCursor) closed(ctx context.Context, seq int, w backfillWindow) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.done[seq] = w
+	for {
+		next, ok := c.done[c.next]
+		if !ok {
+			return nil
+		}
+		if err := c.lower(ctx, next); err != nil {
+			return err
+		}
+		delete(c.done, c.next)
+		c.next++
+	}
+}
+
+// fillGate admits windows to the fill stage: at most its capacity fill at
+// once. A window leaves the gate as soon as its rows are written, before it
+// attaches, so the next window fills while this one attaches.
+type fillGate chan struct{}
+
+func (g fillGate) enter(ctx context.Context) error {
+	select {
+	case g <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting to fill: %w", ctx.Err())
+	}
+}
+
+func (g fillGate) leave() { <-g }
+
+// runWindowAndClose fills the window (retrying the whole window on transient
+// failure) and hands it and its lookup row count to the compressor. The
+// caller has taken the window's slot in the uncompressed-window budget;
+// admitted is called once the window first passes the fill gate.
+func (m *ingestService) runWindowAndClose(ctx context.Context, compressor *backfillCompressor, gate fillGate, w backfillWindow, admitted func()) error {
+	var start time.Time
+	var startOnce sync.Once
+	admit := func() {
+		startOnce.Do(func() { start = time.Now() })
+		admitted()
+	}
+	if err := m.runWindowWithRetry(ctx, gate, w, admit); err != nil {
+		compressor.releaseSlot()
+		return err
 	}
 	elapsed := time.Since(start)
 	log.Ctx(ctx).Infof("%s: %d ledgers in %s (%.1f ledgers/s)", w, w.ledgerCount(), elapsed.Round(time.Second), float64(w.ledgerCount())/elapsed.Seconds())
@@ -239,13 +346,13 @@ func (m *ingestService) lowerOldestCursor(ctx context.Context, firstLedger uint3
 // runWindowWithRetry redoes a window after a transient failure. A permanent
 // error (a constraint violation, a dead ledger buffer, a row that cannot be
 // encoded) or a cancelled context ends the run.
-func (m *ingestService) runWindowWithRetry(ctx context.Context, w backfillWindow) error {
+func (m *ingestService) runWindowWithRetry(ctx context.Context, gate fillGate, w backfillWindow, admitted func()) error {
 	isPermanent := func(err error) bool {
 		return isPermanentPersistError(err) || (m.isPermanentFetchError != nil && m.isPermanentFetchError(err))
 	}
 	_, err := utils.RetryWithBackoff(ctx, maxWindowAttempts, maxWindowRetryBackoff,
 		func(ctx context.Context) (struct{}, error) {
-			return struct{}{}, m.runWindow(ctx, w)
+			return struct{}{}, m.runWindow(ctx, gate, w, admitted)
 		},
 		func(attempt int, err error, backoff time.Duration) {
 			m.appMetrics.Ingestion.RetriesTotal.WithLabelValues("backfill_window").Inc()
@@ -268,7 +375,8 @@ func (m *ingestService) runWindowWithRetry(ctx context.Context, w backfillWindow
 // runWindow fetches, processes and writes one window: one fetcher streaming
 // the window's ledgers in order, N workers processing them on the shared
 // indexer, one flusher writing every flush-size ledgers through the five
-// bulk-table connections.
+// bulk-table connections. The fill runs inside the fill gate; the window
+// leaves the gate before it attaches.
 //
 // A window below the cursor whose range has no chunk in any bulk table is
 // written into staging tables and attached as new chunks once complete:
@@ -277,7 +385,18 @@ func (m *ingestService) runWindowWithRetry(ctx context.Context, w backfillWindow
 // already has a chunk, or a window a failed attempt left half attached) is
 // written straight into the hypertables after deleting whatever an earlier
 // attempt left in its range, so every attempt converges.
-func (m *ingestService) runWindow(ctx context.Context, w backfillWindow) error {
+func (m *ingestService) runWindow(ctx context.Context, gate fillGate, w backfillWindow, admitted func()) error {
+	if err := gate.enter(ctx); err != nil {
+		return err
+	}
+	admitted()
+	inGate := true
+	defer func() {
+		if inGate {
+			gate.leave()
+		}
+	}()
+
 	attach := false
 	if w.BelowCursor {
 		ranges, err := readChunkRanges(ctx, m.models.DB, data.BulkCopyTableNames())
@@ -341,6 +460,8 @@ func (m *ingestService) runWindow(ctx context.Context, w backfillWindow) error {
 	if err := g.Wait(); err != nil {
 		return err //nolint:wrapcheck // stage errors are wrapped
 	}
+	inGate = false
+	gate.leave()
 	if attach {
 		return m.attachWindow(ctx, w)
 	}
