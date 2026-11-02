@@ -103,6 +103,8 @@ Both estimates are for mainnet at current density. A decoded mainnet ledger take
 - `BACKFILL_FLUSH_SIZE` defaults to 100. A larger value means fewer, larger transactions and more memory.
 - `BACKFILL_COMPRESS_CONCURRENCY` defaults to 5. The run lets at most `ceil(value / 5) + 1` windows sit uncompressed. When compression falls behind, the run waits before it starts the next window. A higher value compresses faster, costs more disk and needs more connections.
 
+Each attach builds the chunk's indexes with up to 4 parallel workers, taken from the server's `max_parallel_workers`. Index-build memory comes from the server's `maintenance_work_mem`, and five attaches run at once, so five times that value is in use during an attach. At the Postgres default of 64 MB the builds sort mostly on disk. When the database has the memory, raise it for the backfill's role only, for example `ALTER ROLE <backfill role> SET maintenance_work_mem = '512MB'`.
+
 ### Database load
 
 A mainnet backfill writes write-ahead log at around 100 MB/s, far more than live ingestion. Plan for it before the run:
