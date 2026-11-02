@@ -171,8 +171,8 @@ func (m *IngestStoreModel) DeleteLookupRows(ctx context.Context, tx pgx.Tx, from
 // Unix epoch, the internal representation of timestamptz; the range must sit
 // on the hypertable's chunk boundaries and overlap no existing chunk.
 //
-// Autovacuum, off while the table was a staging table, is turned back on
-// first: the chunk keeps its storage options, and a chunk that is not
+// The index builds run with attachIndexBuildSettings. Autovacuum, off while
+// the table was a staging table, is turned back on first: the chunk keeps its storage options, and a chunk that is not
 // compressed at once (or is written to later) needs it.
 //
 // The call runs in the caller's transaction together with the chunk's
@@ -187,6 +187,11 @@ func (m *IngestStoreModel) DeleteLookupRows(ctx context.Context, tx pgx.Tx, from
 func AttachChunk(ctx context.Context, tx pgx.Tx, table string, rangeStart, rangeEnd time.Time) error {
 	slices := fmt.Sprintf(`{"ledger_created_at": [%d, %d]}`, rangeStart.UnixMicro(), rangeEnd.UnixMicro())
 	relation := StagingRelation(table, rangeStart)
+	for _, setting := range attachIndexBuildSettings {
+		if _, err := tx.Exec(ctx, setting); err != nil {
+			return fmt.Errorf("configuring the index builds of %s: %w", relation.Sanitize(), err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `ALTER TABLE `+relation.Sanitize()+` RESET (autovacuum_enabled)`); err != nil {
 		return fmt.Errorf("enabling autovacuum on %s: %w", relation.Sanitize(), err)
 	}
@@ -197,6 +202,16 @@ func AttachChunk(ctx context.Context, tx pgx.Tx, table string, rangeStart, range
 		return fmt.Errorf("recording chunk-skipping statistics for %s: %w", relation.Sanitize(), err)
 	}
 	return nil
+}
+
+// attachIndexBuildSettings give the attach's index builds more than the
+// server defaults (2 parallel workers, 64 MB) for its own transaction only.
+// The builds are the attach's work and the primary's cores sit partly idle
+// during a backfill; workers come out of max_parallel_workers, which caps
+// the total when the five tables attach at once.
+var attachIndexBuildSettings = []string{
+	`SET LOCAL max_parallel_maintenance_workers = 4`,
+	`SET LOCAL maintenance_work_mem = '1GB'`,
 }
 
 // insertChunkSkippingStatsQuery gives a chunk the full-range chunk-skipping
