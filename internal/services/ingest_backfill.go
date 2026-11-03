@@ -185,9 +185,6 @@ func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *back
 		if err := m.runWindowAndClose(ctx, compressor, w); err != nil {
 			return err
 		}
-		if err := compressor.EnqueueLookupChunks(ctx, w.RangeStart); err != nil {
-			return err
-		}
 		m.appMetrics.Ingestion.BackfillWindowsRemaining.Dec()
 	}
 	m.appMetrics.Ingestion.BackfillWindowsRemaining.Set(0)
@@ -196,7 +193,7 @@ func (m *ingestService) runBackfillWindows(ctx context.Context, compressor *back
 
 // runWindowAndClose takes a window slot, fills the window (retrying the whole
 // window on transient failure), lowers the cursor if the window is below it,
-// and hands the window to the compressor.
+// and hands the window and its lookup row count to the compressor.
 func (m *ingestService) runWindowAndClose(ctx context.Context, compressor *backfillCompressor, w backfillWindow) error {
 	if err := compressor.AcquireSlot(ctx); err != nil {
 		return err
@@ -214,7 +211,10 @@ func (m *ingestService) runWindowAndClose(ctx context.Context, compressor *backf
 	}
 	elapsed := time.Since(start)
 	log.Ctx(ctx).Infof("%s: %d ledgers in %s (%.1f ledgers/s)", w, w.ledgerCount(), elapsed.Round(time.Second), float64(w.ledgerCount())/elapsed.Seconds())
-	return compressor.WindowClosed(ctx, w)
+	if err := compressor.WindowClosed(ctx, w); err != nil {
+		return err
+	}
+	return compressor.LookupRows(ctx, m.backfillLookupRows.Swap(0))
 }
 
 // lowerOldestCursor records that every ledger from firstLedger to the tip is
@@ -493,8 +493,12 @@ func (m *ingestService) backfillSiblings() []backfillSibling {
 			if _, err := m.models.Transactions.CopyRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)); err != nil {
 				return err //nolint:wrapcheck // caller wraps with the table and ledger range
 			}
-			_, err := m.models.Transactions.CopyHashRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionHashCopyRows))
-			return err //nolint:wrapcheck // caller wraps with the table and ledger range
+			n, err := m.models.Transactions.CopyHashRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionHashCopyRows))
+			if err != nil {
+				return err //nolint:wrapcheck // caller wraps with the table and ledger range
+			}
+			m.backfillLookupRows.Add(n)
+			return nil
 		}},
 		{"transactions_accounts", func(ctx context.Context, tx pgx.Tx, items []processedLedger) error {
 			_, err := m.models.Transactions.CopyAccountRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionAccountCopyRows))

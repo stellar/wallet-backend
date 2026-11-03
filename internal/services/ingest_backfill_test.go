@@ -133,6 +133,15 @@ func writeLiveLedgers(t *testing.T, ctx context.Context, svc *ingestService, poo
 	setupDBCursors(t, ctx, pool, last, first)
 }
 
+// scheduleLookupMaintenance schedules the lookup table's maintenance job the
+// way live mode does at start; the migration creates it unscheduled. The
+// first run is set a day out so the job does not start under the test.
+func scheduleLookupMaintenance(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `SELECT alter_job(job_id, scheduled => true, next_start => now() + INTERVAL '1 day') FROM timescaledb_information.jobs WHERE proc_name = 'transaction_hashes_maintenance'`)
+	require.NoError(t, err)
+}
+
 func setHourlyChunks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	for _, table := range data.BulkCopyTableNames() {
@@ -172,10 +181,24 @@ func compressedChunksByStart(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	return out
 }
 
+// partialLookupChunks counts the transaction_hashes chunks that hold rows in
+// their rowstore part next to compressed data (status bit 8 in the chunk
+// catalog); the chunks a recompression has to fold.
+func partialLookupChunks(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT count(*) FROM _timescaledb_catalog.chunk c
+		JOIN _timescaledb_catalog.hypertable h ON h.id = c.hypertable_id
+		WHERE h.table_name = 'transaction_hashes' AND c.status & 8 <> 0`).Scan(&n))
+	return n
+}
+
 func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 	pool, models := openBackfillTestDB(t)
 	ctx := context.Background()
 	setHourlyChunks(t, ctx, pool)
+	scheduleLookupMaintenance(t, ctx, pool)
 
 	// Ledgers 1000-1130 close one minute apart from 2026-10-27 00:00 UTC:
 	// hour 0 = 1000-1059, hour 1 = 1060-1119, hour 2 = 1120-1130. Live
@@ -210,14 +233,16 @@ func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 		assert.True(t, state[hour0], "%s hour 0 compressed: %v", table, state)
 		assert.False(t, state[hour1], "%s hour 1 left uncompressed: %v", table, state)
 	}
-	lookupState := compressedChunksByStart(t, ctx, pool, transactionHashesTable)
-	for start, compressed := range lookupState {
-		assert.False(t, compressed, "lookup chunk %s holds live rows and stays uncompressed", start)
+	// The compressor's final pass recompresses every lookup chunk, live rows
+	// included: the lookup table has no chunk the live ingester owns.
+	assert.Zero(t, partialLookupChunks(t, ctx, pool), "no lookup chunk keeps rows in its rowstore part after the run")
+	for _, compressed := range compressedChunksByStart(t, ctx, pool, data.TransactionHashesTable) {
+		assert.True(t, compressed, "every lookup chunk is compressed after the run")
 	}
 
 	var scheduled int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND scheduled`).Scan(&scheduled))
-	assert.Equal(t, len(data.BulkCopyTableNames())+1, scheduled, "policies are scheduled again after the run")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name IN ('policy_compression', 'transaction_hashes_maintenance') AND scheduled`).Scan(&scheduled))
+	assert.Equal(t, len(data.BulkCopyTableNames())+1, scheduled, "the policies and the lookup maintenance job are scheduled again after the run")
 	assert.Zero(t, testutil.ToFloat64(svc.appMetrics.Ingestion.BackfillWindowsRemaining))
 	assert.Equal(t, float64(1010), testutil.ToFloat64(svc.appMetrics.Ingestion.OldestLedger))
 
@@ -231,6 +256,7 @@ func Test_startBackfilling_failsFastAndARerunConverges(t *testing.T) {
 	pool, models := openBackfillTestDB(t)
 	ctx := context.Background()
 	setHourlyChunks(t, ctx, pool)
+	scheduleLookupMaintenance(t, ctx, pool)
 	chain := newBackfillTestChain(t, 1130)
 
 	// Ledger 1030 cannot be fetched: hour 1 (1060-1099 below live) fills and
@@ -250,8 +276,8 @@ func Test_startBackfilling_failsFastAndARerunConverges(t *testing.T) {
 	assert.Zero(t, testutil.ToFloat64(broken.appMetrics.Ingestion.RetriesTotal.WithLabelValues("backfill_window")), "a permanent error is not retried")
 
 	var scheduled int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND scheduled`).Scan(&scheduled))
-	assert.Equal(t, len(data.BulkCopyTableNames())+1, scheduled, "policies are scheduled again even after a failure")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name IN ('policy_compression', 'transaction_hashes_maintenance') AND scheduled`).Scan(&scheduled))
+	assert.Equal(t, len(data.BulkCopyTableNames())+1, scheduled, "the policies and the lookup maintenance job are scheduled again even after a failure")
 
 	// With the source fixed, the rerun deletes the partial window and refills it.
 	fixed := newBackfillTestService(t, models, chain.factory(nil))

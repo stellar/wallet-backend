@@ -81,7 +81,7 @@ Current-state tables use ordinary B-tree primary keys on the account or contract
 
 ## Runtime policies
 
-The live ingester converges these on every start from its environment. A backfill does not change them. It pauses every compression policy for the run and schedules them again when it exits.
+The live ingester converges these on every start from its environment. A backfill does not change them. It pauses every compression policy and the lookup table's maintenance jobs for the run and schedules them again when it exits. It recompresses `transaction_hashes` itself while it runs.
 
 | Variable | What changes |
 |---|---|

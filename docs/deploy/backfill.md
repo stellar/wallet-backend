@@ -60,8 +60,9 @@ Inside a window, one fetcher reads ledgers in order, `BACKFILL_WORKERS` workers 
 
 The backfill also owns compression for the history it writes:
 
-- It compresses the chunks of the five history tables and of `transaction_hashes` once it has finished them, on its own connections. `BACKFILL_COMPRESS_CONCURRENCY` chunks compress at once.
-- It pauses every compression policy for the run and schedules them again when it exits. Live ingestion schedules them again at every start as well.
+- It compresses the chunks of the five history tables once it has finished them, on its own connections. `BACKFILL_COMPRESS_CONCURRENCY` chunks compress at once.
+- It recompresses the whole `transaction_hashes` table after every 500 million lookup rows the windows wrote, and once more when the run closes. `transaction_hashes` has 1,024 fixed chunks split by hash, so every window adds rows to the rowstore part of every chunk. Only a recompression folds them into the columnstore. A pass runs as `BACKFILL_COMPRESS_CONCURRENCY` share jobs on the compressor connections, one share of the chunks each. It rewrites every batch the windows wrote into, most of the table for years of history.
+- It pauses every compression policy and the lookup table's maintenance jobs for the run and schedules them again when it exits. Live ingestion schedules them again at every start as well.
 - It leaves the chunks that also hold live rows to the live policies. These are the newest window and any hole above the cursor.
 - The live ingester's recent chunks therefore stay uncompressed while a backfill runs. Leave room for them on disk.
 
@@ -93,7 +94,7 @@ Both estimates are for mainnet at current density. A decoded mainnet ledger take
 | `<window> failed (attempt <n>/3): ...` | A transient error. The window is redone |
 | `wallet_ingestion_backfill_windows_remaining` | Windows left to fill |
 | `wallet_ingestion_oldest_ledger` | The cursor |
-| `wallet_ingestion_phase_duration_seconds{phase=...}` | `fetch`, `process_ledger`, `insert_into_db` and `compress` timings |
+| `wallet_ingestion_phase_duration_seconds{phase=...}` | `fetch`, `process_ledger`, `insert_into_db`, `compress` and `lookup_recompress` timings |
 
 Read the phase timings to find the slow stage. A high `fetch` points at the ledger source. A high `process_ledger` means more `BACKFILL_WORKERS` help. A high `insert_into_db` means the database is the limit. When the run often waits for a window slot, compression is the limit. Raise `BACKFILL_COMPRESS_CONCURRENCY`, or check that the disk has room for the extra windows.
 
@@ -103,7 +104,7 @@ Metric names are in [observability](observability.md#ingestion).
 
 Any fetch, process, write or compression failure ends the run with a non-zero exit status. A window that hits a transient error is redone up to 3 attempts first. A permanent error ends the run at once. A dead datastore buffer is permanent: the window fails and so does the run.
 
-A rerun with the same `START_LEDGER` resumes from the cursor and fills the remaining holes. Each flush commits on its own, so a failed window can leave rows behind. Before it writes a window, the run deletes that window's rows from the five history tables. Duplicate rows in `transaction_hashes` are tolerated.
+A rerun with the same `START_LEDGER` resumes from the cursor and fills the remaining holes. Each flush commits on its own, so a failed window can leave rows behind. Before it writes a window, the run deletes that window's rows from the five history tables. Duplicate rows in `transaction_hashes` are tolerated. A backfill never deletes lookup rows.
 
 | Message | Cause | Action |
 | --- | --- | --- |
@@ -113,7 +114,7 @@ A rerun with the same `START_LEDGER` resumes from the cursor and fills the remai
 | `db-max-conns is <n>, below the <m> connections a backfill with compress concurrency <k> requires` | Pool too small | Raise `DB_MAX_CONNS` or lower `BACKFILL_COMPRESS_CONCURRENCY` |
 | `start ledger closed at <time>, before the retention policy's earliest kept time <time>; raise retention before backfilling that far` | Retention would drop the range | Raise `RETENTION_PERIOD` on the live ingester |
 
-If a run is killed, the compression policies stay paused until live ingestion starts again. Restart the live ingester, or schedule the jobs again with `alter_job(<job_id>, scheduled => true)`.
+If a run is killed, every compression policy and the lookup table's maintenance jobs stay paused until live ingestion starts again. Restart the live ingester, or schedule the jobs again with `alter_job(<job_id>, scheduled => true)`.
 
 ## Where in the code
 
@@ -122,5 +123,5 @@ If a run is killed, the compression policies stay paused until live ingestion st
 | `cmd/ingest.go` | `ingest` options and mode validation |
 | `internal/services/ingest_backfill.go` | Run setup, window fill, retries, cursor |
 | `internal/services/backfill_planner.go` | Window placement and gap windows |
-| `internal/services/backfill_compressor.go` | Chunk compression and policy pause |
+| `internal/services/backfill_compressor.go` | Chunk compression, lookup recompression and policy pause |
 | `internal/ingest/ledger_backend.go` | `rpc` and `datastore` ledger sources |
