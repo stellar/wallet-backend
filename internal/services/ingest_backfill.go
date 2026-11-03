@@ -287,6 +287,10 @@ func (m *ingestService) runWindowWithRetry(ctx context.Context, w backfillWindow
 // (a gap above the cursor, or the window that shares a chunk with live rows)
 // is written straight into the hypertables after deleting whatever an
 // earlier attempt left in its range, so every attempt converges.
+//
+// Lookup rows are written with the transactions and never deleted. A redone
+// window writes its lookup rows again; lookups read distinct close times, so
+// the duplicates cost only their few bytes.
 func (m *ingestService) runWindow(ctx context.Context, w backfillWindow, owned bool) error {
 	attach := false
 	if w.BelowCursor {
@@ -310,12 +314,6 @@ func (m *ingestService) runWindow(ctx context.Context, w backfillWindow, owned b
 	if attach {
 		if err := m.models.IngestStore.CreateStagingTables(ctx, w.RangeStart); err != nil {
 			return fmt.Errorf("creating staging tables for %s: %w", w, err)
-		}
-		if err := pgx.BeginFunc(ctx, m.models.DB, func(tx pgx.Tx) error {
-			_, err := m.models.IngestStore.DeleteLookupRows(ctx, tx, w.CloseFrom, w.CloseTo)
-			return err //nolint:wrapcheck // wrapped below
-		}); err != nil {
-			return fmt.Errorf("clearing lookup rows of %s: %w", w, err)
 		}
 		targets = stagingTargets(w.RangeStart)
 	} else {
@@ -425,17 +423,14 @@ func stagingTargets(rangeStart time.Time) windowTargets {
 
 // reconcileWindow deletes the window's ledgers from the bulk tables before a
 // plain fill, bounded to the window's chunks. It is a no-op on a first
-// attempt and makes a rerun converge without ON CONFLICT.
+// attempt and makes a rerun converge without ON CONFLICT. It leaves
+// transaction_hashes alone: that table is partitioned by hash prefix, so a
+// delete by close time would decompress every chunk.
 func (m *ingestService) reconcileWindow(ctx context.Context, w backfillWindow) error {
 	var deleted int64
 	err := pgx.BeginFunc(ctx, m.models.DB, func(tx pgx.Tx) error {
 		var err error
 		deleted, err = m.models.IngestStore.DeleteRowsInLedgerRange(ctx, tx, w.FirstLedger, w.LastLedger, w.RangeStart, w.RangeEnd)
-		if err != nil {
-			return err //nolint:wrapcheck // wrapped below
-		}
-		lookup, err := m.models.IngestStore.DeleteLookupRows(ctx, tx, w.CloseFrom, w.CloseTo)
-		deleted += lookup
 		return err //nolint:wrapcheck // wrapped below
 	})
 	if err != nil {
@@ -615,8 +610,9 @@ func (m *ingestService) backfillSiblings(targets windowTargets) []backfillSiblin
 			if _, err := m.models.Transactions.CopyRowsInto(ctx, tx, rel["transactions"], concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionCopyRows)); err != nil {
 				return err //nolint:wrapcheck // caller wraps with the table and ledger range
 			}
-			// Lookup rows always go to the hypertable: its chunks are hash
-			// ranges that every window writes into, so they are never staged.
+			// Lookup rows always go to the hypertable: transaction_hashes is
+			// partitioned by hash prefix, so a window's rows land in every
+			// chunk and none can be staged.
 			n, err := m.models.Transactions.CopyHashRows(ctx, tx, concatCopyRows(items, (*indexer.IndexerBuffer).GetTransactionHashCopyRows))
 			if err != nil {
 				return err //nolint:wrapcheck // caller wraps with the table and ledger range

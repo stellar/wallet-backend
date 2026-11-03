@@ -174,7 +174,7 @@ func cursorValue(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name str
 
 func compressedChunksByStart(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string) map[time.Time]bool {
 	t.Helper()
-	rows, err := pool.Query(ctx, `SELECT COALESCE(range_start, to_timestamp(range_start_integer)), is_compressed FROM timescaledb_information.chunks WHERE hypertable_name = $1`, table)
+	rows, err := pool.Query(ctx, `SELECT range_start, is_compressed FROM timescaledb_information.chunks WHERE hypertable_name = $1`, table)
 	require.NoError(t, err)
 	defer rows.Close()
 	out := map[time.Time]bool{}
@@ -226,10 +226,7 @@ func Test_startBackfilling_extendsHistoryBelowTheCursor(t *testing.T) {
 	var duplicates int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
-	var lookupRows, txRows int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transaction_hashes`).Scan(&lookupRows))
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txRows))
-	assert.Equal(t, txRows, lookupRows, "one lookup row per transaction")
+	assertLookupRowsCoverTransactions(t, ctx, pool)
 
 	// Hour 0 ends before the first live ledger (01:40), so the backfill
 	// compressed it; hour 1 holds live rows and is left to the live policy.
@@ -308,7 +305,7 @@ func Test_startBackfilling_failsFastAndARerunConverges(t *testing.T) {
 	var duplicates int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
-	assertLookupRowsMatchTransactions(t, ctx, pool)
+	assertLookupRowsCoverTransactions(t, ctx, pool)
 	orphans, err = models.IngestStore.ListOrphanStagingTables(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, orphans, "the rerun dropped the leftover staging tables")
@@ -358,7 +355,7 @@ func Test_startBackfilling_halfAttachedWindowConverges(t *testing.T) {
 	assert.Zero(t, stale, "the half-attached window's rows were replaced")
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
-	assertLookupRowsMatchTransactions(t, ctx, pool)
+	assertLookupRowsCoverTransactions(t, ctx, pool)
 	orphans, err := models.IngestStore.ListOrphanStagingTables(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, orphans, "the leftover staging tables were dropped")
@@ -395,7 +392,7 @@ func Test_startBackfilling_attachedWindowAboveTheCursorIsRedone(t *testing.T) {
 	var duplicates int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
-	assertLookupRowsMatchTransactions(t, ctx, pool)
+	assertLookupRowsCoverTransactions(t, ctx, pool)
 	after := chunkNamesByStart(t, ctx, pool, "transactions")[hour0]
 	assert.Equal(t, before, after, "the window is attached again under its staging name")
 	assert.Equal(t, data.BackfillStagingSchema, chunkSchemasByStart(t, ctx, pool, "transactions")[hour0])
@@ -404,12 +401,15 @@ func Test_startBackfilling_attachedWindowAboveTheCursorIsRedone(t *testing.T) {
 	assert.Zero(t, deadRows, "the window was not deleted row by row")
 }
 
-func assertLookupRowsMatchTransactions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// assertLookupRowsCoverTransactions checks that every transaction has a
+// lookup row. A redone window writes its lookup rows again, so the rows are
+// counted distinct.
+func assertLookupRowsCoverTransactions(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	var lookupRows, txRows int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transaction_hashes`).Scan(&lookupRows))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT DISTINCT hash_bucket, hash_prefix, ledger_close_epoch FROM transaction_hashes) d`).Scan(&lookupRows))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions`).Scan(&txRows))
-	assert.Equal(t, txRows, lookupRows, "one lookup row per transaction")
+	assert.Equal(t, txRows, lookupRows, "a lookup row per transaction")
 }
 
 func assertAutovacuumOn(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string, rangeStart time.Time) {
@@ -457,7 +457,7 @@ func Test_startBackfilling_fillsGapsAboveTheCursor(t *testing.T) {
 	var duplicates int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM (SELECT to_id FROM transactions GROUP BY 1 HAVING count(*) > 1) d`).Scan(&duplicates))
 	assert.Zero(t, duplicates)
-	assertLookupRowsMatchTransactions(t, ctx, pool)
+	assertLookupRowsCoverTransactions(t, ctx, pool)
 }
 
 func Test_startBackfilling_preflight(t *testing.T) {
