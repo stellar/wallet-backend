@@ -146,24 +146,6 @@ func (m *IngestStoreModel) DropWindowChunks(ctx context.Context, rangeStart, ran
 	return dropped, nil
 }
 
-// DeleteLookupRows deletes the transaction_hashes rows of ledgers that
-// closed in [from, to], inclusive. Lookup rows are written straight to the
-// hypertable with every flush, never staged, so a window that is redone has
-// to clear the ones an earlier attempt wrote.
-func (m *IngestStoreModel) DeleteLookupRows(ctx context.Context, tx pgx.Tx, from, to time.Time) (int64, error) {
-	if to.Before(from) {
-		return 0, fmt.Errorf("invalid close-time range [%s,%s]", from, to)
-	}
-	if _, err := tx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); err != nil {
-		return 0, fmt.Errorf("lifting DML decompression cap: %w", err)
-	}
-	tag, err := tx.Exec(ctx, `DELETE FROM transaction_hashes WHERE ledger_close_epoch BETWEEN $1 AND $2`, from.Unix(), to.Unix())
-	if err != nil {
-		return 0, fmt.Errorf("deleting transaction_hashes rows closed in [%s,%s]: %w", from, to, err)
-	}
-	return tag.RowsAffected(), nil
-}
-
 // AttachChunk makes the staging table of table for the window
 // [rangeStart, rangeEnd) one of the hypertable's chunks. TimescaleDB builds
 // the primary key and the hypertable's indexes on the table during the call
