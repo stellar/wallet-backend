@@ -192,7 +192,7 @@ func Test_IngestStoreModel_StagingTablesAndAttachChunk(t *testing.T) {
 
 func itoa(v int64) string { return strconv.FormatInt(v, 10) }
 
-func Test_IngestStoreModel_DropWindowChunksAndDeleteLookupRows(t *testing.T) {
+func Test_IngestStoreModel_DropWindowChunks(t *testing.T) {
 	pool, m := openStagingTestDB(t)
 	ctx := context.Background()
 	day := 24 * time.Hour
@@ -218,15 +218,7 @@ func Test_IngestStoreModel_DropWindowChunksAndDeleteLookupRows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, dropped, "only the window's transactions chunk")
 	assert.Equal(t, 1, count("transactions"), "the next day is untouched")
-	assert.Equal(t, 3, count("transaction_hashes"), "lookup chunks span windows and are not dropped")
+	assert.Equal(t, 3, count("transaction_hashes"), "lookup rows are partitioned by hash, not close time, and are not dropped")
 	_, err = m.DropWindowChunks(ctx, d27, d27)
 	require.Error(t, err)
-
-	// The bounds are inclusive and exact: ledger 1001 is outside [1000's close, 1000's close].
-	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		n, err := m.DeleteLookupRows(ctx, tx, d27.Add(time.Hour), d27.Add(time.Hour))
-		assert.Equal(t, int64(1), n)
-		return err
-	}))
-	assert.Equal(t, 2, count("transaction_hashes"))
 }
