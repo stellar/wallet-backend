@@ -44,7 +44,7 @@ func insertTestTransaction(t *testing.T, pool *pgxpool.Pool, ledger uint32, clos
 func insertTestLookupRow(t *testing.T, pool *pgxpool.Pool, epoch int64) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch) VALUES (1, $1, $1)`, epoch)
+		`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch) VALUES (($1 >> 20)::integer, $1, $1)`, epoch)
 	require.NoError(t, err)
 }
 
@@ -103,10 +103,15 @@ func Test_pauseAndResumeCompressionPolicies(t *testing.T) {
 	ctx := context.Background()
 	scheduled := func() int {
 		var n int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND scheduled`).Scan(&n))
+		require.NoError(t, pool.QueryRow(ctx,
+			`SELECT count(*) FROM timescaledb_information.jobs
+			  WHERE proc_name IN ('policy_compression', 'transaction_hashes_maintenance') AND scheduled`).Scan(&n))
 		return n
 	}
-	// The migrations create one columnstore policy per hypertable.
+	// The migrations create one columnstore policy per bulk hypertable and the
+	// lookup table's maintenance job, which live mode schedules.
+	_, err := pool.Exec(ctx, `SELECT alter_job(job_id, scheduled => true, next_start => now() + INTERVAL '1 day') FROM timescaledb_information.jobs WHERE proc_name = 'transaction_hashes_maintenance'`)
+	require.NoError(t, err)
 	require.Equal(t, len(data.BulkCopyTableNames())+1, scheduled())
 
 	paused, err := pauseCompressionPolicies(ctx, pool)
@@ -188,36 +193,56 @@ func Test_backfillCompressor_slotsBoundWindowsInFlight(t *testing.T) {
 	require.NoError(t, c.AcquireSlot(ctx))
 }
 
-func Test_backfillCompressor_EnqueueLookupChunks(t *testing.T) {
+// partialLookupChunksCount counts the transaction_hashes chunks that hold rows
+// in their rowstore part next to compressed data.
+func partialLookupChunksCount(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	require.NoError(t, pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM _timescaledb_catalog.chunk c
+		JOIN _timescaledb_catalog.hypertable h ON h.id = c.hypertable_id
+		WHERE h.table_name = 'transaction_hashes' AND c.status & 8 <> 0`).Scan(&n))
+	return n
+}
+
+func Test_backfillCompressor_LookupRows(t *testing.T) {
 	pool, _ := openBackfillTestDB(t)
 	ctx := context.Background()
-	const week = 7 * 24 * 3600
-	// Two 7-day lookup chunks: an older one wholly below the run's top and a
-	// newer one that the live ingester still writes.
-	olderStart := int64(1792627200) // 2026-10-22 00:00 UTC, a chunk boundary
-	insertTestLookupRow(t, pool, olderStart+100)
-	insertTestLookupRow(t, pool, olderStart+week+100)
-	runTop := time.Unix(olderStart+week+3600, 0).UTC()
+	// A compressed lookup chunk that then receives rows: the shape every
+	// window leaves behind, since a window's hashes spread over every chunk.
+	insertTestLookupRow(t, pool, 1792627200)
+	_, err := pool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('transaction_hashes') c`)
+	require.NoError(t, err)
+	insertTestLookupRow(t, pool, 1792627300)
+	require.Equal(t, 1, partialLookupChunksCount(t, pool))
 
-	c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
-	// Frontier still inside the older chunk: nothing is complete yet.
-	require.NoError(t, c.EnqueueLookupChunks(ctx, time.Unix(olderStart+3600, 0)))
-	// Frontier at the older chunk's start: the older chunk is complete.
-	require.NoError(t, c.EnqueueLookupChunks(ctx, time.Unix(olderStart, 0)))
-	require.NoError(t, c.Close())
+	runTop := time.Unix(1792627200+3600, 0).UTC()
 
-	state := chunkCompressed(t, pool, transactionHashesTable)
-	require.Len(t, state, 2)
-	var compressed, uncompressed int
-	for _, isCompressed := range state {
-		if isCompressed {
-			compressed++
-		} else {
-			uncompressed++
-		}
-	}
-	assert.Equal(t, 1, compressed, "the older chunk is compressed: %v", state)
-	assert.Equal(t, 1, uncompressed, "the chunk holding live rows is not: %v", state)
+	t.Run("the pending rows queue a recompression at the threshold", func(t *testing.T) {
+		// Two connections: the pass runs as two share jobs over disjoint chunks.
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 2, runTop)
+		require.NoError(t, c.LookupRows(ctx, lookupRecompressRows-1)) // not yet
+		require.Equal(t, 1, partialLookupChunksCount(t, pool))
+		require.NoError(t, c.LookupRows(ctx, 1)) // queues it
+		require.NoError(t, c.Close())
+		assert.Zero(t, partialLookupChunksCount(t, pool))
+	})
+
+	t.Run("Close recompresses once more when rows are pending", func(t *testing.T) {
+		insertTestLookupRow(t, pool, 1792627400)
+		require.Equal(t, 1, partialLookupChunksCount(t, pool))
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
+		require.NoError(t, c.LookupRows(ctx, 1))
+		require.NoError(t, c.Close())
+		assert.Zero(t, partialLookupChunksCount(t, pool))
+	})
+
+	t.Run("Close does nothing when no rows were written", func(t *testing.T) {
+		insertTestLookupRow(t, pool, 1792627500)
+		c, _ := newBackfillCompressor(ctx, pool, metrics.NewMetrics(prometheus.NewRegistry()).Ingestion, 1, runTop)
+		require.NoError(t, c.Close())
+		assert.Equal(t, 1, partialLookupChunksCount(t, pool))
+	})
 }
 
 func Test_checkRetentionKeeps(t *testing.T) {

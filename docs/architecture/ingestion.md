@@ -176,12 +176,13 @@ flowchart LR
 ```
 
 - **Preflight.** The run checks that `DB_MAX_CONNS` is at least 5 + `BACKFILL_COMPRESS_CONCURRENCY` + 1, takes a backfill advisory lock for the network, reads both cursors, and refuses to start when the retention policy would drop `START_LEDGER`. A second backfill for the same network exits with `another backfill holds the lock for this network`. The lock is separate from the live ingester's lock. It logs the window count and the memory and disk estimates.
-- **Pause policies.** The run pauses every compression policy with `alter_job(scheduled => false)` and schedules them again at exit. Live ingestion schedules them again at every start.
+- **Pause policies.** The run pauses every compression policy and the lookup table's maintenance jobs with `alter_job(scheduled => false)` and schedules them again at exit. Live ingestion schedules them again at every start.
 - **Holes above the cursor.** The run lists the missing ledgers between `oldest_ingest_ledger` and `latest_ingest_ledger` and fills each hole first.
 - **Windows below the cursor.** A window is one chunk of the five history tables: the chunk interval, 1 day by default, aligned the way TimescaleDB aligns chunks. The run finds each window's first ledger from ledger close times. It starts at the ledger just below `oldest_ingest_ledger` and works downward, newest window first. The last window stops at `START_LEDGER`. A ledger whose close time falls outside its window fails the run.
 - **Fill a window.** One fetcher reads the window's ledgers in order. `BACKFILL_WORKERS` workers process them. One writer flushes every `BACKFILL_FLUSH_SIZE` ledgers. A flush writes the five history tables in parallel, one transaction per table on its own connection, with `synchronous_commit = off`. The transaction for `transactions` also writes `transaction_hashes`. Backfill does not use the live commit set.
 - **Lower the cursor.** `oldest_ingest_ledger` drops to the window's first ledger, in its own transaction, only after every flush of the window has committed. Everything from the cursor to the tip is always present.
-- **Compress.** The run compresses the chunks it finished, for the five history tables and for `transaction_hashes`, on `BACKFILL_COMPRESS_CONCURRENCY` connections of its own. A `transaction_hashes` chunk spans several windows, so it is compressed once the run has moved past its range. The run keeps at most `ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1` windows uncompressed and waits for a slot before it starts another window. It waits for all compression to finish before it exits. Chunks that also hold live rows, the newest window and any hole above the cursor, are left to the live policies. The live ingester's recent chunks stay uncompressed while the run lasts.
+- **Compress.** The run compresses the chunks it finished, for the five history tables, on `BACKFILL_COMPRESS_CONCURRENCY` connections of its own.
+- **Recompress the lookup table.** `transaction_hashes` has 1,024 fixed chunks split by hash, so each window adds rows to the rowstore part of every chunk. The run calls `transaction_hashes_maintenance` in recompression-only mode as `BACKFILL_COMPRESS_CONCURRENCY` share jobs on the compressor connections, one share of the chunks each, after every 500 million lookup rows written, and once more when it closes. A pass rewrites every batch the windows wrote into, most of the table for years of history, and the `lookup_recompress` phase records each share. The run never deletes lookup rows. The run keeps at most `ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1` windows uncompressed and waits for a slot before it starts another window. It waits for all compression to finish before it exits. Chunks that also hold live rows, the newest window and any hole above the cursor, are left to the live policies. The live ingester's recent chunks stay uncompressed while the run lasts.
 
 Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE) × 30 MB` for a decoded mainnet ledger. Disk needs about `(ceil(BACKFILL_COMPRESS_CONCURRENCY / 5) + 1) × 15 GB` of uncompressed windows on top of the compressed history. Both are estimates at current mainnet density.
 
@@ -189,7 +190,7 @@ Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE
 
 **Failure and rerun.** Any fetch, process, write or compression failure ends the run with a non-zero exit. A cancelled run also exits non-zero. A rerun with the same `START_LEDGER` resumes from `oldest_ingest_ledger` and fills the holes that remain. Flushes commit one at a time, so a failed window can leave rows behind. Before it writes a window, the run deletes that window's ledgers from the five history tables. Duplicates in `transaction_hashes` are tolerated.
 
-Backfill writes only the five history tables, `transaction_hashes` and `oldest_ingest_ledger`. It does not write balance tables, protocol tables or `latest_ingest_ledger`, and it never changes the schedule, retention or settings of a policy other than the pause above. That is why it can run while the live ingester runs.
+Backfill writes only the five history tables, `transaction_hashes` and `oldest_ingest_ledger`. It does not write balance tables, protocol tables or `latest_ingest_ledger`, and it never changes the schedule, retention or settings of a policy other than the pause above. It deletes no lookup rows. That is why it can run while the live ingester runs.
 
 ## Ledger sources
 
@@ -305,14 +306,14 @@ The live ingester applies these settings on every start. Backfill does not chang
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `CHUNK_INTERVAL` | `1 day` | `set_chunk_time_interval`. Affects chunks created after the change. |
-| `RETENTION_PERIOD` | empty | Empty removes any retention policy. A value adds or updates a `drop_after` retention policy on the bulk tables. The lookup table has no retention. |
+| `RETENTION_PERIOD` | empty | Empty removes any retention policy. A value adds or updates a `drop_after` retention policy on the bulk tables. The lookup table follows `transactions` through its maintenance jobs. |
 | `COMPRESSION_SCHEDULE_INTERVAL` | empty | How often the compression job runs. Empty leaves it unchanged. |
 | `COMPRESSION_COMPRESS_AFTER` | empty | How long after a chunk closes before it can be compressed. Empty leaves it unchanged. |
 | `COMPRESSION_MAX_CHUNKS` | 0 | `maxchunks_to_compress` per job run. 0 leaves it unchanged (TimescaleDB default: no limit). |
 | `TX_HASH_MAINTENANCE_INTERVAL` | `1 day` | Schedule of each `transaction_hashes_maintenance` job. Applies to that table only. |
 | `TX_HASH_MAINTENANCE_WORKERS` | `1` | Number of `transaction_hashes_maintenance` jobs. Each takes a share of the chunks. Applies to that table only. |
 
-`transaction_hashes` takes no `CHUNK_INTERVAL` or `COMPRESSION_*` setting. Its 1,024 chunks are fixed. Its columnstore policy, which the migration creates, recompresses every chunk on each run, on the schedule from `TX_HASH_COMPRESSION_SCHEDULE_INTERVAL`. The table has no retention, so its rows stay after retention drops their transactions. See [Data model](data-model.md#compression-and-retention).
+`transaction_hashes` takes no `CHUNK_INTERVAL` or `COMPRESSION_*` setting. Its 1,024 chunks are fixed. It has no columnstore or retention policy. The jobs of `transaction_hashes_maintenance` recompress every chunk on each run, on the schedule from `TX_HASH_MAINTENANCE_INTERVAL`, split over `TX_HASH_MAINTENANCE_WORKERS` jobs. They also remove the rows of transactions that retention dropped. See [Data model](data-model.md#compression-and-retention).
 
 The compression jobs come from the hypertable definitions in the migrations. The ingester only changes their schedule and config, and skips a table with a warning when it has no compression job. Policies are updated in place when they differ, so job IDs and run history survive restarts.
 
@@ -350,7 +351,7 @@ See the [Runbook](../deploy/runbook.md) for recovery procedures.
 | `internal/services/ingest_live.go` | Live startup, the three-stage pipeline, batch classification, the commit set and barrier, error classification, lock-session check, lock release |
 | `internal/services/ingest_backfill.go` | Backfill run, windows, flushes, cursor |
 | `internal/services/backfill_planner.go` | Window placement on chunk boundaries, holes above the cursor |
-| `internal/services/backfill_compressor.go` | Backfill compression and the compression policy pause |
+| `internal/services/backfill_compressor.go` | Backfill compression, lookup recompression and the policy pause |
 | `internal/services/protocol_validation_dispatch.go` | Classification plan: matching and RPC prefetch outside the transaction, validator writes inside it |
 | `internal/services/token_ingestion.go` | Balance upserts and deletes, split by foreign-key parent |
 | `internal/services/checkpoint.go` | Checkpoint bootstrap from the history archive |
