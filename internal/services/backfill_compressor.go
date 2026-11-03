@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"golang.org/x/sync/errgroup"
@@ -16,10 +17,21 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
-// transactionHashesTable is the lookup hypertable the backfill writes next to
-// transactions. It is partitioned on an integer close epoch, so its chunks are
-// selected through range_start_integer rather than range_start.
-const transactionHashesTable = "transaction_hashes"
+// lookupRecompressRows is how many transaction_hashes rows the run writes
+// between two recompressions of the lookup table. The table is partitioned
+// by hash, so a window's lookup rows land in the rowstore part of every one
+// of its chunks and only a recompression folds them into the columnstore.
+// 500 million rows are about 45 GB of rowstore with the index at the measured
+// 90 bytes per row, the fill script's pass size; counting rows rather than
+// windows keeps that bound at any transaction rate.
+const lookupRecompressRows int64 = 500_000_000
+
+// lookupMaintenanceCall runs transaction_hashes_maintenance in
+// recompression-only mode (job id 0) over one share of the lookup table's
+// chunks: those whose prefix range index modulo the share count is the share.
+// The procedure commits per chunk, so the call runs through the simple
+// protocol outside any transaction.
+const lookupMaintenanceCall = `CALL transaction_hashes_maintenance(0, $1)`
 
 // sqlstateDuplicateObject is what compress_chunk raises for a chunk that is
 // already compressed. The live policy and a rerun can both reach a chunk the
@@ -44,9 +56,19 @@ type backfillCompressor struct {
 
 	jobs  chan compressJob
 	group *errgroup.Group
+	gctx  context.Context
+	// workers is the connection count; a lookup recompression is split into
+	// that many share jobs, one per connection.
+	workers int
 
 	mu       sync.Mutex
 	enqueued map[string]struct{}
+	// lookupRows counts the transaction_hashes rows written since the last
+	// recompression was queued; lookupPending counts the share jobs of a
+	// recompression still queued or running, so a second one is not queued on
+	// top of it.
+	lookupRows    int64
+	lookupPending int
 	// slots bounds windows in flight: acquired before a window fills, released
 	// when its chunks are compressed (or at close for a window this
 	// compressor does not own).
@@ -55,6 +77,10 @@ type backfillCompressor struct {
 
 type compressJob struct {
 	chunk string
+	// lookup marks a job that recompresses share worker of transaction_hashes
+	// instead of compressing one chunk.
+	lookup bool
+	worker int
 	// done is called when the job finishes, successfully or not; windows use
 	// it to release their slot once every chunk is compressed.
 	done func()
@@ -78,6 +104,8 @@ func newBackfillCompressor(ctx context.Context, pool db.Querier, ingestionMetric
 		runTop:   runTop,
 		jobs:     make(chan compressJob, 4*concurrency),
 		group:    group,
+		gctx:     gctx,
+		workers:  concurrency,
 		enqueued: make(map[string]struct{}),
 		slots:    make(chan struct{}, maxWindowsInFlight(concurrency)),
 	}
@@ -96,7 +124,12 @@ func (c *backfillCompressor) worker(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			err := c.compress(ctx, job.chunk)
+			var err error
+			if job.lookup {
+				err = c.recompressLookupTable(ctx, job.worker)
+			} else {
+				err = c.compress(ctx, job.chunk)
+			}
 			if job.done != nil {
 				job.done()
 			}
@@ -123,6 +156,24 @@ func (c *backfillCompressor) compress(ctx context.Context, chunk string) error {
 		return fmt.Errorf("compressing chunk %s: %w", chunk, err)
 	}
 	log.Ctx(ctx).Infof("Compressed chunk %s in %s", chunk, time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// recompressLookupTable runs the lookup table's maintenance procedure over
+// share worker of its chunks, which folds the lookup rows written since the
+// last pass from each chunk's rowstore part into its columnstore.
+func (c *backfillCompressor) recompressLookupTable(ctx context.Context, worker int) error {
+	start := time.Now()
+	config := fmt.Sprintf(`{"workers": %d, "worker": %d}`, c.workers, worker)
+	_, err := c.pool.Exec(ctx, lookupMaintenanceCall, pgx.QueryExecModeSimpleProtocol, config)
+	c.metrics.PhaseDuration.WithLabelValues("lookup_recompress").Observe(time.Since(start).Seconds())
+	if err != nil {
+		if ctx.Err() == nil {
+			c.metrics.ErrorsTotal.WithLabelValues("compress").Inc()
+		}
+		return fmt.Errorf("recompressing share %d of %d of %s: %w", worker, c.workers, data.TransactionHashesTable, err)
+	}
+	log.Ctx(ctx).Infof("Recompressed share %d of %d of %s in %s", worker, c.workers, data.TransactionHashesTable, time.Since(start).Round(time.Second))
 	return nil
 }
 
@@ -207,36 +258,41 @@ func (c *backfillCompressor) windowChunks(ctx context.Context, w backfillWindow)
 	return chunks, nil
 }
 
-// EnqueueLookupChunks queues every uncompressed transaction_hashes chunk that
-// the run has finished writing: its range starts at or after the fill
-// frontier (the oldest closed window's start) and ends at or before the run's
-// top. A lookup chunk spans several windows, so this runs after each window
-// closes and queues a chunk once.
-func (c *backfillCompressor) EnqueueLookupChunks(ctx context.Context, frontier time.Time) error {
-	rows, err := c.pool.Query(ctx,
-		`SELECT chunk_schema || '.' || chunk_name
-		   FROM timescaledb_information.chunks
-		  WHERE hypertable_name = $1 AND NOT is_compressed
-		    AND range_start_integer >= $2 AND range_end_integer <= $3`,
-		transactionHashesTable, frontier.Unix(), c.runTop.Unix())
-	if err != nil {
-		return fmt.Errorf("listing %s chunks: %w", transactionHashesTable, err)
+// LookupRows adds the transaction_hashes rows a window wrote and queues a
+// recompression of the lookup table, one share job per connection, once
+// lookupRecompressRows are pending. A recompression still queued or running
+// is left to finish; the rows keep counting and the next window queues the
+// following one.
+func (c *backfillCompressor) LookupRows(ctx context.Context, rows int64) error {
+	c.mu.Lock()
+	c.lookupRows += rows
+	if c.lookupRows < lookupRecompressRows || c.lookupPending > 0 {
+		c.mu.Unlock()
+		return nil
 	}
-	defer rows.Close()
-	var chunks []string
-	for rows.Next() {
-		var chunk string
-		if err := rows.Scan(&chunk); err != nil {
-			return fmt.Errorf("scanning %s chunk: %w", transactionHashesTable, err)
-		}
-		chunks = append(chunks, chunk)
+	c.lookupRows = 0
+	c.lookupPending += c.workers
+	c.mu.Unlock()
+	return c.queueLookupRecompress(ctx)
+}
+
+// queueLookupRecompress queues one share job per connection. The caller has
+// added the share count to lookupPending under the lock; each job's done
+// takes one off, as does a share not queued because the context ended.
+func (c *backfillCompressor) queueLookupRecompress(ctx context.Context) error {
+	done := func() {
+		c.mu.Lock()
+		c.lookupPending--
+		c.mu.Unlock()
 	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("listing %s chunks: %w", transactionHashesTable, err)
-	}
-	for _, chunk := range chunks {
-		if err := c.enqueue(ctx, compressJob{chunk: chunk}); err != nil {
-			return err
+	for worker := range c.workers {
+		select {
+		case c.jobs <- compressJob{lookup: true, worker: worker, done: done}:
+		case <-ctx.Done():
+			for ; worker < c.workers; worker++ {
+				done()
+			}
+			return fmt.Errorf("queueing recompression of %s: %w", data.TransactionHashesTable, ctx.Err())
 		}
 	}
 	return nil
@@ -261,21 +317,37 @@ func (c *backfillCompressor) enqueue(ctx context.Context, job compressJob) error
 	}
 }
 
-// Close stops accepting jobs, waits for the queued ones, and returns the
-// first worker error.
+// Close queues a last recompression of transaction_hashes when windows have
+// closed since the previous one, stops accepting jobs, waits for the queued
+// ones, and returns the first worker error.
 func (c *backfillCompressor) Close() error {
+	c.mu.Lock()
+	final := c.lookupRows > 0
+	c.lookupRows = 0
+	if final {
+		c.lookupPending += c.workers
+	}
+	c.mu.Unlock()
+	if final {
+		if err := c.queueLookupRecompress(c.gctx); err != nil {
+			log.Ctx(c.gctx).Warnf("Skipping the final recompression of %s: %v", data.TransactionHashesTable, err)
+		}
+	}
 	close(c.jobs)
 	return c.group.Wait() //nolint:wrapcheck // worker errors are already wrapped
 }
 
 // pauseCompressionPolicies turns off scheduling of every columnstore policy
-// and returns the job ids it paused. A scheduled policy compresses any chunk
-// older than compress_after, which is every chunk a backfill writes, so it
-// would compress half-filled windows under the run. Live mode schedules the
-// policies again at every start, so a crash here leaves nothing to repair.
+// and of the lookup table's maintenance jobs, and returns the job ids it
+// paused. A scheduled policy compresses any chunk older than compress_after,
+// which is every chunk a backfill writes, so it would compress half-filled
+// windows under the run; a maintenance job would recompress chunks the
+// compressor is recompressing. Live mode schedules all of them again at every
+// start, so a crash here leaves nothing to repair.
 func pauseCompressionPolicies(ctx context.Context, pool db.Querier) ([]int, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT job_id FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND scheduled`)
+		`SELECT job_id FROM timescaledb_information.jobs
+		  WHERE proc_name IN ('policy_compression', 'transaction_hashes_maintenance') AND scheduled`)
 	if err != nil {
 		return nil, fmt.Errorf("listing compression policies: %w", err)
 	}

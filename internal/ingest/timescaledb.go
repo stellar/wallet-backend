@@ -97,9 +97,11 @@ func parseTimescaleDBVersion(version string) ([3]int, error) {
 }
 
 // scheduleCompressionPolicies turns scheduling back on for every columnstore
-// policy that is paused. A backfill pauses the policies for its run and
-// resumes them when it exits; a backfill killed before that point leaves them
-// paused, so live mode schedules them again at every start.
+// policy that is paused. A backfill pauses the policies for its run, the
+// lookup table's maintenance jobs with them, and resumes them when it exits;
+// a backfill killed before that point leaves them paused, so live mode
+// schedules them again at every start: the policies here, the maintenance
+// jobs in configureTransactionHashesMaintenance.
 func scheduleCompressionPolicies(ctx context.Context, pool *pgxpool.Pool) error {
 	rows, err := pool.Query(ctx,
 		`SELECT job_id, hypertable_name FROM timescaledb_information.jobs WHERE proc_name = 'policy_compression' AND NOT scheduled`)

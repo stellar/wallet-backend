@@ -128,7 +128,7 @@ Memory is about `(DATASTORE_BUFFER_SIZE + BACKFILL_WORKERS + BACKFILL_FLUSH_SIZE
 
 ### TimescaleDB policies
 
-Only `--ingestion-mode=live` applies these. A backfill does not change them, except that it pauses every compression policy while it runs and schedules them again when it exits. It compresses the chunks it writes itself. Interval values use PostgreSQL `INTERVAL` syntax.
+Only `--ingestion-mode=live` applies these. A backfill does not change them, except that it pauses every compression policy and the lookup table's maintenance jobs while it runs and schedules them again when it exits. It compresses the history chunks it writes itself and recompresses the lookup table after every 500 million lookup rows written and once at the end. Interval values use PostgreSQL `INTERVAL` syntax.
 
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond/v2"
@@ -113,6 +114,9 @@ type IngestService interface {
 var _ IngestService = (*ingestService)(nil)
 
 type ingestService struct {
+	// backfillLookupRows counts the transaction_hashes rows the flushes of the
+	// window in progress wrote; runWindowAndClose hands them to the compressor.
+	backfillLookupRows          atomic.Int64
 	ingestionMode               string
 	models                      *data.Models
 	advisoryLockID              int
