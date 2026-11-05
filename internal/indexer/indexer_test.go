@@ -244,7 +244,6 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -350,7 +349,6 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -366,7 +364,6 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      paymentOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("charlie"),
@@ -630,7 +627,6 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -690,7 +686,6 @@ func TestIndexer_ProcessLedgerTransactions(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -843,7 +838,6 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -954,7 +948,6 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -1034,7 +1027,6 @@ func TestIndexer_getTransactionStateChanges(t *testing.T) {
 				OpWrapper: &processors.TransactionOperationWrapper{
 					Index:          0,
 					Operation:      createAccountOp,
-					Network:        network.TestNetworkPassphrase,
 					LedgerSequence: 12345,
 				},
 				Participants: set.NewSet("alice"),
@@ -1711,7 +1703,6 @@ func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 		wrapper := &processors.TransactionOperationWrapper{
 			Index:          uint32(i - 1),
 			Operation:      createAccountOp,
-			Network:        network.TestNetworkPassphrase,
 			LedgerSequence: 12345,
 		}
 		opsParticipants[opID] = processors.OperationParticipants{

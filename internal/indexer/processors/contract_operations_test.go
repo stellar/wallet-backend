@@ -34,7 +34,6 @@ func Test_participantsForSorobanOp_nonSorobanOp(t *testing.T) {
 
 	nonSorobanOp := func() *TransactionOperationWrapper {
 		return &TransactionOperationWrapper{
-			Network:      network.TestNetworkPassphrase,
 			LedgerClosed: time.Now(),
 			Operation: xdr.Operation{
 				Body: xdr.OperationBody{Type: xdr.OperationTypePayment},
@@ -95,7 +94,6 @@ func Test_participantsForSorobanOp_footprintOps(t *testing.T) {
 
 	basicSorobanOp := func() *TransactionOperationWrapper {
 		return &TransactionOperationWrapper{
-			Network:      network.TestNetworkPassphrase,
 			LedgerClosed: time.Now(),
 			Operation:    xdr.Operation{},
 			Transaction: ingest.LedgerTransaction{
@@ -712,7 +710,6 @@ func Test_participantsForSorobanOp_realTestnetMeta(t *testing.T) {
 
 	op := &TransactionOperationWrapper{
 		Index:          0,
-		Network:        network.TestNetworkPassphrase,
 		LedgerSequence: 4679347,
 		LedgerClosed:   closeTime,
 		Operation:      envelope.Operations()[0],

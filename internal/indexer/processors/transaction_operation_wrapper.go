@@ -5,20 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
-
-// Claimant represents a claimant for a claimable balance
-type Claimant struct {
-	Destination string             `json:"destination"`
-	Predicate   xdr.ClaimPredicate `json:"predicate"`
-}
-
-// ErrLiquidityPoolChangeNotFound is returned when a liquidity pool change is not found
-var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found")
 
 // TransactionOperationWrapper represents the data for a single operation within a transaction
 type TransactionOperationWrapper struct {
@@ -26,7 +16,6 @@ type TransactionOperationWrapper struct {
 	Transaction    ingest.LedgerTransaction
 	Operation      xdr.Operation
 	LedgerSequence uint32
-	Network        string
 	LedgerClosed   time.Time
 }
 
@@ -37,11 +26,6 @@ func (operation *TransactionOperationWrapper) ID() int64 {
 		int32(operation.Transaction.Index),
 		int32(operation.Index+1),
 	).ToInt64()
-}
-
-// Order returns the operation order.
-func (operation *TransactionOperationWrapper) Order() uint32 {
-	return operation.Index + 1
 }
 
 // TransactionID returns the id for the transaction related with this operation.
@@ -127,13 +111,6 @@ func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, erro
 	}
 
 	return nil, nil
-}
-
-// OperationResult returns the operation's result record
-func (operation *TransactionOperationWrapper) OperationResult() *xdr.OperationResultTr {
-	results, _ := operation.Transaction.Result.OperationResults()
-	tr := results[operation.Index].MustTr()
-	return &tr
 }
 
 func (operation *TransactionOperationWrapper) findInitatingBeginSponsoringOp() *TransactionOperationWrapper {

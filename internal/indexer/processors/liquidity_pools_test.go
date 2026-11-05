@@ -121,7 +121,6 @@ func TestLiquidityPoolSharesProcessor_ProcessOperation(t *testing.T) {
 				Transaction:    tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			changes, err := processor.ProcessOperation(context.Background(), wrapper)
@@ -215,7 +214,6 @@ func TestLiquidityPoolsProcessor_ProcessOperation(t *testing.T) {
 				Transaction:    tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			changes, err := processor.ProcessOperation(context.Background(), wrapper)

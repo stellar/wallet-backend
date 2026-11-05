@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -43,7 +42,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -142,7 +140,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -167,7 +164,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -212,7 +208,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -257,7 +252,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -297,7 +291,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -340,7 +333,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -379,7 +371,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -422,7 +413,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}
@@ -461,7 +451,6 @@ func TestEffects_ProcessTransaction(t *testing.T) {
 		opWrapper := &TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        network.TestNetworkPassphrase,
 			Transaction:    transaction,
 			LedgerSequence: 12345,
 		}

@@ -609,7 +609,6 @@ func TestParticipantsProcessor_GetOperationsParticipants(t *testing.T) {
 			opWrapper := &TransactionOperationWrapper{
 				Index:          0,
 				Operation:      op,
-				Network:        network.TestNetworkPassphrase,
 				Transaction:    ingestTx,
 				LedgerSequence: 4873,
 				LedgerClosed:   ingestTx.Ledger.ClosedAt(),

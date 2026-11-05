@@ -42,7 +42,6 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		})
@@ -77,7 +76,6 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		})
@@ -99,7 +97,6 @@ func TestSACEventsProcessor_ProcessCreatedTrustline(t *testing.T) {
 		stateChanges, err := processor.ProcessOperation(context.Background(), &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		})
@@ -167,7 +164,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -202,7 +198,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -237,7 +232,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -271,7 +265,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -294,7 +287,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -323,7 +315,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -350,7 +341,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -373,7 +363,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -405,7 +394,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -425,7 +413,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -445,7 +432,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -464,7 +450,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -483,7 +468,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -507,7 +491,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -536,7 +519,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -563,7 +545,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -584,7 +565,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -604,7 +584,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -627,7 +606,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -653,7 +631,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -674,7 +651,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
@@ -695,7 +671,6 @@ func TestSACEventsProcessor_ProcessOperation(t *testing.T) {
 		opWrapper := &processors.TransactionOperationWrapper{
 			Index:          0,
 			Operation:      op,
-			Network:        networkPassphrase,
 			Transaction:    tx,
 			LedgerSequence: 12345,
 		}
