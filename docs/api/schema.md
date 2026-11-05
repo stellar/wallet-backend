@@ -45,6 +45,29 @@ Returns: [Operation](#operation)
 |---|---|---|---|
 | `id` | [Int64](#int64)! |  | Operation ID (TOID). |
 
+### blendPools
+
+Blend v2 pool-wide catalog, independent of any account, keyset-paginated by pool contract address. Pool deployment is permissionless, so the catalog is unbounded; pages are capped at 50 pools (also the default when first/last is omitted).
+
+Returns: [BlendPoolConnection](#blendpoolconnection)!
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `first` | `Int` |  |  |
+| `after` | `String` |  |  |
+| `last` | `Int` |  |  |
+| `before` | `String` |  |  |
+
+### blendPool
+
+Look up one Blend v2 pool by its contract address (C...).
+
+Returns: [BlendPool](#blendpool)
+
+| Name | Type | Default | Description |
+|---|---|---|---|
+| `address` | `String`! |  |  |
+
 ## Objects
 
 ### Account
@@ -59,6 +82,7 @@ A Stellar account or contract address whose activity is indexed.
 | `operations` | [OperationConnection](#operationconnection)! | Operations this account participated in, oldest first. Set since/until to bound the ledger close time; bounded queries on long histories run faster. |
 | `stateChanges` | [StateChangeConnection](#statechangeconnection)! | State changes affecting this account, oldest first, optionally filtered. Set since/until to bound the ledger close time; bounded queries on long histories run faster. |
 | `sep41Allowances` | [SEP41AllowanceConnection](#sep41allowanceconnection)! | Active SEP-41 allowances granted by this account (as token holder), ordered by spender. Allowances whose expiration ledger is below the latest ingested ledger are filtered out server-side. |
+| `blendPositions` | [BlendAccountPositions](#blendaccountpositions)! | An account's Blend v2 lending, collateral, borrowing, and backstop positions. |
 
 Arguments of `balances`:
 
@@ -264,6 +288,327 @@ One balance in a page, with its pagination cursor.
 |---|---|---|
 | `node` | [Balance](#balance)! | The balance. Select type-specific fields with inline fragments. |
 | `cursor` | `String`! | Opaque cursor for this edge. Pass it as `after` or `before`. |
+
+### BlendAccountPositions
+
+BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP token and re-deposits it, so LP tokens are what the claimer actually receives. Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no pool address, so this total can only ever be reported account-wide.
+
+| Field | Type | Description |
+|---|---|---|
+| `pools` | \[[BlendPoolPosition](#blendpoolposition)!\]! |  |
+| `backstop` | \[[BlendBackstopPosition](#blendbackstopposition)!\]! |  |
+| `backstopClaimedLp` | `String`! |  |
+| `activeAuctions` | \[[BlendAuction](#blendauction)!\]! | Active Dutch auctions where this account is the auction owner: being liquidated (USER_LIQUIDATION), or — only when this account IS the backstop address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST). Sorted by (poolAddress, auctionType). |
+
+### BlendAuction
+
+BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid and lot are raw protocol-token i128 decimal strings (not USD), at the scale noted per field below.
+
+| Field | Type | Description |
+|---|---|---|
+| `poolAddress` | `String`! |  |
+| `poolName` | `String` |  |
+| `auctionType` | [BlendAuctionType](#blendauctiontype)! |  |
+| `bid` | \[[BlendAuctionAmount](#blendauctionamount)!\]! | Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens. |
+| `lot` | \[[BlendAuctionAmount](#blendauctionamount)!\]! | Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying. |
+| `startBlock` | `Int`! | Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down). |
+
+### BlendAuctionAmount
+
+BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
+
+| Field | Type | Description |
+|---|---|---|
+| `assetContractId` | `String`! |  |
+| `amount` | `String`! | Raw on-chain integer amount at the asset's native decimals, NOT a USD value. |
+
+### BlendAuctionChange
+
+One side of a filled Blend v2 Dutch auction. Every fill produces two rows — one for the account being liquidated (or the pool, for BAD_DEBT/INTEREST auctions) and one for the filler — each naming the other as `counterparty`. Pair: (BLEND_AUCTION, FILL).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `poolId` | `String`! | Contract ID of the Blend pool the auction ran on. |
+| `auctionType` | [BlendAuctionType](#blendauctiontype)! | Which auction was filled. |
+| `fillPercent` | `Int`! | Percentage of the auction filled by this fill, 1-100. |
+| `counterparty` | `String`! | The other account in the fill: the filler on the liquidated side, and vice versa. |
+| `lot` | \[[BlendAuctionAmount](#blendauctionamount)!\]! | Assets the filler received. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying. |
+| `bid` | \[[BlendAuctionAmount](#blendauctionamount)!\]! | Assets the filler assumed. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens. |
+
+### BlendBackstopChange
+
+A change to the account's Blend v2 backstop deposit for one pool, denominated in Comet BLND:USDC LP tokens. Pairs: (BLEND_BACKSTOP, CREDIT), (BLEND_BACKSTOP, DEBIT).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `amount` | `String`! | Comet LP tokens deposited or withdrawn, as a decimal string. |
+| `poolId` | `String`! | Contract ID of the Blend pool whose backstop the deposit backs. |
+
+### BlendBackstopEmissionsClaimChange
+
+Backstop emissions claimed from the Blend v2 backstop. The claimed BLND is swapped into Comet LP tokens and auto-restaked (the restake itself emits BLEND_BACKSTOP CREDIT rows per pool), so the amount is denominated in LP tokens and no single pool or token is attributable to the claim itself. Pair: (BLEND_BACKSTOP_EMISSIONS, CLAIM).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `amount` | `String`! | Comet BLND:USDC LP tokens minted by the claim, as a decimal string. |
+
+### BlendBackstopPosition
+
+BlendBackstopPosition is an account's backstop deposit in one pool. The backstop is a single protocol-wide contract holding each pool's first-loss capital separately, so exposure is inherently per-pool (poolAddress) even though the backstop is not the pool contract itself — one BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued) backstop share balance; lpTokens/usdValue value the whole deposit — active plus queued-for-withdrawal shares — since queued shares keep earning pool interest and remain slashable first-loss capital until actually withdrawn. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop emission stream for this pool; it accrues on active shares only (queued shares earn no emissions).
+
+| Field | Type | Description |
+|---|---|---|
+| `poolAddress` | `String`! |  |
+| `poolName` | `String` |  |
+| `shares` | `String`! |  |
+| `lpTokens` | `String` | The deposit converted to Comet LP tokens at the pool's shares:tokens rate. Null when that rate is unknown: the pool's blend_backstop_pools balance can be absent or zeroed (an emissions-only write creates the row with zero balance columns) while this account provably holds shares — a conversion reported as "0" there would be indistinguishable from a closed position. |
+| `usdValue` | `Float` |  |
+| `q4w` | \[[BlendQ4W](#blendq4w)!\]! |  |
+| `emissionsEarnedBlnd` | `String`! |  |
+| `emissionsEarnedUsd` | `Float` |  |
+
+### BlendBackstopQueueChange
+
+A queue-for-withdrawal entry added to or removed from the account's Blend v2 backstop position for one pool. ADD queues shares for the 17-day withdrawal lock; REMOVE cancels a queued entry (an executed withdrawal is a BLEND_BACKSTOP DEBIT instead). Pairs: (BLEND_BACKSTOP_QUEUE, ADD), (BLEND_BACKSTOP_QUEUE, REMOVE).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `amount` | `String`! | Backstop shares queued or dequeued, as a decimal string. |
+| `poolId` | `String`! | Contract ID of the Blend pool whose backstop the queue entry belongs to. |
+
+### BlendCollateralChange
+
+A change to the account's collateralized supply position in a Blend v2 pool reserve: underlying tokens posted as (or released from) borrow collateral. Pairs: (BLEND_COLLATERAL, CREDIT), (BLEND_COLLATERAL, DEBIT).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `tokenId` | `String`! | Contract ID of the reserve asset posted or released. |
+| `amount` | `String`! | Underlying amount moved, as a decimal string in the asset's smallest unit. |
+| `poolId` | `String`! | Contract ID of the Blend pool the reserve belongs to. |
+
+### BlendDebtChange
+
+A change to the account's debt position in a Blend v2 pool reserve. Pairs: (BLEND_DEBT, BORROW), (BLEND_DEBT, REPAY), (BLEND_DEBT, FLASH_LOAN), (BLEND_DEBT, BAD_DEBT), (BLEND_DEBT, BURN). Amount denomination varies by reason: BORROW, REPAY, and FLASH_LOAN carry the underlying amount; BAD_DEBT (debt socialized to the backstop) and BURN (defaulted debt written off; `account` is the pool) carry dTokens.
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `tokenId` | `String`! | Contract ID of the reserve asset borrowed against. |
+| `amount` | `String`! | Amount moved, as a decimal string (see the type docs for denomination by reason). |
+| `poolId` | `String`! | Contract ID of the Blend pool the debt is owed to. |
+
+### BlendEmissionsClaimChange
+
+BLND emissions claimed from a Blend v2 pool's reserves. Pair: (BLEND_EMISSIONS, CLAIM).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `tokenId` | `String` | Contract ID of the BLND Stellar Asset Contract the emissions pay out in. Null only on networks with no known BLND SAC (e.g. a standalone test network). |
+| `amount` | `String`! | BLND claimed, as a decimal string in stroops. |
+| `poolId` | `String`! | Contract ID of the Blend pool whose reserve emissions were claimed. |
+
+### BlendPool
+
+BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of any account. suppliedUsd/borrowedUsd are the sum of each reserve's own suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is the pool's backstop-LP token balance priced at the Comet LP rate. interestApy and netApy are both supplied-USD-weighted means of each reserve's supplyApy across reserves; netApy additionally folds in each reserve's emissionsSupplyApr — i.e. it is the supply-side yield including BLND emissions, not netted against the pool's borrow side. Both are nil if any priced reserve's supplyApy is nil, since weighting that reserve in at 0% yield would report a number that looks real and isn't.
+
+| Field | Type | Description |
+|---|---|---|
+| `address` | `String`! |  |
+| `name` | `String` |  |
+| `status` | [BlendPoolStatus](#blendpoolstatus) | Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/ SETUP reject both. Null until the pool's config entry has been ingested, and also null for an unrecognized on-chain status value. |
+| `oracleContractId` | `String` |  |
+| `backstopRate` | `Int` | Share of borrower interest routed to the pool's backstop, as 7-decimal fixed point (4750000 = 47.5%). |
+| `maxPositions` | `Int` |  |
+| `suppliedUsd` | `Float` |  |
+| `borrowedUsd` | `Float` |  |
+| `backstopUsd` | `Float` |  |
+| `interestApy` | `Float` |  |
+| `netApy` | `Float` |  |
+| `reserves` | \[[BlendReserve](#blendreserve)!\]! |  |
+| `admin` | `String` | Pool admin address (G... or C...). Distinguishes owned pools (admin can retune parameters) from standard pools whose admin is disabled. Null when not yet observed. |
+| `inRewardZone` | `Boolean`! | Whether this pool is in the backstop's reward zone and therefore receives BLND emissions. |
+
+### BlendPoolConnection
+
+Relay-style page of the Blend v2 pool catalog.
+
+| Field | Type | Description |
+|---|---|---|
+| `edges` | \[[BlendPoolEdge](#blendpooledge)!\]! |  |
+| `pageInfo` | [PageInfo](#pageinfo)! |  |
+
+### BlendPoolEdge
+
+One Blend v2 pool in a page, with its pagination cursor.
+
+| Field | Type | Description |
+|---|---|---|
+| `node` | [BlendPool](#blendpool)! |  |
+| `cursor` | `String`! |  |
+
+### BlendPoolPosition
+
+BlendPoolPosition rolls up an account's reserve positions within one pool.
+
+| Field | Type | Description |
+|---|---|---|
+| `poolAddress` | `String`! |  |
+| `poolName` | `String` |  |
+| `usdValue` | `Float` |  |
+| `suppliedUsd` | `Float` |  |
+| `borrowedUsd` | `Float` |  |
+| `netApy` | `Float` | Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js PositionsEstimate convention shown by the Blend UI: (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd. 0 for a position with debt but no supply (bad debt is forgiven). Null when any contributing reserve is missing a fresh oracle price, or has a null supplyApy/borrowApy of its own. |
+| `claimedBlnd` | `String`! | Lifetime BLND this account has claimed from this pool's reserve emissions. |
+| `reserves` | \[[BlendReservePosition](#blendreserveposition)!\]! |  |
+
+### BlendQ4W
+
+BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix seconds). amount is in backstop shares; lpTokens/usdValue value those shares through the same shares→LP→USD conversion as the position's totals, and go null under the same unknown-rate condition as the position's lpTokens.
+
+| Field | Type | Description |
+|---|---|---|
+| `amount` | `String`! |  |
+| `expiration` | [Int64](#int64)! |  |
+| `lpTokens` | `String` |  |
+| `usdValue` | `Float` |  |
+
+### BlendReserve
+
+BlendReserve is a pool-wide reserve catalog view: current utilization, supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying token amounts, all as of "now" (rates are projected forward from the reserve's last on-chain update).
+
+| Field | Type | Description |
+|---|---|---|
+| `assetContractId` | `String`! |  |
+| `tokenName` | `String` |  |
+| `tokenSymbol` | `String` |  |
+| `tokenDecimals` | `Int` |  |
+| `enabled` | `Boolean`! |  |
+| `utilization` | `Float` |  |
+| `supplyApy` | `Float` | Compounded interest rate for each side. Null when the reserve's rate curve compounds past what a Float can hold — reserve config is permissionless, so an arbitrarily steep curve is representable on-chain but not here. |
+| `borrowApy` | `Float` |  |
+| `emissionsSupplyApr` | `Float` |  |
+| `emissionsBorrowApr` | `Float` |  |
+| `suppliedTokens` | `String`! |  |
+| `borrowedTokens` | `String`! |  |
+| `suppliedUsd` | `Float` |  |
+| `borrowedUsd` | `Float` |  |
+| `cFactor` | `Int` | Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral. |
+| `lFactor` | `Int` | Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports. |
+| `priceUsd` | `Float` |  |
+
+### BlendReservePosition
+
+BlendReservePosition is an account's position in one reserve of a pool. suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across the reserve's b/d emission streams; claimed history is tracked per pool only (see BlendPoolPosition.claimedBlnd), not per reserve.
+
+| Field | Type | Description |
+|---|---|---|
+| `assetContractId` | `String`! |  |
+| `tokenName` | `String` |  |
+| `tokenSymbol` | `String` |  |
+| `tokenDecimals` | `Int` |  |
+| `suppliedTokens` | `String`! |  |
+| `collateralTokens` | `String`! |  |
+| `borrowedTokens` | `String`! |  |
+| `suppliedUsd` | `Float` |  |
+| `borrowedUsd` | `Float` |  |
+| `supplyApy` | `Float` | Compounded interest rate for each side. Null when the reserve's rate curve compounds past what a Float can hold — reserve config is permissionless, so an arbitrarily steep curve is representable on-chain but not here. |
+| `borrowApy` | `Float` |  |
+| `emissionsSupplyApr` | `Float` | The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND value over the side's pool-wide supplied USD, NOT scaled to this account's holding. 0 when no active stream (unconfigured or expired), null when the stream is active but the reserve or BLND price is unavailable. |
+| `emissionsBorrowApr` | `Float` | The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND value over the side's pool-wide borrowed USD, NOT scaled to this account's holding. 0 when no active stream (unconfigured or expired), null when the stream is active but the reserve or BLND price is unavailable. |
+| `interestEarned` | `String`! | Lifetime interest earned on the supply side of this reserve: the current underlying value of the account's supply+collateral bTokens (at projected, as-of-now rates) minus the net principal it contributed — a cost basis tracked across the account's whole deposit/withdraw history. Token-denominated: a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by priceUsd for a USD value. A liquidation reduces the cost basis by the seized collateral's underlying value at the reserve's rate when the fill is processed, so collateral lost to a fill cancels out instead of being reported as earned interest. Survives a full exit: a position zeroed to no tokens still reports the earnings realized up to the exit (current value 0 minus the negative leftover cost basis). May be slightly negative from cost-basis dust truncation or bRate movement after an exit. |
+| `interestPaid` | `String`! | Lifetime interest paid on the debt side of this reserve, mirroring interestEarned: the current underlying value of the account's liability dTokens (at projected, as-of-now rates) minus its net borrowed principal (cost basis tracked from borrow/repay history). Token-denominated (raw integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a full exit the same way. May be slightly negative for the same dust/rate reasons. |
+| `emissionsEarnedBlnd` | `String`! |  |
+| `emissionsEarnedUsd` | `Float` |  |
+| `priceUsd` | `Float` | The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD. |
+
+### BlendSupplyChange
+
+A change to the account's uncollateralized supply position in a Blend v2 pool reserve: underlying tokens lent to the pool without backing a borrow. Pairs: (BLEND_SUPPLY, CREDIT), (BLEND_SUPPLY, DEBIT).
+
+Implements: [BaseStateChange](#basestatechange)
+
+| Field | Type | Description |
+|---|---|---|
+| `category` | [StateChangeCategory](#statechangecategory)! |  |
+| `reason` | [StateChangeReason](#statechangereason)! |  |
+| `ingestedAt` | [Time](#time)! |  |
+| `ledgerCreatedAt` | [Time](#time)! |  |
+| `ledgerNumber` | [UInt32](#uint32)! |  |
+| `account` | [Account](#account)! |  |
+| `operation` | [Operation](#operation)! |  |
+| `transaction` | [Transaction](#transaction)! |  |
+| `tokenId` | `String`! | Contract ID of the reserve asset supplied or withdrawn. |
+| `amount` | `String`! | Underlying amount moved, as a decimal string in the asset's smallest unit. |
+| `poolId` | `String`! | Contract ID of the Blend pool the reserve belongs to. |
 
 ### DataEntryAddedChange
 
@@ -770,7 +1115,7 @@ Common contract implemented by every state change. A state change records one mo
 
 Each concrete type documents the exact (category, reason) pairs it represents and the nullability of every field, so the variant structure is fully encoded in the schema. Select concrete-type fields via inline fragments; `category` and `reason` carry the same discrimination for generic consumers.
 
-Implemented by: [AccountCreatedChange](#accountcreatedchange), [AccountFlagsChange](#accountflagschange), [AccountMergedChange](#accountmergedchange), [AllowanceChange](#allowancechange), [BalanceAuthorizationChange](#balanceauthorizationchange), [BalanceChange](#balancechange), [DataEntryAddedChange](#dataentryaddedchange), [DataEntryRemovedChange](#dataentryremovedchange), [DataEntryUpdatedChange](#dataentryupdatedchange), [HomeDomainClearedChange](#homedomainclearedchange), [HomeDomainSetChange](#homedomainsetchange), [HomeDomainUpdatedChange](#homedomainupdatedchange), [SignerAddedChange](#signeraddedchange), [SignerRemovedChange](#signerremovedchange), [SignerUpdatedChange](#signerupdatedchange), [ThresholdChange](#thresholdchange), [TrustlineAddedChange](#trustlineaddedchange), [TrustlineRemovedChange](#trustlineremovedchange), [TrustlineUpdatedChange](#trustlineupdatedchange)
+Implemented by: [AccountCreatedChange](#accountcreatedchange), [AccountFlagsChange](#accountflagschange), [AccountMergedChange](#accountmergedchange), [AllowanceChange](#allowancechange), [BalanceAuthorizationChange](#balanceauthorizationchange), [BalanceChange](#balancechange), [BlendAuctionChange](#blendauctionchange), [BlendBackstopChange](#blendbackstopchange), [BlendBackstopEmissionsClaimChange](#blendbackstopemissionsclaimchange), [BlendBackstopQueueChange](#blendbackstopqueuechange), [BlendCollateralChange](#blendcollateralchange), [BlendDebtChange](#blenddebtchange), [BlendEmissionsClaimChange](#blendemissionsclaimchange), [BlendSupplyChange](#blendsupplychange), [DataEntryAddedChange](#dataentryaddedchange), [DataEntryRemovedChange](#dataentryremovedchange), [DataEntryUpdatedChange](#dataentryupdatedchange), [HomeDomainClearedChange](#homedomainclearedchange), [HomeDomainSetChange](#homedomainsetchange), [HomeDomainUpdatedChange](#homedomainupdatedchange), [SignerAddedChange](#signeraddedchange), [SignerRemovedChange](#signerremovedchange), [SignerUpdatedChange](#signerupdatedchange), [ThresholdChange](#thresholdchange), [TrustlineAddedChange](#trustlineaddedchange), [TrustlineRemovedChange](#trustlineremovedchange), [TrustlineUpdatedChange](#trustlineupdatedchange)
 
 | Field | Type | Description |
 |---|---|---|
@@ -804,6 +1149,30 @@ Classic Stellar asset type, determined by the asset code length.
 |---|---|
 | `CREDIT_ALPHANUM4` | Asset code of 1-4 characters. |
 | `CREDIT_ALPHANUM12` | Asset code of 5-12 characters. |
+
+### BlendAuctionType
+
+Which object a Blend v2 Dutch auction sells off.
+
+| Value | Description |
+|---|---|
+| `USER_LIQUIDATION` | A user's collateral, sold to cover their debt. |
+| `BAD_DEBT` | Backstop LP tokens, sold to cover debt socialized to the backstop. |
+| `INTEREST` | Accrued pool interest, sold for backstop LP tokens. |
+
+### BlendPoolStatus
+
+BlendPoolStatus is a pool's operational status. On-chain encoding: 0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN, 5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow borrowing; 4-6 reject both.
+
+| Value | Description |
+|---|---|
+| `ADMIN_ACTIVE` |  |
+| `ACTIVE` |  |
+| `ADMIN_ON_ICE` |  |
+| `ON_ICE` |  |
+| `ADMIN_FROZEN` |  |
+| `FROZEN` |  |
+| `SETUP` |  |
 
 ### OperationType
 
@@ -855,6 +1224,14 @@ Category of account state affected by a state change. Each category maps to one 
 | `FLAGS` | Account authorization flags: AccountFlagsChange. |
 | `TRUSTLINE` | Trustlines: TrustlineAddedChange, TrustlineUpdatedChange, TrustlineRemovedChange. |
 | `BALANCE_AUTHORIZATION` | Asset authorization for a holder: BalanceAuthorizationChange. |
+| `BLEND_SUPPLY` | Blend v2 uncollateralized supply positions: BlendSupplyChange. |
+| `BLEND_COLLATERAL` | Blend v2 collateralized supply positions: BlendCollateralChange. |
+| `BLEND_DEBT` | Blend v2 debt positions: BlendDebtChange. |
+| `BLEND_AUCTION` | Blend v2 Dutch-auction fills: BlendAuctionChange. |
+| `BLEND_EMISSIONS` | Blend v2 pool reserve emissions: BlendEmissionsClaimChange. |
+| `BLEND_BACKSTOP_EMISSIONS` | Blend v2 backstop emissions: BlendBackstopEmissionsClaimChange. |
+| `BLEND_BACKSTOP` | Blend v2 backstop deposits: BlendBackstopChange. |
+| `BLEND_BACKSTOP_QUEUE` | Blend v2 backstop withdrawal queue entries: BlendBackstopQueueChange. |
 
 ### StateChangeReason
 
@@ -864,15 +1241,21 @@ Why a state change occurred. Each value applies only to the categories listed in
 |---|---|
 | `CREATE` | ACCOUNT: account created (classic) or contract deployed. |
 | `MERGE` | ACCOUNT: account merged into another account. |
-| `DEBIT` | BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation). |
-| `CREDIT` | BALANCE: value entered the account (payment received). |
+| `DEBIT` | BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position decreased. |
+| `CREDIT` | BALANCE: value entered the account (payment received); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position increased. |
 | `MINT` | BALANCE: tokens minted to the account. |
-| `BURN` | BALANCE: tokens burned from the account (including clawbacks). |
-| `ADD` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry added. |
-| `REMOVE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed. |
+| `BURN` | BALANCE: tokens burned from the account (including clawbacks); BLEND_DEBT: defaulted debt written off (dTokens burnt). |
+| `ADD` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry added; BLEND_BACKSTOP_QUEUE: withdrawal queued. |
+| `REMOVE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed; BLEND_BACKSTOP_QUEUE: queued withdrawal cancelled. |
 | `UPDATE` | SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved. |
 | `SET` | FLAGS or BALANCE_AUTHORIZATION: flags turned on; HOME_DOMAIN: domain set on an account that had none. |
 | `CLEAR` | FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed. |
+| `BORROW` | BLEND_DEBT: underlying borrowed from the pool. |
+| `REPAY` | BLEND_DEBT: underlying repaid to the pool. |
+| `FLASH_LOAN` | BLEND_DEBT: borrow repaid within the same transaction (fee retained by the pool). |
+| `BAD_DEBT` | BLEND_DEBT: debt socialized to the backstop (dTokens transferred). |
+| `FILL` | BLEND_AUCTION: a Dutch auction was (partially) filled. |
+| `CLAIM` | BLEND_EMISSIONS or BLEND_BACKSTOP_EMISSIONS: accrued emissions claimed. |
 
 ### ThresholdLevel
 

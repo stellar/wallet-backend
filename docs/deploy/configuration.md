@@ -12,6 +12,7 @@ For operators and developers who run `wallet-backend`. Lists every flag and envi
   - [History archive](#history-archive)
   - [Backfill tuning](#backfill-tuning)
   - [TimescaleDB policies](#timescaledb-policies)
+  - [Blend price snapshots](#blend-price-snapshots)
 - [migrate](#migrate)
 - [protocol-setup](#protocol-setup)
 - [protocol-migrate](#protocol-migrate)
@@ -67,8 +68,9 @@ Runs the GraphQL API server.
 | `--client-auth-max-timeout-seconds` | `CLIENT_AUTH_MAX_TIMEOUT_SECONDS` | `15` | yes | Maximum JWT lifetime accepted by client auth, in seconds |
 | `--client-auth-max-body-size-bytes` | `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` | `102400` | yes | Maximum request body size client auth reads, in bytes |
 | `--hidden-contracts-file` | `HIDDEN_CONTRACTS_FILE` | (none) | no | YAML list of contracts the API does not return. Empty uses the list built into the binary. See [hiding tokens](hiding-tokens.md) |
-| `--graphql-complexity-limit` | `GRAPHQL_COMPLEXITY_LIMIT` | `10000` | no | Maximum GraphQL query complexity |
+| `--graphql-complexity-limit` | `GRAPHQL_COMPLEXITY_LIMIT` | `30000` | no | Maximum GraphQL query complexity. The default admits the `blendPools` catalog query; lower it if you do not serve Blend |
 | `--graphql-introspection-enabled` | `GRAPHQL_INTROSPECTION_ENABLED` | `false` | no | Serve `__schema` and `__type` introspection |
+| `--blend-backstop-lp-contract-id` | `BLEND_BACKSTOP_LP_CONTRACT_ID` | (none) | no | C-address of the Blend v2 backstop's Comet BLND:USDC pool. Scopes the backstop LP and BLND price reads; use the same value as on `ingest`. Empty leaves backstop USD fields null |
 
 `serve` also takes all shared options.
 
@@ -135,6 +137,15 @@ Only `--ingestion-mode=live` applies these. Backfill leaves the database's polic
 | `--compression-schedule-interval` | `COMPRESSION_SCHEDULE_INTERVAL` | (none) | no | How often the compression job runs. Empty leaves it unchanged |
 | `--compression-compress-after` | `COMPRESSION_COMPRESS_AFTER` | (none) | no | Age at which a closed chunk becomes eligible for compression. Empty leaves it unchanged |
 | `--compression-max-chunks` | `COMPRESSION_MAX_CHUNKS` | `0` | no | Maximum chunks compressed per job run. `0` leaves it unchanged |
+
+### Blend price snapshots
+
+Only `--ingestion-mode=live` runs the Blend oracle price snapshot task.
+
+| Flag | Env var | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--blend-price-interval` | `BLEND_PRICE_INTERVAL` | `60s` | no | Wait between snapshot passes, as a Go duration. `0` disables the task; negative values are rejected |
+| `--blend-backstop-lp-contract-id` | `BLEND_BACKSTOP_LP_CONTRACT_ID` | (none) | no | C-address of the Blend v2 backstop's Comet BLND:USDC pool. Enables the BLND and LP-share price leg. Empty disables it |
 
 ## migrate
 
