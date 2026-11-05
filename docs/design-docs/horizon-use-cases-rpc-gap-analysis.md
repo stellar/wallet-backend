@@ -166,8 +166,8 @@ Operation and configuration use cases (section 13) are out of scope for this sec
 | Name | Type | Interface | Scope |
 |---|---|---|---|
 | [wallet-backend](https://github.com/stellar/wallet-backend) | Indexer. Self-hosted, or hosted by infrastructure providers. | GraphQL | Per-account history (transactions, operations, state changes) and current balances (native, trustlines, SAC, SEP-41, liquidity pool shares). Lookups by account, transaction hash, and operation ID only. |
-| [Alchemy Stellar Data API](https://www.alchemy.com/docs/reference/stellar-data-api-overview) | Hosted data API | JSON over HTTP | Per-address transfer history, balances, and NFT holdings. Covers classic assets and contract tokens. |
-| [Stellar Indexer](https://stellarindexer.com/) | Hosted data API | REST, with a TypeScript SDK | Soroban contract data, with extensions for specific protocols (for example, Blend) |
+| [Alchemy](https://www.alchemy.com/docs/reference/stellar-data-api-overview) | Hosted data API, webhooks, and WebSocket subscriptions | JSON over HTTP, webhooks, WebSocket | Data API: per-address transfer history (native, classic, and Soroban tokens) and balances. Address Activity webhook: push delivery of value movements for tracked accounts (payments, DEX fills, claimable balances, liquidity pools, Soroban transfers). WebSocket: new ledgers, events, transactions (filter by participant, includes envelopes), and classic payments. No memo field in transfer or webhook records. |
+| [Stellar Indexer](https://stellarindexer.com/) | Hosted data API, by Creit Tech. Closed beta. | REST, with a TypeScript SDK | Classic data: account, trustlines, data entries, and offers of an account; offers and market depth for an asset pair; liquidity pools by one or two assets. Balances, contract data, and endpoints for specific protocols (for example, Blend). |
 | [StellarExpert API](https://stellar.expert/openapi.html) | Hosted explorer API | REST | Asset statistics, asset holders, account history, and market data |
 | [OBSRVR](https://docs.withobsrvr.com/) | Hosted data provider | REST (Gateway API), data streams (Flow) | Account and asset queries, structured ledger data, and contract events |
 
@@ -195,8 +195,8 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
 | 3.3 | List all balances of an account | High | Covered | wallet-backend: `Account.balances`. Alchemy: balances. | |
-| 3.5 | List all data entries of an account | High | Partial | wallet-backend: `Account.stateChanges` with category `DATA_ENTRY` returns data entry history. | Current data entries of an account. |
-| 3.7 | Watch an account for changes | High | Partial | wallet-backend: poll `Account.stateChanges` from the last cursor. Covers balances, trustlines, signers, thresholds, flags, home domain, and data entries. | Push delivery (streaming). Changes to offers, sponsorships, and sequence numbers. |
+| 3.5 | List all data entries of an account | High | Covered | Stellar Indexer: account data entries | |
+| 3.7 | Watch an account for changes | High | Partial | wallet-backend: poll `Account.stateChanges` from the last cursor. Covers balances, trustlines, signers, thresholds, flags, home domain, and data entries. Alchemy: Address Activity webhook pushes value movements. | Push delivery of changes other than value movements (signers, thresholds, flags, trustlines, data entries). Changes to sponsorships and sequence numbers. |
 
 ### 4. Account discovery (reverse lookups)
 
@@ -215,16 +215,16 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 | 5.5 | Transaction history for an account | High | Partial | wallet-backend: `Account.transactions` | Memo and envelope XDR in the transaction. The client must read them from RPC `getTransaction`. |
 | 5.6 | Operation history for an account | High | Covered | wallet-backend: `Account.operations` | |
 | 5.7 | History for a claimable balance or liquidity pool | High | None | | Full use case. |
-| 5.8 | Stream new transactions or operations | Medium | Covered | Goldsky: `stellar_mainnet.transactions` dataset. OBSRVR Flow. | |
+| 5.8 | Stream new transactions or operations | Medium | Covered | Alchemy: WebSocket `transactions` topic, with optional filter by participant. Goldsky: `stellar_mainnet.transactions` dataset. OBSRVR Flow. | |
 
 ### 6. Payments and balance changes
 
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
 | 6.1 | Payment history for an account | Medium | Covered | wallet-backend: `Account.stateChanges` with category `BALANCE`. Covers classic assets, SAC, and SEP-41 tokens. Alchemy: transfer history. | |
-| 6.2 | Detect incoming payments (deposit monitoring) | Medium | Partial | wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. Alchemy: poll transfer history. | Push delivery (streaming). Text and hash memos. |
-| 6.3 | Global payment feed | Medium | Covered | OBSRVR Flow | |
-| 6.4 | Effects | High | Partial | wallet-backend: state changes (see 3.7). | Effects for offers, trades, claimable balances, sponsorships, liquidity pool deposits and withdrawals, and sequence number bumps. |
+| 6.2 | Detect incoming payments (deposit monitoring) | Medium | Covered | Alchemy: Address Activity webhook, or WebSocket `payments` topic filtered by `to`. The WebSocket `transactions` topic includes the envelope, which holds the memo. wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. | |
+| 6.3 | Global payment feed | Medium | Covered | Alchemy: WebSocket `payments` topic (classic) and `events` topic (Soroban transfers). OBSRVR Flow. | |
+| 6.4 | Effects | High | Partial | wallet-backend: state changes (see 3.7). Alchemy: value movements for DEX fills, claimable balances, and liquidity pools. | Effects for sponsorships, offer creation, update, and removal, and sequence number bumps. |
 
 ### 7. Ledgers
 
@@ -242,15 +242,15 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
-| 9.2 | Find pools by reserve assets or by participant account | High | Partial | By account: wallet-backend `Account.balances` (pool shares). By asset pair: compute the pool ID, then RPC `getLedgerEntries`. | List all pools that contain one asset. |
+| 9.2 | Find pools by reserve assets or by participant account | High | Covered | By asset: Stellar Indexer, by one or two assets. By account: wallet-backend `Account.balances` (pool shares). | |
 
 ### 10. DEX: offers, order books, trades
 
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
-| 10.2 | List offers of an account | High | None | | Full use case. |
-| 10.3 | Find offers by asset or sponsor | High | None | | Full use case. |
-| 10.4 | Get the order book for an asset pair | High | None | | Full use case. |
+| 10.2 | List offers of an account | High | Covered | Stellar Indexer: offers of an account | |
+| 10.3 | Find offers by asset or sponsor | High | Partial | Stellar Indexer: offers for an asset pair | Lookup by sponsor, or by one asset. |
+| 10.4 | Get the order book for an asset pair | High | Partial | Stellar Indexer: market depth for an asset pair | Push delivery of order book updates. |
 | 10.5 | Trade history | High | Covered | StellarExpert API | |
 | 10.6 | Trade aggregations | High | Covered | StellarExpert API | |
 
@@ -271,6 +271,6 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 
 | Coverage | Use cases |
 |---|---|
-| None | 4.1, 4.3, 4.4 (reverse lookups by signer, sponsor, pool share). 5.7 (claimable balance and pool history). 7.3 (ledger-scoped operations and payments). 10.2–10.4 (offers and order books). 11.1 (path finding). |
-| Partial | 3.5 (current data entries). 3.7, 6.2 (push delivery). 5.5, 6.2 (memos and envelope XDR). 6.4 (effects outside state changes). 8.2 (claimable balances by sponsor or asset). 9.2 (pools by single asset). |
-| Covered | 3.3, 4.2, 5.3, 5.6, 5.8, 6.1, 6.3, 10.5, 10.6, 12.1, 12.2 |
+| None | 4.1, 4.3, 4.4 (reverse lookups by signer, sponsor, pool share). 5.7 (claimable balance and pool history). 7.3 (ledger-scoped operations and payments). 11.1 (path finding). |
+| Partial | 3.7 (push delivery of changes other than value movements). 5.5 (memo and envelope XDR in account transaction history). 6.4 (effects for sponsorships, offer lifecycle, sequence numbers). 8.2 (claimable balances by sponsor or asset). 10.3 (offers by sponsor or one asset). 10.4 (push delivery of order book updates). |
+| Covered | 3.3, 3.5, 4.2, 5.3, 5.6, 5.8, 6.1, 6.2, 6.3, 9.2, 10.2, 10.5, 10.6, 12.1, 12.2 |
