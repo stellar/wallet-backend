@@ -130,12 +130,13 @@ Only `--ingestion-mode=live` applies these. Backfill leaves the database's polic
 
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--chunk-interval` | `CHUNK_INTERVAL` | `1 day` | no | Chunk time interval for hypertables. Applies to future chunks only |
-| `--tx-hash-chunk-interval` | `TX_HASH_CHUNK_INTERVAL` | `7 days` | no | Chunk interval for the `transaction_hashes` lookup table. Applies to future chunks only. Keep a few million transactions per chunk: the table is segmented into 4096 buckets, and a chunk with fewer rows compresses into near-empty batches (8 bytes per row at 2M rows, 36 at 130k, 250 at 20k, measured). A hash lookup also checks every chunk, so longer is better, until the newest chunk's index (about 27 bytes per transaction) no longer fits in `shared_buffers` |
-| `--retention-period` | `RETENTION_PERIOD` | (none) | no | Drop chunks older than this. Empty removes the retention policy |
-| `--compression-schedule-interval` | `COMPRESSION_SCHEDULE_INTERVAL` | (none) | no | How often the compression job runs. Empty leaves it unchanged |
-| `--compression-compress-after` | `COMPRESSION_COMPRESS_AFTER` | (none) | no | Age at which a closed chunk becomes eligible for compression. Empty leaves the other hypertables' policies unchanged and sets `transaction_hashes` to `1 day` |
-| `--compression-max-chunks` | `COMPRESSION_MAX_CHUNKS` | `0` | no | Maximum chunks compressed per job run. `0` leaves it unchanged |
+| `--chunk-interval` | `CHUNK_INTERVAL` | `1 day` | no | Chunk time interval for the five bulk hypertables. Applies to future chunks only. The `transaction_hashes` lookup table has a fixed layout and ignores it |
+| `--retention-period` | `RETENTION_PERIOD` | (none) | no | Drop chunks older than this from the five bulk hypertables. Empty removes the retention policy. The `transaction_hashes` lookup table has no retention setting of its own: its maintenance jobs remove the rows of transactions that retention dropped |
+| `--compression-schedule-interval` | `COMPRESSION_SCHEDULE_INTERVAL` | (none) | no | How often the compression job runs. Applies to the five bulk hypertables only. Empty leaves it unchanged |
+| `--compression-compress-after` | `COMPRESSION_COMPRESS_AFTER` | (none) | no | Age at which a closed chunk becomes eligible for compression. Applies to the five bulk hypertables only. Empty leaves their policies unchanged |
+| `--compression-max-chunks` | `COMPRESSION_MAX_CHUNKS` | `0` | no | Maximum chunks compressed per job run. Applies to the five bulk hypertables only. `0` leaves it unchanged |
+| `--tx-hash-maintenance-interval` | `TX_HASH_MAINTENANCE_INTERVAL` | `1 day` | no | How often each `transaction_hashes_maintenance` job of the `transaction_hashes` lookup table runs. Each run deletes the lookup rows of 30-day periods that closed before the oldest retained transaction and recompresses every chunk of its share. Set it so the rows written between runs stay in the low hundreds of millions. A daily run keeps the rowstore parts of the 1,024 chunks bounded at any transaction rate without tuning. At today's mainnet rate it takes about 4 minutes and 2 GB of WAL on one worker. At 10,000 transactions per second a day is 864 million rows: the run takes about 55 minutes on eight workers (16 s and 327 MB of WAL per chunk on one, measured on a dev table at that density), and without it the rowstore parts grow by about 80 GB a day. Applies to that table only |
+| `--tx-hash-maintenance-workers` | `TX_HASH_MAINTENANCE_WORKERS` | `1` | no | Number of maintenance jobs for the `transaction_hashes` lookup table. Each job takes the chunks whose prefix range index falls on its worker number, so a run finishes about that many times faster. Use 8 at 10,000 transactions per second. Each job is one TimescaleDB background worker and counts against `timescaledb.max_background_workers`. Applies to that table only |
 
 ## migrate
 
