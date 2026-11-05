@@ -157,18 +157,28 @@ Pattern: RPC replaces lookups by primary key and raw ledger or transaction reads
 
 ## Alternatives and remaining gaps
 
-This section covers each use case with a medium or high RPC rating. It lists hosted alternatives to RPC, and the gap that remains when RPC and all alternatives are considered. It does not rate migration effort or propose solutions.
+This section covers each use case with a medium or high RPC rating. It lists alternatives to RPC that are ready to use, and the gap that remains when RPC and all alternatives are considered. It does not rate migration effort or propose solutions.
 
 Operation and configuration use cases (section 13) are out of scope for this section.
 
-### Alternatives
+### Ready-to-use alternatives
 
 | Name | Type | Interface | Scope |
 |---|---|---|---|
 | [wallet-backend](https://github.com/stellar/wallet-backend) | Indexer. Self-hosted, or hosted by infrastructure providers. | GraphQL | Per-account history (transactions, operations, state changes) and current balances (native, trustlines, SAC, SEP-41, liquidity pool shares). Lookups by account, transaction hash, and operation ID only. |
 | [StellarExpert API](https://stellar.expert/openapi.html) | Hosted explorer API | REST | Asset statistics, asset holders, account history, and market data |
 | [OBSRVR](https://docs.withobsrvr.com/) | Hosted data provider | REST (Gateway API), data streams (Flow) | Account and asset queries, structured ledger data, and contract events |
-| [Goldsky](https://docs.goldsky.com/chains/stellar) | Hosted data pipelines (Turbo) | Streams to the client's database | Ledger data that the client selects and transforms |
+
+### Indexing platforms
+
+Indexing platforms run indexers that a developer writes. A platform is not a ready-to-use alternative for a use case unless an indexer (for example, a subgraph, Substreams package, or pipeline) for that data already exists. The tables below list a platform only where such an indexer or dataset exists.
+
+| Name | Type | Notes |
+|---|---|---|
+| [Goldsky](https://docs.goldsky.com/chains/stellar) | Hosted streaming pipelines (Turbo) to the client's database | Provides prebuilt Stellar datasets, for example `stellar_mainnet.transactions`. Subgraphs are not available for Stellar. |
+| [SubQuery](https://subquery.network/), hosted by [OnFinality](https://onfinality.io/) | Indexer SDK (TypeScript) and hosting | |
+| [The Graph](https://thegraph.com/docs/en/about/) | Substreams | Subgraphs and Token API are not available for Stellar. |
+| [Mercury](https://docs.mercurydata.app/) | Hosted indexer with GraphQL | Retroshades indexes Soroban contract events. Mercury Classic indexes transactions and contract events. |
 
 ### Coverage
 
@@ -203,7 +213,7 @@ Operation and configuration use cases (section 13) are out of scope for this sec
 | 5.5 | Transaction history for an account | High | Partial | wallet-backend: `Account.transactions` | Memo and envelope XDR in the transaction. The client must read them from RPC `getTransaction`. |
 | 5.6 | Operation history for an account | High | Covered | wallet-backend: `Account.operations` | |
 | 5.7 | History for a claimable balance or liquidity pool | High | None | | Full use case. |
-| 5.8 | Stream new transactions or operations | Medium | Covered | Goldsky. OBSRVR Flow. | |
+| 5.8 | Stream new transactions or operations | Medium | Covered | Goldsky: `stellar_mainnet.transactions` dataset. OBSRVR Flow. | |
 
 ### 6. Payments and balance changes
 
@@ -211,7 +221,7 @@ Operation and configuration use cases (section 13) are out of scope for this sec
 |---|---|---|---|---|---|
 | 6.1 | Payment history for an account | Medium | Covered | wallet-backend: `Account.stateChanges` with category `BALANCE`. Covers classic assets, SAC, and SEP-41 tokens. | |
 | 6.2 | Detect incoming payments (deposit monitoring) | Medium | Partial | wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. | Push delivery (streaming). Text and hash memos. |
-| 6.3 | Global payment feed | Medium | Covered | Goldsky. OBSRVR Flow. | |
+| 6.3 | Global payment feed | Medium | Covered | OBSRVR Flow | |
 | 6.4 | Effects | High | Partial | wallet-backend: state changes (see 3.7). | Effects for offers, trades, claimable balances, sponsorships, liquidity pool deposits and withdrawals, and sequence number bumps. |
 
 ### 7. Ledgers
