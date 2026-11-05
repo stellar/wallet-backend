@@ -4,7 +4,7 @@
 
 SDF will shut down its public Horizon instances and deprecate the Horizon codebase. This document lists the use cases that Horizon serves today. For each use case, it describes how to serve it with Stellar RPC and rates the migration effort.
 
-A later section will cover alternatives (for example, wallet-backend) for use cases with a medium or high rating.
+For use cases with a medium or high rating, the document also lists other alternatives and the gaps that remain.
 
 ## Scope
 
@@ -154,3 +154,108 @@ These use cases apply to teams that run their own Horizon instance.
 | High | 3.3, 3.5, 3.7, 4.1–4.4, 5.5–5.7, 6.4, 8.2, 9.2, 10.2–10.6, 11.1, 12.1, 12.2 |
 
 Pattern: RPC replaces lookups by primary key and raw ledger or transaction reads. RPC does not replace listing all entries of an account (balances, data), reverse lookups (by account, asset, sponsor, signer), account-scoped history, or derived DEX data. These need an indexer.
+
+## Alternatives for medium and high use cases
+
+This section lists alternatives to RPC for each use case with a medium or high rating. It does not rate migration effort. It records gaps, but does not propose solutions.
+
+Operation and configuration use cases (section 13) are out of scope for this section.
+
+### Alternatives
+
+| Name | Type | Interface | Data freshness | Scope |
+|---|---|---|---|---|
+| [wallet-backend](https://github.com/stellar/wallet-backend) | Indexer. Self-hosted, or hosted by infrastructure providers. | GraphQL | Every ledger | Per-account history (transactions, operations, state changes) and current balances (native, trustlines, SAC, SEP-41, liquidity pool shares). Lookups by account, transaction hash, and operation ID only. |
+| [Hubble](https://developers.stellar.org/docs/data/analytics/hubble) | Public BigQuery dataset, run by SDF | SQL | Delayed. Batch updates. | Full history and current state for all ledger entry types, including Horizon-style operations, effects, and trades. Built for analytics, not for serving application requests. |
+| [StellarExpert API](https://stellar.expert/openapi.html) | Hosted explorer API | REST | Near real time | Asset statistics, asset holders, account history, and market data. |
+| [OBSRVR](https://docs.withobsrvr.com/) | Hosted data provider | REST (Gateway API), data streams (Flow) | Near real time | Account and asset queries, structured ledger data, and contract events. |
+| Managed ETL: [Goldsky](https://docs.goldsky.com/chains/stellar), [SubQuery](https://subquery.network/), [The Graph Substreams](https://thegraph.com/docs/en/about/), [Mercury](https://docs.mercurydata.app/) | Hosted pipelines that write to the client's database | SQL or GraphQL over the client's database | Near real time | Any data the client chooses to transform and store |
+| Custom indexer: [Galexie](https://developers.stellar.org/docs/data/indexers/build-your-own/galexie), [Ingest SDK](https://developers.stellar.org/docs/data/indexers/build-your-own/ingest-sdk), [Token Transfer Processor](https://developers.stellar.org/docs/data/indexers/build-your-own/processors/token-transfer-processor) | Libraries and a data lake for self-built ingestion | Client-defined | Client-defined | Any data. The client builds and runs the indexer. |
+
+Managed ETL and a custom indexer can serve every use case below. The tables list them only where no ready-made API exists.
+
+### 3. Account state
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 3.3 | List all balances of an account | High | wallet-backend: `Account.balances` returns native, trustline, SAC, SEP-41, and liquidity pool share balances. | wallet-backend does not return native XLM held by a contract. |
+| 3.5 | List all data entries of an account | High | wallet-backend: `Account.stateChanges` with category `DATA_ENTRY` returns data entry history, not current state. Hubble. | No API returns the current data entries of an account at low latency. |
+| 3.7 | Watch an account for changes | High | wallet-backend: poll `Account.stateChanges` from the last cursor. Covers balances, trustlines, signers, thresholds, flags, home domain, and data entries. | No push delivery (no streaming or subscriptions). wallet-backend does not record changes to offers, sponsorships, or sequence numbers. |
+
+### 4. Account discovery (reverse lookups)
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 4.1 | Find accounts by signer | High | Hubble | No API at low latency. Key recovery and multisig tools need one. |
+| 4.2 | Find accounts that hold an asset | High | StellarExpert API (asset holders). Hubble. | |
+| 4.3 | Find accounts by sponsor | High | Hubble | No API at low latency. |
+| 4.4 | Find accounts that hold liquidity pool shares | High | Hubble | No API at low latency. |
+
+### 5. Transaction and operation history
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 5.3 | Get an operation by ID | Medium | wallet-backend: `operationById` | |
+| 5.5 | Transaction history for an account | High | wallet-backend: `Account.transactions` | wallet-backend `Transaction` has no memo and no envelope XDR. History depth depends on the retention and backfill of the provider. |
+| 5.6 | Operation history for an account | High | wallet-backend: `Account.operations` (includes operation XDR) | History depth depends on the retention and backfill of the provider. |
+| 5.7 | History for a claimable balance or liquidity pool | High | Hubble | No API at low latency. wallet-backend does not track claimable balances, and does not index history by liquidity pool. |
+| 5.8 | Stream new transactions or operations | Medium | Goldsky, OBSRVR Flow | |
+
+### 6. Payments and balance changes
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 6.1 | Payment history for an account | Medium | wallet-backend: `Account.stateChanges` with category `BALANCE`. Covers classic assets, SAC, and SEP-41 tokens. | |
+| 6.2 | Detect incoming payments (deposit monitoring) | Medium | wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. | No push delivery. wallet-backend does not expose text or hash memos. Exchanges that use them must read the transaction from RPC. |
+| 6.3 | Global payment feed | Medium | Goldsky, OBSRVR Flow, Token Transfer Processor | |
+| 6.4 | Effects | High | wallet-backend: state changes cover a subset of effects (see 3.7). Hubble: `history_effects` has the Horizon effects model. | No API at low latency covers all effect types. |
+
+### 7. Ledgers
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 7.3 | Payments, operations, or effects in a ledger | Medium | Hubble | wallet-backend has no query by ledger. |
+
+### 8. Claimable balances
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 8.2 | Find claimable balances by claimant, sponsor, or asset | High | StellarExpert API (claimable balances by account). Hubble. | wallet-backend does not track claimable balances. Wallets use this to show pending claims. |
+
+### 9. Liquidity pools
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 9.2 | Find pools by reserve assets or by participant account | High | By account: wallet-backend `Account.balances` (pool shares). By asset pair: compute the pool ID, then RPC `getLedgerEntries`. Hubble. | No API at low latency lists all pools that contain one asset. |
+
+### 10. DEX: offers, order books, trades
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 10.2 | List offers of an account | High | Hubble | No API at low latency. wallet-backend shows only the liabilities that offers create. |
+| 10.3 | Find offers by asset or sponsor | High | Hubble | No API at low latency. |
+| 10.4 | Get the order book for an asset pair | High | Custom indexer | No hosted API with a live order book. |
+| 10.5 | Trade history | High | StellarExpert API. Hubble: `history_trades`. | |
+| 10.6 | Trade aggregations | High | StellarExpert API. Hubble (SQL aggregation over `history_trades`). | |
+
+### 11. Path finding
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 11.1 | Find payment paths | High | None | No alternative. Needs a live order book and pool graph (see 10.4). Wallets and anchors use path payments. |
+
+### 12. Assets
+
+| ID | Use case | RPC effort | Alternatives | Gaps |
+|---|---|---|---|---|
+| 12.1 | Asset statistics | High | StellarExpert API. Hubble. | wallet-backend stores balances for all assets, but has no asset query. |
+| 12.2 | Search assets by code or issuer | High | StellarExpert API. Hubble. | |
+
+### Gap summary
+
+| Gap | Use cases |
+|---|---|
+| No alternative | 11.1 path finding, 10.4 live order book |
+| Only delayed analytics data (Hubble) | 3.5, 4.1, 4.3, 4.4, 5.7, 10.2, 10.3 |
+| No push delivery. Clients poll. | 3.7, 6.2 |
+| wallet-backend data that is missing or not exposed | Native XLM held by contracts (3.3). Memo and envelope XDR on transactions (5.5, 6.2). Current data entries (3.5). Claimable balances (5.7, 8.2). Offers (10.2). Effects outside state changes (6.4). Queries by ledger (7.3) and by asset (12.1). |
