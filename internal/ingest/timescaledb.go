@@ -18,29 +18,6 @@ import (
 // system: exactly the tables ingestion bulk-loads with COPY.
 var hypertables = data.BulkCopyTableNames()
 
-// transactionHashesDefaultCompressAfter is the compress_after applied to
-// transaction_hashes when --compression-compress-after is empty. TimescaleDB
-// creates the table's policy with compress_after equal to its 7-day chunk
-// interval, which would keep two chunks in the rowstore at a time; one day
-// matches the other hypertables.
-const transactionHashesDefaultCompressAfter = "1 day"
-
-// intervalSQL says how a PostgreSQL INTERVAL string reaches a hypertable's
-// partition column type. The bulk-loaded hypertables are partitioned by a
-// timestamptz and take the interval as is; transaction_hashes is partitioned
-// by an integer number of seconds, so every interval is converted with
-// extract(epoch FROM ...).
-type intervalSQL struct {
-	value      string // $2 as the partition column's type, for policy and chunk-interval arguments
-	configCast string // cast applied to a job config value before comparing it with value
-	jsonb      string // $2 as the jsonb value stored in a job config
-}
-
-var (
-	timeInterval    = intervalSQL{value: "$2::interval", configCast: "::interval", jsonb: "to_jsonb($2::text)"}
-	secondsInterval = intervalSQL{value: "extract(epoch FROM $2::interval)::bigint", configCast: "::bigint", jsonb: "to_jsonb(extract(epoch FROM $2::interval)::bigint)"}
-)
-
 // configureHypertableSettings applies chunk interval, retention policy, and
 // compression schedule settings to all hypertables. Chunk interval only affects
 // future chunks. Retention policy and the reconciliation job are converged
@@ -54,13 +31,13 @@ var (
 // chunk closes before it becomes eligible for compression.
 func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkInterval, retentionPeriod, oldestCursorName, compressionScheduleInterval, compressAfter string, maxChunksToCompress int) error {
 	for _, table := range hypertables {
-		if err := setChunkInterval(ctx, pool, table, chunkInterval, timeInterval); err != nil {
+		if err := setChunkInterval(ctx, pool, table, chunkInterval); err != nil {
 			return err
 		}
 	}
 
 	for _, table := range hypertables {
-		if err := configureRetentionPolicy(ctx, pool, table, retentionPeriod, timeInterval); err != nil {
+		if err := configureRetentionPolicy(ctx, pool, table, retentionPeriod); err != nil {
 			return fmt.Errorf("configuring retention policy on %s: %w", table, err)
 		}
 	}
@@ -70,7 +47,7 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	}
 
 	for _, table := range hypertables {
-		if err := configureCompressionPolicy(ctx, pool, table, compressionScheduleInterval, compressAfter, maxChunksToCompress, timeInterval); err != nil {
+		if err := configureCompressionPolicy(ctx, pool, table, compressionScheduleInterval, compressAfter, maxChunksToCompress); err != nil {
 			return err
 		}
 	}
@@ -78,28 +55,9 @@ func configureHypertableSettings(ctx context.Context, pool *pgxpool.Pool, chunkI
 	return nil
 }
 
-// configureTransactionHashesSettings applies the same chunk interval, retention
-// and compression tuning to the transaction_hashes lookup table, converted to
-// seconds for its integer partition column. TimescaleDB creates the compression
-// policy with the table; an empty compressAfter sets it to
-// transactionHashesDefaultCompressAfter instead of leaving it unchanged.
-func configureTransactionHashesSettings(ctx context.Context, pool *pgxpool.Pool, chunkInterval, retentionPeriod, compressionScheduleInterval, compressAfter string, maxChunksToCompress int) error {
-	const table = data.TransactionHashesTable
-	if err := setChunkInterval(ctx, pool, table, chunkInterval, secondsInterval); err != nil {
-		return err
-	}
-	if err := configureRetentionPolicy(ctx, pool, table, retentionPeriod, secondsInterval); err != nil {
-		return fmt.Errorf("configuring retention policy on %s: %w", table, err)
-	}
-	if compressAfter == "" {
-		compressAfter = transactionHashesDefaultCompressAfter
-	}
-	return configureCompressionPolicy(ctx, pool, table, compressionScheduleInterval, compressAfter, maxChunksToCompress, secondsInterval)
-}
-
-func setChunkInterval(ctx context.Context, pool *pgxpool.Pool, table, chunkInterval string, interval intervalSQL) error {
+func setChunkInterval(ctx context.Context, pool *pgxpool.Pool, table, chunkInterval string) error {
 	if _, err := pool.Exec(ctx,
-		"SELECT set_chunk_time_interval($1::regclass, "+interval.value+")",
+		"SELECT set_chunk_time_interval($1::regclass, $2::interval)",
 		table, chunkInterval,
 	); err != nil {
 		return fmt.Errorf("setting chunk interval on %s: %w", table, err)
@@ -111,7 +69,7 @@ func setChunkInterval(ctx context.Context, pool *pgxpool.Pool, table, chunkInter
 // configureCompressionPolicy tunes table's existing compression policy: each
 // non-empty setting is applied, an empty one leaves the job as it is. A table
 // without a policy is skipped with a warning.
-func configureCompressionPolicy(ctx context.Context, pool *pgxpool.Pool, table, scheduleInterval, compressAfter string, maxChunksToCompress int, interval intervalSQL) error {
+func configureCompressionPolicy(ctx context.Context, pool *pgxpool.Pool, table, scheduleInterval, compressAfter string, maxChunksToCompress int) error {
 	if scheduleInterval == "" && compressAfter == "" && maxChunksToCompress <= 0 {
 		return nil
 	}
@@ -144,7 +102,7 @@ func configureCompressionPolicy(ctx context.Context, pool *pgxpool.Pool, table, 
 		if _, err := pool.Exec(ctx,
 			`SELECT alter_job($1, config => jsonb_set(
 				(SELECT config FROM timescaledb_information.jobs WHERE job_id = $1),
-				'{compress_after}', `+interval.jsonb+`))`,
+				'{compress_after}', to_jsonb($2::text)))`,
 			jobID, compressAfter,
 		); err != nil {
 			return fmt.Errorf("updating compress_after on %s (job %d): %w", table, jobID, err)
@@ -171,7 +129,7 @@ func configureCompressionPolicy(ctx context.Context, pool *pgxpool.Pool, table, 
 // existing policy. Otherwise, a missing policy is added; an existing one
 // whose drop_after differs is altered in place (job_id and run history
 // survive); one that already matches is left untouched.
-func configureRetentionPolicy(ctx context.Context, pool *pgxpool.Pool, table, retentionPeriod string, interval intervalSQL) error {
+func configureRetentionPolicy(ctx context.Context, pool *pgxpool.Pool, table, retentionPeriod string) error {
 	if retentionPeriod == "" {
 		if _, err := pool.Exec(ctx,
 			"SELECT remove_retention_policy($1::regclass, if_exists => true)",
@@ -191,7 +149,7 @@ func configureRetentionPolicy(ctx context.Context, pool *pgxpool.Pool, table, re
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		if _, err = pool.Exec(ctx,
-			"SELECT add_retention_policy($1::regclass, drop_after => "+interval.value+")",
+			"SELECT add_retention_policy($1::regclass, drop_after => $2::interval)",
 			table, retentionPeriod,
 		); err != nil {
 			return fmt.Errorf("adding retention policy: %w", err)
@@ -204,7 +162,7 @@ func configureRetentionPolicy(ctx context.Context, pool *pgxpool.Pool, table, re
 
 	var matches bool
 	if err := pool.QueryRow(ctx,
-		`SELECT (config->>'drop_after')`+interval.configCast+` = `+interval.value+`
+		`SELECT (config->>'drop_after')::interval = $2::interval
 		 FROM timescaledb_information.jobs WHERE job_id = $1`,
 		jobID, retentionPeriod,
 	).Scan(&matches); err != nil {
@@ -217,12 +175,99 @@ func configureRetentionPolicy(ctx context.Context, pool *pgxpool.Pool, table, re
 	if _, err := pool.Exec(ctx,
 		`SELECT alter_job($1, config => jsonb_set(
 			(SELECT config FROM timescaledb_information.jobs WHERE job_id = $1),
-			'{drop_after}', `+interval.jsonb+`))`,
+			'{drop_after}', to_jsonb($2::text)))`,
 		jobID, retentionPeriod,
 	); err != nil {
 		return fmt.Errorf("altering retention policy (job %d): %w", jobID, err)
 	}
 	log.Ctx(ctx).Infof("Updated retention policy to %q on %s (job %d)", retentionPeriod, table, jobID)
+	return nil
+}
+
+// configureTransactionHashesMaintenance converges the transaction_hashes
+// maintenance jobs on exactly workers jobs (at least 1), each running the
+// transaction_hashes_maintenance procedure the migration creates every
+// scheduleInterval with config {"workers": workers, "worker": i}. Job i
+// deletes, from the chunks whose prefix range index modulo workers is i, the
+// lookup rows of periods that closed before the oldest transactions row, then
+// recompresses them: the lookup table's retention follows the oldest
+// transactions row, and --retention-period and the COMPRESSION_* settings
+// apply to the five bulk tables only. The migration creates worker
+// 0's job unscheduled; this is what schedules it. A job whose schedule and
+// config already match is left untouched, so job_id and run history survive
+// restarts; a missing worker's job is added; jobs past the count, or a second
+// job for the same worker, are deleted.
+func configureTransactionHashesMaintenance(ctx context.Context, pool *pgxpool.Pool, scheduleInterval string, workers int) error {
+	if workers < 1 {
+		return fmt.Errorf("transaction_hashes maintenance needs at least 1 worker, got %d", workers)
+	}
+
+	type maintenanceJob struct {
+		id      int
+		worker  *int
+		matches bool
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT job_id, (config->>'worker')::int,
+		        scheduled AND schedule_interval = $1::interval
+		        AND config = jsonb_build_object('workers', $2::int, 'worker', (config->>'worker')::int)
+		 FROM timescaledb_information.jobs
+		 WHERE proc_name = 'transaction_hashes_maintenance'
+		 ORDER BY job_id`,
+		scheduleInterval, workers,
+	)
+	if err != nil {
+		return fmt.Errorf("listing transaction_hashes maintenance jobs: %w", err)
+	}
+	jobs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (maintenanceJob, error) {
+		var j maintenanceJob
+		if scanErr := row.Scan(&j.id, &j.worker, &j.matches); scanErr != nil {
+			return j, fmt.Errorf("scanning transaction_hashes maintenance job: %w", scanErr)
+		}
+		return j, nil
+	})
+	if err != nil {
+		return fmt.Errorf("listing transaction_hashes maintenance jobs: %w", err)
+	}
+
+	byWorker := make(map[int]maintenanceJob, workers)
+	for _, j := range jobs {
+		if j.worker != nil && *j.worker >= 0 && *j.worker < workers {
+			if _, seen := byWorker[*j.worker]; !seen {
+				byWorker[*j.worker] = j
+				continue
+			}
+		}
+		if _, err := pool.Exec(ctx, "SELECT delete_job($1)", j.id); err != nil {
+			return fmt.Errorf("deleting transaction_hashes maintenance job %d: %w", j.id, err)
+		}
+		log.Ctx(ctx).Infof("Deleted transaction_hashes maintenance job %d", j.id)
+	}
+
+	for worker := range workers {
+		config := fmt.Sprintf(`{"workers": %d, "worker": %d}`, workers, worker)
+		j, ok := byWorker[worker]
+		switch {
+		case !ok:
+			var jobID int
+			if err := pool.QueryRow(ctx,
+				"SELECT add_job('transaction_hashes_maintenance', $1::interval, config => $2::jsonb)",
+				scheduleInterval, config,
+			).Scan(&jobID); err != nil {
+				return fmt.Errorf("adding transaction_hashes maintenance job for worker %d: %w", worker, err)
+			}
+			log.Ctx(ctx).Infof("Added transaction_hashes maintenance job %d (worker %d of %d, every %q)", jobID, worker, workers, scheduleInterval)
+		case !j.matches:
+			if _, err := pool.Exec(ctx,
+				"SELECT alter_job($1, schedule_interval => $2::interval, config => $3::jsonb, scheduled => true)",
+				j.id, scheduleInterval, config,
+			); err != nil {
+				return fmt.Errorf("altering transaction_hashes maintenance job %d: %w", j.id, err)
+			}
+			log.Ctx(ctx).Infof("Updated transaction_hashes maintenance job %d (worker %d of %d, every %q)", j.id, worker, workers, scheduleInterval)
+		}
+	}
+
 	return nil
 }
 

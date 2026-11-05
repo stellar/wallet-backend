@@ -77,9 +77,6 @@ type Configs struct {
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
-	// TransactionHashesChunkInterval sets the chunk interval of the transaction_hashes lookup table,
-	// which is partitioned by close time in seconds. Uses PostgreSQL INTERVAL syntax (e.g., "7 days").
-	TransactionHashesChunkInterval string
 	// RetentionPeriod configures automatic data retention. Chunks older than this are dropped.
 	// Empty string disables retention. Uses PostgreSQL INTERVAL syntax (e.g., "30 days", "6 months").
 	RetentionPeriod string
@@ -93,6 +90,14 @@ type Configs struct {
 	// 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during
 	// backfill to prevent long-running jobs from blocking their next scheduled start.
 	MaxChunksToCompress int
+	// TransactionHashesMaintenanceInterval controls how often the lookup table's maintenance
+	// jobs run; each run recompresses the whole table. Uses PostgreSQL INTERVAL syntax. The
+	// default is "1 day", which keeps the rows written between runs in the low hundreds of millions
+	// up to 10,000 transactions per second.
+	TransactionHashesMaintenanceInterval string
+	// TransactionHashesMaintenanceWorkers is how many maintenance jobs share the lookup table's
+	// chunks, each a TimescaleDB background worker. Must be at least 1.
+	TransactionHashesMaintenanceWorkers int
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
 	DBMinConns        int
@@ -199,8 +204,8 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, data.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, nil, fmt.Errorf("configuring hypertable settings: %w", err)
 		}
-		if err := configureTransactionHashesSettings(ctx, dbConnectionPool, cfg.TransactionHashesChunkInterval, cfg.RetentionPeriod, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
-			return nil, nil, fmt.Errorf("configuring transaction_hashes settings: %w", err)
+		if err := configureTransactionHashesMaintenance(ctx, dbConnectionPool, cfg.TransactionHashesMaintenanceInterval, cfg.TransactionHashesMaintenanceWorkers); err != nil {
+			return nil, nil, fmt.Errorf("configuring transaction_hashes maintenance: %w", err)
 		}
 	}
 

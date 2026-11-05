@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -591,7 +592,7 @@ func TestConfigureHypertableSettings(t *testing.T) {
 	})
 }
 
-func TestConfigureTransactionHashesSettings(t *testing.T) {
+func TestConfigureTransactionHashesMaintenance(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -599,58 +600,61 @@ func TestConfigureTransactionHashesSettings(t *testing.T) {
 	require.NoError(t, err)
 	defer pool.Close()
 
-	jobConfig := func(proc string) (jobID int, schedule string, config map[string]any) {
-		t.Helper()
-		err := pool.QueryRow(ctx,
-			`SELECT job_id, schedule_interval::text, config FROM timescaledb_information.jobs
-			 WHERE proc_name = $1 AND hypertable_name = 'transaction_hashes'`, proc,
-		).Scan(&jobID, &schedule, &config)
-		require.NoError(t, err, proc)
-		return jobID, schedule, config
+	type maintenanceJob struct {
+		ID           int
+		ScheduleSecs float64
+		Workers      int
+		Worker       int
+		Scheduled    bool
 	}
+	maintenanceJobs := func() []maintenanceJob {
+		t.Helper()
+		rows, err := pool.Query(ctx,
+			`SELECT job_id, EXTRACT(EPOCH FROM schedule_interval)::float8, (config->>'workers')::int, (config->>'worker')::int, scheduled
+			 FROM timescaledb_information.jobs WHERE proc_name = 'transaction_hashes_maintenance'
+			 ORDER BY (config->>'worker')::int, job_id`)
+		require.NoError(t, err)
+		jobs, err := pgx.CollectRows(rows, pgx.RowToStructByPos[maintenanceJob])
+		require.NoError(t, err)
+		return jobs
+	}
+	const day = float64(24 * 60 * 60)
 
-	err = configureTransactionHashesSettings(ctx, pool, "1 day", "30 days", "4 hours", "1 hour", 5)
-	require.NoError(t, err)
+	jobs := maintenanceJobs()
+	require.Len(t, jobs, 1, "the migration creates one maintenance job")
+	original := jobs[0]
+	assert.Equal(t, maintenanceJob{ID: original.ID, ScheduleSecs: day, Workers: 1, Worker: 0, Scheduled: false}, original,
+		"the migration leaves the job for the ingester to schedule")
 
-	interval, err := db.QueryOne[int64](ctx, pool,
-		`SELECT integer_interval FROM timescaledb_information.dimensions WHERE hypertable_name = 'transaction_hashes'`)
-	require.NoError(t, err)
-	assert.Equal(t, int64(86400), interval, "chunk interval is stored in seconds")
-
-	retentionJob, _, retention := jobConfig("policy_retention")
-	assert.EqualValues(t, 30*86400, retention["drop_after"], "drop_after is stored in seconds")
-
-	compressionJob, schedule, compression := jobConfig("policy_compression")
-	assert.Equal(t, "04:00:00", schedule)
-	assert.EqualValues(t, 3600, compression["compress_after"], "compress_after is stored in seconds")
-	assert.EqualValues(t, 5, compression["maxchunks_to_compress"])
+	require.NoError(t, configureTransactionHashesMaintenance(ctx, pool, "1 day", 3))
+	jobs = maintenanceJobs()
+	require.Len(t, jobs, 3)
+	for i, j := range jobs {
+		assert.Equal(t, maintenanceJob{ID: j.ID, ScheduleSecs: day, Workers: 3, Worker: i, Scheduled: true}, j)
+	}
+	assert.Equal(t, original.ID, jobs[0].ID, "worker 0 keeps the migration's job")
 
 	t.Run("a repeated call with the same settings keeps the jobs", func(t *testing.T) {
-		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "30 days", "4 hours", "1 hour", 5))
-		sameRetention, _, _ := jobConfig("policy_retention")
-		sameCompression, _, _ := jobConfig("policy_compression")
-		assert.Equal(t, retentionJob, sameRetention)
-		assert.Equal(t, compressionJob, sameCompression)
+		require.NoError(t, configureTransactionHashesMaintenance(ctx, pool, "1 day", 3))
+		assert.Equal(t, jobs, maintenanceJobs())
 	})
 
-	t.Run("a new retention period alters the existing job", func(t *testing.T) {
-		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "90 days", "", "", 0))
-		altered, _, retention := jobConfig("policy_retention")
-		assert.Equal(t, retentionJob, altered)
-		assert.EqualValues(t, 90*86400, retention["drop_after"])
+	t.Run("fewer workers delete the extra jobs", func(t *testing.T) {
+		require.NoError(t, configureTransactionHashesMaintenance(ctx, pool, "7 days", 1))
+		assert.Equal(t, []maintenanceJob{{ID: original.ID, ScheduleSecs: 7 * day, Workers: 1, Worker: 0, Scheduled: true}}, maintenanceJobs())
 	})
 
-	t.Run("an empty retention period removes the policy", func(t *testing.T) {
-		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "", "", "", 0))
-		count, err := db.QueryOne[int](ctx, pool,
-			`SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention' AND hypertable_name = 'transaction_hashes'`)
+	t.Run("zero workers is an error", func(t *testing.T) {
+		require.Error(t, configureTransactionHashesMaintenance(ctx, pool, "7 days", 0))
+		assert.Len(t, maintenanceJobs(), 1)
+	})
+
+	t.Run("the bulk-table settings leave the lookup table alone", func(t *testing.T) {
+		require.NoError(t, configureHypertableSettings(ctx, pool, "1 day", "30 days", "oldest_ingest_ledger", "1 hour", "2 hours", 5))
+		assert.Equal(t, []maintenanceJob{{ID: original.ID, ScheduleSecs: 7 * day, Workers: 1, Worker: 0, Scheduled: true}}, maintenanceJobs())
+		policies, err := db.QueryOne[int](ctx, pool,
+			`SELECT count(*) FROM timescaledb_information.jobs WHERE hypertable_name = 'transaction_hashes'`)
 		require.NoError(t, err)
-		assert.Zero(t, count)
-	})
-
-	t.Run("an empty compress_after sets one day, not the chunk interval", func(t *testing.T) {
-		require.NoError(t, configureTransactionHashesSettings(ctx, pool, "1 day", "", "", "", 0))
-		_, _, compression := jobConfig("policy_compression")
-		assert.EqualValues(t, 86400, compression["compress_after"])
+		assert.Zero(t, policies, "no columnstore or retention policy on the lookup table")
 	})
 }

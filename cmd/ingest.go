@@ -104,14 +104,6 @@ func (c *ingestCmd) Command() *cobra.Command {
 			Required:    false,
 		},
 		{
-			Name:        "tx-hash-chunk-interval",
-			Usage:       "TimescaleDB chunk interval for the transaction_hashes lookup table. Only affects future chunks. Keep a few million transactions per chunk: the table is segmented into 4096 buckets and a chunk with fewer rows compresses into near-empty batches (measured 8 bytes per row at 2M rows, 36 at 130k, 250 at 20k). Each hash lookup also checks every chunk, so longer is better, until the open chunk's (hash_bucket, hash_prefix) index (about 27 bytes per transaction) no longer fits in shared_buffers. Uses PostgreSQL INTERVAL syntax.",
-			OptType:     types.String,
-			ConfigKey:   &cfg.TransactionHashesChunkInterval,
-			FlagDefault: "7 days",
-			Required:    false,
-		},
-		{
 			Name:        "retention-period",
 			Usage:       "TimescaleDB data retention period. Chunks older than this are automatically dropped. Empty disables retention. Uses PostgreSQL INTERVAL syntax.",
 			OptType:     types.String,
@@ -141,6 +133,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxChunksToCompress,
 			FlagDefault: 0,
+			Required:    false,
+		},
+		{
+			Name:        "tx-hash-maintenance-interval",
+			Usage:       "How often the transaction_hashes maintenance jobs run. A run deletes the lookup rows of 30-day periods that closed before the oldest retained transaction, then recompresses the whole lookup table. Set it so the rows written between runs stay in the low hundreds of millions. A daily run keeps the rowstore parts of the 1,024 chunks bounded without tuning: about 4 minutes and 2 GB of WAL on one worker at today's mainnet rate, about 55 minutes on eight workers at 10,000 transactions per second (864 million rows a day). Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.TransactionHashesMaintenanceInterval,
+			FlagDefault: "1 day",
+			Required:    false,
+		},
+		{
+			Name:        "tx-hash-maintenance-workers",
+			Usage:       "How many transaction_hashes maintenance jobs run at once, each over its own share of the chunks; a run finishes about that many times faster. Use 8 at 10,000 transactions per second. Each job is one TimescaleDB background worker and counts against timescaledb.max_background_workers.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.TransactionHashesMaintenanceWorkers,
+			FlagDefault: 1,
 			Required:    false,
 		},
 	}
@@ -177,6 +185,12 @@ func (c *ingestCmd) Command() *cobra.Command {
 				// silently ignored, so reject any explicitly supplied value, including 0.
 				if config.IsExplicitlySet(startLedgerOpt) || config.IsExplicitlySet(endLedgerOpt) {
 					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
+				}
+				if cfg.TransactionHashesMaintenanceInterval == "" {
+					return fmt.Errorf("--tx-hash-maintenance-interval must not be empty")
+				}
+				if cfg.TransactionHashesMaintenanceWorkers < 1 {
+					return fmt.Errorf("--tx-hash-maintenance-workers must be at least 1 (got %d)", cfg.TransactionHashesMaintenanceWorkers)
 				}
 			case services.IngestionModeBackfill:
 				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
