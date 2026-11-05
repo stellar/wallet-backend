@@ -319,12 +319,12 @@ func (h HashBytea) String() string {
 }
 
 // LookupKey returns the hash's key in the transaction_hashes lookup table: the top 40 bits of the
-// hash as a non-negative prefix, and the top 12 of those bits as the bucket the table is segmented
-// by. Two different hashes can share a prefix, so a lookup always confirms the full hash against
+// hash as a non-negative prefix, and the top 20 of those bits as the bucket the table is segmented
+// by (1,048,576 buckets). Two different hashes can share a prefix, so a lookup always confirms the full hash against
 // transactions. data.sqlHashPrefix and data.sqlHashBucket compute the same two values in SQL when
 // the populator fills the table from existing transactions rows; the two must stay identical, and
 // TestHashBytea_LookupKeyMatchesSQL checks that they do.
-func (h HashBytea) LookupKey() (bucket int16, prefix int64, err error) {
+func (h HashBytea) LookupKey() (bucket int32, prefix int64, err error) {
 	bytes, err := hex.DecodeString(string(h))
 	if err != nil {
 		return 0, 0, fmt.Errorf("decoding hex hash %s: %w", h, err)
@@ -333,7 +333,7 @@ func (h HashBytea) LookupKey() (bucket int16, prefix int64, err error) {
 		return 0, 0, fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(bytes))
 	}
 	prefix = int64(binary.BigEndian.Uint64(bytes[:8]) >> 24)
-	return int16(prefix >> 28), prefix, nil
+	return int32(prefix >> 20), prefix, nil
 }
 
 // XDRBytea represents XDR data stored as BYTEA in the database.

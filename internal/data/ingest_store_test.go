@@ -747,14 +747,21 @@ func Test_IngestStoreModel_DeleteRowsAboveLedger(t *testing.T) {
 			 VALUES ($1, $2, 1, 'BALANCE', 'CREDIT', $3, $4, $5::timestamptz)`,
 			txTOID, opTOID, ledger, []byte{1}, closedAt)
 		require.NoError(t, seedErr)
-		// The transaction's lookup row, written by the same sibling COPY transaction.
-		_, seedErr = dbConnectionPool.Exec(ctx,
+		// The transaction's lookup row, written by the same sibling COPY transaction. Both seeded
+		// hashes start with the same five bytes, so the two rows share a lookup key and only the
+		// close time tells the orphan apart.
+		_, seedErr = dbConnectionPool.Exec(ctx, fmt.Sprintf(
 			`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch)
-			 VALUES (1, 1, extract(epoch FROM $1::timestamptz)::bigint)`, closedAt)
+			 SELECT %s, %s, floor(extract(epoch FROM ledger_created_at))::bigint FROM transactions WHERE to_id = $1`,
+			sqlHashBucket, sqlHashPrefix), txTOID)
 		require.NoError(t, seedErr)
 	}
 	seedLedger(t, cursorLedger, "2026-01-01T00:00:00Z")
 	seedLedger(t, cursorLedger+1, "2026-01-01T00:00:05Z")
+	// The production shape: the lookup chunk is compressed, so the orphan's delete goes through
+	// the compressed batch its key points at.
+	_, err = dbConnectionPool.Exec(ctx, `SELECT compress_chunk(c) FROM show_chunks('transaction_hashes') c`)
+	require.NoError(t, err)
 
 	// Lookup rows carry no TOID; they are split at the cursor ledger's close time.
 	countHashes := func(t *testing.T) [2]int {

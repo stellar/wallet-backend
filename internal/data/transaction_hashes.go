@@ -25,12 +25,12 @@ const (
 // column; the one-off fill in docs/deploy/upgrading.md uses the same expressions.
 const (
 	sqlHashPrefix = `('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint`
-	sqlHashBucket = `((('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint) >> 28)::smallint`
+	sqlHashBucket = `((('x' || encode(substr(hash, 1, 5), 'hex'))::bit(40)::bigint) >> 20)::integer`
 )
 
 // hashLookupArgs returns the lookup key for a hex hash: its bucket, its prefix, and the 32 raw
 // bytes the full-hash check compares against.
-func hashLookupArgs(hash string) (bucket int16, prefix int64, hashBytes any, err error) {
+func hashLookupArgs(hash string) (bucket int32, prefix int64, hashBytes any, err error) {
 	bucket, prefix, err = types.HashBytea(hash).LookupKey()
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("computing lookup key: %w", err)
@@ -45,8 +45,10 @@ func hashLookupArgs(hash string) (bucket int16, prefix int64, hashBytes any, err
 // lookupCloseTimes returns the distinct ledger close times stored in transaction_hashes for a
 // (bucket, prefix), newest first. Usually one; more when a second hash shares the prefix, and
 // none for a hash that is not indexed. A re-ingested ledger can store the same row twice, so the
-// times are distinct.
-func lookupCloseTimes(ctx context.Context, conn db.Querier, bucket int16, prefix int64) ([]int64, error) {
+// times are distinct. The table is partitioned by hash_prefix, so the planner keeps the one chunk
+// holding the prefix whatever the size of the history (pinned by
+// TestLookupCloseTimes_PlansOneChunk).
+func lookupCloseTimes(ctx context.Context, conn db.Querier, bucket int32, prefix int64) ([]int64, error) {
 	rows, err := conn.Query(ctx,
 		`SELECT DISTINCT ledger_close_epoch FROM transaction_hashes WHERE hash_bucket = $1 AND hash_prefix = $2 ORDER BY ledger_close_epoch DESC`,
 		bucket, prefix)
@@ -123,7 +125,7 @@ func (m *TransactionModel) BatchCopyHashes(ctx context.Context, pgxTx pgx.Tx, tx
 				return nil, fmt.Errorf("computing lookup key for hash %s: %w", tx.Hash, err)
 			}
 			return []any{
-				pgtype.Int2{Int16: bucket, Valid: true},
+				pgtype.Int4{Int32: bucket, Valid: true},
 				pgtype.Int8{Int64: prefix, Valid: true},
 				pgtype.Int8{Int64: tx.LedgerCreatedAt.Unix(), Valid: true},
 			}, nil

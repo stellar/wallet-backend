@@ -301,15 +301,13 @@ func BulkCopyTableNames() []string {
 
 // DeleteRowsAboveLedger removes every row belonging to a ledger past the given
 // one from the five bulk-COPY tables and from transaction_hashes, in one
-// transaction. transaction_hashes has no TOID column, so its rows are removed
-// by close time only, and stay when no close-time bound resolves. It is live
-// ingestion's startup reconciliation: sibling COPY transactions commit before
-// the coordinating transaction that carries the cursor, so a crash between
-// those commits leaves orphaned bulk rows for the persist batch past the
-// committed cursor — and they must be cleared before those ledgers are
-// re-ingested, because COPY has no ON CONFLICT and would collide on the
-// primary keys. Rows of ledgers > ledger are exactly rows whose TOID column is
-// >= the first TOID of ledger+1.
+// transaction. It is live ingestion's startup reconciliation: sibling COPY
+// transactions commit before the coordinating transaction that carries the
+// cursor, so a crash between those commits leaves orphaned bulk rows for the
+// persist batch past the committed cursor — and they must be cleared before
+// those ledgers are re-ingested, because COPY has no ON CONFLICT and would
+// collide on the primary keys. Rows of ledgers > ledger are exactly rows whose
+// TOID column is >= the first TOID of ledger+1.
 //
 // The deletes also bound ledger_created_at by the cursor ledger's own close
 // time: close times are monotone, so every orphan carries a timestamp at or
@@ -319,6 +317,13 @@ func BulkCopyTableNames() []string {
 // does not lead with the TOID column. Without a resolvable bound (the cursor
 // ledger left no transactions row) the deletes scan unbounded, which is the
 // correct-but-slow degenerate case.
+//
+// transaction_hashes is partitioned by hash, so its orphans are deleted by
+// key: the lookup key and close time of each orphaned transactions row, read
+// before that row goes. Each delete is planned on the one chunk that holds the
+// prefix and, when that chunk is compressed, decompresses the one batch the
+// (hash_bucket, hash_prefix) metadata points at. The cost follows the orphan
+// count, never the table size.
 func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uint32) error {
 	// toid packs the ledger into the high 32 bits of a signed int64: a cursor at
 	// MaxInt32 would wrap ledger+1 negative and the bound below would match every
@@ -343,6 +348,11 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 	}
 
 	err := db.RunInTransaction(ctx, m.DB, func(dbTx pgx.Tx) error {
+		lookupKeys, keysErr := orphanedLookupKeys(ctx, dbTx, minTOID, bound)
+		if keysErr != nil {
+			return fmt.Errorf("reading lookup keys of transactions above ledger %d: %w", ledger, keysErr)
+		}
+
 		for _, target := range BulkCopyTables {
 			query := fmt.Sprintf(`DELETE FROM %s WHERE %s >= $1`, target.Table, target.TOIDColumn)
 			args := []any{minTOID}
@@ -363,22 +373,22 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 			}
 		}
 
-		// transaction_hashes rows are written by the same sibling transaction but carry no
-		// TOID, so the close-time bound is their only key. Without one they stay; lookups
-		// tolerate the duplicate the re-ingested ledger then writes.
-		if bound.IsZero() {
-			return nil
-		}
 		start := time.Now()
-		tag, execErr := dbTx.Exec(ctx, `DELETE FROM transaction_hashes WHERE ledger_close_epoch > $1`, bound.Unix())
+		var deleted int64
+		for _, key := range lookupKeys {
+			tag, execErr := dbTx.Exec(ctx,
+				`DELETE FROM transaction_hashes WHERE hash_bucket = $1 AND hash_prefix = $2 AND ledger_close_epoch = $3`,
+				key.bucket, key.prefix, key.closeEpoch)
+			if execErr != nil {
+				m.Metrics.QueryErrors.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable, utils.GetDBErrorType(execErr)).Inc()
+				return fmt.Errorf("deleting %s rows above ledger %d: %w", TransactionHashesTable, ledger, execErr)
+			}
+			deleted += tag.RowsAffected()
+		}
 		m.Metrics.QueryDuration.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable).Observe(time.Since(start).Seconds())
 		m.Metrics.QueriesTotal.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable).Inc()
-		if execErr != nil {
-			m.Metrics.QueryErrors.WithLabelValues("DeleteRowsAboveLedger", TransactionHashesTable, utils.GetDBErrorType(execErr)).Inc()
-			return fmt.Errorf("deleting %s rows above ledger %d: %w", TransactionHashesTable, ledger, execErr)
-		}
-		if tag.RowsAffected() > 0 {
-			log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", tag.RowsAffected(), TransactionHashesTable, ledger)
+		if deleted > 0 {
+			log.Ctx(ctx).Infof("startup reconciliation: deleted %d orphaned %s row(s) above cursor ledger %d", deleted, TransactionHashesTable, ledger)
 		}
 		return nil
 	})
@@ -386,4 +396,38 @@ func (m *IngestStoreModel) DeleteRowsAboveLedger(ctx context.Context, ledger uin
 		return fmt.Errorf("reconciling rows above ledger %d: %w", ledger, err)
 	}
 	return nil
+}
+
+// lookupKey is a transaction_hashes row: the lookup key of a hash and the close time it maps to.
+type lookupKey struct {
+	bucket     int32
+	prefix     int64
+	closeEpoch int64
+}
+
+// orphanedLookupKeys returns the transaction_hashes rows of the transactions at or above
+// minTOID: at most one persist batch of rows, read by a PK-prefix seek on the chunks at or after
+// bound (every chunk when bound is zero).
+func orphanedLookupKeys(ctx context.Context, dbTx pgx.Tx, minTOID int64, bound time.Time) ([]lookupKey, error) {
+	query := fmt.Sprintf(`SELECT %s, %s, floor(extract(epoch FROM ledger_created_at))::bigint FROM transactions WHERE to_id >= $1`, sqlHashBucket, sqlHashPrefix)
+	args := []any{minTOID}
+	if !bound.IsZero() {
+		query += ` AND ledger_created_at >= $2`
+		args = append(args, bound)
+	}
+	rows, err := dbTx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying transactions: %w", err)
+	}
+	keys, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (lookupKey, error) {
+		var k lookupKey
+		if scanErr := row.Scan(&k.bucket, &k.prefix, &k.closeEpoch); scanErr != nil {
+			return lookupKey{}, fmt.Errorf("scanning lookup key: %w", scanErr)
+		}
+		return k, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collecting lookup keys: %w", err)
+	}
+	return keys, nil
 }
