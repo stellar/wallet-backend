@@ -180,13 +180,13 @@ Indexing platforms and pipeline frameworks (for example, SubQuery, The Graph Sub
 
 **Capabilities**
 
-- Per-account history: transactions, operations, and state changes (balances, trustlines, signers, thresholds, flags, home domain, data entries, SEP-41 allowances).
+- Indexes transactions, operations, and state changes for all accounts and contracts on the network. State changes cover balances, trustlines, signers, thresholds, flags, home domain, data entries, and SEP-41 allowances.
 - Current balances for accounts and contracts: native, trustlines, SAC, SEP-41, and liquidity pool shares.
-- Lookups by account, transaction hash, and operation ID.
+- Queries by account or contract address, transaction hash, and operation ID. Transactions and operations link to their state changes and participants.
 
 **Limited or no coverage**
 
-- Network-wide queries and reverse lookups (by asset, signer, sponsor, ledger).
+- Reverse lookups (by asset, signer, sponsor, ledger).
 - DEX and market data.
 - Claimable balances.
 - Asset-level data.
