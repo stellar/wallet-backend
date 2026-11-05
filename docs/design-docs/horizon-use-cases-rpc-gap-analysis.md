@@ -166,6 +166,8 @@ Operation and configuration use cases (section 13) are out of scope for this sec
 | Name | Type | Interface | Scope |
 |---|---|---|---|
 | [wallet-backend](https://github.com/stellar/wallet-backend) | Indexer. Self-hosted, or hosted by infrastructure providers. | GraphQL | Per-account history (transactions, operations, state changes) and current balances (native, trustlines, SAC, SEP-41, liquidity pool shares). Lookups by account, transaction hash, and operation ID only. |
+| [Alchemy Stellar Data API](https://www.alchemy.com/docs/reference/stellar-data-api-overview) | Hosted data API | JSON over HTTP | Per-address transfer history, balances, and NFT holdings. Covers classic assets and contract tokens. |
+| [Stellar Indexer](https://stellarindexer.com/) | Hosted data API | REST, with a TypeScript SDK | Soroban contract data, with extensions for specific protocols (for example, Blend) |
 | [StellarExpert API](https://stellar.expert/openapi.html) | Hosted explorer API | REST | Asset statistics, asset holders, account history, and market data |
 | [OBSRVR](https://docs.withobsrvr.com/) | Hosted data provider | REST (Gateway API), data streams (Flow) | Account and asset queries, structured ledger data, and contract events |
 
@@ -192,7 +194,7 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
-| 3.3 | List all balances of an account | High | Covered | wallet-backend: `Account.balances` | |
+| 3.3 | List all balances of an account | High | Covered | wallet-backend: `Account.balances`. Alchemy: balances. | |
 | 3.5 | List all data entries of an account | High | Partial | wallet-backend: `Account.stateChanges` with category `DATA_ENTRY` returns data entry history. | Current data entries of an account. |
 | 3.7 | Watch an account for changes | High | Partial | wallet-backend: poll `Account.stateChanges` from the last cursor. Covers balances, trustlines, signers, thresholds, flags, home domain, and data entries. | Push delivery (streaming). Changes to offers, sponsorships, and sequence numbers. |
 
@@ -219,8 +221,8 @@ Indexing platforms run indexers that a developer writes. A platform is not a rea
 
 | ID | Use case | RPC effort | Coverage | Alternatives | Remaining gap |
 |---|---|---|---|---|---|
-| 6.1 | Payment history for an account | Medium | Covered | wallet-backend: `Account.stateChanges` with category `BALANCE`. Covers classic assets, SAC, and SEP-41 tokens. | |
-| 6.2 | Detect incoming payments (deposit monitoring) | Medium | Partial | wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. | Push delivery (streaming). Text and hash memos. |
+| 6.1 | Payment history for an account | Medium | Covered | wallet-backend: `Account.stateChanges` with category `BALANCE`. Covers classic assets, SAC, and SEP-41 tokens. Alchemy: transfer history. | |
+| 6.2 | Detect incoming payments (deposit monitoring) | Medium | Partial | wallet-backend: poll `Account.stateChanges` with category `BALANCE` and reason `CREDIT`. `toMuxedId` holds the muxed ID or `MEMO_ID`. Alchemy: poll transfer history. | Push delivery (streaming). Text and hash memos. |
 | 6.3 | Global payment feed | Medium | Covered | OBSRVR Flow | |
 | 6.4 | Effects | High | Partial | wallet-backend: state changes (see 3.7). | Effects for offers, trades, claimable balances, sponsorships, liquidity pool deposits and withdrawals, and sequence number bumps. |
 
