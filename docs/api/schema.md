@@ -291,13 +291,13 @@ One balance in a page, with its pagination cursor.
 
 ### BlendAccountPositions
 
-BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has touched. backstopClaimedLp is lifetime backstop-emission claims in Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP token and re-deposits it, so LP tokens are what the claimer actually receives. Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no pool address, so this total can only ever be reported account-wide.
+BlendAccountPositions aggregates one account's Blend v2 exposure across every pool it has touched. backstopClaimed lists lifetime backstop-emission claims per backstop. Unlike claimedBlnd (per pool), the on-chain backstop claim event carries no pool address, so these totals are reported per backstop, not per pool.
 
 | Field | Type | Description |
 |---|---|---|
 | `pools` | \[[BlendPoolPosition](#blendpoolposition)!\]! |  |
 | `backstop` | \[[BlendBackstopPosition](#blendbackstopposition)!\]! |  |
-| `backstopClaimedLp` | `String`! |  |
+| `backstopClaimed` | \[[BlendBackstopClaimed](#blendbackstopclaimed)!\]! |  |
 | `activeAuctions` | \[[BlendAuction](#blendauction)!\]! | Active Dutch auctions where this account is the auction owner: being liquidated (USER_LIQUIDATION), or — only when this account IS the backstop address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST). Sorted by (poolAddress, auctionType). |
 
 ### BlendAuction
@@ -363,6 +363,15 @@ Implements: [BaseStateChange](#basestatechange)
 | `transaction` | [Transaction](#transaction)! |  |
 | `amount` | `String`! | Comet LP tokens deposited or withdrawn, as a decimal string. |
 | `poolId` | `String`! | Contract ID of the Blend pool whose backstop the deposit backs. |
+
+### BlendBackstopClaimed
+
+BlendBackstopClaimed is an account's lifetime backstop-emission claims from one backstop, in that backstop's Comet LP tokens (7 decimals): the backstop converts claimed BLND into its LP token and re-deposits it, so LP tokens are what the claimer receives. Each backstop has its own LP token, so totals from different versions are never summed.
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | [BlendVersion](#blendversion)! |  |
+| `lpTokens` | `String`! |  |
 
 ### BlendBackstopEmissionsClaimChange
 
@@ -1173,6 +1182,15 @@ BlendPoolStatus is a pool's operational status. On-chain encoding: 0 ADMIN_ACTIV
 | `ADMIN_FROZEN` |  |
 | `FROZEN` |  |
 | `SETUP` |  |
+
+### BlendVersion
+
+BlendVersion is the Blend deployment a backstop belongs to. V2 is the original deployment; V2_1 is the 2026-09-30 redeploy with the patched Comet LP token. Both are indexed. Values for V2 backstop positions reflect the old Comet pool's on-chain state after the 2026-08-25 incident.
+
+| Value | Description |
+|---|---|
+| `V2` |  |
+| `V2_1` |  |
 
 ### OperationType
 
