@@ -6,6 +6,7 @@ package blend
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -490,6 +491,11 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 	assert.Equal(t, 1, countOraclePriceRows(t, ctx, pool))
 }
 
+// errBackstopNotDeployed, passed as a backstop's cometErrs entry, makes
+// mockBackstopComets leave that backstop's instance out of the discovery
+// response and expect no Comet call for it.
+var errBackstopNotDeployed = errors.New("backstop instance not on chain")
+
 // mockBackstopComets wires rpc for one Comet leg pass over backstopIDs: one
 // getLedgerEntries call reading every backstop's instance (each names its own
 // fresh Comet pool as BToken), then one call per Comet pool. The Comet pool of
@@ -499,11 +505,14 @@ func TestSnapshotOnce_OracleErrorIsolated(t *testing.T) {
 func mockBackstopComets(t *testing.T, rpc *services.RPCServiceMock, backstopIDs []string, cometErrs []error) []string {
 	t.Helper()
 	instanceKey := xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance}
-	backstopEntries := make([]entities.LedgerEntryResult, len(backstopIDs))
+	backstopEntries := make([]entities.LedgerEntryResult, 0, len(backstopIDs))
 	blndAddrs := make([]string, len(backstopIDs))
 	for i, backstopID := range backstopIDs {
+		if errors.Is(cometErrs[i], errBackstopNotDeployed) {
+			continue
+		}
 		cometID := randomContractAddr(t)
-		backstopEntries[i] = cometEntryResult(t, backstopID, instanceKey, backstopInstanceVal(t, cometID))
+		backstopEntries = append(backstopEntries, cometEntryResult(t, backstopID, instanceKey, backstopInstanceVal(t, cometID)))
 		blndAddrs[i] = randomContractAddr(t)
 
 		entries := []entities.LedgerEntryResult{
@@ -579,6 +588,27 @@ func TestSnapshotOnce_CometLeg(t *testing.T) {
 		_, ok := getOraclePriceRow(t, ctx, pool, backstopIDs[1], blndAddrs[1])
 		assert.True(t, ok, "the healthy backstop's BLND row is still written")
 		_, ok = getOraclePriceRow(t, ctx, pool, backstopIDs[1], backstopIDs[1])
+		assert.True(t, ok, "the healthy backstop's LP-share row is still written")
+		assert.Equal(t, 2, countOraclePriceRows(t, ctx, pool))
+		assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("error")))
+		assert.Equal(t, 2.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("success")))
+	})
+
+	t.Run("a backstop with no instance on chain does not stop the other backstop", func(t *testing.T) {
+		ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+		defer cleanup()
+
+		rpc := services.NewRPCServiceMock(t)
+		blndAddrs := mockBackstopComets(t, rpc, backstopIDs, []error{nil, errBackstopNotDeployed})
+		bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+		svc := newTestSnapshotService(t, oraclePrices, services.NewContractMetadataServiceMock(t), network.PublicNetworkPassphrase, rpc, bpm)
+
+		err := svc.SnapshotOnce(ctx)
+		assert.ErrorContains(t, err, "backstop "+backstopIDs[1]+": instance entry not found")
+
+		_, ok := getOraclePriceRow(t, ctx, pool, backstopIDs[0], blndAddrs[0])
+		assert.True(t, ok, "the healthy backstop's BLND row is still written")
+		_, ok = getOraclePriceRow(t, ctx, pool, backstopIDs[0], backstopIDs[0])
 		assert.True(t, ok, "the healthy backstop's LP-share row is still written")
 		assert.Equal(t, 2, countOraclePriceRows(t, ctx, pool))
 		assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("error")))

@@ -292,17 +292,18 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 // snapshotComet derives the BLND and Comet LP-share USD prices for every
 // pinned backstop from its Comet pool's raw on-chain state
 // (fetchBackstopLPTokens, fetchCometState, cometValuation) and returns their
-// blend_oracle_prices rows. One backstop's failure does not stop the others:
-// each failure counts one FetchesTotal{error} and is joined into the
-// returned error, and each row counts one FetchesTotal{success}. See the
-// package doc for the row-key convention.
+// blend_oracle_prices rows. One backstop's failure, in discovery or in
+// valuation, does not stop the others: each failure counts one
+// FetchesTotal{error} and is joined into the returned error, and each row
+// counts one FetchesTotal{success}. See the package doc for the row-key
+// convention.
 func (s *PriceSnapshotService) snapshotComet(ctx context.Context) ([]blenddata.OraclePrice, error) {
 	backstopIDs := make([]string, len(s.backstops))
 	for i, pin := range s.backstops {
 		backstopIDs[i] = pin.Address
 	}
 	lpTokens, err := fetchBackstopLPTokens(ctx, s.rpc, backstopIDs)
-	if err != nil {
+	if lpTokens == nil {
 		s.metrics.FetchesTotal.WithLabelValues("error").Add(float64(len(backstopIDs)))
 		return nil, fmt.Errorf("discovering backstop LP tokens: %w", err)
 	}
@@ -310,8 +311,17 @@ func (s *PriceSnapshotService) snapshotComet(ctx context.Context) ([]blenddata.O
 	now := time.Now().Unix()
 	var rows []blenddata.OraclePrice
 	var errs []error
+	if err != nil {
+		errs = append(errs, fmt.Errorf("discovering backstop LP tokens: %w", err))
+	}
 	for _, backstopID := range backstopIDs {
-		backstopRows, backstopErr := snapshotBackstopComet(ctx, s.rpc, backstopID, lpTokens[backstopID], now)
+		cometID, found := lpTokens[backstopID]
+		if !found {
+			// Its discovery error is already in errs.
+			s.metrics.FetchesTotal.WithLabelValues("error").Inc()
+			continue
+		}
+		backstopRows, backstopErr := snapshotBackstopComet(ctx, s.rpc, backstopID, cometID, now)
 		if backstopErr != nil {
 			s.metrics.FetchesTotal.WithLabelValues("error").Inc()
 			errs = append(errs, fmt.Errorf("backstop %s: %w", backstopID, backstopErr))

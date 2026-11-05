@@ -35,6 +35,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -384,9 +385,11 @@ func fetchCometState(ctx context.Context, rpc services.RPCService, cometID strin
 
 // fetchBackstopLPTokens reads each backstop's Comet LP token address from the
 // "BToken" entry of its contract instance storage, in one getLedgerEntries
-// call. It returns backstop address → Comet pool address. A missing
-// instance, or a missing or non-Address BToken, is an error naming the
-// backstop.
+// call. It returns backstop address → Comet pool address for every backstop
+// it could resolve. A missing instance, or a missing or non-Address BToken,
+// leaves that backstop out of the map and joins an error naming it into the
+// returned error; the other backstops still resolve. Only a failure of the
+// whole call (context, key building, the RPC request) returns a nil map.
 func fetchBackstopLPTokens(ctx context.Context, rpc services.RPCService, backstopIDs []string) (map[string]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("blend: fetchBackstopLPTokens: context error: %w", err)
@@ -410,28 +413,40 @@ func fetchBackstopLPTokens(ctx context.Context, rpc services.RPCService, backsto
 	}
 
 	out := make(map[string]string, len(backstopIDs))
+	var errs []error
 	for i, id := range backstopIDs {
-		dataXDR, found := byKey[keys[i]]
-		if !found {
-			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: instance entry not found on chain", id)
-		}
-		val, err := decodeContractDataVal(dataXDR)
+		addr, err := backstopLPToken(byKey, keys[i])
 		if err != nil {
-			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: %w", id, err)
-		}
-		instance, ok := val.GetInstance()
-		if !ok {
-			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: instance entry is not a ContractInstance (got %v)", id, val.Type)
-		}
-		tokenVal, found := mapGet(instance.Storage, "BToken")
-		if !found {
-			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: BToken not in instance storage", id)
-		}
-		addr, ok := addrString(tokenVal)
-		if !ok {
-			return nil, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: BToken is not an Address (got %v)", id, tokenVal.Type)
+			errs = append(errs, fmt.Errorf("blend: fetchBackstopLPTokens: backstop %s: %w", id, err))
+			continue
 		}
 		out[id] = addr
 	}
-	return out, nil
+	return out, errors.Join(errs...)
+}
+
+// backstopLPToken returns the BToken address in the backstop instance entry
+// stored under key in byKey.
+func backstopLPToken(byKey map[string]string, key string) (string, error) {
+	dataXDR, found := byKey[key]
+	if !found {
+		return "", errors.New("instance entry not found on chain")
+	}
+	val, err := decodeContractDataVal(dataXDR)
+	if err != nil {
+		return "", err
+	}
+	instance, ok := val.GetInstance()
+	if !ok {
+		return "", fmt.Errorf("instance entry is not a ContractInstance (got %v)", val.Type)
+	}
+	tokenVal, found := mapGet(instance.Storage, "BToken")
+	if !found {
+		return "", errors.New("BToken not in instance storage")
+	}
+	addr, ok := addrString(tokenVal)
+	if !ok {
+		return "", fmt.Errorf("BToken is not an Address (got %v)", tokenVal.Type)
+	}
+	return addr, nil
 }
