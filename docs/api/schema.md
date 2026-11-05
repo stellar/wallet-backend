@@ -399,6 +399,7 @@ BlendBackstopPosition is an account's backstop deposit in one pool. The backstop
 |---|---|---|
 | `poolAddress` | `String`! |  |
 | `poolName` | `String` |  |
+| `version` | [BlendVersion](#blendversion) | The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes. |
 | `shares` | `String`! |  |
 | `lpTokens` | `String` | The deposit converted to Comet LP tokens at the pool's shares:tokens rate. Null when that rate is unknown: the pool's blend_backstop_pools balance can be absent or zeroed (an emissions-only write creates the row with zero balance columns) while this account provably holds shares — a conversion reported as "0" there would be indistinguishable from a closed position. |
 | `usdValue` | `Float` |  |
@@ -493,6 +494,7 @@ BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of any a
 |---|---|---|
 | `address` | `String`! |  |
 | `name` | `String` |  |
+| `version` | [BlendVersion](#blendversion) | The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes. |
 | `status` | [BlendPoolStatus](#blendpoolstatus) | Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/ SETUP reject both. Null until the pool's config entry has been ingested, and also null for an unrecognized on-chain status value. |
 | `oracleContractId` | `String` |  |
 | `backstopRate` | `Int` | Share of borrower interest routed to the pool's backstop, as 7-decimal fixed point (4750000 = 47.5%). |
