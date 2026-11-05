@@ -7,7 +7,6 @@ import (
 
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -74,7 +73,6 @@ func makeScLiquidityPool(hash xdr.Hash) xdr.ScAddress {
 // makeBasicSorobanOp creates a basic Soroban operation wrapper for testing.
 func makeBasicSorobanOp() *TransactionOperationWrapper {
 	return &TransactionOperationWrapper{
-		Network:        network.TestNetworkPassphrase,
 		LedgerClosed:   closeTime,
 		LedgerSequence: 12345,
 		Operation:      xdr.Operation{},

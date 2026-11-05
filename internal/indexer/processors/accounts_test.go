@@ -175,7 +175,6 @@ func TestAccountsProcessor_ProcessOperation(t *testing.T) {
 				Transaction:    tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			changes, err := processor.ProcessOperation(context.Background(), wrapper)
@@ -226,7 +225,6 @@ func TestAccountsProcessor_ProcessOperation_PersistsNumSubEntries(t *testing.T) 
 		Transaction:    tx,
 		Operation:      op,
 		LedgerSequence: 12345,
-		Network:        networkPassphrase,
 	}
 
 	got, err := processor.ProcessOperation(context.Background(), wrapper)

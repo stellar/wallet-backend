@@ -186,7 +186,6 @@ func TestSACInstanceProcessor_ProcessOperation(t *testing.T) {
 				Transaction:    tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			contracts, err := processor.ProcessOperation(context.Background(), wrapper)
@@ -238,7 +237,6 @@ func TestSACInstanceProcessor_ProcessOperation_AlphaNum12(t *testing.T) {
 		Transaction:    tx,
 		Operation:      op,
 		LedgerSequence: 12345,
-		Network:        networkPassphrase,
 	}
 
 	contracts, err := processor.ProcessOperation(context.Background(), wrapper)

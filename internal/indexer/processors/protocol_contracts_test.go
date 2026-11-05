@@ -266,7 +266,6 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 				Transaction:    tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			contracts, err := processor.ProcessOperation(context.Background(), wrapper)
@@ -334,7 +333,6 @@ func TestProtocolContractsProcessor_ExternalRefIncrementsMetric(t *testing.T) {
 		Transaction:    createTx(op, changes, nil, false),
 		Operation:      op,
 		LedgerSequence: 12345,
-		Network:        networkPassphrase,
 	}
 
 	require.Zero(t, testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal))
