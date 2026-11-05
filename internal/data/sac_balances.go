@@ -99,7 +99,7 @@ func (m *SACBalanceModel) GetByAccount(ctx context.Context, accountAddress strin
 	}
 
 	start := time.Now()
-	balances, err := db.QueryMany[SACBalance](ctx, m.DB, query, args...)
+	balances, err := db.QueryMany[SACBalance](ctx, db.QuerierFrom(ctx, m.DB), query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sac_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sac_balances").Inc()

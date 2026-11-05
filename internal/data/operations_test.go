@@ -127,7 +127,7 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			name:                   "🔴participant_for_unknown_operation_id",
 			operations:             []*types.Operation{&op1},
 			stellarAddressesByOpID: map[int64]map[string]struct{}{999999: {kp1.Address(): {}}},
-			wantErrContains:        "no operation supplies ledger_created_at for operation_id 999999",
+			wantErrContains:        "no row supplies ledger_created_at for operation_id 999999",
 		},
 	}
 

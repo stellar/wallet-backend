@@ -3,32 +3,59 @@ Stellar operation type, one value per operation defined by the Stellar
 protocol (matching the XDR OperationType names).
 """
 enum OperationType {
+  """Creates and funds a new account."""
   CREATE_ACCOUNT
+  """Sends an asset to a destination account."""
   PAYMENT
+  """Path payment where the destination receives an exact amount."""
   PATH_PAYMENT_STRICT_RECEIVE
+  """Path payment where the source sends an exact amount."""
   PATH_PAYMENT_STRICT_SEND
+  """Creates, updates, or deletes an offer to sell an asset."""
   MANAGE_SELL_OFFER
+  """Creates a passive sell offer, which does not take offers at the same price."""
   CREATE_PASSIVE_SELL_OFFER
+  """Creates, updates, or deletes an offer to buy an asset."""
   MANAGE_BUY_OFFER
+  """Sets account options: flags, thresholds, signers, home domain, inflation destination."""
   SET_OPTIONS
+  """Creates, updates, or removes a trustline."""
   CHANGE_TRUST
+  """Issuer authorizes or deauthorizes a trustline to its asset."""
   ALLOW_TRUST
+  """Merges the source account into a destination account and removes it."""
   ACCOUNT_MERGE
+  """Inflation operation. Fails on protocol 12 and later."""
   INFLATION
+  """Sets, updates, or deletes an account data entry."""
   MANAGE_DATA
+  """Raises the source account's sequence number."""
   BUMP_SEQUENCE
+  """Creates a claimable balance."""
   CREATE_CLAIMABLE_BALANCE
+  """Claims a claimable balance."""
   CLAIM_CLAIMABLE_BALANCE
+  """Starts sponsoring reserves for another account."""
   BEGIN_SPONSORING_FUTURE_RESERVES
+  """Ends a sponsorship started by BEGIN_SPONSORING_FUTURE_RESERVES."""
   END_SPONSORING_FUTURE_RESERVES
+  """Removes or transfers sponsorship of a ledger entry or signer."""
   REVOKE_SPONSORSHIP
+  """Issuer claws back an asset from a holder's trustline."""
   CLAWBACK
+  """Issuer claws back a claimable balance."""
   CLAWBACK_CLAIMABLE_BALANCE
+  """Issuer sets or clears authorization flags on a trustline."""
   SET_TRUST_LINE_FLAGS
+  """Deposits assets into a liquidity pool in exchange for pool shares."""
   LIQUIDITY_POOL_DEPOSIT
+  """Withdraws assets from a liquidity pool by redeeming pool shares."""
   LIQUIDITY_POOL_WITHDRAW
+  """Soroban: invokes a contract function, uploads Wasm, or creates a contract."""
   INVOKE_HOST_FUNCTION
+  """Soroban: extends the time to live of ledger entries in the footprint."""
   EXTEND_FOOTPRINT_TTL
+  """Soroban: restores archived ledger entries in the footprint."""
   RESTORE_FOOTPRINT
 }
 

@@ -3,11 +3,9 @@
 package processors
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/stellar/go-stellar-sdk/hash"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -19,14 +17,6 @@ import (
 // PoolIDToString converts a pool ID to its string representation
 func PoolIDToString(id xdr.PoolId) string {
 	return xdr.Hash(id).HexString()
-}
-
-// formatPrefix adds an underscore suffix to a prefix if it's not empty
-func formatPrefix(p string) string {
-	if p != "" {
-		p += "_"
-	}
-	return p
 }
 
 // AddLiquidityPoolAssetDetails adds liquidity pool asset details to the result map
@@ -42,38 +32,6 @@ func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 	}
 	result["liquidity_pool_id"] = PoolIDToString(poolID)
 	return nil
-}
-
-// AddAccountAndMuxedAccountDetails adds account and muxed account details to the result map
-func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
-	accountID := a.ToAccountId()
-	result[prefix] = accountID.Address()
-	prefix = formatPrefix(prefix)
-	if a.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		muxedAccountAddress, err := a.GetAddress()
-		if err != nil {
-			return fmt.Errorf("getting muxed account address: %w", err)
-		}
-		result[prefix+"muxed"] = muxedAccountAddress
-		muxedAccountID, err := a.GetId()
-		if err != nil {
-			return fmt.Errorf("getting muxed account ID: %w", err)
-		}
-		result[prefix+"muxed_id"] = muxedAccountID
-	}
-	return nil
-}
-
-// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
-func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
-	ledgerKeyByte, err := ledgerKey.MarshalBinary()
-	if err != nil {
-		return ""
-	}
-	hashedLedgerKeyByte := hash.Hash(ledgerKeyByte)
-	ledgerKeyHash := hex.EncodeToString(hashedLedgerKeyByte[:])
-
-	return ledgerKeyHash
 }
 
 // AddAssetDetails adds asset details to the result map with an optional prefix
@@ -97,63 +55,6 @@ func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) 
 	result[prefix+"asset_code"] = code
 	result[prefix+"asset_issuer"] = issuer
 	return nil
-}
-
-// addAuthFlagDetails adds account flag details to the result map
-func addAuthFlagDetails(result map[string]interface{}, f xdr.AccountFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
-
-	if f.IsAuthRequired() {
-		n = append(n, int32(xdr.AccountFlagsAuthRequiredFlag))
-		s = append(s, "auth_required")
-	}
-
-	if f.IsAuthRevocable() {
-		n = append(n, int32(xdr.AccountFlagsAuthRevocableFlag))
-		s = append(s, "auth_revocable")
-	}
-
-	if f.IsAuthImmutable() {
-		n = append(n, int32(xdr.AccountFlagsAuthImmutableFlag))
-		s = append(s, "auth_immutable")
-	}
-
-	if f.IsAuthClawbackEnabled() {
-		n = append(n, int32(xdr.AccountFlagsAuthClawbackEnabledFlag))
-		s = append(s, "auth_clawback_enabled")
-	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
-}
-
-// addTrustLineFlagDetails adds trustline flag details to the result map
-func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
-
-	if f.IsAuthorized() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedFlag))
-		s = append(s, "authorized")
-	}
-
-	if f.IsAuthorizedToMaintainLiabilitiesFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag))
-		s = append(s, "authorized_to_maintain_liabilites")
-	}
-
-	if f.IsClawbackEnabledFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag))
-		s = append(s, "clawback_enabled")
-	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
 }
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
@@ -297,8 +198,8 @@ func ConvertOperation(
 
 // deployerAddressString converts a create-contract preimage's deployer address to its strkey
 // form, reporting ok=false when it is a kind types.AddressBytea cannot store. Muxed deployers
-// reduce to their base account, mirroring the classic path's MuxedAccount.ToAccountId(), so
-// one account cannot produce duplicate rows that violate the operations_accounts primary key.
+// reduce to their base address, mirroring the classic path's MuxedAccount.ToAccountId(), so
+// one holder cannot produce duplicate rows that violate the operations_accounts primary key.
 func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
 	return types.StorableAddressString(addr) //nolint:wrapcheck // thin delegate; the callee wraps its errors
 }

@@ -15,11 +15,9 @@ import (
 	supporthttp "github.com/stellar/go-stellar-sdk/support/http"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -56,16 +54,18 @@ type Configs struct {
 	// listener. Mirrors the ingest admin server.
 	AdminPort                   int
 	DatabaseURL                 string
-	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
 	ClientAuthMaxTimeoutSeconds int
 	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
-	SupportedAssets             []entities.Asset
 	NetworkPassphrase           string
 
 	// RPC
 	RPCURL string
+
+	// HiddenContractsFile is the YAML list of contracts the API does not
+	// return; empty uses the list built into the binary.
+	HiddenContractsFile string
 
 	// GraphQL
 	GraphQLComplexityLimit      int
@@ -78,9 +78,6 @@ type Configs struct {
 	// never be mistaken for the protocol-wide backstop prices. Empty disables the
 	// leg (backstop USD fields resolve to null).
 	BlendBackstopLPContractID string
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
 
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
@@ -114,7 +111,6 @@ type handlerDeps struct {
 	Port                int
 	DatabaseURL         string
 	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 
 	// Services
@@ -131,9 +127,6 @@ type handlerDeps struct {
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
 	BlendBackstopLPContractID   string
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -200,6 +193,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
+	hiddenContracts, err := LoadHiddenContracts(cfg.HiddenContractsFile)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("loading hidden contracts: %w", err)
+	}
 
 	requestAuthVerifier, err := buildRequestAuthVerifier(ctx, cfg)
 	if err != nil {
@@ -212,10 +209,12 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
+	log.Ctx(ctx).Infof("Hiding %d contracts: %v", len(hiddenContracts.Labels()), hiddenContracts.Labels())
+	applyHiddenContracts(models, dbConnectionPool, m.DB, hiddenContracts)
+
 	return handlerDeps{
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
-		SupportedAssets:             cfg.SupportedAssets,
 		Metrics:                     m,
 		RPCService:                  rpcService,
 		TrustlineBalanceModel:       models.TrustlineBalance,
@@ -224,7 +223,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		LiquidityPoolBalanceModel:   models.LiquidityPoolBalance,
 		SEP41BalanceModel:           models.SEP41.Balances,
 		SEP41AllowanceModel:         models.SEP41.Allowances,
-		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		GraphQLIntrospectionEnabled: cfg.GraphQLIntrospectionEnabled,
@@ -254,12 +252,11 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Add metrics middleware first to capture all requests
 	mux.Use(middleware.MetricsMiddleware(deps.Metrics.HTTP))
-	mux.Use(middleware.RecoverHandler(deps.AppTracker))
+	mux.Use(middleware.RecoverHandler())
 
 	mux.Get("/health", httphandler.HealthHandler{
 		Models:     deps.Models,
 		RPCService: deps.RPCService,
-		AppTracker: deps.AppTracker,
 	}.GetHealth)
 	// Unauthenticated scrape endpoint: bound concurrent scrapes and their duration so a
 	// large registry cannot be scraped in parallel for CPU and allocation cost.
@@ -274,7 +271,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Use(middleware.RequestTimeoutMiddleware(requestContextTimeout))
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
-			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {

@@ -240,3 +240,54 @@ func TestBatchApplyDeltas_MuxedWritesLandOnBaseAccount(t *testing.T) {
 	require.Len(t, balances, 1, "muxed credits must not fragment into per-id rows")
 	assert.Equal(t, "3000", balances[0].Balance)
 }
+
+// apiPool opens a second pool on the fixture's database the way the API
+// server does (pgx Exec query mode), so the hidden-contract reads run with
+// the parameter encoding serve uses. Close it before the fixture's cleanup.
+func apiPool(t *testing.T, ctx context.Context, fixturePool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := db.DefaultPoolConfig()
+	cfg.QueryExecMode = pgx.QueryExecModeExec
+	pool, err := db.OpenDBConnectionPool(ctx, fixturePool.Config().ConnString(), cfg)
+	require.NoError(t, err)
+	return pool
+}
+
+func TestBalanceModel_GetByAccount_HidesContracts(t *testing.T) {
+	ctx, pool, writer, cleanup := newBalancesFixture(t)
+	defer cleanup()
+	apiDB := apiPool(t, ctx, pool)
+	defer apiDB.Close()
+	m := &sep41.BalanceModel{DB: apiDB, Metrics: writer.Metrics}
+
+	acct := keypair.MustRandom().Address()
+	const hidden = "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM"
+	hiddenID := insertContractToken(t, ctx, pool, hidden)
+	trackedID := insertContractToken(t, ctx, pool, "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA")
+	runInTx(t, ctx, pool, func(tx pgx.Tx) {
+		require.NoError(t, writer.BatchApplyDeltas(ctx, tx, []sep41.Balance{
+			{AccountID: types.AddressBytea(acct), ContractID: hiddenID, Balance: "100", LedgerNumber: 1},
+			{AccountID: types.AddressBytea(acct), ContractID: trackedID, Balance: "200", LedgerNumber: 1},
+		}))
+	})
+
+	all, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+
+	m.HiddenContracts = []string{hidden}
+
+	visible, err := m.GetByAccount(ctx, acct, nil, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, visible, 1)
+	assert.Equal(t, trackedID, visible[0].ContractID)
+
+	limit := int32(1)
+	page1, err := m.GetByAccount(ctx, acct, &limit, nil, sep41.SortASC)
+	require.NoError(t, err)
+	require.Len(t, page1, 1)
+	assert.Equal(t, trackedID, page1[0].ContractID)
+	page2, err := m.GetByAccount(ctx, acct, &limit, &trackedID, sep41.SortASC)
+	require.NoError(t, err)
+	assert.Empty(t, page2)
+}

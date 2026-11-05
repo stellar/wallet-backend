@@ -217,7 +217,6 @@ func TestTransactionsByOperationIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T
 	const opID int64 = txToID + 1
 
 	t.Cleanup(func() {
-		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM operations WHERE id = $1`, opID)        //nolint:errcheck
 		_, _ = testDBConnectionPool.Exec(ctx, `DELETE FROM transactions WHERE to_id = $1`, txToID) //nolint:errcheck
 	})
 
@@ -226,16 +225,11 @@ func TestTransactionsByOperationIDLoader_ColumnsPerKeyInSharedBatch(t *testing.T
 		VALUES ($2, $3, 4200, 'TransactionResultCodeTxSuccess', 1, $1, false)
 	`, now, types.HashBytea("00000000000000000000000000000000000000000000000000000000000000ee"), txToID)
 	require.NoError(t, err)
-	_, err = testDBConnectionPool.Exec(ctx, `
-		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
-		VALUES ($2, 'PAYMENT', $3, 'op_success', true, 1, $1)
-	`, now, opID, types.XDRBytea([]byte("xdr")))
-	require.NoError(t, err)
 
 	loaders := NewDataloaders(models, m.Dataloader)
 	results, err := loaders.TransactionsByOperationIDLoader.LoadAll(ctx, []TransactionColumnsKey{
-		{OperationID: opID, Columns: "hash"},
-		{OperationID: opID, Columns: "hash, fee_charged"},
+		{OperationID: opID, Columns: "hash", LedgerCreatedAt: now},
+		{OperationID: opID, Columns: "hash, fee_charged", LedgerCreatedAt: now},
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)

@@ -1,0 +1,14 @@
+# Soroban token contracts hidden from the API. Ingestion keeps processing them;
+# serve leaves their current state and history out of every response.
+# This copy is built into the binary, so changing it needs a rebuild. To use
+# your own list, set HIDDEN_CONTRACTS_FILE (or --hidden-contracts-file); serve
+# reads that file at startup, so a restart applies an edit.
+# Each entry hides the rows that one protocol's processor wrote for the contract
+# (`protocol`; SEP41 is the only value today). A token tracked by two processors
+# at once, say during a backfill handover, gets one entry per protocol.
+# `added` is informational.
+hidden_contracts:
+  - contract_id: CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM
+    protocol: SEP41
+    reason: Comet v1.0.0 LP pool (CPAL). Mints LP shares without emitting an event, so SEP-41 event arithmetic drives its balances negative. Needs a processor that reads contract storage before it can be shown (#610).
+    added: 2026-10-07

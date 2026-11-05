@@ -51,21 +51,10 @@ func LogLevelOption(configKey *logrus.Level) *config.ConfigOption {
 		Name:           "log-level",
 		Usage:          `The log level used in this project. Options: "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", or "PANIC".`,
 		OptType:        types.String,
-		FlagDefault:    "TRACE",
+		FlagDefault:    "INFO",
 		ConfigKey:      configKey,
 		CustomSetValue: SetConfigOptionLogLevel,
 		Required:       false,
-	}
-}
-
-func ServerBaseURLOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "server-base-url",
-		Usage:       "The server base URL",
-		OptType:     types.String,
-		ConfigKey:   configKey,
-		FlagDefault: "http://localhost:8001",
-		Required:    true,
 	}
 }
 
@@ -91,45 +80,36 @@ func RPCURLOption(configKey *string) *config.ConfigOption {
 	}
 }
 
-func SentryDSNOption(configKey *string) *config.ConfigOption {
+func HiddenContractsFileOption(configKey *string) *config.ConfigOption {
 	return &config.ConfigOption{
-		Name:      "tracker-dsn",
-		Usage:     "The Sentry DSN",
-		OptType:   types.String,
-		ConfigKey: configKey,
-		Required:  false,
-	}
-}
-
-func StellarEnvironmentOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:      "stellar-environment",
-		Usage:     "The Stellar Environment",
-		OptType:   types.String,
-		ConfigKey: configKey,
-		Required:  true,
+		Name:        "hidden-contracts-file",
+		Usage:       "Path to a YAML list of contract IDs the API does not return. Empty uses the list built into the binary.",
+		OptType:     types.String,
+		ConfigKey:   configKey,
+		FlagDefault: "",
+		Required:    false,
 	}
 }
 
 func StartLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "start-ledger",
-		Usage:       "ledger number from which ingestion should start. When not present, ingestion will resume from last synced ledger.",
+		Usage:       "First ledger of a backfill range (ingestion-mode=backfill). Live mode resumes from the stored cursor and rejects this flag.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 0,
-		Required:    true,
+		Required:    false,
 	}
 }
 
 func EndLedgerOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "end-ledger",
-		Usage:       "ledger number to end on",
+		Usage:       "Last ledger of a backfill range (ingestion-mode=backfill). Live mode rejects this flag.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 0,
-		Required:    true,
+		Required:    false,
 	}
 }
 
@@ -140,17 +120,6 @@ func GetLedgersLimitOption(configKey *int) *config.ConfigOption {
 		OptType:     types.Int,
 		ConfigKey:   configKey,
 		FlagDefault: 10,
-	}
-}
-
-func NetworkOption(configKey *string) *config.ConfigOption {
-	return &config.ConfigOption{
-		Name:        "network",
-		Usage:       "Stellar network to connect to",
-		OptType:     types.String,
-		ConfigKey:   configKey,
-		FlagDefault: "testnet",
-		Required:    true,
 	}
 }
 
@@ -256,20 +225,21 @@ func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration,
 	}
 }
 
-// DatastoreOptions returns the config options for the datastore ledger backend. Defaults match
-// the Stellar pubnet public data lake, so a flag-less invocation reads pubnet ledgers. The
-// schema options (ledgers-per-file, files-per-partition) default to 0, meaning the schema is
-// read from the datastore's published manifest; set them only for a manifest-less store such as
-// the integration-test minio bucket.
+// DatastoreOptions returns the config options for the datastore ledger backend. The bucket path
+// has no default: the public Stellar data lakes are network-specific (for example
+// aws-public-blockchain/v1.1/stellar/ledgers/pubnet), so the command validates it is set when
+// ledger-backend-type=datastore. The schema options (ledgers-per-file, files-per-partition)
+// default to 0, meaning the schema is read from the datastore's published manifest; set them
+// only for a manifest-less store such as the integration-test object store.
 func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 	return config.ConfigOptions{
 		{
 			Name:        "datastore-bucket-path",
-			Usage:       "Datastore bucket and path holding exported ledgers (S3 destination_bucket_path). Required.",
+			Usage:       "Datastore bucket and path holding exported ledgers (S3 destination_bucket_path), e.g. aws-public-blockchain/v1.1/stellar/ledgers/pubnet. Required when ledger-backend-type=datastore.",
 			OptType:     types.String,
 			ConfigKey:   &cfg.BucketPath,
-			FlagDefault: "aws-public-blockchain/v1.1/stellar/ledgers/pubnet",
-			Required:    true,
+			FlagDefault: "",
+			Required:    false,
 		},
 		{
 			Name:        "datastore-region",

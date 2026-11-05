@@ -3,7 +3,6 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/pkg/wbclient/auth"
 )
@@ -43,7 +41,6 @@ func TestAuthenticationMiddleware(t *testing.T) {
 	testCases := []struct {
 		name            string
 		setupRequest    func() *http.Request
-		setupMocks      func(t *testing.T, mAppTracker *apptracker.MockAppTracker)
 		expectedStatus  int
 		expectedMessage string
 	}{
@@ -95,7 +92,6 @@ func TestAuthenticationMiddleware(t *testing.T) {
 				require.NoError(t, err)
 				return req
 			},
-			setupMocks:      func(t *testing.T, mAppTracker *apptracker.MockAppTracker) {},
 			expectedStatus:  http.StatusUnauthorized,
 			expectedMessage: `{"error":"Not authorized."}`,
 		},
@@ -136,12 +132,8 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mAppTracker := apptracker.NewMockAppTracker(t)
 			authMetrics := metrics.NewMetrics(prometheus.NewRegistry()).Auth
-			if tc.setupMocks != nil {
-				tc.setupMocks(t, mAppTracker)
-			}
-			authMiddleware := AuthenticationMiddleware(reqJWTVerifier, mAppTracker, authMetrics)
+			authMiddleware := AuthenticationMiddleware(reqJWTVerifier, authMetrics)
 
 			r := chi.NewRouter()
 			r.Use(authMiddleware)
@@ -163,12 +155,11 @@ func TestAuthenticationMiddleware(t *testing.T) {
 
 func TestRecoverHandler(t *testing.T) {
 	getEntries := log.DefaultLogger.StartTest(log.ErrorLevel)
-	appTrackerMock := apptracker.MockAppTracker{}
 
 	// setup
 	r := chi.NewRouter()
 	errString := "test panic"
-	r.Use(RecoverHandler(&appTrackerMock))
+	r.Use(RecoverHandler())
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		panic(errString)
 	})
@@ -177,7 +168,6 @@ func TestRecoverHandler(t *testing.T) {
 	req, err := http.NewRequest("GET", "/", nil)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
-	appTrackerMock.On("CaptureException", errors.New("panic: "+errString))
 	r.ServeHTTP(rr, req)
 
 	// assert response

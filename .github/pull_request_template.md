@@ -31,6 +31,7 @@
 
 #### Release
 
+- [ ] PR title is a one-line changelog entry and the PR has a `breaking`/`feature`/`fix`/`docs`/`ci` label (release notes are generated from these).
 - [ ] This is not a breaking change.
 - [ ] This is ready to be tested in development.
 - [ ] The new functionality is gated with a feature flag if this is not ready for production.

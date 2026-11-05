@@ -145,21 +145,32 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 //   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
 //   - Clearing these bits yields the transaction's to_id
 //
+// Callers supply each operation's ledger_created_at (an operation shares its transaction's
+// ledger), so the LATERAL matches the complete transactions primary key (to_id, ledger_created_at)
+// and runs as one per-key probe with runtime chunk exclusion. The LIMIT 1 keeps the planner from
+// flattening the subquery into a join that decompresses the whole hypertable (see
+// BatchGetByStateChangeIDs).
+//
+// The probe reads transactions only and does not check that the operation row exists. Callers
+// pass the IDs of operations they already loaded.
+//
 // See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
-func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id", "ledger_created_at")
-	// Join operations to transactions using TOID encoding:
-	// An operation ID's lower 12 bits encode the operation index within the transaction.
-	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.TransactionWithOperationID, error) {
+	if len(operationIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
+	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 	query := fmt.Sprintf(`
-		SELECT %s, o.id as operation_id
-		FROM operations o
-		INNER JOIN transactions
-		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
-		WHERE o.id = ANY($1)`, columns)
+		SELECT %s, k.operation_id
+		FROM UNNEST($1::bigint[], $2::timestamptz[]) AS k(operation_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT %s FROM transactions t
+			WHERE t.to_id = (k.operation_id & (~x'FFF'::bigint)) AND t.ledger_created_at = k.ledger_created_at
+			LIMIT 1
+		) t`, columns, columns)
 	start := time.Now()
 	// QueryManyPtrs uses RowToAddrOfStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs, ledgerCreatedAts)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(float64(len(operationIDs)))
@@ -289,58 +300,7 @@ func (m *TransactionModel) BatchCopyAccounts(
 	txs []*types.Transaction,
 	stellarAddressesByToID map[int64]map[string]struct{},
 ) error {
-	if len(stellarAddressesByToID) == 0 {
-		return nil
-	}
-
-	start := time.Now()
-
-	// Build ToID -> LedgerCreatedAt lookup from transactions
-	ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
-	for _, tx := range txs {
-		ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
-	}
-
-	// COPY transactions_accounts using pgx binary format with native pgtype types. Upstream participants handling
-	// ensures that account address is not NULL here.
-	var taRows [][]any
-	for toID, addresses := range stellarAddressesByToID {
-		ledgerCreatedAt, ok := ledgerCreatedAtByToID[toID]
-		if !ok {
-			// A silent miss would COPY a zero timestamp — a year-0001 chunk in
-			// the hypertable — and means the caller's transactions and
-			// participants disagree about which ToIDs exist.
-			return fmt.Errorf("no transaction supplies ledger_created_at for to_id %d", toID)
-		}
-		ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-		toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
-		for addr := range addresses {
-			addrBytes, addrErr := types.AddressBytea(addr).Value()
-			if addrErr != nil {
-				return fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-			}
-			taRows = append(taRows, []any{
-				ledgerCreatedAtPgtype,
-				toIDPgtype,
-				addrBytes,
-			})
-		}
-	}
-
-	_, err := pgxTx.CopyFrom(
-		ctx,
-		pgx.Identifier{"transactions_accounts"},
-		[]string{"ledger_created_at", "tx_to_id", "account_id"},
-		pgx.CopyFromRows(taRows),
-	)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Observe(duration)
-	m.Metrics.BatchSize.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Observe(float64(len(taRows)))
-	m.Metrics.QueriesTotal.WithLabelValues("BatchCopyAccounts", "transactions_accounts").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchCopyAccounts", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
-		return fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
-	}
-
-	return nil
+	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", txs,
+		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
+		stellarAddressesByToID)
 }

@@ -750,6 +750,14 @@ func TestDefaultHotArchiveIterFactory(t *testing.T) {
 // records such a balance only when the contract is also confirmed via its
 // instance entry (see makeSACInstanceChange).
 func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest.Change {
+	return makeSACBalanceChangeForHolder(tokenContractHash, xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: (*xdr.ContractId)(&holderContractHash),
+	})
+}
+
+// makeSACBalanceChangeForHolder is makeSACBalanceChange with an arbitrary holder ScAddress.
+func makeSACBalanceChangeForHolder(tokenContractHash [32]byte, holder xdr.ScAddress) ingest.Change {
 	return ingest.Change{
 		Type: xdr.LedgerEntryTypeContractData,
 		Post: &xdr.LedgerEntry{
@@ -764,13 +772,7 @@ func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest
 						Type: xdr.ScValTypeScvVec,
 						Vec: ptrToScVec([]xdr.ScVal{
 							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
-							{
-								Type: xdr.ScValTypeScvAddress,
-								Address: &xdr.ScAddress{
-									Type:       xdr.ScAddressTypeScAddressTypeContract,
-									ContractId: (*xdr.ContractId)(&holderContractHash),
-								},
-							},
+							{Type: xdr.ScValTypeScvAddress, Address: &holder},
 						}),
 					},
 					Durability: xdr.ContractDataDurabilityPersistent,
@@ -808,6 +810,35 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC) &&
 			cs[0].Code != nil && *cs[0].Code == "USDC"
 	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_MuxedContractHolderSkipped proves a SAC
+// balance entry whose holder key is a muxed contract address (CAP-84 W...) is skipped, not
+// recorded and not a checkpoint failure. CAP-84 forbids a W... in storage keys, so this never
+// comes from stellar-core; the guard is that an unexpected address kind is a soft path.
+func TestCheckpointService_PopulateFromCheckpoint_MuxedContractHolderSkipped(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	issuer := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	instanceChange, contractID := makeSACInstanceChange(t, "USDC", issuer, f.svc.networkPassphrase)
+	holderHash := [32]byte{8, 8, 8}
+	holder := xdr.ScAddress{
+		Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+		MuxedContract: &xdr.MuxedContract{Id: 7, ContractId: xdr.ContractId(holderHash)},
+	}
+	balanceChange := makeSACBalanceChangeForHolder(contractID, holder)
+
+	f.reader.On("Read").Return(balanceChange, nil).Once()
+	f.reader.On("Read").Return(instanceChange, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	// The instance still records the SAC in contract_tokens; the W-keyed balance is dropped,
+	// so no SAC BatchCopy happens (the strict mock fails the test on an unexpected call).
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)

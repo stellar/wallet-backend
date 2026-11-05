@@ -92,7 +92,7 @@ func (m *LiquidityPoolBalanceModel) GetByAccount(ctx context.Context, accountAdd
 	}
 
 	start := time.Now()
-	balances, err := db.QueryMany[LiquidityPoolBalance](ctx, m.DB, query, args...)
+	balances, err := db.QueryMany[LiquidityPoolBalance](ctx, db.QuerierFrom(ctx, m.DB), query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "liquidity_pool_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "liquidity_pool_balances").Inc()

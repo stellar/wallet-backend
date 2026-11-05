@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
@@ -59,6 +60,9 @@ type BalanceModelInterface interface {
 type BalanceModel struct {
 	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
+	// HiddenContracts are C-addresses GetByAccount skips. Empty outside the API
+	// server.
+	HiddenContracts []string
 }
 
 var _ BalanceModelInterface = (*BalanceModel)(nil)
@@ -80,6 +84,12 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 		WHERE b.account_id = $1`
 	args := []interface{}{types.AddressBytea(accountAddress)}
 	argIndex := 2
+
+	if len(m.HiddenContracts) > 0 {
+		query += fmt.Sprintf(" AND ct.contract_id <> ALL($%d::text[])", argIndex)
+		args = append(args, m.HiddenContracts)
+		argIndex++
+	}
 
 	if cursor != nil {
 		op := ">"
@@ -103,7 +113,7 @@ func (m *BalanceModel) GetByAccount(ctx context.Context, accountAddress string, 
 	}
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, args...)
+	rows, err := db.QuerierFrom(ctx, m.DB).Query(ctx, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "sep41_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "sep41_balances").Inc()

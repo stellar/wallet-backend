@@ -3,13 +3,13 @@ package cmd
 import (
 	"fmt"
 	"go/types"
+	"math"
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go-stellar-sdk/support/config"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/cmd/utils"
-	"github.com/stellar/wallet-backend/internal/apptracker/sentry"
 	"github.com/stellar/wallet-backend/internal/ingest"
 	"github.com/stellar/wallet-backend/internal/services"
 )
@@ -18,18 +18,15 @@ type ingestCmd struct{}
 
 func (c *ingestCmd) Command() *cobra.Command {
 	cfg := ingest.Configs{}
-	var sentryDSN string
-	var stellarEnvironment string
 	var ledgerBackendType string
+	startLedgerOpt := utils.StartLedgerOption(&cfg.StartLedger)
+	endLedgerOpt := utils.EndLedgerOption(&cfg.EndLedger)
 	cfgOpts := config.ConfigOptions{
 		utils.DatabaseURLOption(&cfg.DatabaseURL),
 		utils.LogLevelOption(&cfg.LogLevel),
-		utils.SentryDSNOption(&sentryDSN),
-		utils.StellarEnvironmentOption(&stellarEnvironment),
-		utils.NetworkOption(&cfg.Network),
 		utils.RPCURLOption(&cfg.RPCURL),
-		utils.StartLedgerOption(&cfg.StartLedger),
-		utils.EndLedgerOption(&cfg.EndLedger),
+		startLedgerOpt,
+		endLedgerOpt,
 		utils.NetworkPassphraseOption(&cfg.NetworkPassphrase),
 		utils.IngestServerPortOption(&cfg.ServerPort),
 		utils.AdminPortOption(&cfg.AdminPort),
@@ -94,10 +91,10 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "ledger-backend-type",
-			Usage:       "Type of ledger backend to use for fetching ledgers. Options: 'rpc' or 'datastore' (default)",
+			Usage:       "Where ledgers are read from. 'rpc' (default) streams them from the RPC at rpc-url; 'datastore' reads them from the S3 data lake at datastore-bucket-path.",
 			OptType:     types.String,
 			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeDatastore),
+			FlagDefault: string(ingest.LedgerBackendTypeRPC),
 			Required:    false,
 		},
 		{
@@ -134,7 +131,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "compression-max-chunks",
-			Usage:       "Maximum chunks compressed per job run (maxchunks_to_compress). 0 means unlimited (TimescaleDB default). Set to a small value (e.g. 10) during backfill to prevent job run overlap.",
+			Usage:       "Maximum chunks compressed per compression job run (maxchunks_to_compress). 0 leaves the job's current setting unchanged. Set to a small value (e.g. 10) during backfill to prevent job run overlap.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.MaxChunksToCompress,
 			FlagDefault: 0,
@@ -156,21 +153,44 @@ func (c *ingestCmd) Command() *cobra.Command {
 				return fmt.Errorf("setting values of config options: %w", err)
 			}
 
-			// Convert ledger backend type string to typed value
 			switch ledgerBackendType {
 			case string(ingest.LedgerBackendTypeRPC):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeRPC
 			case string(ingest.LedgerBackendTypeDatastore):
 				cfg.LedgerBackendType = ingest.LedgerBackendTypeDatastore
+				if cfg.Datastore.BucketPath == "" {
+					return fmt.Errorf("--datastore-bucket-path (DATASTORE_BUCKET_PATH) is required when --ledger-backend-type=datastore")
+				}
 			default:
 				return fmt.Errorf("invalid ledger-backend-type '%s', must be 'rpc' or 'datastore'", ledgerBackendType)
 			}
 
-			appTracker, err := sentry.NewSentryTracker(sentryDSN, stellarEnvironment, 5)
-			if err != nil {
-				return fmt.Errorf("initializing app tracker: %w", err)
+			switch cfg.IngestionMode {
+			case services.IngestionModeLive:
+				// Live mode resumes from the stored cursor; a start or end ledger would be
+				// silently ignored, so reject any explicitly supplied value, including 0.
+				if config.IsExplicitlySet(startLedgerOpt) || config.IsExplicitlySet(endLedgerOpt) {
+					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
+				}
+			case services.IngestionModeBackfill:
+				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {
+					return fmt.Errorf("--ingestion-mode=backfill needs --start-ledger > 0 and --end-ledger >= --start-ledger (got %d..%d)", cfg.StartLedger, cfg.EndLedger)
+				}
+				if cfg.EndLedger >= math.MaxUint32 {
+					return fmt.Errorf("--end-ledger %d must be below %d", cfg.EndLedger, uint32(math.MaxUint32))
+				}
+				if cfg.BackfillBatchSize <= 0 || cfg.BackfillBatchSize > math.MaxUint32 {
+					return fmt.Errorf("--backfill-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillBatchSize)
+				}
+				if cfg.BackfillDBInsertBatchSize <= 0 || cfg.BackfillDBInsertBatchSize > math.MaxUint32 {
+					return fmt.Errorf("--backfill-db-insert-batch-size must be between 1 and %d (got %d)", uint32(math.MaxUint32), cfg.BackfillDBInsertBatchSize)
+				}
+				if cfg.BackfillWorkers < 0 {
+					return fmt.Errorf("--backfill-workers must be 0 (one per CPU) or positive (got %d)", cfg.BackfillWorkers)
+				}
+			default:
+				return fmt.Errorf("invalid ingestion-mode '%s', must be 'live' or 'backfill'", cfg.IngestionMode)
 			}
-			cfg.AppTracker = appTracker
 			return nil
 		},
 		RunE: func(_ *cobra.Command, _ []string) error {

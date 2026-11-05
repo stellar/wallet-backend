@@ -1,40 +1,50 @@
-# Step 1: Build Go API with debug symbols
+# Build stage: compiles the wallet-backend binary.
 FROM golang:1.25.9-bookworm AS api-build
+ARG VERSION=dev
 ARG GIT_COMMIT
+# BUILD_MODE=debug adds delve and disables optimizations, for use via docker-compose.dev.yaml.
+ARG BUILD_MODE=release
 
 WORKDIR /src/wallet-backend
 
-# Install delve debugger
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
-
-# Copy dependency files first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code after dependencies are cached
 COPY . ./
 
-# Build with debug flags (disable optimizations and inlining)
-RUN go build -gcflags="all=-N -l" -o /bin/wallet-backend -ldflags "-X main.GitCommit=$GIT_COMMIT" .
+RUN mkdir -p /out/bin && \
+    if [ "$BUILD_MODE" = "debug" ]; then \
+        go install github.com/go-delve/delve/cmd/dlv@latest && \
+        CGO_ENABLED=0 go build -gcflags="all=-N -l" \
+            -ldflags "-X main.Version=$VERSION -X main.GitCommit=$GIT_COMMIT" \
+            -o /out/bin/wallet-backend . && \
+        cp "$(go env GOPATH)/bin/dlv" /out/bin/; \
+    else \
+        CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X main.Version=$VERSION -X main.GitCommit=$GIT_COMMIT" \
+            -o /out/bin/wallet-backend .; \
+    fi
 
-# Step 2: Final image with delve
-FROM ubuntu:jammy AS core-build
+# Runtime stage: minimal Debian image running as a non-root user.
+FROM debian:bookworm-slim
+ARG VERSION=dev
+ARG GIT_COMMIT
+
+LABEL org.opencontainers.image.source="https://github.com/stellar/wallet-backend" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$GIT_COMMIT" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl wget gnupg apt-utils gpg bash && \
-    curl -sSL https://apt.stellar.org/SDF.asc | gpg --dearmor >/etc/apt/trusted.gpg.d/SDF.gpg && \
-    echo "deb https://apt.stellar.org jammy stable" >/etc/apt/sources.list.d/SDF.list && \
-    echo "deb https://apt.stellar.org jammy testing" >/etc/apt/sources.list.d/SDF-testing.list && \
-    echo "deb https://apt.stellar.org jammy unstable" >/etc/apt/sources.list.d/SDF-unstable.list && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --system --gid 10001 wallet-backend && \
+    useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin wallet-backend
 
-COPY --from=api-build /bin/wallet-backend /app/
-COPY --from=api-build /src/wallet-backend/config /app/config
+COPY --from=api-build /out/bin/ /usr/local/bin/
 
-# Expose API port and debug port
-EXPOSE 8001 40000
 WORKDIR /app
+USER 10001:10001
+EXPOSE 8001
 
-# Default: run wallet-backend directly (command passed from K8s or docker run)
-# For debugging, override command in K8s to use: dlv exec ./wallet-backend --headless --listen=:40000 --api-version=2 --accept-multiclient --continue -- <cmd>
-ENTRYPOINT ["./wallet-backend"]
+ENTRYPOINT ["wallet-backend"]

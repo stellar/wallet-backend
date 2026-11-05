@@ -98,7 +98,7 @@ func (m *TrustlineBalanceModel) GetByAccount(ctx context.Context, accountAddress
 	}
 
 	start := time.Now()
-	balances, err := db.QueryMany[TrustlineBalance](ctx, m.DB, query, args...)
+	balances, err := db.QueryMany[TrustlineBalance](ctx, db.QuerierFrom(ctx, m.DB), query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByAccount", "trustline_balances").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByAccount", "trustline_balances").Inc()

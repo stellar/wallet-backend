@@ -18,7 +18,6 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -53,9 +52,7 @@ type Configs struct {
 	StartLedger         int
 	EndLedger           int
 	LogLevel            logrus.Level
-	AppTracker          apptracker.AppTracker
 	RPCURL              string
-	Network             string
 	NetworkPassphrase   string
 	GetLedgersLimit     int
 	AdminPort           int
@@ -72,7 +69,7 @@ type Configs struct {
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillBatchSize int
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
 	// LivePersistMaxBatchSize caps how many consecutive ledgers live
 	// ingestion coalesces into one persist commit when persist falls behind.
@@ -135,14 +132,15 @@ func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
 }
 
 func Ingest(cfg Configs) error {
-	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// pipeline: an in-flight batch that has not reached its commit barrier rolls
-	// back entirely, while the barrier itself runs detached (context.WithoutCancel
-	// in persistLedgerData) so a batch never half-commits on shutdown. Ingestion is
-	// idempotent and gap-driven: a rolled-back batch is simply re-fetched and
-	// re-ingested on the next startup, and any sibling rows a crash strands above
-	// the committed cursor are removed by startup reconciliation
-	// (DeleteRowsAboveLedger). Cleanup (deferred below) then drains the servers and
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the
+	// ingest pipeline. What happens to the in-flight batch:
+	//   - before its commit barrier: rolls back entirely;
+	//   - at the barrier: commits fully — the barrier runs detached
+	//     (context.WithoutCancel in persistLedgerData), so a batch never
+	//     half-commits on shutdown.
+	// Ingestion is idempotent and gap-driven: a rolled-back batch re-fetches
+	// and re-ingests on the next startup (crash recovery: see
+	// persistLedgerData). Cleanup (deferred below) then drains the servers and
 	// tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -337,7 +335,6 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
@@ -408,7 +405,6 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	healthHandler := httphandler.HealthHandler{
 		Models:     models,
 		RPCService: rpcService,
-		AppTracker: cfg.AppTracker,
 	}
 	mux.Handle("/ingest-metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))

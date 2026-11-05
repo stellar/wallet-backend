@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -51,14 +52,25 @@ func TestOperationResolver_Transaction(t *testing.T) {
 	})
 
 	t.Run("operation with non-existent transaction", func(t *testing.T) {
-		nonExistentOperation := &types.Operation{ID: 9999}
+		nonExistentOperation := &types.Operation{ID: 9999, LedgerCreatedAt: sharedTestLedgerCreatedAt}
 		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
 		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
 
 		transaction, err := resolver.Transaction(ctx, nonExistentOperation)
 
-		require.NoError(t, err) // Dataloader returns nil, not error for missing data
+		require.Error(t, err)
 		assert.Nil(t, transaction)
+	})
+
+	t.Run("operation whose ledger time does not match its transaction", func(t *testing.T) {
+		mismatchedOperation := &types.Operation{ID: parentOperation.ID, LedgerCreatedAt: sharedTestLedgerCreatedAt.Add(-24 * time.Hour)}
+		loaders := dataloaders.NewDataloaders(resolver.models, m.Dataloader)
+		ctx := context.WithValue(getTestCtx("transactions", []string{"hash"}), middleware.LoadersKey, loaders)
+
+		_, err := resolver.Transaction(ctx, mismatchedOperation)
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "transaction for operation")
 	})
 }
 
