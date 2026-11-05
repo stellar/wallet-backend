@@ -8,7 +8,7 @@ For use cases with a medium or high rating, the document also lists other altern
 
 ## Scope
 
-- Source of use cases: the Horizon public HTTP API (`internal/httpx/router.go`).
+- Source of use cases: the Horizon public HTTP API.
 - Target: Stellar RPC, including the archive node (beta) that serves full history.
 - Out of scope: features that only RPC has, such as `simulateTransaction` and contract state reads. Running and configuring a Horizon or RPC node.
 
@@ -227,7 +227,7 @@ Indexing platforms and pipeline frameworks (for example, SubQuery, The Graph Sub
 
 ### StellarExpert
 
-[API reference](https://stellar.expert/openapi.html) (OpenAPI 3.1, index at `https://api.stellar.expert/api-docs/index`). Hosted explorer API with paid plans.
+[API reference](https://stellar.expert/openapi.html) (OpenAPI 3.1). Hosted explorer API with paid plans.
 
 **Use cases**
 
