@@ -8,9 +8,9 @@ For use cases with a medium or high rating, the document also lists other altern
 
 ## Scope
 
-- Source of use cases: the Horizon public HTTP API (`internal/httpx/router.go`) and Horizon configuration flags (`internal/flags.go`).
+- Source of use cases: the Horizon public HTTP API (`internal/httpx/router.go`).
 - Target: Stellar RPC, including the archive node (beta) that serves full history.
-- Out of scope: features that only RPC has, such as `simulateTransaction` and contract state reads.
+- Out of scope: features that only RPC has, such as `simulateTransaction` and contract state reads. Running and configuring a Horizon or RPC node.
 
 ## Rating scale
 
@@ -20,7 +20,7 @@ For use cases with a medium or high rating, the document also lists other altern
 | Medium | RPC gives the raw data, but the client must filter, derive, or poll for it. The client may keep a small amount of local state. The client does not index history. |
 | High | The client must run its own ingestion and database, or rebuild complex server logic (for example, path finding). Or RPC does not have the data. |
 
-## Use cases: public API
+## Use cases
 
 ### 1. Network and node information
 
@@ -128,36 +128,19 @@ For use cases with a medium or high rating, the document also lists other altern
 | 12.1 | Asset statistics (supply, number of holders, issuer flags) | `GET /assets` | None. Issuer flags only, through `getLedgerEntries` on the issuer account. | High | |
 | 12.2 | Search assets by code or issuer | `GET /assets?asset_code=&asset_issuer=` | None | High | |
 
-## Use cases: operation and configuration
-
-These use cases apply to teams that run their own Horizon instance.
-
-| ID | Use case | Horizon | RPC | Effort | Notes |
-|---|---|---|---|---|---|
-| 13.1 | Run a node with limited history | `--history-retention-count` | `--history-retention-window` | Low | |
-| 13.2 | Run a node with full history | Default (no reaping), `horizon db reingest range` | Archive node (beta), backed by a ledger datastore (`serve-ledgers-from-datastore`) | Medium | Archive node is in beta. Operator runbook: `stellar-rpc/docs/ARCHIVE-NODE-BETA-RUNBOOK.md`. |
-| 13.3 | Ingest only selected accounts or assets | `--exp-enable-ingestion-filtering`, admin `/ingestion/filters` | None | Medium | RPC stores raw data and has a smaller footprint, so filtering is less needed. |
-| 13.4 | Run read-only API nodes against a shared database | `--ro-database-url`, `--ingest=false` | None. Each RPC node ingests into a local database. | Medium | Scale by running more RPC nodes. |
-| 13.5 | Rate limit by client IP | `--per-hour-rate-limit` | Per-method queue limits and execution timeouts only | Low | Use a reverse proxy for per-IP limits. |
-| 13.6 | Disable transaction submission or path finding | `--disable-tx-sub`, `--disable-path-finding` | No per-method disable flag | Low | Block methods at a reverse proxy. |
-| 13.7 | TLS and load balancer client IP handling | `--tls-cert`, `--tls-key`, `--behind-cloudflare`, `--behind-aws-load-balancer` | None | Low | Terminate TLS at a reverse proxy. |
-| 13.8 | Metrics and admin endpoints | `--admin-port` (`/metrics`, pprof) | `--admin-endpoint` (`/metrics`, pprof) | Low | |
-| 13.9 | Captive Core configuration | `--captive-core-config-path`, `--stellar-core-binary-path` | Same options | Low | RPC enables `EMIT_CLASSIC_EVENTS` by default (see 6.1). |
-| 13.10 | Reduce storage by dropping transaction meta | `--skip-txmeta` | None | Low | RPC keeps meta only within the retention window. |
-
 ## Summary
 
 | Effort | Use cases |
 |---|---|
-| Low | 1.1–1.4, 2.1–2.3, 3.1, 3.2, 3.4, 3.6, 5.1, 5.2, 5.4, 7.1, 7.2, 8.1, 9.1, 10.1, 13.1, 13.5–13.10 |
-| Medium | 5.3, 5.8, 6.1–6.3, 7.3, 13.2–13.4 |
+| Low | 1.1–1.4, 2.1–2.3, 3.1, 3.2, 3.4, 3.6, 5.1, 5.2, 5.4, 7.1, 7.2, 8.1, 9.1, 10.1 |
+| Medium | 5.3, 5.8, 6.1–6.3, 7.3 |
 | High | 3.3, 3.5, 3.7, 4.1–4.4, 5.5–5.7, 6.4, 8.2, 9.2, 10.2–10.6, 11.1, 12.1, 12.2 |
 
 Pattern: RPC replaces lookups by primary key and raw ledger or transaction reads. RPC does not replace listing all entries of an account (balances, data), reverse lookups (by account, asset, sponsor, signer), account-scoped history, or derived DEX data. These need an indexer.
 
 ## Alternatives
 
-This section describes ready-to-use alternatives for use cases with a medium or high RPC rating. It does not rate migration effort or propose solutions. Operation and configuration use cases (section 13) are out of scope.
+This section describes ready-to-use alternatives for use cases with a medium or high RPC rating. It does not rate migration effort or propose solutions.
 
 Each alternative lists:
 
