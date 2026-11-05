@@ -431,8 +431,9 @@ func TestFetchBackstopLPTokens(t *testing.T) {
 			cometEntryResult(t, backstopA, instanceKey, backstopInstanceVal(t, cometA)),
 		})
 
-		_, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		got, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
 		assert.ErrorContains(t, err, "backstop "+backstopB+": instance entry not found")
+		assert.Equal(t, map[string]string{backstopA: cometA}, got, "the healthy backstop still resolves")
 	})
 
 	t.Run("a missing BToken names the backstop", func(t *testing.T) {
@@ -441,7 +442,17 @@ func TestFetchBackstopLPTokens(t *testing.T) {
 			cometEntryResult(t, backstopB, instanceKey, cometInstanceVal(t, "0000000000000000000000000000000000000000000000000000000000000000")),
 		})
 
-		_, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		got, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
 		assert.ErrorContains(t, err, "backstop "+backstopB+": BToken not in instance storage")
+		assert.Equal(t, map[string]string{backstopA: cometA}, got, "the healthy backstop still resolves")
+	})
+
+	t.Run("an RPC failure returns no map", func(t *testing.T) {
+		m := services.NewRPCServiceMock(t)
+		m.On("GetLedgerEntries", mock.Anything).Return(entities.RPCGetLedgerEntriesResult{}, assert.AnError).Once()
+
+		got, err := fetchBackstopLPTokens(ctx, m, []string{backstopA, backstopB})
+		assert.ErrorIs(t, err, assert.AnError)
+		assert.Nil(t, got)
 	})
 }
