@@ -31,7 +31,7 @@ entries below.
 - **Purpose**: Balancer-style weighted-pool AMM used to hold the BLND/USDC backstop LP token.
 
 ### comet_factory.wasm
-- **Source**: [CometDEX/comet-contracts-v1](https://github.com/CometDEX/comet-contracts-v1) release `v1.1.0_contracts_pkg1.0.0_cli25.1.0`, asset `factory_v1.0.0.wasm`
+- **Source**: [CometDEX/comet-contracts-v1](https://github.com/CometDEX/comet-contracts-v1) release `v1.1.0_factory_pkg1.0.0_cli25.1.0`, asset `factory_v1.0.0.wasm`
 - **sha256**: `a640ba6249ba89dd7527e6fb9b66b2a0d747721f1f7f3fbdf9c2ae723a5f970d`
 - **Purpose**: Deploys new Comet pool instances from a pinned Comet wasm hash.
 
