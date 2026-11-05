@@ -20,18 +20,6 @@ A later section will cover alternatives (for example, wallet-backend) for use ca
 | Medium | RPC gives the raw data, but the client must filter, derive, or poll for it. The client may keep a small amount of local state. The client does not index history. |
 | High | The client must run its own ingestion and database, or rebuild complex server logic (for example, path finding). Or RPC does not have the data. |
 
-## Key differences between Horizon and RPC
-
-| Area | Horizon | RPC |
-|---|---|---|
-| Protocol | REST, JSON resources, HAL links | JSON-RPC 2.0. Most payloads are base64 XDR. Some methods support `xdrFormat: json`. |
-| Data model | Derived resources: operations, effects, payments, trades, offers, asset stats | Raw ledgers, transactions, events, and ledger entries |
-| History | Full history (configurable) | 7 days by default (`history-retention-window`). The archive node (beta) serves full history for `getLedgers`, `getTransaction`, `getTransactions`, and `getEvents`, and adds `queryEvents`. |
-| Indexes | By account, asset, offer, liquidity pool, claimable balance, sponsor, signer | Transaction by hash. Events by contract ID, event type, and topics. Ledger entries by key only. No secondary indexes. |
-| Classic asset movements | Payments, effects, and trades derived from operations | Unified events (CAP-67): `transfer`, `mint`, `burn`, `clawback`, `fee`. Stellar Core must run with `EMIT_CLASSIC_EVENTS=true`. Not all RPC providers enable this. |
-| Streaming | Server-Sent Events on most list endpoints | None. Clients poll. |
-| Transaction submission | Synchronous (`POST /transactions`) and asynchronous (`POST /transactions_async`) | Asynchronous only (`sendTransaction`, then poll `getTransaction`) |
-
 ## Use cases: public API
 
 ### 1. Network and node information
@@ -57,11 +45,11 @@ A later section will cover alternatives (for example, wallet-backend) for use ca
 |---|---|---|---|---|---|
 | 3.1 | Get account details (native balance, thresholds, flags, signers, home domain) | `GET /accounts/{id}` | `getLedgerEntries` with the account key | Low | Client decodes `AccountEntry` XDR. |
 | 3.2 | Get one trustline balance for a known asset | `GET /accounts/{id}` (`balances`) | `getLedgerEntries` with the trustline key | Low | |
-| 3.3 | List all balances (trustlines) of an account | `GET /accounts/{id}` (`balances`) | No listing method. Client must know the asset list, then call `getLedgerEntries`. | Medium | A wallet can keep its own asset list. A generic explorer cannot discover trustlines without indexing history. |
+| 3.3 | List all balances (trustlines) of an account | `GET /accounts/{id}` (`balances`) | No listing method. Client must know the asset list, then call `getLedgerEntries`. | High | Most applications need all assets an account holds, not a fixed list. Trustlines are not discoverable without indexing history. |
 | 3.4 | Get one account data entry | `GET /accounts/{id}/data/{key}` | `getLedgerEntries` with the data key | Low | |
 | 3.5 | List all data entries of an account | `GET /accounts/{id}` (`data`) | No listing method | High | Keys are not discoverable without indexing. |
 | 3.6 | Get contract token (SEP-41) balances | Partial (`/assets` contract stats only) | `getLedgerEntries` on contract data, or `simulateTransaction` of `balance` | Low | RPC is the better source today. |
-| 3.7 | Watch an account for changes | SSE on `GET /accounts/{id}` | Poll `getLedgerEntries` | Low | |
+| 3.7 | Watch an account for changes | SSE on `GET /accounts/{id}` | Poll `getLedgerEntries` | High | Polling covers only entries with known keys. Horizon returns all balances and data entries of the account. RPC cannot discover them (see 3.3 and 3.5). |
 
 ### 4. Account discovery (reverse lookups)
 
@@ -89,7 +77,7 @@ A later section will cover alternatives (for example, wallet-backend) for use ca
 
 | ID | Use case | Horizon | RPC | Effort | Notes |
 |---|---|---|---|---|---|
-| 6.1 | Payment history for an account | `GET /accounts/{id}/payments` | `getEvents` / `queryEvents` with topic filters on the account address (`transfer`, `mint`, `burn`, `clawback`) | Medium | Requires classic events (`EMIT_CLASSIC_EVENTS`). History before protocol 23 has no classic events. Event shape differs from Horizon operations. Full history needs an archive node. |
+| 6.1 | Payment history for an account | `GET /accounts/{id}/payments` | `getEvents` / `queryEvents` with topic filters on the account address (`transfer`, `mint`, `burn`, `clawback`) | Medium | Classic events (CAP-67) are on by default in RPC. Events for ledgers before protocol 23 need `BACKFILL_STELLAR_ASSET_EVENTS`. The archive node reads these ledgers from a Galexie data lake, and the default Galexie configuration enables this flag. Event shape differs from Horizon operations. Full history needs an archive node. |
 | 6.2 | Detect incoming payments (deposit monitoring) | SSE on `GET /accounts/{id}/payments` | Poll `getEvents` with a topic filter on the receiving address | Medium | Memo is in the transaction, or in `to_muxed_id` in the event. Client stores the last cursor. |
 | 6.3 | Global payment feed | `GET /payments` | Poll `getEvents` without an address filter | Medium | |
 | 6.4 | Effects (fine-grained state changes per operation) | `GET /effects` and sub-resources | None. Partial coverage from events and transaction meta. | High | Effects are a Horizon-specific model. Client must derive them from `LedgerEntryChanges` in transaction meta. |
@@ -154,15 +142,15 @@ These use cases apply to teams that run their own Horizon instance.
 | 13.6 | Disable transaction submission or path finding | `--disable-tx-sub`, `--disable-path-finding` | No per-method disable flag | Low | Block methods at a reverse proxy. |
 | 13.7 | TLS and load balancer client IP handling | `--tls-cert`, `--tls-key`, `--behind-cloudflare`, `--behind-aws-load-balancer` | None | Low | Terminate TLS at a reverse proxy. |
 | 13.8 | Metrics and admin endpoints | `--admin-port` (`/metrics`, pprof) | `--admin-endpoint` (`/metrics`, pprof) | Low | |
-| 13.9 | Captive Core configuration | `--captive-core-config-path`, `--stellar-core-binary-path` | Same options | Low | Add `EMIT_CLASSIC_EVENTS=true` for classic events (see 6.1). |
+| 13.9 | Captive Core configuration | `--captive-core-config-path`, `--stellar-core-binary-path` | Same options | Low | RPC enables `EMIT_CLASSIC_EVENTS` by default (see 6.1). |
 | 13.10 | Reduce storage by dropping transaction meta | `--skip-txmeta` | None | Low | RPC keeps meta only within the retention window. |
 
 ## Summary
 
 | Effort | Use cases |
 |---|---|
-| Low | 1.1–1.4, 2.1–2.3, 3.1, 3.2, 3.4, 3.6, 3.7, 5.1, 5.2, 5.4, 7.1, 7.2, 8.1, 9.1, 10.1, 13.1, 13.5–13.10 |
-| Medium | 3.3, 5.3, 5.8, 6.1–6.3, 7.3, 13.2–13.4 |
-| High | 3.5, 4.1–4.4, 5.5–5.7, 6.4, 8.2, 9.2, 10.2–10.6, 11.1, 12.1, 12.2 |
+| Low | 1.1–1.4, 2.1–2.3, 3.1, 3.2, 3.4, 3.6, 5.1, 5.2, 5.4, 7.1, 7.2, 8.1, 9.1, 10.1, 13.1, 13.5–13.10 |
+| Medium | 5.3, 5.8, 6.1–6.3, 7.3, 13.2–13.4 |
+| High | 3.3, 3.5, 3.7, 4.1–4.4, 5.5–5.7, 6.4, 8.2, 9.2, 10.2–10.6, 11.1, 12.1, 12.2 |
 
-Pattern: RPC replaces lookups by primary key and raw ledger or transaction reads. RPC does not replace reverse lookups (by account, asset, sponsor, signer), account-scoped history, or derived DEX data. These need an indexer.
+Pattern: RPC replaces lookups by primary key and raw ledger or transaction reads. RPC does not replace listing all entries of an account (balances, data), reverse lookups (by account, asset, sponsor, signer), account-scoped history, or derived DEX data. These need an indexer.
