@@ -67,7 +67,9 @@ var (
 
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) {
 	testLedger := int32(1000)
-	now := time.Now()
+	// Whole seconds, like a real ledger close time: hash lookups match transactions rows on
+	// to_timestamp(ledger_close_epoch).
+	now := time.Now().UTC().Truncate(time.Second)
 	sharedTestLedgerCreatedAt = now
 	parentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedTestAccountAddress)}
 	txns := make([]*types.Transaction, 0, 4)
@@ -144,6 +146,13 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 			_, err := tx.Exec(ctx,
 				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				txn.Hash, txn.ToID, txn.FeeCharged, txn.ResultCode, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
+			require.NoError(t, err)
+
+			bucket, prefix, err := txn.Hash.LookupKey()
+			require.NoError(t, err)
+			_, err = tx.Exec(ctx,
+				`INSERT INTO transaction_hashes (hash_bucket, hash_prefix, ledger_close_epoch) VALUES ($1, $2, $3)`,
+				bucket, prefix, txn.LedgerCreatedAt.Unix())
 			require.NoError(t, err)
 
 			_, err = tx.Exec(ctx,

@@ -198,6 +198,11 @@ func TestClassifyGraphQLError(t *testing.T) {
 			expected: "internal_error",
 		},
 		{
+			name:     "request timeout maps to timeout",
+			err:      &gqlerror.Error{Extensions: map[string]interface{}{"code": "REQUEST_TIMEOUT"}},
+			expected: "timeout",
+		},
+		{
 			name:     "unknown code maps to unknown",
 			err:      &gqlerror.Error{Extensions: map[string]interface{}{"code": "CUSTOM_CODE"}},
 			expected: "unknown",

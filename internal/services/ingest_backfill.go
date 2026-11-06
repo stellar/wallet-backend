@@ -34,6 +34,7 @@ type BackfillBatch struct {
 type BackfillResult struct {
 	Batch        BackfillBatch
 	LedgersCount int
+	Transactions int // transactions persisted, each with one transaction_hashes row
 	Duration     time.Duration
 	Error        error
 	StartTime    time.Time // First ledger close time in batch (for compression)
@@ -232,7 +233,7 @@ func (m *ingestService) processBackfillBatchesParallel(ctx context.Context, batc
 		group.Submit(func() {
 			results[i] = m.processSingleBatch(ctx, batch, i, len(batches))
 			if recompressor != nil && results[i].Error == nil {
-				recompressor.MarkDone(i, results[i].StartTime, results[i].EndTime)
+				recompressor.MarkDone(i, results[i].StartTime, results[i].EndTime, results[i].Transactions)
 			}
 		})
 	}
@@ -269,8 +270,9 @@ func (m *ingestService) processSingleBatch(ctx context.Context, batch BackfillBa
 	}()
 
 	// Process all ledgers in batch (cursor is updated atomically with the final flush)
-	ledgersCount, batchStartTime, batchEndTime, err := m.processLedgersInBatch(ctx, backend, batch)
+	ledgersCount, transactions, batchStartTime, batchEndTime, err := m.processLedgersInBatch(ctx, backend, batch)
 	result.LedgersCount = ledgersCount
+	result.Transactions = transactions
 	result.StartTime = batchStartTime
 	result.EndTime = batchEndTime
 	if err != nil {
@@ -364,15 +366,17 @@ func (m *ingestService) flushBatchBufferWithRetry(ctx context.Context, buffer *i
 
 // processLedgersInBatch processes all ledgers in a batch, flushing to DB periodically.
 // The oldest-ledger cursor is updated atomically with the final data flush.
-// Returns the count of ledgers processed and the batch's ledger close-time range.
+// Returns the count of ledgers processed, the count of transactions persisted and the batch's
+// ledger close-time range.
 func (m *ingestService) processLedgersInBatch(
 	ctx context.Context,
 	backend ledgerbackend.LedgerBackend,
 	batch BackfillBatch,
-) (int, time.Time, time.Time, error) {
+) (int, int, time.Time, time.Time, error) {
 	batchBuffer := indexer.NewIndexerBuffer()
 	ledgersInBuffer := uint32(0)
 	ledgersProcessed := 0
+	transactions := 0
 	var startTime, endTime time.Time
 
 	// The loop ends after EndLedger is processed; a plain `<=` with a uint32 counter would wrap at the ceiling.
@@ -387,7 +391,7 @@ func (m *ingestService) processLedgersInBatch(
 			},
 		)
 		if err != nil {
-			return ledgersProcessed, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
+			return ledgersProcessed, transactions, startTime, endTime, fmt.Errorf("getting ledger %d: %w", ledgerSeq, err)
 		}
 
 		// Track time range for compression
@@ -398,15 +402,16 @@ func (m *ingestService) processLedgersInBatch(
 		endTime = ledgerTime
 
 		if _, err := m.processLedger(ctx, ledgerMeta, batchBuffer); err != nil {
-			return ledgersProcessed, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
+			return ledgersProcessed, transactions, startTime, endTime, fmt.Errorf("processing ledger %d: %w", ledgerSeq, err)
 		}
 		ledgersProcessed++
 		ledgersInBuffer++
 
 		// Flush buffer periodically to control memory usage (intermediate flushes, no cursor update)
 		if ledgersInBuffer >= m.backfillDBInsertBatchSize {
+			transactions += len(batchBuffer.GetTransactions())
 			if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, nil); err != nil {
-				return ledgersProcessed, startTime, endTime, err
+				return ledgersProcessed, transactions, startTime, endTime, err
 			}
 			batchBuffer.Clear()
 			ledgersInBuffer = 0
@@ -419,18 +424,19 @@ func (m *ingestService) processLedgersInBatch(
 
 	// Final flush with cursor update
 	if ledgersInBuffer > 0 {
+		transactions += len(batchBuffer.GetTransactions())
 		if err := m.flushBatchBufferWithRetry(ctx, batchBuffer, &batch.StartLedger); err != nil {
-			return ledgersProcessed, startTime, endTime, err
+			return ledgersProcessed, transactions, startTime, endTime, err
 		}
 	} else {
 		// All data was flushed in intermediate batches, but we still need to update the cursor.
 		// This happens when ledgersInBuffer == 0 (exact multiple of batch size).
 		if err := m.updateOldestCursor(ctx, batch.StartLedger); err != nil {
-			return ledgersProcessed, startTime, endTime, err
+			return ledgersProcessed, transactions, startTime, endTime, err
 		}
 	}
 
-	return ledgersProcessed, startTime, endTime, nil
+	return ledgersProcessed, transactions, startTime, endTime, nil
 }
 
 // updateOldestCursor updates the oldest ledger cursor to the given ledger.
@@ -443,6 +449,14 @@ func (m *ingestService) updateOldestCursor(ctx context.Context, ledgerSeq uint32
 	}
 	return nil
 }
+
+// lookupRecompressRows is how many transaction_hashes rows a backfill writes between two runs of
+// the maintenance procedure. A backfill's lookup rows land in the rowstore part of every chunk of
+// that hash-partitioned table, and only a maintenance run folds them into the columnstore. The
+// live schedule is a day apart, so the backfill runs the procedure itself, after every 500 million
+// rows: about 45 GB of rowstore with its index at the measured 90 bytes per row, the same pass
+// size as the fill script. Counting rows, not ledgers, keeps that bound at any transaction rate.
+const lookupRecompressRows = 500_000_000
 
 // progressiveRecompressor compresses uncompressed TimescaleDB chunks as they become safe during backfill.
 // Tracks batch completion via a watermark to determine when chunks are fully written.
@@ -459,6 +473,8 @@ type progressiveRecompressor struct {
 
 	triggerCh chan time.Time // safeEnd for recompression window
 	done      chan struct{}
+
+	lookupRowsPending int // transaction_hashes rows written since the last recompression (under mu)
 }
 
 // newProgressiveRecompressor creates a compressor that progressively compresses uncompressed chunks
@@ -478,13 +494,15 @@ func newProgressiveRecompressor(ctx context.Context, pool *pgxpool.Pool, tables 
 	return r
 }
 
-// MarkDone records a batch as complete and advances the watermark if possible.
-// If the watermark advances, triggers recompression of chunks in the safe window.
-func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time) {
+// MarkDone records a batch as complete and advances the watermark if possible. If the watermark
+// advances, or the batch's lookupRows bring the pending transaction_hashes rows to the recompress
+// threshold, it triggers the background pass.
+func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time.Time, lookupRows int) {
 	var safeEnd time.Time
 	r.mu.Lock()
 	r.completed[batchIdx] = true
 	r.endTimes[batchIdx] = endTime
+	r.lookupRowsPending += lookupRows
 
 	// Record global start from batch 0 (earliest time boundary for queries)
 	if batchIdx == 0 {
@@ -497,13 +515,14 @@ func (r *progressiveRecompressor) MarkDone(batchIdx int, startTime, endTime time
 		r.watermarkIdx++
 	}
 
-	sendToChannel := (r.watermarkIdx > oldWatermark)
-	if sendToChannel {
+	advanced := r.watermarkIdx > oldWatermark
+	if advanced {
 		safeEnd = r.endTimes[r.watermarkIdx]
 	}
+	sendToChannel := advanced || lookupRecompressDue(r.lookupRowsPending)
 	r.mu.Unlock()
 
-	// If watermark advanced then we trigger recompression outside the lock
+	// The trigger is sent outside the lock. A zero safeEnd carries only the lookup threshold.
 	if sendToChannel {
 		r.triggerCh <- safeEnd
 	}
@@ -522,13 +541,53 @@ func (r *progressiveRecompressor) runCompression() {
 
 	totalCompressed := 0
 	for safeEnd := range r.triggerCh {
-		for _, table := range r.tables {
-			count := r.compressTableChunks(table, safeEnd)
-			totalCompressed += count
+		if !safeEnd.IsZero() {
+			for _, table := range r.tables {
+				count := r.compressTableChunks(table, safeEnd)
+				totalCompressed += count
+			}
 		}
+		if lookupRecompressDue(r.pendingLookupRows()) {
+			r.recompressLookupChunks()
+		}
+	}
+	if r.pendingLookupRows() > 0 {
+		r.recompressLookupChunks()
 	}
 
 	log.Ctx(r.ctx).Infof("Progressive compression complete: %d total chunks compressed", totalCompressed)
+}
+
+// lookupRecompressDue reports whether the pending transaction_hashes rows have reached
+// lookupRecompressRows.
+func lookupRecompressDue(pendingRows int) bool {
+	return pendingRows >= lookupRecompressRows
+}
+
+func (r *progressiveRecompressor) pendingLookupRows() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lookupRowsPending
+}
+
+// recompressLookupChunks runs the transaction_hashes maintenance procedure as one worker with
+// job_id 0, which recompresses every chunk and skips retention, and clears the pending row count
+// it set out with; rows written while it runs count towards the next pass. The procedure commits
+// per chunk, so it runs outside a transaction and through the simple protocol.
+func (r *progressiveRecompressor) recompressLookupChunks() {
+	start := time.Now()
+	r.mu.Lock()
+	rows := r.lookupRowsPending
+	r.mu.Unlock()
+	_, err := r.pool.Exec(r.ctx, `CALL transaction_hashes_maintenance(0, '{"workers": 1, "worker": 0}')`, pgx.QueryExecModeSimpleProtocol)
+	if err != nil {
+		log.Ctx(r.ctx).Warnf("Failed to recompress %s chunks: %v", data.TransactionHashesTable, err)
+		return
+	}
+	r.mu.Lock()
+	r.lookupRowsPending -= rows
+	r.mu.Unlock()
+	log.Ctx(r.ctx).Infof("Recompressed %s chunks in %s after %d rows", data.TransactionHashesTable, time.Since(start).Round(time.Second), rows)
 }
 
 // compressTableChunks compresses uncompressed chunks for a single table within the safe window.

@@ -48,6 +48,8 @@ Measured on a pubnet deployment on 2026-10-01: PostgreSQL 17.6, TimescaleDB 2.28
 
 Disk plan for pubnet: about 11 GB fixed, plus about 1.7 GB per retained day compressed, plus headroom for one uncompressed day (about 20 GB). A year of history is roughly 0.6 TB compressed. Testnet is a fraction of this.
 
+Lookup table (`transaction_hashes`), measured on a pubnet history of 4.4 billion rows: 35 GB, 8.5 bytes per row. The table's maintenance runs delete the lookup rows of 30-day periods that closed before the oldest `transactions` row (whole compressed batches: 15 ms and 181 kB of WAL per chunk, no lock, measured) and recompress every chunk (68 ms and 3.4 MB of WAL per chunk for a week of rows, measured). Measured on the live dev mainnet table (4.4 billion rows, 1,024 chunks) with a week of rows in the rowstore parts, 40 million: one worker 17 min 7 s and about 11.5 GB of WAL, eight workers 2 min 47 s and about 10 GB. Live ingestion ran at its baseline through both (per-ledger p99 480 to 640 ms, no lag) and lookups ran alongside. A run with minutes of rows takes under 4 minutes on one worker. A retention step on an 8-chunk copy of real rows: 6 to 13 ms and 490 kB of WAL per chunk for three periods, 3.5 million rows. Figures at 10k tx/s: [Scaling by transaction rate](../architecture/data-model.md#scaling-by-transaction-rate).
+
 Backfill is CPU-bound in the ingest process (`BACKFILL_WORKERS` defaults to one per CPU) and write-bound in the database. Give it more CPU and memory than live ingest and set `COMPRESSION_MAX_CHUNKS` (around 10) so the compression job does not overlap itself while chunks fill fast.
 
 ## Metrics to alert on
@@ -99,13 +101,17 @@ The live ingester converges these on every start:
 
 | Variable | Effect |
 |---|---|
-| `CHUNK_INTERVAL` | Chunk size for future chunks on all five hypertables. Default `1 day`. |
-| `RETENTION_PERIOD` | Adds or updates a drop-chunks policy. Empty removes it and the reconcile job. |
+| `CHUNK_INTERVAL` | Chunk size for future chunks on the five bulk hypertables. Default `1 day`. |
+| `RETENTION_PERIOD` | Adds or updates a drop-chunks policy on the five bulk hypertables. Empty removes it and the reconcile job. The lookup table follows `transactions` through its maintenance jobs |
+| `TX_HASH_MAINTENANCE_INTERVAL` | How often each `transaction_hashes_maintenance` job of the lookup table runs. Default `1 day`. Set it so the rows written between runs stay in the low hundreds of millions. |
+| `TX_HASH_MAINTENANCE_WORKERS` | Number of maintenance jobs for the lookup table. Default `1`. Each job takes a share of the chunks, so a run finishes about that many times faster. Each job is one TimescaleDB background worker and counts against `timescaledb.max_background_workers`. |
 | `COMPRESSION_SCHEDULE_INTERVAL` | How often the compression job wakes. Empty leaves the job alone. |
 | `COMPRESSION_COMPRESS_AFTER` | How long after a chunk closes it becomes eligible. On the measured deployment, 1 hour removed persist-latency spikes that a 1-minute setting caused. |
 | `COMPRESSION_MAX_CHUNKS` | Chunks compressed per job run. Set around 10 during backfill. |
 
 Retention drops whole chunks, so the oldest data disappears in `CHUNK_INTERVAL`-sized steps. A reconcile job runs hourly to move `oldest_ingest_ledger` to the real minimum after a drop.
+
+`COMPRESSION_SCHEDULE_INTERVAL`, `COMPRESSION_COMPRESS_AFTER` and `COMPRESSION_MAX_CHUNKS` apply to the five bulk hypertables only. The `transaction_hashes` lookup table has no columnstore or retention policy. The procedure `transaction_hashes_maintenance` runs as `TX_HASH_MAINTENANCE_WORKERS` TimescaleDB jobs on the `TX_HASH_MAINTENANCE_INTERVAL` schedule. Each job recompresses its chunks, folding rows written since the last run from the rowstore part into the columnstore. These two settings are the only ones the ingester applies to the table. `RETENTION_PERIOD` and `CHUNK_INTERVAL` do not apply to it. The lookup table follows `transactions`: each run removes the lookup rows of 30-day periods that closed before the oldest `transactions` row, whole compressed batches at a time. With retention off, no rows are removed.
 
 Backfill processes never change these policies.
 

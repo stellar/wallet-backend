@@ -201,39 +201,6 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	}
 }
 
-func TestTransactionModel_GetByHash(t *testing.T) {
-	dbt := dbtest.Open(t)
-	defer dbt.Close()
-	ctx := context.Background()
-	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
-	require.NoError(t, err)
-	defer dbConnectionPool.Close()
-
-	reg := prometheus.NewRegistry()
-	dbMetrics := metrics.NewMetrics(reg).DB
-
-	m := &TransactionModel{
-		DB:      dbConnectionPool,
-		Metrics: dbMetrics,
-	}
-
-	now := time.Now()
-
-	// Create test transaction
-	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
-	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
-		VALUES ($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $2, false)
-	`, txHash, now)
-	require.NoError(t, err)
-
-	// Test GetByHash
-	transaction, err := m.GetByHash(ctx, txHash.String(), "")
-	require.NoError(t, err)
-	assert.Equal(t, txHash, transaction.Hash)
-	assert.Equal(t, int64(1), transaction.ToID)
-}
-
 func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -541,7 +508,7 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 	m := &TransactionModel{DB: dbConnectionPool, Metrics: dbMetrics}
 	opModel := &OperationModel{DB: dbConnectionPool, Metrics: dbMetrics}
 
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Second) // a ledger close time is whole seconds
 	txHash := types.HashBytea("0076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
@@ -553,6 +520,7 @@ func TestTransactionModel_MinimalProjectionHydratesLedgerCreatedAt(t *testing.T)
 		VALUES (4098, 'PAYMENT', 'xdr', 'op_success', true, 1, $1)
 	`, now)
 	require.NoError(t, err)
+	insertTransactionHashesFromTransactions(ctx, t, dbConnectionPool)
 
 	tx, err := m.GetByHash(ctx, txHash.String(), "hash")
 	require.NoError(t, err)
@@ -579,7 +547,7 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 	require.NoError(t, err)
 	defer dbConnectionPool.Close()
 
-	now := time.Now()
+	now := time.Now().UTC().Truncate(time.Second) // a ledger close time is whole seconds
 	address := keypair.MustRandom().Address()
 
 	cursorLedger, aheadLedger := int32(10), int32(11)
@@ -594,6 +562,7 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 		       ($4, $2, 100, 'TransactionResultCodeTxSuccess', $7, $6, false)
 	`, atCursor, aboveCursor, hashAtCursor, hashAboveCursor, cursorLedger, now, aheadLedger)
 	require.NoError(t, err)
+	insertTransactionHashesFromTransactions(ctx, t, dbConnectionPool)
 
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions_accounts (tx_to_id, account_id, ledger_created_at)
@@ -623,7 +592,8 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 	})
 
 	t.Run("by-hash does not resolve a transaction past the cursor", func(t *testing.T) {
-		_, qErr := m.GetByHash(ctx, hashAboveCursor.String(), "")
-		require.Error(t, qErr)
+		tx, qErr := m.GetByHash(ctx, hashAboveCursor.String(), "")
+		require.NoError(t, qErr)
+		assert.Nil(t, tx, "a transaction past the committed cursor reads as not found")
 	})
 }
