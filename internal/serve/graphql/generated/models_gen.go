@@ -741,6 +741,10 @@ type SimulatedStateChanges struct {
 	LatestLedger uint32 `json:"latestLedger"`
 	// State changes the transaction would produce.
 	StateChanges []BaseSimulatedStateChange `json:"stateChanges"`
+	// Display metadata for the tokens the state changes reference, from the
+	// backend's token registry. A token that has never been indexed has no entry,
+	// so its display data is unavailable.
+	Tokens []*SimulatedTokenMetadata `json:"tokens"`
 }
 
 // Simulated mirror of ThresholdChange.
@@ -772,6 +776,24 @@ func (this SimulatedThresholdChange) GetAccountAddress() string { return this.Ac
 
 // Zero-based index of the operation that would produce this change; null for the transaction-fee row.
 func (this SimulatedThresholdChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
+// Display metadata for one token referenced by the simulated state changes.
+// Stellar-asset-contract tokens carry the classic code and issuer; SEP-41
+// contract tokens carry whatever name/symbol/decimals their contract reports.
+type SimulatedTokenMetadata struct {
+	// Contract ID of the token (C...).
+	TokenID string `json:"tokenId"`
+	// Classic asset code; null for contract-native tokens.
+	Code *string `json:"code,omitempty"`
+	// Classic asset issuer; null for contract-native tokens.
+	Issuer *string `json:"issuer,omitempty"`
+	// Token name reported by the contract.
+	Name *string `json:"name,omitempty"`
+	// Token symbol reported by the contract.
+	Symbol *string `json:"symbol,omitempty"`
+	// Number of decimal places in the token's smallest unit.
+	Decimals uint32 `json:"decimals"`
+}
 
 // Simulated mirror of TrustlineAddedChange. Exactly one of tokenId /
 // liquidityPoolId is set.

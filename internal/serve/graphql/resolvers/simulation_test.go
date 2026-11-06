@@ -1,14 +1,18 @@
 package resolvers
 
 import (
+	"context"
 	"database/sql"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/go-stellar-sdk/toid"
 
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -21,6 +25,44 @@ const (
 
 func validAddress(addr string) types.NullAddressBytea {
 	return types.NullAddressBytea{AddressBytea: types.AddressBytea(addr), Valid: true}
+}
+
+func TestResolveSimulatedTokens(t *testing.T) {
+	ctx := context.Background()
+	indexed := testSimToken
+	unindexed := "CDP3XWJ4ZN222LKYBMWIY3GYXZYX3KA6WVNDDJ5KWSMDQTTHKUYDDRTF"
+	ids := []string{indexed, unindexed}
+	sort.Strings(ids)
+
+	t.Run("🟢 dedupes, batches once, and omits unindexed tokens", func(t *testing.T) {
+		code, issuer := "USDC", testSimSpender
+		mockContract := &data.ContractModelMock{}
+		mockContract.On("GetByContractIDs", mock.Anything, ids).
+			Return([]*data.Contract{{ContractID: indexed, Code: &code, Issuer: &issuer, Decimals: 7}}, nil).Once()
+		r := &Resolver{models: &data.Models{Contract: mockContract}}
+
+		tokens, err := r.resolveSimulatedTokens(ctx, []types.StateChange{
+			{TokenID: validAddress(indexed)},
+			{TokenID: validAddress(indexed)}, // duplicate, must not repeat in the query
+			{TokenID: validAddress(unindexed)},
+			{}, // no token at all (e.g. a signer change)
+		})
+		require.NoError(t, err)
+		require.Len(t, tokens, 1, "the unindexed token has no metadata entry")
+		assert.Equal(t, indexed, tokens[0].TokenID)
+		assert.Equal(t, "USDC", *tokens[0].Code)
+		assert.Equal(t, testSimSpender, *tokens[0].Issuer)
+		assert.Equal(t, uint32(7), tokens[0].Decimals)
+		mockContract.AssertExpectations(t)
+	})
+
+	t.Run("🟢 no token references means no query and an empty list", func(t *testing.T) {
+		r := &Resolver{models: &data.Models{Contract: &data.ContractModelMock{}}}
+		tokens, err := r.resolveSimulatedTokens(ctx, []types.StateChange{{}})
+		require.NoError(t, err)
+		assert.NotNil(t, tokens)
+		assert.Empty(t, tokens)
+	})
 }
 
 func TestConvertToSimulatedStateChange(t *testing.T) {

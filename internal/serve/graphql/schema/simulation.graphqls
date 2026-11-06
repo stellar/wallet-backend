@@ -8,6 +8,32 @@ type SimulatedStateChanges {
   latestLedger:               UInt32!
   """State changes the transaction would produce."""
   stateChanges:               [BaseSimulatedStateChange!]!
+  """
+  Display metadata for the tokens the state changes reference, from the
+  backend's token registry. A token that has never been indexed has no entry,
+  so its display data is unavailable.
+  """
+  tokens:                     [SimulatedTokenMetadata!]!
+}
+
+"""
+Display metadata for one token referenced by the simulated state changes.
+Stellar-asset-contract tokens carry the classic code and issuer; SEP-41
+contract tokens carry whatever name/symbol/decimals their contract reports.
+"""
+type SimulatedTokenMetadata {
+  """Contract ID of the token (C...)."""
+  tokenId:                    String!
+  """Classic asset code; null for contract-native tokens."""
+  code:                       String
+  """Classic asset issuer; null for contract-native tokens."""
+  issuer:                     String
+  """Token name reported by the contract."""
+  name:                       String
+  """Token symbol reported by the contract."""
+  symbol:                     String
+  """Number of decimal places in the token's smallest unit."""
+  decimals:                   UInt32!
 }
 
 """
