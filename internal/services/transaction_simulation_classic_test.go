@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -574,6 +575,118 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
 			Signer: &txnbuild.Signer{Address: keypair.MustRandom().Address(), Weight: 5},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 unknown or overlapping setOptions flags are a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		unknown := xdr.Uint32(0x10)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{SetFlags: &unknown},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+
+		revocable := xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)
+		overlap := revocable
+		_, err = svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{SetFlags: &revocable, ClearFlags: &overlap},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 changing flags on an AUTH_IMMUTABLE account is a would-fail", func(t *testing.T) {
+		id := xdr.MustAddress(src)
+		entry := xdr.AccountEntry{
+			AccountId:  id,
+			Balance:    100_0000000,
+			SeqNum:     1,
+			Thresholds: xdr.Thresholds{1, 0, 0, 0},
+			Flags:      xdr.Uint32(xdr.AccountFlagsAuthImmutableFlag),
+		}
+		svc := classicFixture(t, ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &entry},
+		))
+		revocable := xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{SetFlags: &revocable},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 enabling clawback without revocable is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		clawback := xdr.Uint32(xdr.AccountFlagsAuthClawbackEnabledFlag)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{SetFlags: &clawback},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 adding the account's own master key as a signer is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			Signer: &txnbuild.Signer{Address: src, Weight: 1},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 empty or non-printable manageData name is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		value := xdr.DataValue("v1")
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeManageData,
+			ManageDataOp: &xdr.ManageDataOp{DataName: "", DataValue: &value},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+
+		_, err = svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeManageData,
+			ManageDataOp: &xdr.ManageDataOp{DataName: "config\x01", DataValue: &value},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 malformed asset code is a would-fail", func(t *testing.T) {
+		// Interior zero padding: decodable XDR, but Core rejects it as
+		// PAYMENT_MALFORMED before touching any state. The issuer pays itself
+		// so that both trustline branches are skipped, the one case where no
+		// other check would catch it.
+		svc := classicFixture(t, accountEntryResult(t, issuer, 100_0000000))
+		issuerID := xdr.MustAddress(issuer)
+		malformed := xdr.Asset{
+			Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
+			AlphaNum4: &xdr.AlphaNum4{
+				AssetCode: xdr.AssetCode4{'U', 0, 'S', 'D'},
+				Issuer:    issuerID,
+			},
+		}
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: issuerID.ToMuxedAccount(),
+				Asset:       malformed,
+				Amount:      1_0000000,
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 native payment overflowing the destination is a would-fail", func(t *testing.T) {
+		// Core rejects a payment the destination cannot hold within the int64
+		// ceiling (balance plus buying liabilities) as PAYMENT_LINE_FULL.
+		dst := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, math.MaxInt64-100),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{},
 		}))
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})

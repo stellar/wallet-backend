@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -95,9 +96,15 @@ func validateClassicOperation(op xdr.Operation) error {
 		if op.Body.PaymentOp.Amount <= 0 {
 			return wouldFail("payment amount must be positive, got %d", op.Body.PaymentOp.Amount)
 		}
+		if !creditAssetCodeValid(op.Body.PaymentOp.Asset) {
+			return wouldFail("payment asset code is malformed")
+		}
 	case xdr.OperationTypeChangeTrust:
 		if op.Body.ChangeTrustOp.Limit < 0 {
 			return wouldFail("trustline limit cannot be negative, got %d", op.Body.ChangeTrustOp.Limit)
+		}
+		if asset, ok := changeTrustCreditAsset(op.Body.ChangeTrustOp.Line); ok && !creditAssetCodeValid(asset) {
+			return wouldFail("trustline asset code is malformed")
 		}
 	case xdr.OperationTypeSetOptions:
 		so := op.Body.SetOptionsOp
@@ -117,12 +124,70 @@ func validateClassicOperation(op xdr.Operation) error {
 		if so.Signer != nil && so.Signer.Weight > 255 {
 			return wouldFail("signer weight %d is out of range (0-255)", so.Signer.Weight)
 		}
+		if so.SetFlags != nil && *so.SetFlags&^allAccountAuthFlags != 0 {
+			return wouldFail("setFlags %#x contains unknown account flags", *so.SetFlags)
+		}
+		if so.ClearFlags != nil && *so.ClearFlags&^allAccountAuthFlags != 0 {
+			return wouldFail("clearFlags %#x contains unknown account flags", *so.ClearFlags)
+		}
+		if so.SetFlags != nil && so.ClearFlags != nil && *so.SetFlags&*so.ClearFlags != 0 {
+			return wouldFail("setFlags and clearFlags overlap on %#x", *so.SetFlags&*so.ClearFlags)
+		}
+	case xdr.OperationTypeManageData:
+		// Core requires a non-empty name of printable ASCII (0x20-0x7E).
+		name := string(op.Body.ManageDataOp.DataName)
+		if len(name) == 0 {
+			return wouldFail("data entry name cannot be empty")
+		}
+		for _, c := range []byte(name) {
+			if c <= 0x1f || c >= 0x7f {
+				return wouldFail("data entry name contains non-printable characters")
+			}
+		}
 	default:
 		// createAccount's starting balance is validated against the minimum
-		// reserve in its handler; manageData's field bounds are enforced by
-		// XDR decoding (String64 / opaque<64>).
+		// reserve in its handler.
 	}
 	return nil
+}
+
+// allAccountAuthFlags is every account flag the protocol defines; setOptions
+// rejects set or clear masks outside it (SET_OPTIONS_UNKNOWN_FLAG).
+const allAccountAuthFlags = xdr.Uint32(xdr.AccountFlagsAuthRequiredFlag |
+	xdr.AccountFlagsAuthRevocableFlag |
+	xdr.AccountFlagsAuthImmutableFlag |
+	xdr.AccountFlagsAuthClawbackEnabledFlag)
+
+// creditAssetCodeValid mirrors Core's isAssetValid for credit assets: ASCII
+// alphanumeric characters with only trailing zero padding, 1-4 characters for
+// alphanum4 and 5-12 for alphanum12.
+func creditAssetCodeValid(asset xdr.Asset) bool {
+	var code []byte
+	var minLen int
+	switch asset.Type {
+	case xdr.AssetTypeAssetTypeNative:
+		return true
+	case xdr.AssetTypeAssetTypeCreditAlphanum4:
+		code, minLen = asset.AlphaNum4.AssetCode[:], 1
+	case xdr.AssetTypeAssetTypeCreditAlphanum12:
+		code, minLen = asset.AlphaNum12.AssetCode[:], 5
+	default:
+		return false
+	}
+	length, padded := 0, false
+	for _, c := range code {
+		switch {
+		case c == 0:
+			padded = true
+		case padded:
+			return false
+		case ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9'):
+			length++
+		default:
+			return false
+		}
+	}
+	return length >= minLen
 }
 
 // classicOperationSource returns the account the operation acts on behalf of:
@@ -286,6 +351,11 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 		available := accountSpendableBalance(srcAccount)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, sending %d", opSource.Address(), available, p.Amount)
+		}
+		// Core's line-full rule for the native destination: the balance plus
+		// open buy-offer liabilities must stay within the int64 ceiling.
+		if int64(p.Amount) > math.MaxInt64-int64(dstAccount.Balance)-int64(dstAccount.Liabilities().Buying) {
+			return nil, wouldFail("destination account %s cannot receive %d stroops without exceeding the maximum balance", dst.Address(), p.Amount)
 		}
 		srcAfter := srcAccount
 		srcAfter.Balance -= p.Amount
@@ -468,11 +538,26 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 		dest := *so.InflationDest
 		after.InflationDest = &dest
 	}
-	if so.ClearFlags != nil {
-		after.Flags &^= *so.ClearFlags
-	}
-	if so.SetFlags != nil {
-		after.Flags |= *so.SetFlags
+	if so.ClearFlags != nil || so.SetFlags != nil {
+		// An AUTH_IMMUTABLE account cannot touch its auth flags
+		// (SET_OPTIONS_CANT_CHANGE), and the result must keep AUTH_REVOCABLE
+		// whenever AUTH_CLAWBACK_ENABLED is set (AUTH_REVOCABLE_REQUIRED).
+		var touched xdr.Uint32
+		if so.ClearFlags != nil {
+			touched |= *so.ClearFlags
+			after.Flags &^= *so.ClearFlags
+		}
+		if so.SetFlags != nil {
+			touched |= *so.SetFlags
+			after.Flags |= *so.SetFlags
+		}
+		if touched&allAccountAuthFlags != 0 && account.Flags&xdr.Uint32(xdr.AccountFlagsAuthImmutableFlag) != 0 {
+			return nil, wouldFail("account %s has AUTH_IMMUTABLE set and cannot change flags", opSource.Address())
+		}
+		if after.Flags&xdr.Uint32(xdr.AccountFlagsAuthClawbackEnabledFlag) != 0 &&
+			after.Flags&xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag) == 0 {
+			return nil, wouldFail("AUTH_CLAWBACK_ENABLED requires AUTH_REVOCABLE on account %s", opSource.Address())
+		}
 	}
 	if so.MasterWeight != nil {
 		after.Thresholds[0] = byte(*so.MasterWeight)
@@ -490,6 +575,11 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 		after.HomeDomain = *so.HomeDomain
 	}
 	if so.Signer != nil {
+		// The master key is not in the signer list; Core rejects adding it
+		// (SET_OPTIONS_BAD_SIGNER).
+		if so.Signer.Key.Equals(xdr.MustSigner(opSource.Address())) {
+			return nil, wouldFail("account %s cannot add its own master key as a signer", opSource.Address())
+		}
 		exists := false
 		for _, s := range account.Signers {
 			if s.Key.Equals(so.Signer.Key) {
