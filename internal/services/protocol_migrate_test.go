@@ -191,6 +191,8 @@ func (p *testRecordingProcessor) StateChangeOrdinalBase() int64 {
 
 func (p *testRecordingProcessor) Reset() { p.resetCount++ }
 
+func (p *testRecordingProcessor) StagedStateChanges() []types.StateChange { return nil }
+
 func (p *testRecordingProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
 	p.processedInputs = append(p.processedInputs, input)
 	p.lastProcessed = input.LedgerSequence

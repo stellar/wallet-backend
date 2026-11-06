@@ -17,8 +17,9 @@ type stubProcessor struct {
 	base              int64
 }
 
-func (s stubProcessor) ProtocolID() string            { return s.id }
-func (s stubProcessor) StateChangeOrdinalBase() int64 { return s.base }
+func (s stubProcessor) ProtocolID() string                      { return s.id }
+func (s stubProcessor) StateChangeOrdinalBase() int64           { return s.base }
+func (s stubProcessor) StagedStateChanges() []types.StateChange { return nil }
 
 func registerStub(id string, base int64) {
 	RegisterProcessor(id, func(ProtocolDeps) ProtocolProcessor {

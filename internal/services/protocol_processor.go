@@ -8,6 +8,7 @@ import (
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
 // StagingMode tells a processor which staged sets to build. The caller stamps it
@@ -72,6 +73,14 @@ type ProtocolProcessor interface {
 	// Reset clears the staged sets after a window commits or hands off. The caller
 	// (engine per window; live ingestion per ledger) invokes it.
 	Reset()
+
+	// StagedStateChanges returns the history state changes accumulated by
+	// ProcessLedger since the last Reset, without persisting anything. Rows are
+	// returned before state_change_id ordinals are assigned (that happens in
+	// PersistHistory), so callers that never persist — transaction simulation —
+	// must not rely on StateChangeID. The returned slice aliases the processor's
+	// staged set and is invalidated by Reset().
+	StagedStateChanges() []types.StateChange
 
 	// PersistHistory writes the history rows accumulated by ProcessLedger since the
 	// last Reset, using the provided transaction. Called inside the CAS-guarded

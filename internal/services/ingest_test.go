@@ -1885,6 +1885,8 @@ func (p *testProtocolProcessor) StateChangeOrdinalBase() int64 {
 
 func (p *testProtocolProcessor) Reset() { p.stagedLedgerCount = 0 }
 
+func (p *testProtocolProcessor) StagedStateChanges() []types.StateChange { return nil }
+
 func (p *testProtocolProcessor) ProcessLedger(_ context.Context, input ProtocolProcessorInput) error {
 	p.processLedgerCalls++
 	p.stagedLedgerCount++
