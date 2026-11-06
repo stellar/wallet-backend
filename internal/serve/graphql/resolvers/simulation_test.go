@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/stellar/go-stellar-sdk/toid"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -23,6 +25,31 @@ func validAddress(addr string) types.NullAddressBytea {
 
 func TestConvertToSimulatedStateChange(t *testing.T) {
 	r := &Resolver{}
+
+	t.Run("🟢 operationIndex: nil for the fee row, zero-based otherwise", func(t *testing.T) {
+		feeRow, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   types.StateChangeReasonDebit,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+			Amount:              sql.NullString{String: "100", Valid: true},
+			OperationID:         0,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, feeRow.GetOperationIndex(), "the fee row has no operation")
+
+		secondOp, err := r.convertToSimulatedStateChange(types.StateChange{
+			StateChangeCategory: types.StateChangeCategoryBalance,
+			StateChangeReason:   types.StateChangeReasonDebit,
+			AccountID:           types.AddressBytea(testSimAccount),
+			TokenID:             validAddress(testSimToken),
+			Amount:              sql.NullString{String: "100", Valid: true},
+			OperationID:         toid.New(5_000_000, 1, 2).ToInt64(),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, secondOp.GetOperationIndex())
+		assert.Equal(t, int32(1), *secondOp.GetOperationIndex())
+	})
 
 	t.Run("🟢 balance change", func(t *testing.T) {
 		converted, err := r.convertToSimulatedStateChange(types.StateChange{
