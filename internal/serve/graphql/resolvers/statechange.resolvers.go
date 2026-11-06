@@ -257,6 +257,321 @@ func (r *balanceChangeResolver) ToMuxedID(ctx context.Context, obj *types.Balanc
 }
 
 // Category is the resolver for the category field.
+func (r *blendAuctionChangeResolver) Category(ctx context.Context, obj *types.BlendAuctionChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendAuctionChangeResolver) Reason(ctx context.Context, obj *types.BlendAuctionChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendAuctionChangeResolver) Account(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendAuctionChangeResolver) Operation(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendAuctionChangeResolver) Transaction(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendAuctionChangeResolver) PoolID(ctx context.Context, obj *types.BlendAuctionChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// AuctionType is the resolver for the auctionType field.
+func (r *blendAuctionChangeResolver) AuctionType(ctx context.Context, obj *types.BlendAuctionChangeModel) (graphql1.BlendAuctionType, error) {
+	return r.resolveAuctionType(obj.KeyValue)
+}
+
+// FillPercent is the resolver for the fillPercent field.
+func (r *blendAuctionChangeResolver) FillPercent(ctx context.Context, obj *types.BlendAuctionChangeModel) (int32, error) {
+	return r.resolveRequiredKeyValueInt32(obj.KeyValue, "fillPercent")
+}
+
+// Counterparty is the resolver for the counterparty field.
+func (r *blendAuctionChangeResolver) Counterparty(ctx context.Context, obj *types.BlendAuctionChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "counterparty")
+}
+
+// Lot is the resolver for the lot field.
+func (r *blendAuctionChangeResolver) Lot(ctx context.Context, obj *types.BlendAuctionChangeModel) ([]*graphql1.BlendAuctionAmount, error) {
+	return r.resolveAuctionAmounts(obj.KeyValue, "lot")
+}
+
+// Bid is the resolver for the bid field.
+func (r *blendAuctionChangeResolver) Bid(ctx context.Context, obj *types.BlendAuctionChangeModel) ([]*graphql1.BlendAuctionAmount, error) {
+	return r.resolveAuctionAmounts(obj.KeyValue, "bid")
+}
+
+// Category is the resolver for the category field.
+func (r *blendBackstopChangeResolver) Category(ctx context.Context, obj *types.BlendBackstopChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendBackstopChangeResolver) Reason(ctx context.Context, obj *types.BlendBackstopChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendBackstopChangeResolver) Account(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendBackstopChangeResolver) Operation(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendBackstopChangeResolver) Transaction(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendBackstopChangeResolver) Amount(ctx context.Context, obj *types.BlendBackstopChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendBackstopChangeResolver) PoolID(ctx context.Context, obj *types.BlendBackstopChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Category(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Reason(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Account(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Operation(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Transaction(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendBackstopEmissionsClaimChangeResolver) Amount(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// Category is the resolver for the category field.
+func (r *blendBackstopQueueChangeResolver) Category(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendBackstopQueueChangeResolver) Reason(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendBackstopQueueChangeResolver) Account(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendBackstopQueueChangeResolver) Operation(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendBackstopQueueChangeResolver) Transaction(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendBackstopQueueChangeResolver) Amount(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendBackstopQueueChangeResolver) PoolID(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
+func (r *blendCollateralChangeResolver) Category(ctx context.Context, obj *types.BlendCollateralChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendCollateralChangeResolver) Reason(ctx context.Context, obj *types.BlendCollateralChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendCollateralChangeResolver) Account(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendCollateralChangeResolver) Operation(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendCollateralChangeResolver) Transaction(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *blendCollateralChangeResolver) TokenID(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendCollateralChangeResolver) Amount(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendCollateralChangeResolver) PoolID(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
+func (r *blendDebtChangeResolver) Category(ctx context.Context, obj *types.BlendDebtChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendDebtChangeResolver) Reason(ctx context.Context, obj *types.BlendDebtChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendDebtChangeResolver) Account(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendDebtChangeResolver) Operation(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendDebtChangeResolver) Transaction(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *blendDebtChangeResolver) TokenID(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendDebtChangeResolver) Amount(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendDebtChangeResolver) PoolID(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
+func (r *blendEmissionsClaimChangeResolver) Category(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendEmissionsClaimChangeResolver) Reason(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendEmissionsClaimChangeResolver) Account(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendEmissionsClaimChangeResolver) Operation(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendEmissionsClaimChangeResolver) Transaction(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *blendEmissionsClaimChangeResolver) TokenID(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*string, error) {
+	return r.resolveNullableAddress(obj.TokenID), nil
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendEmissionsClaimChangeResolver) Amount(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendEmissionsClaimChangeResolver) PoolID(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
+func (r *blendSupplyChangeResolver) Category(ctx context.Context, obj *types.BlendSupplyChangeModel) (types.StateChangeCategory, error) {
+	return obj.StateChangeCategory, nil
+}
+
+// Reason is the resolver for the reason field.
+func (r *blendSupplyChangeResolver) Reason(ctx context.Context, obj *types.BlendSupplyChangeModel) (types.StateChangeReason, error) {
+	return obj.StateChangeReason, nil
+}
+
+// Account is the resolver for the account field.
+func (r *blendSupplyChangeResolver) Account(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Account, error) {
+	return r.resolveStateChangeAccount(obj.AccountID)
+}
+
+// Operation is the resolver for the operation field.
+func (r *blendSupplyChangeResolver) Operation(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Operation, error) {
+	return r.resolveStateChangeOperation(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// Transaction is the resolver for the transaction field.
+func (r *blendSupplyChangeResolver) Transaction(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Transaction, error) {
+	return r.resolveStateChangeTransaction(ctx, obj.ToID, obj.OperationID, obj.StateChangeID, obj.LedgerCreatedAt)
+}
+
+// TokenID is the resolver for the tokenId field.
+func (r *blendSupplyChangeResolver) TokenID(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error) {
+	return r.resolveRequiredAddress(obj.TokenID, "tokenId")
+}
+
+// Amount is the resolver for the amount field.
+func (r *blendSupplyChangeResolver) Amount(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error) {
+	return r.resolveRequiredString(obj.Amount, "amount")
+}
+
+// PoolID is the resolver for the poolId field.
+func (r *blendSupplyChangeResolver) PoolID(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error) {
+	return r.resolveRequiredKeyValueString(obj.KeyValue, "poolId")
+}
+
+// Category is the resolver for the category field.
 func (r *dataEntryAddedChangeResolver) Category(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeCategory, error) {
 	return obj.StateChangeCategory, nil
 }
@@ -800,6 +1115,46 @@ func (r *Resolver) BalanceAuthorizationChange() graphql1.BalanceAuthorizationCha
 // BalanceChange returns graphql1.BalanceChangeResolver implementation.
 func (r *Resolver) BalanceChange() graphql1.BalanceChangeResolver { return &balanceChangeResolver{r} }
 
+// BlendAuctionChange returns graphql1.BlendAuctionChangeResolver implementation.
+func (r *Resolver) BlendAuctionChange() graphql1.BlendAuctionChangeResolver {
+	return &blendAuctionChangeResolver{r}
+}
+
+// BlendBackstopChange returns graphql1.BlendBackstopChangeResolver implementation.
+func (r *Resolver) BlendBackstopChange() graphql1.BlendBackstopChangeResolver {
+	return &blendBackstopChangeResolver{r}
+}
+
+// BlendBackstopEmissionsClaimChange returns graphql1.BlendBackstopEmissionsClaimChangeResolver implementation.
+func (r *Resolver) BlendBackstopEmissionsClaimChange() graphql1.BlendBackstopEmissionsClaimChangeResolver {
+	return &blendBackstopEmissionsClaimChangeResolver{r}
+}
+
+// BlendBackstopQueueChange returns graphql1.BlendBackstopQueueChangeResolver implementation.
+func (r *Resolver) BlendBackstopQueueChange() graphql1.BlendBackstopQueueChangeResolver {
+	return &blendBackstopQueueChangeResolver{r}
+}
+
+// BlendCollateralChange returns graphql1.BlendCollateralChangeResolver implementation.
+func (r *Resolver) BlendCollateralChange() graphql1.BlendCollateralChangeResolver {
+	return &blendCollateralChangeResolver{r}
+}
+
+// BlendDebtChange returns graphql1.BlendDebtChangeResolver implementation.
+func (r *Resolver) BlendDebtChange() graphql1.BlendDebtChangeResolver {
+	return &blendDebtChangeResolver{r}
+}
+
+// BlendEmissionsClaimChange returns graphql1.BlendEmissionsClaimChangeResolver implementation.
+func (r *Resolver) BlendEmissionsClaimChange() graphql1.BlendEmissionsClaimChangeResolver {
+	return &blendEmissionsClaimChangeResolver{r}
+}
+
+// BlendSupplyChange returns graphql1.BlendSupplyChangeResolver implementation.
+func (r *Resolver) BlendSupplyChange() graphql1.BlendSupplyChangeResolver {
+	return &blendSupplyChangeResolver{r}
+}
+
 // DataEntryAddedChange returns graphql1.DataEntryAddedChangeResolver implementation.
 func (r *Resolver) DataEntryAddedChange() graphql1.DataEntryAddedChangeResolver {
 	return &dataEntryAddedChangeResolver{r}
@@ -866,23 +1221,31 @@ func (r *Resolver) TrustlineUpdatedChange() graphql1.TrustlineUpdatedChangeResol
 }
 
 type (
-	accountCreatedChangeResolver       struct{ *Resolver }
-	accountFlagsChangeResolver         struct{ *Resolver }
-	accountMergedChangeResolver        struct{ *Resolver }
-	allowanceChangeResolver            struct{ *Resolver }
-	balanceAuthorizationChangeResolver struct{ *Resolver }
-	balanceChangeResolver              struct{ *Resolver }
-	dataEntryAddedChangeResolver       struct{ *Resolver }
-	dataEntryRemovedChangeResolver     struct{ *Resolver }
-	dataEntryUpdatedChangeResolver     struct{ *Resolver }
-	homeDomainClearedChangeResolver    struct{ *Resolver }
-	homeDomainSetChangeResolver        struct{ *Resolver }
-	homeDomainUpdatedChangeResolver    struct{ *Resolver }
-	signerAddedChangeResolver          struct{ *Resolver }
-	signerRemovedChangeResolver        struct{ *Resolver }
-	signerUpdatedChangeResolver        struct{ *Resolver }
-	thresholdChangeResolver            struct{ *Resolver }
-	trustlineAddedChangeResolver       struct{ *Resolver }
-	trustlineRemovedChangeResolver     struct{ *Resolver }
-	trustlineUpdatedChangeResolver     struct{ *Resolver }
+	accountCreatedChangeResolver              struct{ *Resolver }
+	accountFlagsChangeResolver                struct{ *Resolver }
+	accountMergedChangeResolver               struct{ *Resolver }
+	allowanceChangeResolver                   struct{ *Resolver }
+	balanceAuthorizationChangeResolver        struct{ *Resolver }
+	balanceChangeResolver                     struct{ *Resolver }
+	blendAuctionChangeResolver                struct{ *Resolver }
+	blendBackstopChangeResolver               struct{ *Resolver }
+	blendBackstopEmissionsClaimChangeResolver struct{ *Resolver }
+	blendBackstopQueueChangeResolver          struct{ *Resolver }
+	blendCollateralChangeResolver             struct{ *Resolver }
+	blendDebtChangeResolver                   struct{ *Resolver }
+	blendEmissionsClaimChangeResolver         struct{ *Resolver }
+	blendSupplyChangeResolver                 struct{ *Resolver }
+	dataEntryAddedChangeResolver              struct{ *Resolver }
+	dataEntryRemovedChangeResolver            struct{ *Resolver }
+	dataEntryUpdatedChangeResolver            struct{ *Resolver }
+	homeDomainClearedChangeResolver           struct{ *Resolver }
+	homeDomainSetChangeResolver               struct{ *Resolver }
+	homeDomainUpdatedChangeResolver           struct{ *Resolver }
+	signerAddedChangeResolver                 struct{ *Resolver }
+	signerRemovedChangeResolver               struct{ *Resolver }
+	signerUpdatedChangeResolver               struct{ *Resolver }
+	thresholdChangeResolver                   struct{ *Resolver }
+	trustlineAddedChangeResolver              struct{ *Resolver }
+	trustlineRemovedChangeResolver            struct{ *Resolver }
+	trustlineUpdatedChangeResolver            struct{ *Resolver }
 )

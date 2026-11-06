@@ -65,6 +65,7 @@ services:
       <<: *wallet-backend-env
       LEDGER_BACKEND_TYPE: rpc
       INGEST_SERVER_PORT: 8002
+      # BLEND_PRICE_INTERVAL: 60s   # wait between Blend oracle price snapshot passes; 0 disables them
     ports:
       - 8002:8002
     depends_on:

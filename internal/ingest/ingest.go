@@ -23,6 +23,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/blend"   // also registers BLEND validator + processor via init()
 	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
@@ -95,6 +96,9 @@ type Configs struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+	// BlendPriceInterval is the wait between Blend v2 oracle price snapshot passes.
+	// 0 disables the snapshot task. Only takes effect in live ingestion mode.
+	BlendPriceInterval time.Duration
 }
 
 func (c Configs) BuildPoolConfig() db.PoolConfig {
@@ -222,6 +226,26 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
 	}
 
+	// The Blend v2 oracle price snapshot task. Live-only: backfill replays historical
+	// ledgers and has no use for a periodic wall-clock snapshot of current prices.
+	var postLockTasks []func(context.Context)
+	if cfg.IngestionMode == services.IngestionModeLive && cfg.BlendPriceInterval > 0 {
+		blendPrices, err := blend.NewPriceSnapshotService(blend.PriceSnapshotConfig{
+			OraclePrices:      models.Blend.OraclePrices,
+			Metadata:          contractMetadataService,
+			Interval:          cfg.BlendPriceInterval,
+			NetworkPassphrase: cfg.NetworkPassphrase,
+			RPC:               rpcService,
+			Metrics:           m.BlendPrices,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("instantiating blend price snapshot service: %w", err)
+		}
+		// Started by the ingest service only after it acquires the live
+		// advisory lock — a lock-losing instance must not snapshot prices.
+		postLockTasks = append(postLockTasks, blendPrices.Run)
+	}
+
 	// Build a single ProtocolDeps to pass through both the validator and
 	// processor registries. cmd/ingest knows nothing about specific
 	// protocols — adding a new one is a blank import elsewhere plus a SQL
@@ -317,6 +341,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
+		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)

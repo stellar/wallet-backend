@@ -34,6 +34,11 @@ type ContractModelInterface interface {
 	// tokens an earlier run resolved, or that were written directly over SQL.
 	// Reads through any db.Querier (pool or transaction).
 	GetWithMetadata(ctx context.Context, q db.Querier, contractIDs []string) ([]string, error)
+
+	// GetTokenMetadataByContractIDs returns name/symbol/decimals metadata for the
+	// given contract addresses. Contracts with no matching row are silently
+	// omitted (no error).
+	GetTokenMetadataByContractIDs(ctx context.Context, contractIDs []string) ([]Contract, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
@@ -106,6 +111,29 @@ func (m *ContractModel) GetWithMetadata(ctx context.Context, q db.Querier, contr
 		return nil, fmt.Errorf("querying contract IDs with metadata: %w", err)
 	}
 	return ids, nil
+}
+
+// GetTokenMetadataByContractIDs returns name/symbol/decimals metadata for the
+// given contract addresses (C...). Contracts with no matching row are
+// silently omitted (no error). Returns an empty, non-nil slice without
+// querying when contractIDs is empty.
+func (m *ContractModel) GetTokenMetadataByContractIDs(ctx context.Context, contractIDs []string) ([]Contract, error) {
+	if len(contractIDs) == 0 {
+		return []Contract{}, nil
+	}
+
+	const query = `SELECT contract_id, name, symbol, decimals FROM contract_tokens WHERE contract_id = ANY($1)`
+
+	start := time.Now()
+	contracts, err := db.QueryMany[Contract](ctx, m.DB, query, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetTokenMetadataByContractIDs", "contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetTokenMetadataByContractIDs", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetTokenMetadataByContractIDs", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying contract token metadata: %w", err)
+	}
+	return contracts, nil
 }
 
 // BatchInsert inserts multiple contracts with pre-computed deterministic IDs.

@@ -14,6 +14,7 @@ import (
 	// the import cycle a protocol package (which imports services) would create
 	// with an in-package test. Add new protocol packages here as they land so
 	// BuildProcessors validates their state_change_id bases in CI automatically.
+	_ "github.com/stellar/wallet-backend/internal/services/blend"
 	_ "github.com/stellar/wallet-backend/internal/services/sep41"
 )
 

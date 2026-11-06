@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"go/types"
 	"time"
 
@@ -122,13 +123,36 @@ func GetLedgersLimitOption(configKey *int) *config.ConfigOption {
 	}
 }
 
+// BlendPriceIntervalOption returns the config option for the wait between Blend v2 oracle
+// price snapshot passes. Setting it to 0 disables the snapshot task entirely; negative
+// values are rejected at startup so a typo can't silently disable price updates.
+func BlendPriceIntervalOption(configKey *time.Duration) *config.ConfigOption {
+	return &config.ConfigOption{
+		Name:    "blend-price-interval",
+		Usage:   `Interval between Blend v2 oracle price snapshot passes (Go duration string, e.g. "60s"). 0 disables the snapshot task.`,
+		OptType: types.String,
+		CustomSetValue: func(co *config.ConfigOption) error {
+			if err := SetConfigOptionDuration(co); err != nil {
+				return err
+			}
+			if d := *co.ConfigKey.(*time.Duration); d < 0 {
+				return fmt.Errorf("%s must not be negative (0 disables the task), got %s", co.Name, d)
+			}
+			return nil
+		},
+		ConfigKey:   configKey,
+		FlagDefault: "60s",
+		Required:    false,
+	}
+}
+
 func GraphQLComplexityLimitOption(configKey *int) *config.ConfigOption {
 	return &config.ConfigOption{
 		Name:        "graphql-complexity-limit",
-		Usage:       "The maximum complexity limit for GraphQL queries. Complexity is calculated based on fields and pagination parameters. gqlgen sums mutually exclusive inline fragments, so the limit must accommodate a full-detail query selecting every BaseStateChange implementer (~7600 at first:100).",
+		Usage:       "The maximum complexity limit for GraphQL queries, computed from the selected fields and the pagination arguments. The default admits the heaviest queries pkg/wbclient ships: the full-detail account-history query costs ~10,100 at first:100 (gqlgen sums mutually exclusive inline fragments, so every BaseStateChange implementer is charged), and the blendPools catalog query ~26,550 at its own first:50 page cap. This limit is the primary guard against resource exhaustion via expensive queries, so a deployment that does not serve Blend should lower it.",
 		OptType:     types.Int,
 		ConfigKey:   configKey,
-		FlagDefault: 10_000,
+		FlagDefault: 30_000,
 		Required:    false,
 	}
 }

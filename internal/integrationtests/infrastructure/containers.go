@@ -162,6 +162,16 @@ func ensureWalletBackendImage(ctx context.Context, tag string) (string, error) {
 }
 
 // createCoreDBContainer starts a PostgreSQL container for Stellar Core
+// postgresReady waits until a Postgres container serves connections. The image's entrypoint
+// runs a temporary server for initialization and then restarts, so the listening port alone
+// can open before the final server is up; the second "ready" log line is the final one.
+func postgresReady() wait.Strategy {
+	return wait.ForAll(
+		wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+		wait.ForListeningPort("5432/tcp"),
+	)
+}
+
 func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.DockerNetwork) (*TestContainer, error) {
 	containerRequest := testcontainers.ContainerRequest{
 		Name:  "core-postgres",
@@ -175,7 +185,7 @@ func createCoreDBContainer(ctx context.Context, testNetwork *testcontainers.Dock
 		},
 		Networks:     []string{testNetwork.Name},
 		ExposedPorts: []string{"5432/tcp"},
-		WaitingFor:   wait.ForListeningPort("5432/tcp"),
+		WaitingFor:   postgresReady(),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -379,7 +389,7 @@ func createWalletDBContainer(ctx context.Context, testNetwork *testcontainers.Do
 		},
 		Networks:     []string{testNetwork.Name},
 		ExposedPorts: []string{"5432/tcp"},
-		WaitingFor:   wait.ForListeningPort("5432/tcp"),
+		WaitingFor:   postgresReady(),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -462,6 +472,7 @@ func createWalletBackendIngestContainer(ctx context.Context, name string, imageN
 // createWalletBackendAPIContainer creates a new wallet-backend container using the shared network
 func createWalletBackendAPIContainer(ctx context.Context, name string, imageName string,
 	testNetwork *testcontainers.DockerNetwork, clientAuthKeyPair *keypair.Full,
+	extraEnv map[string]string,
 ) (*TestContainer, error) {
 	// Prepare container request
 	containerRequest := testcontainers.ContainerRequest{
@@ -476,16 +487,21 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 		},
 		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerAPIPort)},
 		Env: map[string]string{
-			"RPC_URL":                  "http://stellar-rpc:8000",
-			"DATABASE_URL":             "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
-			"PORT":                     walletBackendContainerAPIPort,
-			"GRAPHQL_COMPLEXITY_LIMIT": "5000",
-			"LOG_LEVEL":                "DEBUG",
-			"NETWORK_PASSPHRASE":       networkPassphrase,
-			"CLIENT_AUTH_PUBLIC_KEYS":  clientAuthKeyPair.Address(),
+			"RPC_URL":      "http://stellar-rpc:8000",
+			"DATABASE_URL": "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
+			"PORT":         walletBackendContainerAPIPort,
+			// GRAPHQL_COMPLEXITY_LIMIT is deliberately left unset: the suite issues the SDK's
+			// full-selection queries, so it must prove they fit the shipped default.
+			"LOG_LEVEL":               "DEBUG",
+			"NETWORK_PASSPHRASE":      networkPassphrase,
+			"CLIENT_AUTH_PUBLIC_KEYS": clientAuthKeyPair.Address(),
 		},
 		Networks:   []string{testNetwork.Name},
 		WaitingFor: wait.ForHTTP("/health").WithPort(walletBackendContainerAPIPort + "/tcp"),
+	}
+
+	for k, v := range extraEnv {
+		containerRequest.Env[k] = v
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -534,7 +550,8 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 		Cmd: []string{
 			"wallet-backend ingest", // No migrations needed, DB already set up
 		},
-		ExposedPorts: []string{fmt.Sprintf("%s/tcp", walletBackendContainerIngestPort)},
+		// No exposed port: the test watches the container's state and the DB cursors, and a
+		// short backfill can exit before Docker reports a port mapping.
 		Env: map[string]string{
 			"RPC_URL":              "http://stellar-rpc:8000",
 			"DATABASE_URL":         "postgres://postgres@wallet-backend-db:5432/wallet-backend?sslmode=disable",
@@ -574,10 +591,7 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 
 	log.Ctx(ctx).Infof("🔄 Created Backfill container (ledgers %d-%d)", startLedger, endLedger)
 
-	testContainer := &TestContainer{
-		Container:     container,
-		MappedPortStr: walletBackendContainerIngestPort,
-	}
+	testContainer := &TestContainer{Container: container}
 
 	// Store reference for WaitForBackfillCompletion
 	s.BackfillContainer = testContainer

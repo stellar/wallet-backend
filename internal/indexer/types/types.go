@@ -667,6 +667,18 @@ const (
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
+
+	// Blend v2 lending categories. Each names the on-chain object an account
+	// position changes against, mirroring the core convention (category =
+	// object, reason = action).
+	StateChangeCategoryBlendSupply            StateChangeCategory = "BLEND_SUPPLY"
+	StateChangeCategoryBlendCollateral        StateChangeCategory = "BLEND_COLLATERAL"
+	StateChangeCategoryBlendDebt              StateChangeCategory = "BLEND_DEBT"
+	StateChangeCategoryBlendAuction           StateChangeCategory = "BLEND_AUCTION"
+	StateChangeCategoryBlendEmissions         StateChangeCategory = "BLEND_EMISSIONS"
+	StateChangeCategoryBlendBackstopEmissions StateChangeCategory = "BLEND_BACKSTOP_EMISSIONS"
+	StateChangeCategoryBlendBackstop          StateChangeCategory = "BLEND_BACKSTOP"
+	StateChangeCategoryBlendBackstopQueue     StateChangeCategory = "BLEND_BACKSTOP_QUEUE"
 )
 
 type StateChangeReason string
@@ -683,6 +695,16 @@ const (
 	StateChangeReasonUpdate StateChangeReason = "UPDATE"
 	StateChangeReasonSet    StateChangeReason = "SET"
 	StateChangeReasonClear  StateChangeReason = "CLEAR"
+
+	// Blend v2 lending reasons. Amount-bearing positions reuse CREDIT/DEBIT
+	// (and the queue ADD/REMOVE, defaulted debt BURN); the verbs below cover
+	// actions with no generic equivalent.
+	StateChangeReasonBorrow    StateChangeReason = "BORROW"
+	StateChangeReasonRepay     StateChangeReason = "REPAY"
+	StateChangeReasonFlashLoan StateChangeReason = "FLASH_LOAN"
+	StateChangeReasonBadDebt   StateChangeReason = "BAD_DEBT"
+	StateChangeReasonFill      StateChangeReason = "FILL"
+	StateChangeReasonClaim     StateChangeReason = "CLAIM"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
@@ -942,6 +964,7 @@ const (
 // its entry here.
 var StateChangeOrdinalBaseByProtocol = map[string]int64{
 	"SEP41": StateChangeOrdinalBaseSEP41,
+	"BLEND": StateChangeOrdinalBaseBlend,
 }
 
 // Sub-namespace registry within the indexer's emitter namespace.
@@ -1243,5 +1266,48 @@ type TrustlineRemovedChangeModel struct {
 
 // BalanceAuthorizationChangeModel maps to GraphQL BalanceAuthorizationChange: BALANCE_AUTHORIZATION × SET/CLEAR.
 type BalanceAuthorizationChangeModel struct {
+	StateChange
+}
+
+// Blend v2 state-change models. One per concrete GraphQL type; the category
+// names the on-chain object and the reason the action (see the schema docs).
+
+// BlendSupplyChangeModel maps to BlendSupplyChange in the GraphQL schema.
+type BlendSupplyChangeModel struct {
+	StateChange
+}
+
+// BlendCollateralChangeModel maps to BlendCollateralChange in the GraphQL schema.
+type BlendCollateralChangeModel struct {
+	StateChange
+}
+
+// BlendDebtChangeModel maps to BlendDebtChange in the GraphQL schema.
+type BlendDebtChangeModel struct {
+	StateChange
+}
+
+// BlendAuctionChangeModel maps to BlendAuctionChange in the GraphQL schema.
+type BlendAuctionChangeModel struct {
+	StateChange
+}
+
+// BlendEmissionsClaimChangeModel maps to BlendEmissionsClaimChange in the GraphQL schema.
+type BlendEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopEmissionsClaimChangeModel maps to BlendBackstopEmissionsClaimChange in the GraphQL schema.
+type BlendBackstopEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopChangeModel maps to BlendBackstopChange in the GraphQL schema.
+type BlendBackstopChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopQueueChangeModel maps to BlendBackstopQueueChange in the GraphQL schema.
+type BlendBackstopQueueChangeModel struct {
 	StateChange
 }

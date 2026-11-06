@@ -95,4 +95,7 @@ type Account {
     """Cursor from a previous page. Returns the edges before it. Requires `last`; ignored without it."""
     before: String
   ): SEP41AllowanceConnection! @goField(forceResolver: true)
+
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
 }

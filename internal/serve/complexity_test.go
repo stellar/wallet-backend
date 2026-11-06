@@ -298,6 +298,186 @@ func TestGraphQLComplexityAccountingUsesSharedDefaultsAndExplicitArgs(t *testing
 	}
 }
 
+// TestGraphQLComplexityAccountingForBlendFields locks in the multipliers added for the Blend
+// v2 fields in addComplexityCalculation: every Blend list level carries its own cardinality
+// (catalog: the client-declared first/last page size, default 50; per-account lists ×10;
+// reserves/bid/lot ×30; q4w ×20), so nested lists are priced as the product of the levels,
+// not folded into a single outer multiplier. On top of that, blendPositions and blendPool
+// carry a flat additive cost equal to the DB queries one resolution issues (13 and 7), so a
+// selection of a single scalar is never priced as if it were cheap. Each case selects a
+// minimal field set so the expected complexity is easy to verify by hand and stays stable
+// across unrelated schema edits.
+//
+// The full-selection cost of these fields is what the default GRAPHQL_COMPLEXITY_LIMIT is
+// sized for; complexity_regression_test.go prices the SDK's own documents against that default.
+// The pricing here leaves AccountTransactionEdge.operations/stateChanges and every other
+// pre-existing complexity entry untouched, so the account-history query is priced exactly as
+// before — its cost rose only because the SDK's state-change selection gained Blend fragments,
+// not because this accounting changed.
+func TestGraphQLComplexityAccountingForBlendFields(t *testing.T) {
+	testCases := []struct {
+		name            string
+		limit           int
+		query           string
+		expectedMessage string
+	}{
+		{
+			name:  "blendPools defaults to the DefaultPageLimit multiplier when first/last is omitted",
+			limit: 149,
+			query: `query {
+				blendPools {
+					edges { node { address } }
+				}
+			}`,
+			// edges(1)+node(1)+address(1) => childComplexity 3 => 3*50 = 150.
+			expectedMessage: "operation has complexity 150, which exceeds the limit of 149",
+		},
+		{
+			name:  "blendPools prices by the client-declared first",
+			limit: 5,
+			query: `query {
+				blendPools(first: 2) {
+					edges { node { address } }
+				}
+			}`,
+			// edges(1)+node(1)+address(1) => childComplexity 3 => 3*2 = 6.
+			expectedMessage: "operation has complexity 6, which exceeds the limit of 5",
+		},
+		{
+			name:  "blendPools reserves multiply by MAX_RESERVES inside the page multiplier",
+			limit: 65,
+			query: `query {
+				blendPools(first: 2) {
+					edges { node {
+						address
+						reserves {
+							assetContractId
+						}
+					} }
+				}
+			}`,
+			// reserves{assetContractId}: 30*1=30. node children: address(1)+reserves(30)=31;
+			// edges(1)+node(1)+31 = 33 => 33*2 = 66.
+			expectedMessage: "operation has complexity 66, which exceeds the limit of 65",
+		},
+		{
+			name:  "blendPool (single) carries its flat per-resolution query cost",
+			limit: 7,
+			query: `query {
+				blendPool(address: "` + complexityTestAccountAddress + `") {
+					address
+				}
+			}`,
+			// address(1) + 7 (queries one blendPool resolution issues) = 8.
+			expectedMessage: "operation has complexity 8, which exceeds the limit of 7",
+		},
+		{
+			name:  "account blendPositions carries its flat per-resolution query cost",
+			limit: 15,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					blendPositions {
+						backstopClaimed {
+							lpTokens
+						}
+					}
+				}
+			}`,
+			// blendPositions{backstopClaimed{lpTokens}}: backstopClaimed(1+1) + 13 = 15.
+			// accountByAddress (default) = 1+15=16.
+			expectedMessage: "operation has complexity 16, which exceeds the limit of 15",
+		},
+		{
+			name:  "account blendPositions pools/backstop multiply per level",
+			limit: 535,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					blendPositions {
+						pools {
+							poolAddress
+							reserves {
+								assetContractId
+							}
+						}
+						backstop {
+							poolAddress
+							q4w {
+								amount
+							}
+						}
+						backstopClaimed {
+							lpTokens
+						}
+					}
+				}
+			}`,
+			// reserves{assetContractId}=30*1=30; pools item=poolAddress(1)+reserves(30)=31; pools field=10*31=310.
+			// q4w{amount}=20*1=20; backstop item=poolAddress(1)+q4w(20)=21; backstop field=10*21=210.
+			// blendPositions childComplexity = pools(310)+backstop(210)+backstopClaimed(2)=522 => 522+13=535.
+			// accountByAddress (default) = 1+535=536.
+			expectedMessage: "operation has complexity 536, which exceeds the limit of 535",
+		},
+		{
+			name:  "auction bid/lot amounts multiply under activeAuctions",
+			limit: 323,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					blendPositions {
+						activeAuctions {
+							poolAddress
+							bid {
+								amount
+							}
+						}
+					}
+				}
+			}`,
+			// bid{amount}=30*1=30; auction item=poolAddress(1)+bid(30)=31; activeAuctions=10*31=310.
+			// blendPositions = 310+13=323; accountByAddress = 1+323=324.
+			expectedMessage: "operation has complexity 324, which exceeds the limit of 323",
+		},
+		{
+			// The amplification path the flat cost exists for: stateChanges is an unpaginated
+			// list of BaseStateChange, every one of which exposes account: Account!, so one
+			// blendPositions resolution (13 queries) runs per state-change row of the page.
+			name:  "blendPositions nested under an account-history page is priced per row",
+			limit: 1800,
+			query: `query {
+				accountByAddress(address: "` + complexityTestAccountAddress + `") {
+					transactions(first: 100) {
+						edges {
+							stateChanges {
+								account {
+									blendPositions {
+										backstopClaimed {
+											lpTokens
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}`,
+			// blendPositions = backstopClaimed(2)+13 = 15; account = 1+15 = 16;
+			// stateChanges = 1+16 = 17; edges = 1+17 = 18; transactions(first:100) = 18*100 = 1800;
+			// accountByAddress = 1+1800 = 1801. Without the flat cost the same shape prices at 601.
+			expectedMessage: "operation has complexity 1801, which exceeds the limit of 1800",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := performGraphQLRequest(t, newGraphQLTestHandler(t, tc.limit), tc.query)
+
+			require.Len(t, resp.Errors, 1)
+			assert.Equal(t, tc.expectedMessage, resp.Errors[0].Message)
+			assert.Equal(t, "COMPLEXITY_LIMIT_EXCEEDED", resp.Errors[0].Extensions["code"])
+			assert.Equal(t, "null", string(resp.Data))
+		})
+	}
+}
+
 func TestGraphQLComplexityLimitAllowsSmallQueries(t *testing.T) {
 	resp := performGraphQLRequest(t, newGraphQLTestHandler(t, 10), `query {
 		transactionByHash(hash: "`+complexityTestTxHash+`") {
