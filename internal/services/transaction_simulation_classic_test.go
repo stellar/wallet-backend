@@ -33,6 +33,35 @@ func classicFixture(t *testing.T, entries ...entities.LedgerEntryResult) *transa
 	return svc
 }
 
+// filteringRPCMock serves only the entries whose keys are actually requested,
+// so tests can catch footprint keys the service forgot to fetch, which the
+// permissive classicFixture mock would hide.
+type filteringRPCMock struct {
+	RPCServiceMock
+	entries map[string]entities.LedgerEntryResult
+}
+
+func (f *filteringRPCMock) GetLedgerEntries(keys []string) (entities.RPCGetLedgerEntriesResult, error) {
+	out := entities.RPCGetLedgerEntriesResult{LatestLedger: 5_000_000}
+	for _, k := range keys {
+		if e, ok := f.entries[k]; ok {
+			out.Entries = append(out.Entries, e)
+		}
+	}
+	return out, nil
+}
+
+func classicStrictFixture(t *testing.T, entries ...entities.LedgerEntryResult) *transactionSimulationService {
+	t.Helper()
+	m := &filteringRPCMock{entries: map[string]entities.LedgerEntryResult{}}
+	for _, e := range entries {
+		m.entries[e.KeyXDR] = e
+	}
+	svc, err := NewTransactionSimulationService(m, nil, network.TestNetworkPassphrase)
+	require.NoError(t, err)
+	return svc
+}
+
 func ledgerEntryResult(t *testing.T, key xdr.LedgerKey, data xdr.LedgerEntryData) entities.LedgerEntryResult {
 	t.Helper()
 	keyB64, err := xdr.MarshalBase64(key)
@@ -2075,6 +2104,70 @@ func TestTransactionSimulationService_classicReviewFixesPR6(t *testing.T) {
 			}
 		}
 		require.NotNil(t, authChange, "expected a BALANCE_AUTHORIZATION state change")
+	})
+
+	t.Run("🟢 claiming a balance created earlier in the same transaction works", func(t *testing.T) {
+		// The balance is not on the ledger when the footprint is fetched, so
+		// the claimant's trustline key must be derived from the create
+		// operation itself.
+		claimant := keypair.MustRandom().Address()
+		claimantAID := xdr.MustAddress(claimant)
+		claimantMux := claimantAID.ToMuxedAccount()
+		holderAID := xdr.MustAddress(holder)
+		env := xdr.TransactionEnvelope{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			V1: &xdr.TransactionV1Envelope{
+				Tx: xdr.Transaction{
+					SourceAccount: holderAID.ToMuxedAccount(),
+					Fee:           200,
+					SeqNum:        1,
+					Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+					Operations: []xdr.Operation{
+						{Body: xdr.OperationBody{
+							Type: xdr.OperationTypeCreateClaimableBalance,
+							CreateClaimableBalanceOp: &xdr.CreateClaimableBalanceOp{
+								Asset:  asset,
+								Amount: 20_0000000,
+								Claimants: []xdr.Claimant{{
+									Type: xdr.ClaimantTypeClaimantTypeV0,
+									V0: &xdr.ClaimantV0{
+										Destination: claimantAID,
+										Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional},
+									},
+								}},
+							},
+						}},
+						{SourceAccount: &claimantMux, Body: xdr.OperationBody{
+							Type:                    xdr.OperationTypeClaimClaimableBalance,
+							ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{},
+						}},
+					},
+				},
+			},
+		}
+		id, err := claimableBalanceID(env, 0)
+		require.NoError(t, err)
+		env.V1.Tx.Operations[1].Body.ClaimClaimableBalanceOp.BalanceId = id
+		txXDR, err := xdr.MarshalBase64(env)
+		require.NoError(t, err)
+
+		svc := classicStrictFixture(t,
+			accountEntryResult(t, holder, 100_0000000),
+			accountEntryResult(t, claimant, 100_0000000),
+			trustlineEntryResult(t, holder, asset, 50_0000000, 100_0000000),
+			trustlineEntryResult(t, claimant, asset, 0, 100_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, txXDR)
+		require.NoError(t, err)
+
+		var credit *types.StateChange
+		for i, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryBalance && sc.StateChangeReason == types.StateChangeReasonCredit && string(sc.AccountID) == claimant {
+				credit = &result.StateChanges[i]
+			}
+		}
+		require.NotNil(t, credit, "expected a (BALANCE, CREDIT) on the claimant")
+		assert.Equal(t, "200000000", credit.Amount.String)
 	})
 
 	t.Run("🔴 merging the creator right after creating a claimable balance is a would-fail", func(t *testing.T) {
