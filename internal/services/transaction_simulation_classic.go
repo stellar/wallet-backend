@@ -12,6 +12,11 @@ import (
 // accept approximate reserve math, so a constant is good enough here.
 const baseReserveStroops = 5_000_000
 
+// maxAccountSigners is the ledger's cap on extra signers per account (the
+// master key is not in the list): AccountEntry declares `Signer signers<20>`,
+// and Core rejects the 21st with SET_OPTIONS_TOO_MANY_SIGNERS.
+const maxAccountSigners = 20
+
 // ledgerTransactionFromClassic builds the simulated ledger transaction for a
 // classic transaction. RPC cannot simulate classic operations, so this path
 // derives the outcome itself in three steps: list the ledger entries the
@@ -482,7 +487,20 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 		after.HomeDomain = *so.HomeDomain
 	}
 	if so.Signer != nil {
-		after.Signers = applySignerChange(after.Signers, *so.Signer)
+		exists := false
+		for _, s := range account.Signers {
+			if s.Key.Equals(so.Signer.Key) {
+				exists = true
+				break
+			}
+		}
+		if so.Signer.Weight == 0 && !exists {
+			return nil, wouldFail("account %s has no signer %s to remove", opSource.Address(), so.Signer.Key.Address())
+		}
+		if so.Signer.Weight > 0 && !exists && len(account.Signers) >= maxAccountSigners {
+			return nil, wouldFail("account %s already has the maximum of %d signers", opSource.Address(), maxAccountSigners)
+		}
+		applySignerChange(&after, *so.Signer)
 		// A new signer is a subentry: it locks one more base reserve; a
 		// removed one releases it.
 		switch {
@@ -501,25 +519,53 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	return accountChangePair(account, after), nil
 }
 
-// applySignerChange returns the signer list after applying one change: a weight
-// of zero removes the signer, any other weight adds or updates it.
-func applySignerChange(signers []xdr.Signer, change xdr.Signer) []xdr.Signer {
-	out := make([]xdr.Signer, 0, len(signers)+1)
+// applySignerChange applies one signer change to the account: a weight of zero
+// removes the signer, any other weight adds or updates it. An account carrying
+// the v2 extension holds exactly one sponsoring-ID slot per signer and the
+// processors index the two slices together, so the slots are rebuilt in
+// lockstep, into fresh extension structs because the originals are shared with
+// the before entry.
+func applySignerChange(account *xdr.AccountEntry, change xdr.Signer) {
+	hasV2 := account.Ext.V1 != nil && account.Ext.V1.Ext.V2 != nil
+	var oldIDs []xdr.SponsorshipDescriptor
+	if hasV2 {
+		oldIDs = account.Ext.V1.Ext.V2.SignerSponsoringIDs
+	}
+
+	signers := make([]xdr.Signer, 0, len(account.Signers)+1)
+	ids := make([]xdr.SponsorshipDescriptor, 0, len(account.Signers)+1)
 	found := false
-	for _, s := range signers {
+	for i, s := range account.Signers {
 		if s.Key.Equals(change.Key) {
 			found = true
 			if change.Weight > 0 {
-				out = append(out, change)
+				signers = append(signers, change)
+				if hasV2 {
+					ids = append(ids, oldIDs[i])
+				}
 			}
 			continue
 		}
-		out = append(out, s)
+		signers = append(signers, s)
+		if hasV2 {
+			ids = append(ids, oldIDs[i])
+		}
 	}
 	if !found && change.Weight > 0 {
-		out = append(out, change)
+		signers = append(signers, change)
+		// The account pays the new signer's reserve itself, so its slot is
+		// unsponsored.
+		ids = append(ids, nil)
 	}
-	return out
+
+	account.Signers = signers
+	if hasV2 {
+		v1 := *account.Ext.V1
+		v2 := *v1.Ext.V2
+		v2.SignerSponsoringIDs = ids
+		v1.Ext.V2 = &v2
+		account.Ext.V1 = &v1
+	}
 }
 
 func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry, opSourceFee int64) (xdr.LedgerEntryChanges, error) {

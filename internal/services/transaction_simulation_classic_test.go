@@ -441,6 +441,78 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🟢 adding a signer keeps v2-extension sponsoring slots aligned", func(t *testing.T) {
+		// An account that was ever sponsored carries the v2 extension, where
+		// signerSponsoringIds must stay exactly as long as signers: the effects
+		// processor indexes the two together and panics on a mismatch.
+		id := xdr.MustAddress(src)
+		existing := xdr.MustSigner(keypair.MustRandom().Address())
+		entry := xdr.AccountEntry{
+			AccountId:     id,
+			Balance:       100_0000000,
+			SeqNum:        1,
+			Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			NumSubEntries: 1,
+			Signers:       []xdr.Signer{{Key: existing, Weight: 1}},
+			Ext: xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{
+				Ext: xdr.AccountEntryExtensionV1Ext{V: 2, V2: &xdr.AccountEntryExtensionV2{
+					SignerSponsoringIDs: []xdr.SponsorshipDescriptor{nil},
+				}},
+			}},
+		}
+		svc := classicFixture(t, ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &entry},
+		))
+		added := keypair.MustRandom().Address()
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			Signer: &txnbuild.Signer{Address: added, Weight: 5},
+		}))
+		require.NoError(t, err)
+
+		var signerAdd *types.StateChange
+		for i, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategorySigner && sc.StateChangeReason == types.StateChangeReasonAdd {
+				signerAdd = &result.StateChanges[i]
+			}
+		}
+		require.NotNil(t, signerAdd, "expected a (SIGNER, ADD) state change")
+		assert.Equal(t, added, signerAdd.SignerAccountID.String())
+	})
+
+	t.Run("🔴 removing a signer the account does not have is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			Signer: &txnbuild.Signer{Address: keypair.MustRandom().Address(), Weight: 0},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 adding a 21st signer is a would-fail", func(t *testing.T) {
+		// The ledger caps an account at 20 extra signers (Signer signers<20>).
+		id := xdr.MustAddress(src)
+		signers := make([]xdr.Signer, maxAccountSigners)
+		for i := range signers {
+			signers[i] = xdr.Signer{Key: xdr.MustSigner(keypair.MustRandom().Address()), Weight: 1}
+		}
+		entry := xdr.AccountEntry{
+			AccountId:     id,
+			Balance:       100_0000000,
+			SeqNum:        1,
+			Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			NumSubEntries: xdr.Uint32(maxAccountSigners),
+			Signers:       signers,
+		}
+		svc := classicFixture(t, ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &entry},
+		))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
+			Signer: &txnbuild.Signer{Address: keypair.MustRandom().Address(), Weight: 5},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 threshold above 255 is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		high := xdr.Uint32(300)
