@@ -2043,6 +2043,40 @@ func TestTransactionSimulationService_classicReviewFixesPR6(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🔴 fully revoking a trustline with open offers is unable to preview", func(t *testing.T) {
+		// Core cancels the trustor's offers (visible as liabilities) on full
+		// revocation; those entries cannot be fetched, so the preview fails
+		// closed as unsupported rather than showing a partial result.
+		svc := classicFixture(t,
+			accountEntryResultWithFlags(t, issuer, 100_0000000, xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)),
+			trustlineEntryResultWithLiabilities(t, holder, asset, 10_0000000, 100_0000000, 5_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: holder, Asset: txnbuild.CreditAsset{Code: "USDC", Issuer: issuer},
+			ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+	})
+
+	t.Run("🟢 fully revoking a clean trustline previews the flag change", func(t *testing.T) {
+		svc := classicFixture(t,
+			accountEntryResultWithFlags(t, issuer, 100_0000000, xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag)),
+			trustlineEntryResult(t, holder, asset, 10_0000000, 100_0000000),
+		)
+		result, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, issuer, &txnbuild.SetTrustLineFlags{
+			Trustor: holder, Asset: txnbuild.CreditAsset{Code: "USDC", Issuer: issuer},
+			ClearFlags: []txnbuild.TrustLineFlag{txnbuild.TrustLineAuthorized},
+		}))
+		require.NoError(t, err)
+		var authChange *types.StateChange
+		for i, sc := range result.StateChanges {
+			if sc.StateChangeCategory == types.StateChangeCategoryBalanceAuthorization {
+				authChange = &result.StateChanges[i]
+			}
+		}
+		require.NotNil(t, authChange, "expected a BALANCE_AUTHORIZATION state change")
+	})
+
 	t.Run("🔴 merging the creator right after creating a claimable balance is a would-fail", func(t *testing.T) {
 		// The create bumps the creator's numSponsoring in the working state, and
 		// Core refuses to merge an account that sponsors reserves.
