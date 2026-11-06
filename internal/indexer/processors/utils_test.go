@@ -1,12 +1,15 @@
 package processors
 
 import (
+	"bytes"
 	"encoding/base64"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
@@ -117,6 +120,147 @@ func Test_isClaimableBalance(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := isClaimableBalance(tt.id)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func Test_isLiquidityPool(t *testing.T) {
+	poolID, err := strkey.Encode(strkey.VersionByteLiquidityPool, make([]byte, 32))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		id       string
+		expected bool
+	}{
+		{name: "valid liquidity pool ID", id: poolID, expected: true},
+		{name: "regular account ID starting with G", id: "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", expected: false},
+		{name: "claimable balance ID starting with B", id: "BAAFK3PZYCD4YKOLFNOCJVG2JIHWOBE5NHU5FHY3ESAHMAO3C5RIYGTBDI", expected: false},
+		{name: "L prefix but not a valid strkey", id: "L" + poolID[1:len(poolID)-1] + "A", expected: false},
+		{name: "invalid string", id: "invalid-id", expected: false},
+		{name: "empty string", id: "", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isLiquidityPool(tt.id))
+		})
+	}
+}
+
+// Test_strkeyPrefixMatchesVersionByte pins the invariant the prefix gates in
+// isLiquidityPool and isClaimableBalance rest on: a strkey's first character is
+// fixed by its version byte and never by its payload, so a string that does not
+// start with that character cannot decode to that version byte. Both an
+// all-zero and an all-ones payload are encoded to show the payload does not
+// reach the leading character.
+func Test_strkeyPrefixMatchesVersionByte(t *testing.T) {
+	payloads := map[string][]byte{
+		"zero": make([]byte, 64),
+		"ones": bytes.Repeat([]byte{0xFF}, 64),
+	}
+	versionBytes := map[byte]struct {
+		versionByte strkey.VersionByte
+		payloadLen  int
+	}{
+		liquidityPoolStrkeyPrefix:    {strkey.VersionByteLiquidityPool, 32},
+		claimableBalanceStrkeyPrefix: {strkey.VersionByteClaimableBalance, 33},
+	}
+
+	for name, payload := range payloads {
+		for wantPrefix, v := range versionBytes {
+			t.Run(fmt.Sprintf("%s/%c", name, wantPrefix), func(t *testing.T) {
+				encoded, err := strkey.Encode(v.versionByte, payload[:v.payloadLen])
+				require.NoError(t, err)
+				assert.Equal(t, wantPrefix, encoded[0])
+			})
+		}
+	}
+}
+
+// memoAssetIssuerAlt is a second issuer, used to show the issuer participates in
+// the memo key.
+const memoAssetIssuerAlt = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+
+// memoEntryCount reports how many distinct assets the memo has cached.
+func memoEntryCount(memo *AssetContractIDMemo) int {
+	count := 0
+	memo.m.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// Test_AssetContractIDMemo pins the property the memo rests on: a cached lookup
+// returns exactly what an uncached derivation returns, for every asset shape,
+// and each distinct asset gets its own entry. The asset set separates the two
+// credit widths under one issuer (including the 4-vs-5 character boundary where
+// the width flips), one code under two issuers, and the native asset.
+func Test_AssetContractIDMemo(t *testing.T) {
+	assets := []struct {
+		name  string
+		asset xdr.Asset
+	}{
+		{name: "native", asset: xdr.MustNewNativeAsset()},
+		{name: "alphanum4", asset: xdr.MustNewCreditAsset(testAssetCode, testAssetIssuer)},
+		{name: "alphanum12 at the width boundary", asset: xdr.MustNewCreditAsset(testAssetCode+"X", testAssetIssuer)},
+		{name: "alphanum12 at full width", asset: xdr.MustNewCreditAsset("USDCOIN12345", testAssetIssuer)},
+		{name: "alphanum4 under another issuer", asset: xdr.MustNewCreditAsset(testAssetCode, memoAssetIssuerAlt)},
+	}
+
+	var memo AssetContractIDMemo
+	for _, tc := range assets {
+		t.Run(tc.name, func(t *testing.T) {
+			rawContractID, err := tc.asset.ContractID(networkPassphrase)
+			require.NoError(t, err)
+			want := strkey.MustEncode(strkey.VersionByteContract, rawContractID[:])
+
+			// The miss and the hit must both agree with the uncached derivation.
+			// A key that collided with an asset cached by an earlier subtest
+			// would surface here as the other asset's contract ID.
+			missed, err := memo.FromAsset(networkPassphrase, tc.asset)
+			require.NoError(t, err)
+			assert.Equal(t, want, missed)
+
+			hit, err := memo.FromAsset(networkPassphrase, tc.asset)
+			require.NoError(t, err)
+			assert.Equal(t, want, hit)
+		})
+	}
+	assert.Equal(t, len(assets), memoEntryCount(&memo), "each distinct asset must occupy its own entry")
+}
+
+// Test_AssetContractIDMemoAccessorsAgree pins that the accessors are one
+// mechanism and not three: the same asset arriving as XDR, as extracted detail
+// strings, or as a bare code and issuer resolves to one contract ID and shares
+// one entry.
+func Test_AssetContractIDMemoAccessorsAgree(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetType string
+		code      string
+	}{
+		{name: "alphanum4", assetType: "credit_alphanum4", code: testAssetCode},
+		{name: "alphanum12", assetType: "credit_alphanum12", code: testAssetCode + "X"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var memo AssetContractIDMemo
+
+			fromAsset, err := memo.FromAsset(networkPassphrase, xdr.MustNewCreditAsset(tc.code, testAssetIssuer))
+			require.NoError(t, err)
+
+			fromDetails, err := memo.fromDetails(networkPassphrase, tc.assetType, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, fromAsset, fromDetails)
+
+			fromCredit, err := memo.fromCreditAsset(networkPassphrase, tc.code, testAssetIssuer)
+			require.NoError(t, err)
+			assert.Equal(t, fromAsset, fromCredit)
+
+			assert.Equal(t, 1, memoEntryCount(&memo), "all three accessors must key the asset identically")
 		})
 	}
 }

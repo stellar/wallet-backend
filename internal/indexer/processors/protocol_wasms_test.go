@@ -117,10 +117,9 @@ func TestProtocolWasmProcessor_ProcessOperation(t *testing.T) {
 			tx := createTx(op, tc.changes, nil, false)
 			wrapper := &TransactionOperationWrapper{
 				Index:          0,
-				Transaction:    tx,
+				Transaction:    &tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			obs, err := processor.ProcessOperation(context.Background(), wrapper)

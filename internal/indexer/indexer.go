@@ -2,17 +2,22 @@ package indexer
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/alitto/pond/v2"
 	set "github.com/deckarep/golang-set/v2"
+	"github.com/stellar/go-stellar-sdk/hash"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/network"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -20,7 +25,6 @@ import (
 	contract_processors "github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
-	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // IndexerBufferInterface is the buffer seam the indexer writes through and the
@@ -89,6 +93,11 @@ type Indexer struct {
 	protocolContractsProcessor LedgerChangeProcessor[data.ProtocolContracts]
 	processors                 []OperationProcessorInterface
 	pool                       pond.Pool
+	// collectContractData gathers each Soroban transaction's ContractData
+	// changes into the ledger buffer for the live persist stage's protocol
+	// processors. Backfill never reads them, and every collected change pins
+	// its decoded ledger until the batch flushes, so backfill leaves it off.
+	collectContractData bool
 }
 
 // NewIndexer constructs an Indexer. The indexer captures raw WASM bytecode
@@ -101,7 +110,7 @@ type Indexer struct {
 // copied into a new processor fails fast at startup rather than surfacing as
 // a state_changes primary-key violation on the first ledger where two
 // processors emit for the same operation.
-func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics) (*Indexer, error) {
+func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metrics.IngestionMetrics, collectContractData bool) (*Indexer, error) {
 	indexer := &Indexer{
 		participantsProcessor:      processors.NewParticipantsProcessor(networkPassphrase),
 		tokenTransferProcessor:     processors.NewTokenTransferProcessor(networkPassphrase, ingestionMetrics),
@@ -118,7 +127,8 @@ func NewIndexer(networkPassphrase string, pool pond.Pool, ingestionMetrics *metr
 			processors.NewContractDeployProcessor(networkPassphrase, ingestionMetrics),
 			contract_processors.NewSACEventsProcessor(networkPassphrase, ingestionMetrics),
 		},
-		pool: pool,
+		pool:                pool,
+		collectContractData: collectContractData,
 	}
 	if err := validateStateChangeSubBases(indexer.processors); err != nil {
 		return nil, fmt.Errorf("validating state_change_id sub-bases: %w", err)
@@ -225,20 +235,18 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		return nil, fmt.Errorf("creating data transaction: %w", err)
 	}
 
-	// Counts unique participants across tx, ops, and state changes for metrics.
+	// Counts unique participants across tx, ops, and state changes for metrics. The tx-level
+	// slice is snapshotted first, so folding the op and state-change accounts into the set
+	// leaves the reported tx participants untouched.
 	txParticipantsSlice := txParticipants.ToSlice()
-	allParticipants := make(map[string]struct{}, len(txParticipantsSlice))
-	for _, participant := range txParticipantsSlice {
-		allParticipants[participant] = struct{}{}
-	}
 	for _, opParticipants := range opsParticipants {
 		opParticipants.Participants.Each(func(participant string) bool {
-			allParticipants[participant] = struct{}{}
+			txParticipants.Add(participant)
 			return false
 		})
 	}
 	for _, stateChange := range stateChanges {
-		allParticipants[string(stateChange.AccountID)] = struct{}{}
+		txParticipants.Add(string(stateChange.AccountID))
 	}
 
 	result := &TransactionResult{
@@ -246,7 +254,7 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		TxParticipants:   txParticipantsSlice,
 		Operations:       make(map[int64]*types.Operation, len(opsParticipants)),
 		OpParticipants:   make(map[int64][]string, len(opsParticipants)),
-		ParticipantCount: len(allParticipants),
+		ParticipantCount: txParticipants.Cardinality(),
 	}
 
 	// Get operation results for extracting result codes
@@ -367,6 +375,17 @@ func (i *Indexer) processTransaction(ctx context.Context, tx ingest.LedgerTransa
 		}
 	}
 
+	// Collect ContractData changes from the wrappers' memoized change slices
+	// into the buffer for the persist stage. Live ingestion only: see
+	// collectContractData.
+	if i.collectContractData {
+		contractDataChanges, cdErr := transactionContractDataChanges(&tx, opsParticipants)
+		if cdErr != nil {
+			return nil, fmt.Errorf("collecting contract data changes: %w", cdErr)
+		}
+		result.ContractDataChanges = contractDataChanges
+	}
+
 	// Collect state changes, dropping those whose operation is missing. Empty-AccountID entries
 	// are already filtered (and IDs assigned per processor stream) by getTransactionStateChanges.
 	// The fold resolves each change's operation from result.Operations by OperationID.
@@ -438,27 +457,179 @@ func assignStateChangeStream(dst, stream []types.StateChange, subBase int64) []t
 	return append(dst, retained...)
 }
 
-// GetLedgerTransactions extracts transactions from ledger close meta.
-func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta) ([]ingest.LedgerTransaction, error) {
-	ledgerTxReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledgerMeta)
-	if err != nil {
-		return nil, fmt.Errorf("creating ledger transaction reader: %w", err)
-	}
-	defer utils.DeferredClose(ctx, ledgerTxReader, "closing ledger transaction reader")
+// errBadMetaVersion rejects a ledger whose metas predate TransactionMeta v2 on
+// a protocol old enough that stellar-core wrote them ambiguously.
+var errBadMetaVersion = errors.New("TransactionMeta.V=2 is required in protocol version older than version 10; " +
+	"please process ledgers again using the latest stellar-core version")
 
-	transactions := make([]ingest.LedgerTransaction, 0)
-	for {
-		tx, err := ledgerTxReader.Read()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+// GetLedgerTransactions extracts transactions from ledger close meta, pairing
+// each meta with the envelope that produced it.
+//
+// Pairing needs every envelope's hash. The transaction set carries envelopes in
+// the order validators agreed on while the metas are sorted by hash, so the
+// hash is the only thing that identifies which envelope belongs to which meta.
+// Hashing is essentially this function's whole cost — it marshals every
+// envelope's signature payload — and each envelope is independent of the rest,
+// so it runs across the pool's workers.
+func GetLedgerTransactions(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, pool pond.Pool) ([]ingest.LedgerTransaction, error) {
+	envelopes := ledgerMeta.TransactionEnvelopes()
+
+	// Protocol versions below 10 predate TransactionMeta v2, where a v0/v1 meta
+	// carrying fee processing is ambiguous. The version is a property of the
+	// ledger, so the guard is evaluated once here instead of per transaction.
+	if ledgerMeta.ProtocolVersion() < 10 {
+		for i := range envelopes {
+			if ledgerMeta.TxApplyProcessing(i).V < 2 && len(ledgerMeta.FeeProcessing(i)) > 0 {
+				return nil, errBadMetaVersion
 			}
-			return nil, fmt.Errorf("reading ledger: %w", err)
 		}
-		transactions = append(transactions, tx)
+	}
+
+	hashes, err := hashEnvelopes(ctx, networkPassphrase, envelopes, pool)
+	if err != nil {
+		return nil, fmt.Errorf("hashing transaction set of ledger %d: %w", ledgerMeta.LedgerSequence(), err)
+	}
+
+	// Envelope order decides collisions and the last envelope wins: a
+	// transaction hash covers the signature payload but not the signatures, so
+	// one ledger can hold the same transaction body signed two different ways
+	// as two distinct envelopes sharing a hash. Merged loadtest ledgers do
+	// repeat transactions, so this case occurs in practice.
+	envelopeByHash := make(map[xdr.Hash]int, len(envelopes))
+	for i, hash := range hashes {
+		envelopeByHash[hash] = i
+	}
+
+	// Both accessors return their struct by value; read them once per ledger.
+	ledgerVersion := uint32(ledgerMeta.LedgerHeaderHistoryEntry().Header.LedgerVersion)
+	metaV2, hasMetaV2 := ledgerMeta.GetV2()
+
+	transactions := make([]ingest.LedgerTransaction, ledgerMeta.CountTransactions())
+	for i := range transactions {
+		txHash := ledgerMeta.TransactionHash(i)
+		envelopeIdx, ok := envelopeByHash[txHash]
+		if !ok {
+			return nil, fmt.Errorf("unknown tx hash in LedgerCloseMeta: %s", hex.EncodeToString(txHash[:]))
+		}
+
+		var postTxApplyFeeChanges xdr.LedgerEntryChanges
+		if hasMetaV2 {
+			postTxApplyFeeChanges = metaV2.TxProcessing[i].PostTxApplyFeeProcessing
+		}
+
+		transactions[i] = ingest.LedgerTransaction{
+			Index:                 uint32(i + 1), // Transactions start at '1'.
+			Envelope:              envelopes[envelopeIdx],
+			Result:                ledgerMeta.TransactionResultPair(i),
+			UnsafeMeta:            ledgerMeta.TxApplyProcessing(i),
+			FeeChanges:            ledgerMeta.FeeProcessing(i),
+			PostTxApplyFeeChanges: postTxApplyFeeChanges,
+			LedgerVersion:         ledgerVersion,
+			Ledger:                ledgerMeta,
+			Hash:                  txHash,
+		}
 	}
 
 	return transactions, nil
+}
+
+// hashEnvelopes returns the network-specific hash of every envelope, indexed as
+// envelopes is. Work is split into one contiguous chunk per pool worker so each
+// chunk can hold a single xdr.EncodingBuffer: the buffer reuses its scratch
+// space across marshals, which is what keeps this off the allocator, and the
+// SDK documents it as unsafe to share between goroutines.
+func hashEnvelopes(ctx context.Context, networkPassphrase string, envelopes []xdr.TransactionEnvelope, pool pond.Pool) ([]xdr.Hash, error) {
+	if strings.TrimSpace(networkPassphrase) == "" {
+		return nil, errors.New("empty network passphrase")
+	}
+	hashes := make([]xdr.Hash, len(envelopes))
+	if len(envelopes) == 0 {
+		return hashes, nil
+	}
+	// The network id is a hash of the passphrase alone, so it is the same for
+	// every transaction in the process.
+	networkID := xdr.Hash(network.ID(networkPassphrase))
+
+	// Cap at GOMAXPROCS: an unbounded pool reports unlimited concurrency, which
+	// would make one chunk and one buffer per transaction.
+	chunkCount := min(pool.MaxConcurrency(), runtime.GOMAXPROCS(0), len(envelopes))
+	chunkSize := (len(envelopes) + chunkCount - 1) / chunkCount
+
+	group := pool.NewGroupContext(ctx)
+	var errs []error
+	errMu := sync.Mutex{}
+
+	for chunkStart := 0; chunkStart < len(envelopes); chunkStart += chunkSize {
+		start, end := chunkStart, min(chunkStart+chunkSize, len(envelopes))
+		group.Submit(func() {
+			buf := xdr.NewEncodingBuffer()
+			for i := start; i < end; i++ {
+				envelopeHash, err := hashEnvelope(buf, networkID, &envelopes[i])
+				if err != nil {
+					errMu.Lock()
+					errs = append(errs, fmt.Errorf("hashing transaction %d in tx set: %w", i, err))
+					errMu.Unlock()
+					return
+				}
+				hashes[i] = envelopeHash
+			}
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return nil, fmt.Errorf("waiting for envelope hashing: %w", err)
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return hashes, nil
+}
+
+// hashEnvelope computes one transaction's network-specific hash. It mirrors
+// network.HashTransactionInEnvelope, using the caller's buffer and a
+// precomputed network ID, and tags the envelope's transaction in place.
+func hashEnvelope(buf *xdr.EncodingBuffer, networkID xdr.Hash, envelope *xdr.TransactionEnvelope) (xdr.Hash, error) {
+	var tagged xdr.TransactionSignaturePayloadTaggedTransaction
+	//exhaustive:ignore
+	switch envelope.Type {
+	case xdr.EnvelopeTypeEnvelopeTypeTx:
+		tagged = xdr.TransactionSignaturePayloadTaggedTransaction{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			Tx:   &envelope.V1.Tx,
+		}
+	case xdr.EnvelopeTypeEnvelopeTypeTxV0:
+		// A v0 transaction is hashed as the v1 transaction it maps onto.
+		v0 := envelope.V0.Tx
+		sourceAccount, err := xdr.NewMuxedAccount(xdr.CryptoKeyTypeKeyTypeEd25519, v0.SourceAccountEd25519)
+		if err != nil {
+			return xdr.Hash{}, fmt.Errorf("converting v0 source account: %w", err)
+		}
+		tagged = xdr.TransactionSignaturePayloadTaggedTransaction{
+			Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+			Tx: &xdr.Transaction{
+				SourceAccount: sourceAccount,
+				Fee:           v0.Fee,
+				SeqNum:        v0.SeqNum,
+				Cond:          xdr.NewPreconditionsWithTimeBounds(v0.TimeBounds),
+				Memo:          v0.Memo,
+				Operations:    v0.Operations,
+			},
+		}
+	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
+		tagged = xdr.TransactionSignaturePayloadTaggedTransaction{
+			Type:    xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+			FeeBump: &envelope.FeeBump.Tx,
+		}
+	default:
+		return xdr.Hash{}, fmt.Errorf("invalid transaction type %s", envelope.Type)
+	}
+
+	payload := xdr.TransactionSignaturePayload{NetworkId: networkID, TaggedTransaction: tagged}
+	encoded, err := buf.UnsafeMarshalBinary(&payload)
+	if err != nil {
+		return xdr.Hash{}, fmt.Errorf("marshalling transaction signature payload: %w", err)
+	}
+	return xdr.Hash(hash.Hash(encoded)), nil
 }
 
 // ExtractContractEventsForLedger walks a ledger's transactions directly from the
@@ -554,7 +725,7 @@ func ExtractContractDataChangesForLedger(ledgerMeta xdr.LedgerCloseMeta, tracked
 			Ledger:        ledgerMeta,
 			Hash:          resultPair.TransactionHash,
 		}
-		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
+		if err := collectContractDataChanges(&tx, ledgerSeq, &out); err != nil {
 			return nil, err
 		}
 	}
@@ -603,26 +774,6 @@ func ledgerTouchesTrackedContractData(ledgerMeta xdr.LedgerCloseMeta, trackedCon
 	return false
 }
 
-// ExtractContractDataChangesFromTransactions extracts the same
-// contract-grouped ContractData changes as ExtractContractDataChangesForLedger
-// over already-materialized transactions, ungated — live ingestion's main
-// pipeline has the transactions in hand and processes one ledger per close,
-// so a footprint gate buys nothing there. ledgerSeq is used only for error
-// context.
-func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTransaction, ledgerSeq uint32) (map[string][]ingest.Change, error) {
-	out := make(map[string][]ingest.Change)
-	for i := range transactions {
-		tx := transactions[i]
-		if !tx.Result.Successful() {
-			continue
-		}
-		if err := collectContractDataChanges(&tx, ledgerSeq, out); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
-
 // collectContractDataChanges appends tx's ContractData changes into out,
 // grouped by the owning contract's C-address strkey.
 //
@@ -630,58 +781,169 @@ func ExtractContractDataChangesFromTransactions(transactions []ingest.LedgerTran
 // last-write-wins folding per entry key is deterministic. Ledger-level
 // archival evictions are NOT surfaced (GetChanges only walks fee/tx/op meta);
 // per-tx entry removals appear with Post == nil.
-func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, out map[string][]ingest.Change) error {
+func collectContractDataChanges(tx *ingest.LedgerTransaction, ledgerSeq uint32, out *map[string][]ingest.Change) error {
 	changes, chErr := tx.GetChanges()
 	if chErr != nil {
 		return fmt.Errorf("getting changes for ledger %d tx %d: %w", ledgerSeq, tx.Index, chErr)
 	}
 	for _, change := range changes {
-		if change.Type != xdr.LedgerEntryTypeContractData {
-			continue
+		if err := appendIfContractDataChange(out, change, ledgerSeq, tx.Index); err != nil {
+			return err
 		}
-		entry := change.Post
-		if entry == nil {
-			entry = change.Pre
-		}
-		if entry == nil {
-			continue
-		}
-		contractData, ok := entry.Data.GetContractData()
-		if !ok {
-			continue
-		}
-		contractIDBytes, ok := contractData.Contract.GetContractId()
-		if !ok {
-			continue
-		}
-		addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
-		if encErr != nil {
-			// Callers rely on this function returning every ContractData
-			// change; silently dropping one would corrupt downstream state.
-			return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, tx.Index, encErr)
-		}
-		out[addr] = append(out[addr], change)
 	}
 	return nil
 }
 
+// appendIfContractDataChange appends change into *out under its owning
+// contract's C-address strkey when it is a ContractData change carrying an
+// entry; every other change is ignored. *out is allocated on the first change
+// actually appended, so a caller that collects nothing keeps its nil map.
+func appendIfContractDataChange(out *map[string][]ingest.Change, change ingest.Change, ledgerSeq uint32, txIndex uint32) error {
+	if change.Type != xdr.LedgerEntryTypeContractData {
+		return nil
+	}
+	entry := change.Post
+	if entry == nil {
+		entry = change.Pre
+	}
+	if entry == nil {
+		return nil
+	}
+	contractData, ok := entry.Data.GetContractData()
+	if !ok {
+		return nil
+	}
+	contractIDBytes, ok := contractData.Contract.GetContractId()
+	if !ok {
+		return nil
+	}
+	addr, encErr := strkey.Encode(strkey.VersionByteContract, contractIDBytes[:])
+	if encErr != nil {
+		// Callers rely on receiving every ContractData change; silently
+		// dropping one would corrupt downstream state.
+		return fmt.Errorf("encoding contract id for ledger %d tx %d: %w", ledgerSeq, txIndex, encErr)
+	}
+	if *out == nil {
+		*out = make(map[string][]ingest.Change)
+	}
+	(*out)[addr] = append((*out)[addr], change)
+	return nil
+}
+
+// transactionContractDataChanges returns tx's ContractData changes grouped by
+// the owning contract's C-address strkey — the same sequence
+// collectContractDataChanges derives from tx.GetChanges(). Operation segments
+// come from the wrappers' memoized Changes(); only the small transaction-level
+// segments are built here.
+//
+// Composition mirrors ingest.LedgerTransaction.GetChanges per meta version:
+// transaction-level changes before, each operation's changes in operation
+// order, then (V2+) transaction-level changes after. Returns nil when the
+// transaction is unsuccessful, is not a Soroban transaction, or contributes no
+// ContractData changes.
+func transactionContractDataChanges(tx *ingest.LedgerTransaction, opsParticipants map[int64]processors.OperationParticipants) (map[string][]ingest.Change, error) {
+	if !tx.Result.Successful() {
+		return nil, nil
+	}
+	// Only Soroban host functions write ContractData entries, and every Soroban
+	// transaction carries the SorobanTransactionData that IsSorobanTx tests, so
+	// a classic transaction is done before the walk allocates anything.
+	if !tx.IsSorobanTx() {
+		return nil, nil
+	}
+	ledgerSeq := tx.Ledger.LedgerSequence()
+
+	var before, after xdr.LedgerEntryChanges
+	var opCount int
+	switch tx.UnsafeMeta.V {
+	case 1:
+		meta := tx.UnsafeMeta.MustV1()
+		before = meta.TxChanges
+		opCount = len(meta.Operations)
+	case 2:
+		meta := tx.UnsafeMeta.MustV2()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	case 3:
+		meta := tx.UnsafeMeta.MustV3()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	case 4:
+		meta := tx.UnsafeMeta.MustV4()
+		before, after = meta.TxChangesBefore, meta.TxChangesAfter
+		opCount = len(meta.Operations)
+	default:
+		return nil, fmt.Errorf("unsupported TransactionMeta version %d in ledger %d tx %d", tx.UnsafeMeta.V, ledgerSeq, tx.Index)
+	}
+
+	var out map[string][]ingest.Change
+	txLevel := func(ledgerEntryChanges xdr.LedgerEntryChanges) error {
+		changes := ingest.GetChangesFromLedgerEntryChanges(ledgerEntryChanges)
+		for i := range changes {
+			changes[i].Reason = ingest.LedgerEntryChangeReasonTransaction
+			changes[i].Transaction = tx
+			changes[i].Ledger = &tx.Ledger
+		}
+		for _, change := range changes {
+			if err := appendIfContractDataChange(&out, change, ledgerSeq, tx.Index); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := txLevel(before); err != nil {
+		return nil, err
+	}
+
+	// opsParticipants is keyed by operation ID, the same toid the wrapper's ID()
+	// derives from its position.
+	for opIdx := 0; opIdx < opCount; opIdx++ {
+		var changes []ingest.Change
+		var chErr error
+		opID := toid.New(int32(ledgerSeq), int32(tx.Index), int32(opIdx+1)).ToInt64()
+		if opParticipants, ok := opsParticipants[opID]; ok && opParticipants.OpWrapper != nil {
+			changes, chErr = opParticipants.OpWrapper.Changes()
+		} else {
+			// Every operation normally has a wrapper — its source account is
+			// always a participant — so this is a correctness backstop for an
+			// operation filtered out of opsParticipants, not a hot path.
+			changes, chErr = tx.GetOperationChanges(uint32(opIdx))
+		}
+		if chErr != nil {
+			return nil, fmt.Errorf("getting operation %d changes for ledger %d tx %d: %w", opIdx, ledgerSeq, tx.Index, chErr)
+		}
+		for _, change := range changes {
+			if err := appendIfContractDataChange(&out, change, ledgerSeq, tx.Index); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := txLevel(after); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
 // ProcessLedger extracts transactions from a ledger and indexes them.
-// Returns the participant count for optional metrics recording, plus the
-// materialized transactions so callers with further per-transaction work
-// (live ingestion's ContractData extraction) can reuse them instead of
-// paying for a second LedgerTransactionReader build — its constructor
-// re-hashes every transaction envelope.
-func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, []ingest.LedgerTransaction, error) {
+// Returns the participant count for optional metrics recording. Everything a
+// downstream stage needs — including the ledger's ContractData changes — is
+// folded into the buffer.
+func ProcessLedger(ctx context.Context, networkPassphrase string, ledgerMeta xdr.LedgerCloseMeta, ledgerIndexer *Indexer, buffer *IndexerBuffer) (int, error) {
 	ledgerSeq := ledgerMeta.LedgerSequence()
-	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta)
+	transactions, err := GetLedgerTransactions(ctx, networkPassphrase, ledgerMeta, ledgerIndexer.pool)
 	if err != nil {
-		return 0, nil, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, fmt.Errorf("getting transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
 	participantCount, err := ledgerIndexer.ProcessLedgerTransactions(ctx, transactions, buffer)
 	if err != nil {
-		return 0, nil, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
+		return 0, fmt.Errorf("processing transactions for ledger %d: %w", ledgerSeq, err)
 	}
 
-	return participantCount, transactions, nil
+	return participantCount, nil
 }

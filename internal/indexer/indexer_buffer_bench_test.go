@@ -18,11 +18,38 @@ import (
 // benchIndexer builds an Indexer with the real processors. nil metrics is accepted (see
 // TestIndexer_ProcessLedgerTransactions_FeePhaseBalances).
 func benchIndexer(tb testing.TB) *Indexer {
-	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, pond.NewPool(runtime.NumCPU()), nil, true)
 	if err != nil {
 		tb.Fatal(err)
 	}
 	return idx
+}
+
+// BenchmarkGetLedgerTransactions measures the envelope↔meta pairing pass that opens every
+// ledger: hashing each transaction's signature payload, then materializing the transactions.
+// The fixtures are pubnet-sized (hundreds of transactions, not the loadtest rig's ~20,000), so
+// allocs/op is the portable signal here — the fan-out's wall-clock win scales with ledger size.
+// One sub-benchmark per fixture.
+func BenchmarkGetLedgerTransactions(b *testing.B) {
+	ctx := context.Background()
+	pool := pond.NewPool(runtime.NumCPU())
+
+	paths, err := filepath.Glob("testdata/*.xdr.gz")
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, path := range paths {
+		lcm := loadLedgerFixture(b, path)
+
+		b.Run(filepath.Base(path), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm, pool); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 // BenchmarkProcessRealLedger measures a full per-ledger indexing pass: parallel workers build a
@@ -37,7 +64,7 @@ func BenchmarkProcessRealLedger(b *testing.B) {
 	}
 	for _, path := range paths {
 		lcm := loadLedgerFixture(b, path)
-		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm, idx.pool)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -68,7 +95,7 @@ func BenchmarkFoldRealLedger(b *testing.B) {
 	}
 	for _, path := range paths {
 		lcm := loadLedgerFixture(b, path)
-		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm)
+		txs, err := GetLedgerTransactions(ctx, network.PublicNetworkPassphrase, lcm, idx.pool)
 		if err != nil {
 			b.Fatal(err)
 		}
