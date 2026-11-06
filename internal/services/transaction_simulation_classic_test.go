@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/entities"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -120,7 +121,7 @@ func TestTransactionSimulationService_classicPayment(t *testing.T) {
 
 	t.Run("🔴 insufficient balance is a would-fail, not a phantom preview", func(t *testing.T) {
 		svc := classicFixture(t,
-			accountEntryResult(t, src, 1_0000000+2*baseReserveStroops), // 1 XLM above reserve
+			accountEntryResult(t, src, 1_0000000+2*processors.BaseReserveStroops), // 1 XLM above reserve
 			accountEntryResult(t, dst, 50_0000000),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
@@ -133,7 +134,7 @@ func TestTransactionSimulationService_classicPayment(t *testing.T) {
 		// Exactly the reserve floor plus the 1 XLM being sent: the network
 		// charges the fee first, so this transaction would fail on-chain.
 		svc := classicFixture(t,
-			accountEntryResult(t, src, 2*baseReserveStroops+1_0000000),
+			accountEntryResult(t, src, 2*processors.BaseReserveStroops+1_0000000),
 			accountEntryResult(t, dst, 50_0000000),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.Payment{
@@ -376,7 +377,7 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		// 100-stroop fee is unaffordable, and the operation itself (setOptions)
 		// spends nothing.
 		homeDomain := "example.com"
-		svc := classicFixture(t, accountEntryResult(t, src, 2*baseReserveStroops))
+		svc := classicFixture(t, accountEntryResult(t, src, 2*processors.BaseReserveStroops))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
 			HomeDomain: &homeDomain,
 		}))
@@ -387,7 +388,7 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		// Spendable after fee is one stroop short of the base reserve the new
 		// subentry locks.
 		svc := classicFixture(t,
-			accountEntryResult(t, src, 3*baseReserveStroops+99),
+			accountEntryResult(t, src, 3*processors.BaseReserveStroops+99),
 			accountEntryResult(t, issuer, 100_0000000),
 		)
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
@@ -397,7 +398,7 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 	})
 
 	t.Run("🔴 adding a signer without reserve headroom is a would-fail", func(t *testing.T) {
-		svc := classicFixture(t, accountEntryResult(t, src, 3*baseReserveStroops+99))
+		svc := classicFixture(t, accountEntryResult(t, src, 3*processors.BaseReserveStroops+99))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
 			Signer: &txnbuild.Signer{Address: keypair.MustRandom().Address(), Weight: 5},
 		}))

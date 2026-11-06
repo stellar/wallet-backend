@@ -5,12 +5,9 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
-)
 
-// baseReserveStroops is the network base reserve (0.5 XLM). The real value
-// lives in the ledger header, but it has not changed since 2015 and previews
-// accept approximate reserve math, so a constant is good enough here.
-const baseReserveStroops = 5_000_000
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
+)
 
 // maxAccountSigners is the ledger's cap on extra signers per account (the
 // master key is not in the list): AccountEntry declares `Signer signers<20>`,
@@ -274,7 +271,8 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
 	}
-	if _, ok := lookupAccount(before, dst); !ok {
+	dstAccount, ok := lookupAccount(before, dst)
+	if !ok {
 		return nil, wouldFail("destination account %s does not exist", dst.Address())
 	}
 
@@ -285,14 +283,13 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 			// from the operation itself, matching history.
 			return xdr.LedgerEntryChanges{}, nil
 		}
-		dstAccount, _ := lookupAccount(before, dst)
 		available := accountSpendableBalance(srcAccount)
 		if available < int64(p.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, sending %d", opSource.Address(), available, p.Amount)
 		}
-		srcAfter := cloneAccountEntry(srcAccount)
+		srcAfter := srcAccount
 		srcAfter.Balance -= p.Amount
-		dstAfter := cloneAccountEntry(dstAccount)
+		dstAfter := dstAccount
 		dstAfter.Balance += p.Amount
 		return append(
 			accountChangePair(srcAccount, srcAfter),
@@ -309,14 +306,14 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	if opSource.Address() != issuer {
 		srcLine, ok := lookupTrustline(before, opSource, p.Asset)
 		if !ok {
-			return nil, wouldFail("source account %s holds no trustline for %s", opSource.Address(), assetString(p.Asset))
+			return nil, wouldFail("source account %s holds no trustline for %s", opSource.Address(), p.Asset.StringCanonical())
 		}
 		if srcLine.Flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag) == 0 {
-			return nil, wouldFail("source trustline for %s is not authorized", assetString(p.Asset))
+			return nil, wouldFail("source trustline for %s is not authorized", p.Asset.StringCanonical())
 		}
-		available := int64(srcLine.Balance) - trustlineSellingLiabilities(srcLine)
+		available := int64(srcLine.Balance) - int64(srcLine.Liabilities().Selling)
 		if available < int64(p.Amount) {
-			return nil, wouldFail("source trustline for %s has insufficient balance: available %d, sending %d", assetString(p.Asset), available, p.Amount)
+			return nil, wouldFail("source trustline for %s has insufficient balance: available %d, sending %d", p.Asset.StringCanonical(), available, p.Amount)
 		}
 		srcAfter := srcLine
 		srcAfter.Balance -= p.Amount
@@ -325,14 +322,14 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 	if dst.Address() != issuer {
 		dstLine, ok := lookupTrustline(before, dst, p.Asset)
 		if !ok {
-			return nil, wouldFail("destination account %s holds no trustline for %s", dst.Address(), assetString(p.Asset))
+			return nil, wouldFail("destination account %s holds no trustline for %s", dst.Address(), p.Asset.StringCanonical())
 		}
 		if dstLine.Flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag) == 0 {
-			return nil, wouldFail("destination trustline for %s is not authorized", assetString(p.Asset))
+			return nil, wouldFail("destination trustline for %s is not authorized", p.Asset.StringCanonical())
 		}
-		room := int64(dstLine.Limit) - int64(dstLine.Balance) - trustlineBuyingLiabilities(dstLine)
+		room := int64(dstLine.Limit) - int64(dstLine.Balance) - int64(dstLine.Liabilities().Buying)
 		if room < int64(p.Amount) {
-			return nil, wouldFail("payment would exceed destination trustline limit for %s", assetString(p.Asset))
+			return nil, wouldFail("payment would exceed destination trustline limit for %s", p.Asset.StringCanonical())
 		}
 		dstAfter := dstLine
 		dstAfter.Balance += p.Amount
@@ -349,15 +346,15 @@ func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, 
 	if _, exists := lookupAccount(before, c.Destination); exists {
 		return nil, wouldFail("destination account %s already exists", c.Destination.Address())
 	}
-	if int64(c.StartingBalance) < 2*baseReserveStroops {
-		return nil, wouldFail("starting balance %d is below the minimum account reserve %d", c.StartingBalance, 2*baseReserveStroops)
+	if int64(c.StartingBalance) < 2*processors.BaseReserveStroops {
+		return nil, wouldFail("starting balance %d is below the minimum account reserve %d", c.StartingBalance, 2*processors.BaseReserveStroops)
 	}
 	available := accountSpendableBalance(srcAccount)
 	if available < int64(c.StartingBalance) {
 		return nil, wouldFail("source account %s has insufficient XLM to fund %d stroops", opSource.Address(), c.StartingBalance)
 	}
 
-	srcAfter := cloneAccountEntry(srcAccount)
+	srcAfter := srcAccount
 	srcAfter.Balance -= c.StartingBalance
 	created := xdr.AccountEntry{
 		AccountId: c.Destination,
@@ -378,7 +375,7 @@ func computeCreateAccountChanges(c xdr.CreateAccountOp, opSource xdr.AccountId, 
 func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
 	asset, _ := changeTrustCreditAsset(ct.Line) // pool shares rejected by classicFootprint
 	if opSource.Address() == asset.GetIssuer() {
-		return nil, wouldFail("an issuer cannot trust its own asset %s", assetString(asset))
+		return nil, wouldFail("an issuer cannot trust its own asset %s", asset.StringCanonical())
 	}
 	srcAccount, ok := lookupAccount(before, opSource)
 	if !ok {
@@ -392,33 +389,35 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 	// means deletion, which this covers too, since any balance or buying
 	// liability blocks it (selling liabilities never exceed the balance, so
 	// they cannot block a deletion on their own).
-	if exists && int64(ct.Limit) < int64(line.Balance)+trustlineBuyingLiabilities(line) {
-		return nil, wouldFail("new limit %d for %s is below the current balance and buying liabilities", ct.Limit, assetString(asset))
+	if exists && int64(ct.Limit) < int64(line.Balance)+int64(line.Liabilities().Buying) {
+		return nil, wouldFail("new limit %d for %s is below the current balance and buying liabilities", ct.Limit, asset.StringCanonical())
 	}
 
 	if ct.Limit == 0 {
 		if !exists {
-			return nil, wouldFail("cannot remove nonexistent trustline for %s", assetString(asset))
+			return nil, wouldFail("cannot remove nonexistent trustline for %s", asset.StringCanonical())
 		}
 		// A trustline deposited into liquidity pools cannot be deleted until
 		// those pool shares are redeemed.
 		if v1, ok := line.Ext.GetV1(); ok {
 			if v2, ok := v1.Ext.GetV2(); ok && v2.LiquidityPoolUseCount != 0 {
-				return nil, wouldFail("trustline for %s is in use by %d liquidity pools", assetString(asset), v2.LiquidityPoolUseCount)
+				return nil, wouldFail("trustline for %s is in use by %d liquidity pools", asset.StringCanonical(), v2.LiquidityPoolUseCount)
 			}
 		}
+		srcAfter := srcAccount
+		dropSubentry(&srcAfter)
 		removedKey := trustlineLedgerKey(opSource, asset)
 		return append(xdr.LedgerEntryChanges{
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: trustlineLedgerEntry(line)},
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved, Removed: &removedKey},
-		}, accountChangePair(srcAccount, dropSubentry(srcAccount))...), nil
+		}, accountChangePair(srcAccount, srcAfter)...), nil
 	}
 
 	// Keeping or creating a line requires the issuer to still exist (trustlines
 	// can outlive a merged issuer; Core returns CHANGE_TRUST_NO_ISSUER).
 	issuerAccount, ok := lookupAccount(before, xdr.MustAddress(asset.GetIssuer()))
 	if !ok {
-		return nil, wouldFail("issuer of %s does not exist", assetString(asset))
+		return nil, wouldFail("issuer of %s does not exist", asset.StringCanonical())
 	}
 
 	if exists {
@@ -431,8 +430,8 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 	// reserve on the source account. Whether the line starts out authorized
 	// depends on the issuer's AUTH_REQUIRED flag, and clawback-enabled issuers
 	// stamp their trustlines with the clawback flag, matching what Core does.
-	srcAfter, err := affordSubentry(srcAccount)
-	if err != nil {
+	srcAfter := srcAccount
+	if err := affordSubentry(&srcAfter); err != nil {
 		return nil, err
 	}
 	var flags xdr.Uint32
@@ -459,7 +458,7 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 	if !ok {
 		return nil, wouldFail("source account %s does not exist", opSource.Address())
 	}
-	after := cloneAccountEntry(account)
+	after := account
 
 	if so.InflationDest != nil {
 		// The network only accepts an inflation destination that exists.
@@ -509,14 +508,11 @@ func computeSetOptionsChanges(so xdr.SetOptionsOp, opSource xdr.AccountId, befor
 		// removed one releases it.
 		switch {
 		case len(after.Signers) > len(account.Signers):
-			if accountSpendableBalance(account) < baseReserveStroops {
-				return nil, wouldFail("account %s cannot afford the base reserve for a new signer", opSource.Address())
+			if err := affordSubentry(&after); err != nil {
+				return nil, err
 			}
-			after.NumSubEntries++
 		case len(after.Signers) < len(account.Signers):
-			if after.NumSubEntries > 0 {
-				after.NumSubEntries--
-			}
+			dropSubentry(&after)
 		}
 	}
 
@@ -584,11 +580,13 @@ func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, befor
 		if !exists {
 			return nil, wouldFail("cannot remove nonexistent data entry %q", name)
 		}
+		srcAfter := srcAccount
+		dropSubentry(&srcAfter)
 		removedKey := dataLedgerKey(opSource, name)
 		return append(xdr.LedgerEntryChanges{
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: dataLedgerEntry(existing)},
 			{Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved, Removed: &removedKey},
-		}, accountChangePair(srcAccount, dropSubentry(srcAccount))...), nil
+		}, accountChangePair(srcAccount, srcAfter)...), nil
 	}
 
 	after := xdr.DataEntry{
@@ -598,8 +596,8 @@ func computeManageDataChanges(md xdr.ManageDataOp, opSource xdr.AccountId, befor
 	}
 	if !exists {
 		// A new data entry is a subentry: it locks one more base reserve.
-		srcAfter, err := affordSubentry(srcAccount)
-		if err != nil {
+		srcAfter := srcAccount
+		if err := affordSubentry(&srcAfter); err != nil {
 			return nil, err
 		}
 		return append(xdr.LedgerEntryChanges{
@@ -703,80 +701,28 @@ func trustlineChangePair(beforeLine, afterLine xdr.TrustLineEntry) xdr.LedgerEnt
 	}
 }
 
-// cloneAccountEntry copies an account entry so the copy can be modified without
-// also changing the original: the entry holds a pointer and a slice (inflation
-// destination and signers) that a plain struct copy would share.
-func cloneAccountEntry(account xdr.AccountEntry) xdr.AccountEntry {
-	out := account
-	if account.InflationDest != nil {
-		dest := *account.InflationDest
-		out.InflationDest = &dest
-	}
-	out.Signers = append([]xdr.Signer(nil), account.Signers...)
-	return out
-}
-
 // accountSpendableBalance is the XLM the account can actually spend: its
 // balance minus the locked reserves and the amounts committed to open offers.
 func accountSpendableBalance(account xdr.AccountEntry) int64 {
-	return int64(account.Balance) - accountMinBalance(account) - accountSellingLiabilities(account)
+	return int64(account.Balance) - processors.MinimumBalance(account) - int64(account.Liabilities().Selling)
 }
 
 // affordSubentry verifies the account can afford the base reserve one more
-// subentry locks up and returns the account with its subentry counter bumped.
-func affordSubentry(account xdr.AccountEntry) (xdr.AccountEntry, error) {
-	if accountSpendableBalance(account) < baseReserveStroops {
-		return xdr.AccountEntry{}, wouldFail("account %s cannot afford the base reserve for a new subentry", account.AccountId.Address())
+// subentry locks up and bumps its subentry counter.
+func affordSubentry(account *xdr.AccountEntry) error {
+	if accountSpendableBalance(*account) < processors.BaseReserveStroops {
+		return wouldFail("account %s cannot afford the base reserve for a new subentry", account.AccountId.Address())
 	}
-	after := cloneAccountEntry(account)
-	after.NumSubEntries++
-	return after, nil
+	account.NumSubEntries++
+	return nil
 }
 
-// dropSubentry returns the account with its subentry counter decremented,
-// mirroring the reserve released by a removed trustline, signer, or data entry.
-func dropSubentry(account xdr.AccountEntry) xdr.AccountEntry {
-	after := cloneAccountEntry(account)
-	if after.NumSubEntries > 0 {
-		after.NumSubEntries--
+// dropSubentry decrements the subentry counter, mirroring the reserve released
+// by a removed trustline, signer, or data entry.
+func dropSubentry(account *xdr.AccountEntry) {
+	if account.NumSubEntries > 0 {
+		account.NumSubEntries--
 	}
-	return after
-}
-
-// accountMinBalance is the XLM the account must keep locked as reserves: two
-// base-reserve slots for the account itself plus one per subentry, adjusted by
-// the sponsorship counters.
-func accountMinBalance(account xdr.AccountEntry) int64 {
-	subEntries := int64(account.NumSubEntries)
-	sponsoring, sponsored := int64(0), int64(0)
-	if v1, ok := account.Ext.GetV1(); ok {
-		if v2, ok := v1.Ext.GetV2(); ok {
-			sponsoring = int64(v2.NumSponsoring)
-			sponsored = int64(v2.NumSponsored)
-		}
-	}
-	return (2 + subEntries + sponsoring - sponsored) * baseReserveStroops
-}
-
-func accountSellingLiabilities(account xdr.AccountEntry) int64 {
-	if v1, ok := account.Ext.GetV1(); ok {
-		return int64(v1.Liabilities.Selling)
-	}
-	return 0
-}
-
-func trustlineSellingLiabilities(line xdr.TrustLineEntry) int64 {
-	if v1, ok := line.Ext.GetV1(); ok {
-		return int64(v1.Liabilities.Selling)
-	}
-	return 0
-}
-
-func trustlineBuyingLiabilities(line xdr.TrustLineEntry) int64 {
-	if v1, ok := line.Ext.GetV1(); ok {
-		return int64(v1.Liabilities.Buying)
-	}
-	return 0
 }
 
 // changeTrustCreditAsset unwraps a ChangeTrustAsset into a plain credit asset;
@@ -788,10 +734,6 @@ func changeTrustCreditAsset(line xdr.ChangeTrustAsset) (xdr.Asset, bool) {
 	default:
 		return xdr.Asset{}, false
 	}
-}
-
-func assetString(asset xdr.Asset) string {
-	return asset.StringCanonical()
 }
 
 // wouldFail wraps a precondition failure as ErrSimulationFailed: the derivation
