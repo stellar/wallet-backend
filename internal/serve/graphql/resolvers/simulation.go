@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/stellar/go-stellar-sdk/toid"
+
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
@@ -30,6 +32,7 @@ func (r *Resolver) convertToSimulatedStateChanges(stateChanges []types.StateChan
 // error rather than a silently dropped row.
 func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1.BaseSimulatedStateChange, error) {
 	accountAddress := string(sc.AccountID)
+	operationIndex := simulatedOperationIndex(sc.OperationID)
 
 	switch sc.StateChangeCategory {
 	case types.StateChangeCategoryBalance:
@@ -47,6 +50,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				TokenID:        tokenID,
 				Amount:         amount,
 				ToMuxedID:      r.resolveNullableString(sc.ToMuxedID),
@@ -64,6 +68,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				CreatorAddress: creatorAddress,
 			}, nil
 		case types.StateChangeReasonMerge:
@@ -75,6 +80,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:           sc.StateChangeCategory,
 				Reason:             sc.StateChangeReason,
 				AccountAddress:     accountAddress,
+				OperationIndex:     operationIndex,
 				DestinationAddress: destinationAddress,
 			}, nil
 		default: // invalid reason for ACCOUNT; falls through to the error below
@@ -102,6 +108,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:         sc.StateChangeCategory,
 				Reason:           sc.StateChangeReason,
 				AccountAddress:   accountAddress,
+				OperationIndex:   operationIndex,
 				TokenID:          tokenID,
 				Spender:          spender,
 				Amount:           amount,
@@ -120,6 +127,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:        sc.StateChangeCategory,
 				Reason:          sc.StateChangeReason,
 				AccountAddress:  accountAddress,
+				OperationIndex:  operationIndex,
 				TokenID:         r.resolveNullableAddress(sc.TokenID),
 				LiquidityPoolID: r.resolveNullableString(sc.LiquidityPoolID),
 				Flags:           flags,
@@ -141,6 +149,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				SignerAddress:  signerAddress,
 				NewWeight:      newWeight,
 			}, nil
@@ -157,6 +166,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				SignerAddress:  signerAddress,
 				OldWeight:      oldWeight,
 				NewWeight:      newWeight,
@@ -170,6 +180,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				SignerAddress:  signerAddress,
 				OldWeight:      oldWeight,
 			}, nil
@@ -194,6 +205,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				Threshold:      types.ThresholdLevel(level),
 				OldThreshold:   oldThreshold,
 				NewThreshold:   newThreshold,
@@ -212,6 +224,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				Flags:          types.DecodeAccountFlags(sc.Flags.Int16),
 			}, nil
 		default: // invalid reason for FLAGS; falls through to the error below
@@ -228,6 +241,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				HomeDomain:     *newDomain,
 			}, nil
 		case types.StateChangeReasonUpdate:
@@ -238,6 +252,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				OldHomeDomain:  *oldDomain,
 				NewHomeDomain:  *newDomain,
 			}, nil
@@ -249,6 +264,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				OldHomeDomain:  *oldDomain,
 			}, nil
 		default: // invalid reason for HOME_DOMAIN; falls through to the error below
@@ -269,6 +285,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				Name:           name,
 				Value:          *newValue,
 			}, nil
@@ -280,6 +297,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				Name:           name,
 				OldValue:       *oldValue,
 				NewValue:       *newValue,
@@ -292,6 +310,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:       sc.StateChangeCategory,
 				Reason:         sc.StateChangeReason,
 				AccountAddress: accountAddress,
+				OperationIndex: operationIndex,
 				Name:           name,
 				OldValue:       *oldValue,
 			}, nil
@@ -310,6 +329,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:        sc.StateChangeCategory,
 				Reason:          sc.StateChangeReason,
 				AccountAddress:  accountAddress,
+				OperationIndex:  operationIndex,
 				TokenID:         tokenID,
 				LiquidityPoolID: liquidityPoolID,
 				Limit:           limit,
@@ -327,6 +347,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:        sc.StateChangeCategory,
 				Reason:          sc.StateChangeReason,
 				AccountAddress:  accountAddress,
+				OperationIndex:  operationIndex,
 				TokenID:         tokenID,
 				LiquidityPoolID: liquidityPoolID,
 				OldLimit:        oldLimit,
@@ -337,6 +358,7 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				Category:        sc.StateChangeCategory,
 				Reason:          sc.StateChangeReason,
 				AccountAddress:  accountAddress,
+				OperationIndex:  operationIndex,
 				TokenID:         tokenID,
 				LiquidityPoolID: liquidityPoolID,
 			}, nil
@@ -359,6 +381,18 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 // or a float64 when it has been round-tripped through JSONB from the database.
 // Absent, wrong-typed, and out-of-range values each get their own error so a
 // present-but-malformed value is not misreported as missing.
+// simulatedOperationIndex turns a state change's TOID-shaped OperationID into
+// the zero-based index of the operation inside the simulated transaction. The
+// transaction-fee row carries no operation (OperationID 0) and maps to nil,
+// which is how clients tell the fee row apart from operation debits.
+func simulatedOperationIndex(operationID int64) *int32 {
+	if operationID == 0 {
+		return nil
+	}
+	index := toid.Parse(operationID).OperationOrder - 1
+	return &index
+}
+
 func keyValueUint32(kv types.NullableJSONB, key string) (uint32, error) {
 	raw, ok := kv[key]
 	if !ok {

@@ -640,6 +640,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		CreatorAddress func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -647,6 +648,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		Flags          func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -654,6 +656,7 @@ type ComplexityRoot struct {
 		AccountAddress     func(childComplexity int) int
 		Category           func(childComplexity int) int
 		DestinationAddress func(childComplexity int) int
+		OperationIndex     func(childComplexity int) int
 		Reason             func(childComplexity int) int
 	}
 
@@ -662,6 +665,7 @@ type ComplexityRoot struct {
 		Amount           func(childComplexity int) int
 		Category         func(childComplexity int) int
 		ExpirationLedger func(childComplexity int) int
+		OperationIndex   func(childComplexity int) int
 		Reason           func(childComplexity int) int
 		Spender          func(childComplexity int) int
 		TokenID          func(childComplexity int) int
@@ -672,6 +676,7 @@ type ComplexityRoot struct {
 		Category        func(childComplexity int) int
 		Flags           func(childComplexity int) int
 		LiquidityPoolID func(childComplexity int) int
+		OperationIndex  func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 	}
@@ -680,6 +685,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Amount         func(childComplexity int) int
 		Category       func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		ToMuxedID      func(childComplexity int) int
 		TokenID        func(childComplexity int) int
@@ -689,6 +695,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		Name           func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		Value          func(childComplexity int) int
 	}
@@ -698,6 +705,7 @@ type ComplexityRoot struct {
 		Category       func(childComplexity int) int
 		Name           func(childComplexity int) int
 		OldValue       func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -707,6 +715,7 @@ type ComplexityRoot struct {
 		Name           func(childComplexity int) int
 		NewValue       func(childComplexity int) int
 		OldValue       func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -714,6 +723,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		OldHomeDomain  func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -721,6 +731,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		HomeDomain     func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -729,6 +740,7 @@ type ComplexityRoot struct {
 		Category       func(childComplexity int) int
 		NewHomeDomain  func(childComplexity int) int
 		OldHomeDomain  func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 	}
 
@@ -736,6 +748,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		NewWeight      func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		SignerAddress  func(childComplexity int) int
 	}
@@ -744,6 +757,7 @@ type ComplexityRoot struct {
 		AccountAddress func(childComplexity int) int
 		Category       func(childComplexity int) int
 		OldWeight      func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		SignerAddress  func(childComplexity int) int
 	}
@@ -753,6 +767,7 @@ type ComplexityRoot struct {
 		Category       func(childComplexity int) int
 		NewWeight      func(childComplexity int) int
 		OldWeight      func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		SignerAddress  func(childComplexity int) int
 	}
@@ -767,6 +782,7 @@ type ComplexityRoot struct {
 		Category       func(childComplexity int) int
 		NewThreshold   func(childComplexity int) int
 		OldThreshold   func(childComplexity int) int
+		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		Threshold      func(childComplexity int) int
 	}
@@ -776,6 +792,7 @@ type ComplexityRoot struct {
 		Category        func(childComplexity int) int
 		Limit           func(childComplexity int) int
 		LiquidityPoolID func(childComplexity int) int
+		OperationIndex  func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 	}
@@ -784,6 +801,7 @@ type ComplexityRoot struct {
 		AccountAddress  func(childComplexity int) int
 		Category        func(childComplexity int) int
 		LiquidityPoolID func(childComplexity int) int
+		OperationIndex  func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 	}
@@ -794,6 +812,7 @@ type ComplexityRoot struct {
 		LiquidityPoolID func(childComplexity int) int
 		NewLimit        func(childComplexity int) int
 		OldLimit        func(childComplexity int) int
+		OperationIndex  func(childComplexity int) int
 		Reason          func(childComplexity int) int
 		TokenID         func(childComplexity int) int
 	}
@@ -3811,6 +3830,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedAccountCreatedChange.CreatorAddress(childComplexity), true
+	case "SimulatedAccountCreatedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedAccountCreatedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountCreatedChange.OperationIndex(childComplexity), true
 	case "SimulatedAccountCreatedChange.reason":
 		if e.ComplexityRoot.SimulatedAccountCreatedChange.Reason == nil {
 			break
@@ -3836,6 +3861,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedAccountFlagsChange.Flags(childComplexity), true
+	case "SimulatedAccountFlagsChange.operationIndex":
+		if e.ComplexityRoot.SimulatedAccountFlagsChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountFlagsChange.OperationIndex(childComplexity), true
 	case "SimulatedAccountFlagsChange.reason":
 		if e.ComplexityRoot.SimulatedAccountFlagsChange.Reason == nil {
 			break
@@ -3861,6 +3892,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedAccountMergedChange.DestinationAddress(childComplexity), true
+	case "SimulatedAccountMergedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedAccountMergedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAccountMergedChange.OperationIndex(childComplexity), true
 	case "SimulatedAccountMergedChange.reason":
 		if e.ComplexityRoot.SimulatedAccountMergedChange.Reason == nil {
 			break
@@ -3892,6 +3929,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedAllowanceChange.ExpirationLedger(childComplexity), true
+	case "SimulatedAllowanceChange.operationIndex":
+		if e.ComplexityRoot.SimulatedAllowanceChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedAllowanceChange.OperationIndex(childComplexity), true
 	case "SimulatedAllowanceChange.reason":
 		if e.ComplexityRoot.SimulatedAllowanceChange.Reason == nil {
 			break
@@ -3935,6 +3978,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedBalanceAuthorizationChange.operationIndex":
+		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceAuthorizationChange.OperationIndex(childComplexity), true
 	case "SimulatedBalanceAuthorizationChange.reason":
 		if e.ComplexityRoot.SimulatedBalanceAuthorizationChange.Reason == nil {
 			break
@@ -3966,6 +4015,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedBalanceChange.Category(childComplexity), true
+	case "SimulatedBalanceChange.operationIndex":
+		if e.ComplexityRoot.SimulatedBalanceChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedBalanceChange.OperationIndex(childComplexity), true
 	case "SimulatedBalanceChange.reason":
 		if e.ComplexityRoot.SimulatedBalanceChange.Reason == nil {
 			break
@@ -4003,6 +4058,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedDataEntryAddedChange.Name(childComplexity), true
+	case "SimulatedDataEntryAddedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedDataEntryAddedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryAddedChange.OperationIndex(childComplexity), true
 	case "SimulatedDataEntryAddedChange.reason":
 		if e.ComplexityRoot.SimulatedDataEntryAddedChange.Reason == nil {
 			break
@@ -4040,6 +4101,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.OldValue(childComplexity), true
+	case "SimulatedDataEntryRemovedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryRemovedChange.OperationIndex(childComplexity), true
 	case "SimulatedDataEntryRemovedChange.reason":
 		if e.ComplexityRoot.SimulatedDataEntryRemovedChange.Reason == nil {
 			break
@@ -4077,6 +4144,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.OldValue(childComplexity), true
+	case "SimulatedDataEntryUpdatedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedDataEntryUpdatedChange.OperationIndex(childComplexity), true
 	case "SimulatedDataEntryUpdatedChange.reason":
 		if e.ComplexityRoot.SimulatedDataEntryUpdatedChange.Reason == nil {
 			break
@@ -4102,6 +4175,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.OldHomeDomain(childComplexity), true
+	case "SimulatedHomeDomainClearedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainClearedChange.OperationIndex(childComplexity), true
 	case "SimulatedHomeDomainClearedChange.reason":
 		if e.ComplexityRoot.SimulatedHomeDomainClearedChange.Reason == nil {
 			break
@@ -4127,6 +4206,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedHomeDomainSetChange.HomeDomain(childComplexity), true
+	case "SimulatedHomeDomainSetChange.operationIndex":
+		if e.ComplexityRoot.SimulatedHomeDomainSetChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainSetChange.OperationIndex(childComplexity), true
 	case "SimulatedHomeDomainSetChange.reason":
 		if e.ComplexityRoot.SimulatedHomeDomainSetChange.Reason == nil {
 			break
@@ -4158,6 +4243,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.OldHomeDomain(childComplexity), true
+	case "SimulatedHomeDomainUpdatedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.OperationIndex(childComplexity), true
 	case "SimulatedHomeDomainUpdatedChange.reason":
 		if e.ComplexityRoot.SimulatedHomeDomainUpdatedChange.Reason == nil {
 			break
@@ -4183,6 +4274,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedSignerAddedChange.NewWeight(childComplexity), true
+	case "SimulatedSignerAddedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedSignerAddedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerAddedChange.OperationIndex(childComplexity), true
 	case "SimulatedSignerAddedChange.reason":
 		if e.ComplexityRoot.SimulatedSignerAddedChange.Reason == nil {
 			break
@@ -4214,6 +4311,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedSignerRemovedChange.OldWeight(childComplexity), true
+	case "SimulatedSignerRemovedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedSignerRemovedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerRemovedChange.OperationIndex(childComplexity), true
 	case "SimulatedSignerRemovedChange.reason":
 		if e.ComplexityRoot.SimulatedSignerRemovedChange.Reason == nil {
 			break
@@ -4251,6 +4354,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedSignerUpdatedChange.OldWeight(childComplexity), true
+	case "SimulatedSignerUpdatedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedSignerUpdatedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedSignerUpdatedChange.OperationIndex(childComplexity), true
 	case "SimulatedSignerUpdatedChange.reason":
 		if e.ComplexityRoot.SimulatedSignerUpdatedChange.Reason == nil {
 			break
@@ -4301,6 +4410,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedThresholdChange.OldThreshold(childComplexity), true
+	case "SimulatedThresholdChange.operationIndex":
+		if e.ComplexityRoot.SimulatedThresholdChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedThresholdChange.OperationIndex(childComplexity), true
 	case "SimulatedThresholdChange.reason":
 		if e.ComplexityRoot.SimulatedThresholdChange.Reason == nil {
 			break
@@ -4338,6 +4453,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedTrustlineAddedChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedTrustlineAddedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedTrustlineAddedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineAddedChange.OperationIndex(childComplexity), true
 	case "SimulatedTrustlineAddedChange.reason":
 		if e.ComplexityRoot.SimulatedTrustlineAddedChange.Reason == nil {
 			break
@@ -4369,6 +4490,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.LiquidityPoolID(childComplexity), true
+	case "SimulatedTrustlineRemovedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineRemovedChange.OperationIndex(childComplexity), true
 	case "SimulatedTrustlineRemovedChange.reason":
 		if e.ComplexityRoot.SimulatedTrustlineRemovedChange.Reason == nil {
 			break
@@ -4412,6 +4539,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.OldLimit(childComplexity), true
+	case "SimulatedTrustlineUpdatedChange.operationIndex":
+		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.OperationIndex == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTrustlineUpdatedChange.OperationIndex(childComplexity), true
 	case "SimulatedTrustlineUpdatedChange.reason":
 		if e.ComplexityRoot.SimulatedTrustlineUpdatedChange.Reason == nil {
 			break
@@ -5930,11 +6063,15 @@ type Query {
     Simulate an unsubmitted transaction and return the state changes it would
     produce if submitted, in the same variant structure as the history API.
     Accepts contract (Soroban) transactions, whose changes come from RPC
-    simulation, and classic transactions for the supported operation types
-    (payment, createAccount, changeTrust, setOptions, manageData), whose
-    changes are derived from current ledger state. A classic transaction may
-    carry multiple supported operations, applied sequentially with
-    all-or-nothing semantics. Other transactions are rejected as
+    simulation, and classic transactions, whose changes are derived from
+    current ledger state. Supported classic operations are the non-DEX ones:
+    payment, createAccount, accountMerge, changeTrust, setOptions, manageData,
+    bumpSequence, setTrustLineFlags, allowTrust, clawback, and the
+    claimable-balance operations; fee-bump envelopes are accepted on both
+    paths. A classic transaction may carry multiple supported operations,
+    applied sequentially with all-or-nothing semantics. DEX operations
+    (offers, path payments, liquidity pools) and the remaining types are
+    rejected as
     UNSUPPORTED_TRANSACTION; a transaction the network would reject (e.g.
     insufficient balance, or any operation of a multi-operation transaction
     failing) is rejected as SIMULATION_FAILED with the reason.
@@ -5977,7 +6114,10 @@ variants mirror the history API's state-change types (same names with a
 omit the fields that only exist after a transaction is included in a ledger:
 ` + "`" + `ingestedAt` + "`" + `, ` + "`" + `ledgerCreatedAt` + "`" + `, ` + "`" + `ledgerNumber` + "`" + `, ` + "`" + `operation` + "`" + `, and
 ` + "`" + `transaction` + "`" + `. The affected account is exposed as a plain address rather than
-an ` + "`" + `Account` + "`" + ` entity, since the account may not be indexed yet.
+an ` + "`" + `Account` + "`" + ` entity, since the account may not be indexed yet. In place of
+` + "`" + `operation` + "`" + `, ` + "`" + `operationIndex` + "`" + ` says which operation of the simulated
+transaction would produce the change; the transaction-fee row is the one
+change with a null ` + "`" + `operationIndex` + "`" + `.
 
 The set of concrete types grows with the transaction sources the simulation
 supports; today it covers the variants contract (Soroban) transactions and
@@ -5990,6 +6130,8 @@ interface BaseSimulatedStateChange {
   reason:                     StateChangeReason!
   """Address of the account whose state would change."""
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 }
 
 """
@@ -6004,6 +6146,8 @@ type SimulatedBalanceChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the token whose balance would move."""
   tokenId:                    String!
@@ -6022,6 +6166,8 @@ type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Account that would create this one: the funder or the contract deployer."""
   creatorAddress:             String!
@@ -6035,6 +6181,8 @@ type SimulatedAccountMergedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Account that would receive the merged account's balance."""
   destinationAddress:         String!
@@ -6048,6 +6196,8 @@ type SimulatedAllowanceChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the token the allowance applies to."""
   tokenId:                    String!
@@ -6068,6 +6218,8 @@ type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -6085,6 +6237,8 @@ type SimulatedSignerAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the added signer."""
   signerAddress:              String!
@@ -6100,6 +6254,8 @@ type SimulatedSignerUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the updated signer."""
   signerAddress:              String!
@@ -6117,6 +6273,8 @@ type SimulatedSignerRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the removed signer."""
   signerAddress:              String!
@@ -6132,6 +6290,8 @@ type SimulatedThresholdChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Which signature threshold would change."""
   threshold:                  ThresholdLevel!
@@ -6149,6 +6309,8 @@ type SimulatedAccountFlagsChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Flags that would be set (reason SET) or cleared (reason CLEAR)."""
   flags:                      [AccountFlag!]!
@@ -6162,6 +6324,8 @@ type SimulatedHomeDomainSetChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """The newly set home domain."""
   homeDomain:                 String!
@@ -6175,6 +6339,8 @@ type SimulatedHomeDomainUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Previous home domain."""
   oldHomeDomain:              String!
@@ -6190,6 +6356,8 @@ type SimulatedHomeDomainClearedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Home domain the account had when it would be removed."""
   oldHomeDomain:              String!
@@ -6203,6 +6371,8 @@ type SimulatedDataEntryAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -6218,6 +6388,8 @@ type SimulatedDataEntryUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -6235,6 +6407,8 @@ type SimulatedDataEntryRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -6251,6 +6425,8 @@ type SimulatedTrustlineAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -6269,6 +6445,8 @@ type SimulatedTrustlineUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -6289,6 +6467,8 @@ type SimulatedTrustlineRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -21799,6 +21979,35 @@ func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_accountAd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedAccountCreatedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountCreatedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountCreatedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountCreatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedAccountCreatedChange_creatorAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountCreatedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -21910,6 +22119,35 @@ func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_accountAddr
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAccountFlagsChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountFlagsChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountFlagsChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountFlagsChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountFlagsChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -22031,6 +22269,35 @@ func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_accountAdd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedAccountMergedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAccountMergedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAccountMergedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAccountMergedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedAccountMergedChange_destinationAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedAccountMergedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22142,6 +22409,35 @@ func (ec *executionContext) fieldContext_SimulatedAllowanceChange_accountAddress
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedAllowanceChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedAllowanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedAllowanceChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedAllowanceChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedAllowanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -22350,6 +22646,35 @@ func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_acc
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedBalanceAuthorizationChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceAuthorizationChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceAuthorizationChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceAuthorizationChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedBalanceAuthorizationChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceAuthorizationChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22519,6 +22844,35 @@ func (ec *executionContext) fieldContext_SimulatedBalanceChange_accountAddress(_
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedBalanceChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedBalanceChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedBalanceChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedBalanceChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedBalanceChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -22698,6 +23052,35 @@ func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_accountAd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedDataEntryAddedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryAddedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryAddedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedDataEntryAddedChange_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryAddedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22843,6 +23226,35 @@ func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_account
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedDataEntryRemovedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryRemovedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryRemovedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedDataEntryRemovedChange_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryRemovedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22983,6 +23395,35 @@ func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_account
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedDataEntryUpdatedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedDataEntryUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedDataEntryUpdatedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedDataEntryUpdatedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedDataEntryUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -23162,6 +23603,35 @@ func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_accoun
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedHomeDomainClearedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainClearedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainClearedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainClearedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedHomeDomainClearedChange_oldHomeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainClearedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23278,6 +23748,35 @@ func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_accountAdd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedHomeDomainSetChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainSetChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainSetChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainSetChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedHomeDomainSetChange_homeDomain(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainSetChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23389,6 +23888,35 @@ func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_accoun
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedHomeDomainUpdatedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedHomeDomainUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedHomeDomainUpdatedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedHomeDomainUpdatedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedHomeDomainUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -23539,6 +24067,35 @@ func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_accountAddre
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedSignerAddedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerAddedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerAddedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedSignerAddedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerAddedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23684,6 +24241,35 @@ func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_accountAdd
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedSignerRemovedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerRemovedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerRemovedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedSignerRemovedChange_signerAddress(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerRemovedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -23824,6 +24410,35 @@ func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_accountAdd
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedSignerUpdatedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedSignerUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedSignerUpdatedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedSignerUpdatedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedSignerUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -24061,6 +24676,35 @@ func (ec *executionContext) fieldContext_SimulatedThresholdChange_accountAddress
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedThresholdChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedThresholdChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedThresholdChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedThresholdChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedThresholdChange_threshold(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24230,6 +24874,35 @@ func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_accountAd
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineAddedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineAddedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineAddedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineAddedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineAddedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -24409,6 +25082,35 @@ func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_account
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedTrustlineRemovedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineRemovedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineRemovedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineRemovedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedTrustlineRemovedChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineRemovedChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24549,6 +25251,35 @@ func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_account
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTrustlineUpdatedChange_operationIndex(ctx context.Context, field graphql.CollectedField, obj *SimulatedTrustlineUpdatedChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTrustlineUpdatedChange_operationIndex,
+		func(ctx context.Context) (any, error) {
+			return obj.OperationIndex, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTrustlineUpdatedChange_operationIndex(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTrustlineUpdatedChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -38361,6 +39092,8 @@ func (ec *executionContext) _SimulatedAccountCreatedChange(ctx context.Context, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedAccountCreatedChange_operationIndex(ctx, field, obj)
 		case "creatorAddress":
 			out.Values[i] = ec._SimulatedAccountCreatedChange_creatorAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38415,6 +39148,8 @@ func (ec *executionContext) _SimulatedAccountFlagsChange(ctx context.Context, se
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedAccountFlagsChange_operationIndex(ctx, field, obj)
 		case "flags":
 			out.Values[i] = ec._SimulatedAccountFlagsChange_flags(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38469,6 +39204,8 @@ func (ec *executionContext) _SimulatedAccountMergedChange(ctx context.Context, s
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedAccountMergedChange_operationIndex(ctx, field, obj)
 		case "destinationAddress":
 			out.Values[i] = ec._SimulatedAccountMergedChange_destinationAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38523,6 +39260,8 @@ func (ec *executionContext) _SimulatedAllowanceChange(ctx context.Context, sel a
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedAllowanceChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedAllowanceChange_tokenId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38592,6 +39331,8 @@ func (ec *executionContext) _SimulatedBalanceAuthorizationChange(ctx context.Con
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedBalanceAuthorizationChange_tokenId(ctx, field, obj)
 		case "liquidityPoolId":
@@ -38647,6 +39388,8 @@ func (ec *executionContext) _SimulatedBalanceChange(ctx context.Context, sel ast
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedBalanceChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedBalanceChange_tokenId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38708,6 +39451,8 @@ func (ec *executionContext) _SimulatedDataEntryAddedChange(ctx context.Context, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedDataEntryAddedChange_operationIndex(ctx, field, obj)
 		case "name":
 			out.Values[i] = ec._SimulatedDataEntryAddedChange_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38767,6 +39512,8 @@ func (ec *executionContext) _SimulatedDataEntryRemovedChange(ctx context.Context
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedDataEntryRemovedChange_operationIndex(ctx, field, obj)
 		case "name":
 			out.Values[i] = ec._SimulatedDataEntryRemovedChange_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38826,6 +39573,8 @@ func (ec *executionContext) _SimulatedDataEntryUpdatedChange(ctx context.Context
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_operationIndex(ctx, field, obj)
 		case "name":
 			out.Values[i] = ec._SimulatedDataEntryUpdatedChange_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38890,6 +39639,8 @@ func (ec *executionContext) _SimulatedHomeDomainClearedChange(ctx context.Contex
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedHomeDomainClearedChange_operationIndex(ctx, field, obj)
 		case "oldHomeDomain":
 			out.Values[i] = ec._SimulatedHomeDomainClearedChange_oldHomeDomain(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38944,6 +39695,8 @@ func (ec *executionContext) _SimulatedHomeDomainSetChange(ctx context.Context, s
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedHomeDomainSetChange_operationIndex(ctx, field, obj)
 		case "homeDomain":
 			out.Values[i] = ec._SimulatedHomeDomainSetChange_homeDomain(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -38998,6 +39751,8 @@ func (ec *executionContext) _SimulatedHomeDomainUpdatedChange(ctx context.Contex
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_operationIndex(ctx, field, obj)
 		case "oldHomeDomain":
 			out.Values[i] = ec._SimulatedHomeDomainUpdatedChange_oldHomeDomain(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -39057,6 +39812,8 @@ func (ec *executionContext) _SimulatedSignerAddedChange(ctx context.Context, sel
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedSignerAddedChange_operationIndex(ctx, field, obj)
 		case "signerAddress":
 			out.Values[i] = ec._SimulatedSignerAddedChange_signerAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -39116,6 +39873,8 @@ func (ec *executionContext) _SimulatedSignerRemovedChange(ctx context.Context, s
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedSignerRemovedChange_operationIndex(ctx, field, obj)
 		case "signerAddress":
 			out.Values[i] = ec._SimulatedSignerRemovedChange_signerAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -39175,6 +39934,8 @@ func (ec *executionContext) _SimulatedSignerUpdatedChange(ctx context.Context, s
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedSignerUpdatedChange_operationIndex(ctx, field, obj)
 		case "signerAddress":
 			out.Values[i] = ec._SimulatedSignerUpdatedChange_signerAddress(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -39283,6 +40044,8 @@ func (ec *executionContext) _SimulatedThresholdChange(ctx context.Context, sel a
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedThresholdChange_operationIndex(ctx, field, obj)
 		case "threshold":
 			out.Values[i] = ec._SimulatedThresholdChange_threshold(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -39347,6 +40110,8 @@ func (ec *executionContext) _SimulatedTrustlineAddedChange(ctx context.Context, 
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedTrustlineAddedChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedTrustlineAddedChange_tokenId(ctx, field, obj)
 		case "liquidityPoolId":
@@ -39405,6 +40170,8 @@ func (ec *executionContext) _SimulatedTrustlineRemovedChange(ctx context.Context
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedTrustlineRemovedChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedTrustlineRemovedChange_tokenId(ctx, field, obj)
 		case "liquidityPoolId":
@@ -39458,6 +40225,8 @@ func (ec *executionContext) _SimulatedTrustlineUpdatedChange(ctx context.Context
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "operationIndex":
+			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_operationIndex(ctx, field, obj)
 		case "tokenId":
 			out.Values[i] = ec._SimulatedTrustlineUpdatedChange_tokenId(ctx, field, obj)
 		case "liquidityPoolId":

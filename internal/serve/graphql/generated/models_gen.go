@@ -29,7 +29,10 @@ type Balance interface {
 // omit the fields that only exist after a transaction is included in a ledger:
 // `ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and
 // `transaction`. The affected account is exposed as a plain address rather than
-// an `Account` entity, since the account may not be indexed yet.
+// an `Account` entity, since the account may not be indexed yet. In place of
+// `operation`, `operationIndex` says which operation of the simulated
+// transaction would produce the change; the transaction-fee row is the one
+// change with a null `operationIndex`.
 //
 // The set of concrete types grows with the transaction sources the simulation
 // supports; today it covers the variants contract (Soroban) transactions and
@@ -42,6 +45,8 @@ type BaseSimulatedStateChange interface {
 	GetReason() types.StateChangeReason
 	// Address of the account whose state would change.
 	GetAccountAddress() string
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	GetOperationIndex() *int32
 }
 
 // Common contract implemented by every state change. A state change records one
@@ -556,6 +561,8 @@ type SimulatedAccountCreatedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Account that would create this one: the funder or the contract deployer.
 	CreatorAddress string `json:"creatorAddress"`
 }
@@ -573,12 +580,17 @@ func (this SimulatedAccountCreatedChange) GetReason() types.StateChangeReason { 
 // Address of the account whose state would change.
 func (this SimulatedAccountCreatedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedAccountCreatedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of AccountFlagsChange.
 // Pairs: (FLAGS, SET), (FLAGS, CLEAR).
 type SimulatedAccountFlagsChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Flags that would be set (reason SET) or cleared (reason CLEAR).
 	Flags []types.AccountFlag `json:"flags"`
 }
@@ -594,12 +606,17 @@ func (this SimulatedAccountFlagsChange) GetReason() types.StateChangeReason { re
 // Address of the account whose state would change.
 func (this SimulatedAccountFlagsChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedAccountFlagsChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of AccountMergedChange.
 // Pair: (ACCOUNT, MERGE).
 type SimulatedAccountMergedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Account that would receive the merged account's balance.
 	DestinationAddress string `json:"destinationAddress"`
 }
@@ -617,12 +634,17 @@ func (this SimulatedAccountMergedChange) GetReason() types.StateChangeReason { r
 // Address of the account whose state would change.
 func (this SimulatedAccountMergedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedAccountMergedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of AllowanceChange.
 // Pair: (ALLOWANCE, UPDATE).
 type SimulatedAllowanceChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the token the allowance applies to.
 	TokenID string `json:"tokenId"`
 	// Address authorized to spend from the holder's balance.
@@ -644,6 +666,9 @@ func (this SimulatedAllowanceChange) GetReason() types.StateChangeReason { retur
 // Address of the account whose state would change.
 func (this SimulatedAllowanceChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedAllowanceChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of BalanceAuthorizationChange. Exactly one of tokenId /
 // liquidityPoolId is set.
 // Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
@@ -651,6 +676,8 @@ type SimulatedBalanceAuthorizationChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the asset; null for liquidity-pool-share trustlines.
 	TokenID *string `json:"tokenId,omitempty"`
 	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
@@ -676,6 +703,11 @@ func (this SimulatedBalanceAuthorizationChange) GetAccountAddress() string {
 	return this.AccountAddress
 }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedBalanceAuthorizationChange) GetOperationIndex() *int32 {
+	return this.OperationIndex
+}
+
 // Simulated mirror of BalanceChange. The transaction-fee row is (BALANCE, DEBIT)
 // on the fee-paying account: an estimate of the network's charge (the base fee
 // per operation, plus the simulated resource fee for contract transactions). The
@@ -686,6 +718,8 @@ type SimulatedBalanceChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the token whose balance would move.
 	TokenID string `json:"tokenId"`
 	// Amount moved, as a decimal string in the token's smallest unit.
@@ -705,12 +739,17 @@ func (this SimulatedBalanceChange) GetReason() types.StateChangeReason { return 
 // Address of the account whose state would change.
 func (this SimulatedBalanceChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedBalanceChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of DataEntryAddedChange.
 // Pair: (DATA_ENTRY, ADD).
 type SimulatedDataEntryAddedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Name of the data entry.
 	Name string `json:"name"`
 	// Value of the new entry, base64-encoded.
@@ -730,12 +769,17 @@ func (this SimulatedDataEntryAddedChange) GetReason() types.StateChangeReason { 
 // Address of the account whose state would change.
 func (this SimulatedDataEntryAddedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedDataEntryAddedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of DataEntryRemovedChange.
 // Pair: (DATA_ENTRY, REMOVE).
 type SimulatedDataEntryRemovedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Name of the data entry.
 	Name string `json:"name"`
 	// Value the entry had when removed, base64-encoded.
@@ -755,12 +799,17 @@ func (this SimulatedDataEntryRemovedChange) GetReason() types.StateChangeReason 
 // Address of the account whose state would change.
 func (this SimulatedDataEntryRemovedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedDataEntryRemovedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of DataEntryUpdatedChange.
 // Pair: (DATA_ENTRY, UPDATE).
 type SimulatedDataEntryUpdatedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Name of the data entry.
 	Name string `json:"name"`
 	// Previous value, base64-encoded.
@@ -782,12 +831,17 @@ func (this SimulatedDataEntryUpdatedChange) GetReason() types.StateChangeReason 
 // Address of the account whose state would change.
 func (this SimulatedDataEntryUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedDataEntryUpdatedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of HomeDomainClearedChange.
 // Pair: (HOME_DOMAIN, CLEAR).
 type SimulatedHomeDomainClearedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Home domain the account had when it would be removed.
 	OldHomeDomain string `json:"oldHomeDomain"`
 }
@@ -805,12 +859,17 @@ func (this SimulatedHomeDomainClearedChange) GetReason() types.StateChangeReason
 // Address of the account whose state would change.
 func (this SimulatedHomeDomainClearedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedHomeDomainClearedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of HomeDomainSetChange.
 // Pair: (HOME_DOMAIN, SET).
 type SimulatedHomeDomainSetChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// The newly set home domain.
 	HomeDomain string `json:"homeDomain"`
 }
@@ -828,12 +887,17 @@ func (this SimulatedHomeDomainSetChange) GetReason() types.StateChangeReason { r
 // Address of the account whose state would change.
 func (this SimulatedHomeDomainSetChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedHomeDomainSetChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of HomeDomainUpdatedChange.
 // Pair: (HOME_DOMAIN, UPDATE).
 type SimulatedHomeDomainUpdatedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Previous home domain.
 	OldHomeDomain string `json:"oldHomeDomain"`
 	// New home domain.
@@ -853,12 +917,17 @@ func (this SimulatedHomeDomainUpdatedChange) GetReason() types.StateChangeReason
 // Address of the account whose state would change.
 func (this SimulatedHomeDomainUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedHomeDomainUpdatedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of SignerAddedChange.
 // Pair: (SIGNER, ADD).
 type SimulatedSignerAddedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Address of the added signer.
 	SignerAddress string `json:"signerAddress"`
 	// Weight assigned to the new signer (0-255).
@@ -876,12 +945,17 @@ func (this SimulatedSignerAddedChange) GetReason() types.StateChangeReason { ret
 // Address of the account whose state would change.
 func (this SimulatedSignerAddedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedSignerAddedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of SignerRemovedChange.
 // Pair: (SIGNER, REMOVE).
 type SimulatedSignerRemovedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Address of the removed signer.
 	SignerAddress string `json:"signerAddress"`
 	// Weight the signer had before removal (0-255).
@@ -901,12 +975,17 @@ func (this SimulatedSignerRemovedChange) GetReason() types.StateChangeReason { r
 // Address of the account whose state would change.
 func (this SimulatedSignerRemovedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedSignerRemovedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of SignerUpdatedChange.
 // Pair: (SIGNER, UPDATE).
 type SimulatedSignerUpdatedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Address of the updated signer.
 	SignerAddress string `json:"signerAddress"`
 	// Previous weight (0-255).
@@ -928,6 +1007,9 @@ func (this SimulatedSignerUpdatedChange) GetReason() types.StateChangeReason { r
 // Address of the account whose state would change.
 func (this SimulatedSignerUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedSignerUpdatedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Result of simulating an unsubmitted transaction: the state changes the
 // indexer would produce if the transaction were submitted and included in a
 // ledger, in the same variant structure as the history API's state changes.
@@ -944,6 +1026,8 @@ type SimulatedThresholdChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Which signature threshold would change.
 	Threshold types.ThresholdLevel `json:"threshold"`
 	// Previous threshold value (0-255).
@@ -963,6 +1047,9 @@ func (this SimulatedThresholdChange) GetReason() types.StateChangeReason { retur
 // Address of the account whose state would change.
 func (this SimulatedThresholdChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedThresholdChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of TrustlineAddedChange. Exactly one of tokenId /
 // liquidityPoolId is set.
 // Pair: (TRUSTLINE, ADD).
@@ -970,6 +1057,8 @@ type SimulatedTrustlineAddedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
 	TokenID *string `json:"tokenId,omitempty"`
 	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
@@ -991,6 +1080,9 @@ func (this SimulatedTrustlineAddedChange) GetReason() types.StateChangeReason { 
 // Address of the account whose state would change.
 func (this SimulatedTrustlineAddedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedTrustlineAddedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of TrustlineRemovedChange. Exactly one of tokenId /
 // liquidityPoolId is set.
 // Pair: (TRUSTLINE, REMOVE).
@@ -998,6 +1090,8 @@ type SimulatedTrustlineRemovedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
 	TokenID *string `json:"tokenId,omitempty"`
 	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
@@ -1017,6 +1111,9 @@ func (this SimulatedTrustlineRemovedChange) GetReason() types.StateChangeReason 
 // Address of the account whose state would change.
 func (this SimulatedTrustlineRemovedChange) GetAccountAddress() string { return this.AccountAddress }
 
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedTrustlineRemovedChange) GetOperationIndex() *int32 { return this.OperationIndex }
+
 // Simulated mirror of TrustlineUpdatedChange. Exactly one of tokenId /
 // liquidityPoolId is set.
 // Pair: (TRUSTLINE, UPDATE).
@@ -1024,6 +1121,8 @@ type SimulatedTrustlineUpdatedChange struct {
 	Category       types.StateChangeCategory `json:"category"`
 	Reason         types.StateChangeReason   `json:"reason"`
 	AccountAddress string                    `json:"accountAddress"`
+	// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+	OperationIndex *int32 `json:"operationIndex,omitempty"`
 	// Contract ID of the trusted asset; null for liquidity-pool-share trustlines.
 	TokenID *string `json:"tokenId,omitempty"`
 	// Liquidity pool ID for pool-share trustlines; null for asset trustlines.
@@ -1046,6 +1145,9 @@ func (this SimulatedTrustlineUpdatedChange) GetReason() types.StateChangeReason 
 
 // Address of the account whose state would change.
 func (this SimulatedTrustlineUpdatedChange) GetAccountAddress() string { return this.AccountAddress }
+
+// Zero-based index of the operation that would produce this change; null for the transaction-fee row.
+func (this SimulatedTrustlineUpdatedChange) GetOperationIndex() *int32 { return this.OperationIndex }
 
 // Relay-style page of state changes.
 type StateChangeConnection struct {

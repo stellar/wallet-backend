@@ -17,7 +17,10 @@ variants mirror the history API's state-change types (same names with a
 omit the fields that only exist after a transaction is included in a ledger:
 `ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and
 `transaction`. The affected account is exposed as a plain address rather than
-an `Account` entity, since the account may not be indexed yet.
+an `Account` entity, since the account may not be indexed yet. In place of
+`operation`, `operationIndex` says which operation of the simulated
+transaction would produce the change; the transaction-fee row is the one
+change with a null `operationIndex`.
 
 The set of concrete types grows with the transaction sources the simulation
 supports; today it covers the variants contract (Soroban) transactions and
@@ -30,6 +33,8 @@ interface BaseSimulatedStateChange {
   reason:                     StateChangeReason!
   """Address of the account whose state would change."""
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 }
 
 """
@@ -44,6 +49,8 @@ type SimulatedBalanceChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the token whose balance would move."""
   tokenId:                    String!
@@ -62,6 +69,8 @@ type SimulatedAccountCreatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Account that would create this one: the funder or the contract deployer."""
   creatorAddress:             String!
@@ -75,6 +84,8 @@ type SimulatedAccountMergedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Account that would receive the merged account's balance."""
   destinationAddress:         String!
@@ -88,6 +99,8 @@ type SimulatedAllowanceChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the token the allowance applies to."""
   tokenId:                    String!
@@ -108,6 +121,8 @@ type SimulatedBalanceAuthorizationChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -125,6 +140,8 @@ type SimulatedSignerAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the added signer."""
   signerAddress:              String!
@@ -140,6 +157,8 @@ type SimulatedSignerUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the updated signer."""
   signerAddress:              String!
@@ -157,6 +176,8 @@ type SimulatedSignerRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Address of the removed signer."""
   signerAddress:              String!
@@ -172,6 +193,8 @@ type SimulatedThresholdChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Which signature threshold would change."""
   threshold:                  ThresholdLevel!
@@ -189,6 +212,8 @@ type SimulatedAccountFlagsChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Flags that would be set (reason SET) or cleared (reason CLEAR)."""
   flags:                      [AccountFlag!]!
@@ -202,6 +227,8 @@ type SimulatedHomeDomainSetChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """The newly set home domain."""
   homeDomain:                 String!
@@ -215,6 +242,8 @@ type SimulatedHomeDomainUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Previous home domain."""
   oldHomeDomain:              String!
@@ -230,6 +259,8 @@ type SimulatedHomeDomainClearedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Home domain the account had when it would be removed."""
   oldHomeDomain:              String!
@@ -243,6 +274,8 @@ type SimulatedDataEntryAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -258,6 +291,8 @@ type SimulatedDataEntryUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -275,6 +310,8 @@ type SimulatedDataEntryRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Name of the data entry."""
   name:                       String!
@@ -291,6 +328,8 @@ type SimulatedTrustlineAddedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -309,6 +348,8 @@ type SimulatedTrustlineUpdatedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
@@ -329,6 +370,8 @@ type SimulatedTrustlineRemovedChange implements BaseSimulatedStateChange {
   category:                   StateChangeCategory!
   reason:                     StateChangeReason!
   accountAddress:             String!
+  """Zero-based index of the operation that would produce this change; null for the transaction-fee row."""
+  operationIndex:             Int
 
   """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String
