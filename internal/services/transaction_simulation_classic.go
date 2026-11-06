@@ -387,17 +387,25 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 
 	line, exists := lookupTrustline(before, opSource, asset)
 
+	// Core's single validity check for an existing line: the new limit must
+	// hold the balance plus what open buy offers could still add. A zero limit
+	// means deletion, which this covers too, since any balance or buying
+	// liability blocks it (selling liabilities never exceed the balance, so
+	// they cannot block a deletion on their own).
+	if exists && int64(ct.Limit) < int64(line.Balance)+trustlineBuyingLiabilities(line) {
+		return nil, wouldFail("new limit %d for %s is below the current balance and buying liabilities", ct.Limit, assetString(asset))
+	}
+
 	if ct.Limit == 0 {
-		// Deleting the trustline. Open offers hold liabilities against it, so
-		// any liability blocks deletion just like a remaining balance.
 		if !exists {
 			return nil, wouldFail("cannot remove nonexistent trustline for %s", assetString(asset))
 		}
-		if line.Balance != 0 {
-			return nil, wouldFail("cannot remove trustline for %s with outstanding balance %d", assetString(asset), line.Balance)
-		}
-		if trustlineBuyingLiabilities(line) != 0 || trustlineSellingLiabilities(line) != 0 {
-			return nil, wouldFail("cannot remove trustline for %s with open offer liabilities", assetString(asset))
+		// A trustline deposited into liquidity pools cannot be deleted until
+		// those pool shares are redeemed.
+		if v1, ok := line.Ext.GetV1(); ok {
+			if v2, ok := v1.Ext.GetV2(); ok && v2.LiquidityPoolUseCount != 0 {
+				return nil, wouldFail("trustline for %s is in use by %d liquidity pools", assetString(asset), v2.LiquidityPoolUseCount)
+			}
 		}
 		removedKey := trustlineLedgerKey(opSource, asset)
 		return append(xdr.LedgerEntryChanges{
@@ -406,10 +414,14 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 		}, accountChangePair(srcAccount, dropSubentry(srcAccount))...), nil
 	}
 
+	// Keeping or creating a line requires the issuer to still exist (trustlines
+	// can outlive a merged issuer; Core returns CHANGE_TRUST_NO_ISSUER).
+	issuerAccount, ok := lookupAccount(before, xdr.MustAddress(asset.GetIssuer()))
+	if !ok {
+		return nil, wouldFail("issuer of %s does not exist", assetString(asset))
+	}
+
 	if exists {
-		if int64(ct.Limit) < int64(line.Balance)+trustlineBuyingLiabilities(line) {
-			return nil, wouldFail("new limit %d for %s is below the current balance", ct.Limit, assetString(asset))
-		}
 		after := line
 		after.Limit = ct.Limit
 		return trustlineChangePair(line, after), nil
@@ -419,10 +431,6 @@ func computeChangeTrustChanges(ct xdr.ChangeTrustOp, opSource xdr.AccountId, bef
 	// reserve on the source account. Whether the line starts out authorized
 	// depends on the issuer's AUTH_REQUIRED flag, and clawback-enabled issuers
 	// stamp their trustlines with the clawback flag, matching what Core does.
-	issuerAccount, ok := lookupAccount(before, xdr.MustAddress(asset.GetIssuer()))
-	if !ok {
-		return nil, wouldFail("issuer of %s does not exist", assetString(asset))
-	}
 	srcAfter, err := affordSubentry(srcAccount)
 	if err != nil {
 		return nil, err

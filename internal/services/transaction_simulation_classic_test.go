@@ -416,6 +416,47 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🔴 removing a trustline a liquidity pool uses is a would-fail", func(t *testing.T) {
+		id := xdr.MustAddress(src)
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, issuer, 100_0000000),
+			ledgerEntryResult(t, trustlineLedgerKey(id, asset), xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: id,
+					Asset:     asset.ToTrustLineAsset(),
+					Balance:   0,
+					Limit:     100_0000000,
+					Flags:     xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag),
+					Ext: xdr.TrustLineEntryExt{V: 1, V1: &xdr.TrustLineEntryV1{
+						Ext: xdr.TrustLineEntryV1Ext{V: 2, V2: &xdr.TrustLineEntryExtensionV2{
+							LiquidityPoolUseCount: 1,
+						}},
+					}},
+				},
+			}),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "0",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 raising the limit when the issuer no longer exists is a would-fail", func(t *testing.T) {
+		// Trustlines can outlive a merged issuer; Core then rejects the update
+		// with CHANGE_TRUST_NO_ISSUER. The issuer account is deliberately not
+		// in the fixture.
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			trustlineEntryResult(t, src, asset, 10_0000000, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ChangeTrust{
+			Line: line.MustToChangeTrustAsset(), Limit: "200",
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 inflation destination that does not exist is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		missing := keypair.MustRandom().Address()
