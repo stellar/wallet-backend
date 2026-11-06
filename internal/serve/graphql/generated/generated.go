@@ -775,6 +775,7 @@ type ComplexityRoot struct {
 	SimulatedStateChanges struct {
 		LatestLedger func(childComplexity int) int
 		StateChanges func(childComplexity int) int
+		Tokens       func(childComplexity int) int
 	}
 
 	SimulatedThresholdChange struct {
@@ -785,6 +786,15 @@ type ComplexityRoot struct {
 		OperationIndex func(childComplexity int) int
 		Reason         func(childComplexity int) int
 		Threshold      func(childComplexity int) int
+	}
+
+	SimulatedTokenMetadata struct {
+		Code     func(childComplexity int) int
+		Decimals func(childComplexity int) int
+		Issuer   func(childComplexity int) int
+		Name     func(childComplexity int) int
+		Symbol   func(childComplexity int) int
+		TokenID  func(childComplexity int) int
 	}
 
 	SimulatedTrustlineAddedChange struct {
@@ -4385,6 +4395,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedStateChanges.StateChanges(childComplexity), true
+	case "SimulatedStateChanges.tokens":
+		if e.ComplexityRoot.SimulatedStateChanges.Tokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedStateChanges.Tokens(childComplexity), true
 
 	case "SimulatedThresholdChange.accountAddress":
 		if e.ComplexityRoot.SimulatedThresholdChange.AccountAddress == nil {
@@ -4428,6 +4444,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SimulatedThresholdChange.Threshold(childComplexity), true
+
+	case "SimulatedTokenMetadata.code":
+		if e.ComplexityRoot.SimulatedTokenMetadata.Code == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.Code(childComplexity), true
+	case "SimulatedTokenMetadata.decimals":
+		if e.ComplexityRoot.SimulatedTokenMetadata.Decimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.Decimals(childComplexity), true
+	case "SimulatedTokenMetadata.issuer":
+		if e.ComplexityRoot.SimulatedTokenMetadata.Issuer == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.Issuer(childComplexity), true
+	case "SimulatedTokenMetadata.name":
+		if e.ComplexityRoot.SimulatedTokenMetadata.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.Name(childComplexity), true
+	case "SimulatedTokenMetadata.symbol":
+		if e.ComplexityRoot.SimulatedTokenMetadata.Symbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.Symbol(childComplexity), true
+	case "SimulatedTokenMetadata.tokenId":
+		if e.ComplexityRoot.SimulatedTokenMetadata.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SimulatedTokenMetadata.TokenID(childComplexity), true
 
 	case "SimulatedTrustlineAddedChange.accountAddress":
 		if e.ComplexityRoot.SimulatedTrustlineAddedChange.AccountAddress == nil {
@@ -6105,6 +6158,32 @@ type SimulatedStateChanges {
   latestLedger:               UInt32!
   """State changes the transaction would produce."""
   stateChanges:               [BaseSimulatedStateChange!]!
+  """
+  Display metadata for the tokens the state changes reference, from the
+  backend's token registry. A token that has never been indexed has no entry,
+  so its display data is unavailable.
+  """
+  tokens:                     [SimulatedTokenMetadata!]!
+}
+
+"""
+Display metadata for one token referenced by the simulated state changes.
+Stellar-asset-contract tokens carry the classic code and issuer; SEP-41
+contract tokens carry whatever name/symbol/decimals their contract reports.
+"""
+type SimulatedTokenMetadata {
+  """Contract ID of the token (C...)."""
+  tokenId:                    String!
+  """Classic asset code; null for contract-native tokens."""
+  code:                       String
+  """Classic asset issuer; null for contract-native tokens."""
+  issuer:                     String
+  """Token name reported by the contract."""
+  name:                       String
+  """Token symbol reported by the contract."""
+  symbol:                     String
+  """Number of decimal places in the token's smallest unit."""
+  decimals:                   UInt32!
 }
 
 """
@@ -19926,6 +20005,8 @@ func (ec *executionContext) fieldContext_Query_simulateStateChanges(ctx context.
 				return ec.fieldContext_SimulatedStateChanges_latestLedger(ctx, field)
 			case "stateChanges":
 				return ec.fieldContext_SimulatedStateChanges_stateChanges(ctx, field)
+			case "tokens":
+				return ec.fieldContext_SimulatedStateChanges_tokens(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type SimulatedStateChanges", field.Name)
 		},
@@ -24589,6 +24670,49 @@ func (ec *executionContext) fieldContext_SimulatedStateChanges_stateChanges(_ co
 	return fc, nil
 }
 
+func (ec *executionContext) _SimulatedStateChanges_tokens(ctx context.Context, field graphql.CollectedField, obj *SimulatedStateChanges) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedStateChanges_tokens,
+		func(ctx context.Context) (any, error) {
+			return obj.Tokens, nil
+		},
+		nil,
+		ec.marshalNSimulatedTokenMetadata2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedTokenMetadataᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedStateChanges_tokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedStateChanges",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "tokenId":
+				return ec.fieldContext_SimulatedTokenMetadata_tokenId(ctx, field)
+			case "code":
+				return ec.fieldContext_SimulatedTokenMetadata_code(ctx, field)
+			case "issuer":
+				return ec.fieldContext_SimulatedTokenMetadata_issuer(ctx, field)
+			case "name":
+				return ec.fieldContext_SimulatedTokenMetadata_name(ctx, field)
+			case "symbol":
+				return ec.fieldContext_SimulatedTokenMetadata_symbol(ctx, field)
+			case "decimals":
+				return ec.fieldContext_SimulatedTokenMetadata_decimals(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SimulatedTokenMetadata", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _SimulatedThresholdChange_category(ctx context.Context, field graphql.CollectedField, obj *SimulatedThresholdChange) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -24787,6 +24911,180 @@ func (ec *executionContext) fieldContext_SimulatedThresholdChange_newThreshold(_
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_tokenId(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_tokenId,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_code(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_code,
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_issuer(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_issuer,
+		func(ctx context.Context) (any, error) {
+			return obj.Issuer, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_issuer(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_name(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_symbol(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_symbol,
+		func(ctx context.Context) (any, error) {
+			return obj.Symbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_symbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SimulatedTokenMetadata_decimals(ctx context.Context, field graphql.CollectedField, obj *SimulatedTokenMetadata) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SimulatedTokenMetadata_decimals,
+		func(ctx context.Context) (any, error) {
+			return obj.Decimals, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SimulatedTokenMetadata_decimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SimulatedTokenMetadata",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
 		},
 	}
 	return fc, nil
@@ -39995,6 +40293,11 @@ func (ec *executionContext) _SimulatedStateChanges(ctx context.Context, sel ast.
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "tokens":
+			out.Values[i] = ec._SimulatedStateChanges_tokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -40058,6 +40361,58 @@ func (ec *executionContext) _SimulatedThresholdChange(ctx context.Context, sel a
 			}
 		case "newThreshold":
 			out.Values[i] = ec._SimulatedThresholdChange_newThreshold(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var simulatedTokenMetadataImplementors = []string{"SimulatedTokenMetadata"}
+
+func (ec *executionContext) _SimulatedTokenMetadata(ctx context.Context, sel ast.SelectionSet, obj *SimulatedTokenMetadata) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, simulatedTokenMetadataImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SimulatedTokenMetadata")
+		case "tokenId":
+			out.Values[i] = ec._SimulatedTokenMetadata_tokenId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "code":
+			out.Values[i] = ec._SimulatedTokenMetadata_code(ctx, field, obj)
+		case "issuer":
+			out.Values[i] = ec._SimulatedTokenMetadata_issuer(ctx, field, obj)
+		case "name":
+			out.Values[i] = ec._SimulatedTokenMetadata_name(ctx, field, obj)
+		case "symbol":
+			out.Values[i] = ec._SimulatedTokenMetadata_symbol(ctx, field, obj)
+		case "decimals":
+			out.Values[i] = ec._SimulatedTokenMetadata_decimals(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -43074,6 +43429,32 @@ func (ec *executionContext) marshalNSimulatedStateChanges2ᚖgithubᚗcomᚋstel
 		return graphql.Null
 	}
 	return ec._SimulatedStateChanges(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSimulatedTokenMetadata2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedTokenMetadataᚄ(ctx context.Context, sel ast.SelectionSet, v []*SimulatedTokenMetadata) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSimulatedTokenMetadata2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedTokenMetadata(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSimulatedTokenMetadata2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐSimulatedTokenMetadata(ctx context.Context, sel ast.SelectionSet, v *SimulatedTokenMetadata) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SimulatedTokenMetadata(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory(ctx context.Context, v any) (types.StateChangeCategory, error) {

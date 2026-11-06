@@ -39,6 +39,10 @@ type ContractModelInterface interface {
 	// given contract addresses. Contracts with no matching row are silently
 	// omitted (no error).
 	GetTokenMetadataByContractIDs(ctx context.Context, contractIDs []string) ([]Contract, error)
+
+	// GetByContractIDs returns the registry rows for the given contract IDs;
+	// contracts that have never been indexed are simply absent from the result.
+	GetByContractIDs(ctx context.Context, contractIDs []string) ([]*Contract, error)
 	// BatchInsert inserts multiple contracts with pre-computed IDs.
 	// Uses INSERT ... ON CONFLICT (contract_id) DO NOTHING for idempotent operations.
 	// Contracts must have their ID field set via DeterministicContractID before calling.
@@ -132,6 +136,27 @@ func (m *ContractModel) GetTokenMetadataByContractIDs(ctx context.Context, contr
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetTokenMetadataByContractIDs", "contract_tokens", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("querying contract token metadata: %w", err)
+	}
+	return contracts, nil
+}
+
+// GetByContractIDs returns the registry rows for the given contract IDs;
+// contracts that have never been indexed are simply absent from the result.
+func (m *ContractModel) GetByContractIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
+	if len(contractIDs) == 0 {
+		return nil, nil
+	}
+
+	const query = `SELECT * FROM contract_tokens WHERE contract_id = ANY($1)`
+
+	start := time.Now()
+	contracts, err := db.QueryManyPtrs[Contract](ctx, m.DB, query, contractIDs)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("GetByContractIDs", "contract_tokens").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("GetByContractIDs", "contract_tokens").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("GetByContractIDs", "contract_tokens", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("querying contract tokens by IDs: %w", err)
 	}
 	return contracts, nil
 }

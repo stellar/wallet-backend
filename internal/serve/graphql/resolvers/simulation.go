@@ -1,10 +1,14 @@
 package resolvers
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/stellar/go-stellar-sdk/toid"
+
+	"github.com/stellar/wallet-backend/internal/data"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -381,6 +385,55 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 // or a float64 when it has been round-tripped through JSONB from the database.
 // Absent, wrong-typed, and out-of-range values each get their own error so a
 // present-but-malformed value is not misreported as missing.
+// resolveSimulatedTokens looks up registry metadata for every token the
+// simulated state changes reference, in one batched contract_tokens query.
+// Tokens that have never been indexed are simply absent from the result, so
+// the client renders their display data as unavailable.
+func (r *Resolver) resolveSimulatedTokens(ctx context.Context, stateChanges []types.StateChange) ([]*graphql1.SimulatedTokenMetadata, error) {
+	seen := map[string]struct{}{}
+	ids := make([]string, 0, len(stateChanges))
+	for _, sc := range stateChanges {
+		if !sc.TokenID.Valid {
+			continue
+		}
+		id := string(sc.TokenID.AddressBytea)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+
+	tokens := make([]*graphql1.SimulatedTokenMetadata, 0, len(ids))
+	if len(ids) == 0 {
+		return tokens, nil
+	}
+	sort.Strings(ids)
+	contracts, err := r.models.Contract.GetByContractIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("looking up token metadata: %w", err)
+	}
+	byID := make(map[string]*data.Contract, len(contracts))
+	for _, c := range contracts {
+		byID[c.ContractID] = c
+	}
+	for _, id := range ids {
+		c, ok := byID[id]
+		if !ok {
+			continue
+		}
+		tokens = append(tokens, &graphql1.SimulatedTokenMetadata{
+			TokenID:  c.ContractID,
+			Code:     c.Code,
+			Issuer:   c.Issuer,
+			Name:     c.Name,
+			Symbol:   c.Symbol,
+			Decimals: c.Decimals,
+		})
+	}
+	return tokens, nil
+}
+
 // simulatedOperationIndex turns a state change's TOID-shaped OperationID into
 // the zero-based index of the operation inside the simulated transaction. The
 // transaction-fee row carries no operation (OperationID 0) and maps to nil,
