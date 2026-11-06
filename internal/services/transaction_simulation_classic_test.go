@@ -480,6 +480,29 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		assert.Equal(t, added, signerAdd.SignerAccountID.String())
 	})
 
+	t.Run("🟢 fee row shows the network charge, not the fee bid", func(t *testing.T) {
+		// Core charges min(bid, baseFee * numOps); a wallet bidding headroom
+		// must not see the whole bid as a debit, nor fail checks against it.
+		dst := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		var envelope xdr.TransactionEnvelope
+		require.NoError(t, xdr.SafeUnmarshalBase64(buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{},
+		}), &envelope))
+		envelope.V1.Tx.Fee = 5000
+		paddedXDR, err := xdr.MarshalBase64(envelope)
+		require.NoError(t, err)
+
+		result, err := svc.SimulateStateChanges(ctx, paddedXDR)
+		require.NoError(t, err)
+		feeDebit, _ := balanceChangesByReasonAndOp(result.StateChanges)
+		require.NotNil(t, feeDebit, "expected a transaction-fee debit row")
+		assert.Equal(t, "100", feeDebit.Amount.String)
+	})
+
 	t.Run("🔴 removing a signer the account does not have is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{
@@ -550,7 +573,7 @@ func TestComputeChangeTrustChanges_entryFidelity(t *testing.T) {
 	changes, err := computeChangeTrustChanges(xdr.ChangeTrustOp{
 		Line:  asset.ToChangeTrustAsset(),
 		Limit: 10_0000000,
-	}, src, before, 100)
+	}, src, before)
 	require.NoError(t, err)
 	require.Len(t, changes, 3, "expected trustline creation plus the source account pair")
 
