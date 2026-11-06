@@ -20,6 +20,14 @@ type ContractModelMock struct {
 
 var _ ContractModelInterface = (*ContractModelMock)(nil)
 
+func (m *ContractModelMock) GetByContractIDs(ctx context.Context, contractIDs []string) ([]*Contract, error) {
+	args := m.Called(ctx, contractIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*Contract), args.Error(1)
+}
+
 // NewContractModelMock creates a new instance of ContractModelMock.
 func NewContractModelMock(t interface {
 	mock.TestingT

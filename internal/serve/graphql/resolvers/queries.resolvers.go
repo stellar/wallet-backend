@@ -87,9 +87,14 @@ func (r *queryResolver) SimulateStateChanges(ctx context.Context, transactionXdr
 	if err != nil {
 		return nil, fmt.Errorf("converting simulated state changes: %w", err)
 	}
+	tokens, err := r.resolveSimulatedTokens(ctx, result.StateChanges)
+	if err != nil {
+		return nil, fmt.Errorf("resolving simulated token metadata: %w", err)
+	}
 	return &graphql1.SimulatedStateChanges{
 		LatestLedger: result.LatestLedger,
 		StateChanges: stateChanges,
+		Tokens:       tokens,
 	}, nil
 }
 
