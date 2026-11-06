@@ -1297,6 +1297,31 @@ func TestComputeChangeTrustChanges_entryFidelity(t *testing.T) {
 // buildRawTxXDRFrom assembles a single-operation envelope directly as XDR,
 // bypassing txnbuild's client-side validation, so tests can feed the service
 // operations a hostile client could submit.
+// buildRawTxXDRWithOpSource is buildRawTxXDRFrom with a distinct source account
+// on the operation, so op-source checks can be exercised separately from the
+// fee-paying transaction source.
+func buildRawTxXDRWithOpSource(t *testing.T, txSource, opSource string, body xdr.OperationBody) string {
+	t.Helper()
+	aid := xdr.MustAddress(txSource)
+	opAID := xdr.MustAddress(opSource)
+	opMuxed := opAID.ToMuxedAccount()
+	env := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+		V1: &xdr.TransactionV1Envelope{
+			Tx: xdr.Transaction{
+				SourceAccount: aid.ToMuxedAccount(),
+				Fee:           100,
+				SeqNum:        1,
+				Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+				Operations:    []xdr.Operation{{SourceAccount: &opMuxed, Body: body}},
+			},
+		},
+	}
+	xdrB64, err := xdr.MarshalBase64(env)
+	require.NoError(t, err)
+	return xdrB64
+}
+
 func buildRawTxXDRFrom(t *testing.T, source string, body xdr.OperationBody) string {
 	t.Helper()
 	aid := xdr.MustAddress(source)
@@ -1919,5 +1944,120 @@ func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 			}
 		}
 		assert.True(t, credited, "the trustline created by operation 1 must be able to receive in operation 2")
+	})
+}
+
+// TestTransactionSimulationService_classicReviewFixesPR6 pins the Copilot
+// review findings on the complete-coverage PR: issuer-source existence,
+// immutable merges, claim overflow, and the creator's sponsorship counter.
+func TestTransactionSimulationService_classicReviewFixesPR6(t *testing.T) {
+	ctx := context.Background()
+	issuer := keypair.MustRandom().Address()
+	payer := keypair.MustRandom().Address()
+	holder := keypair.MustRandom().Address()
+	asset := xdr.MustNewCreditAsset("USDC", issuer)
+	cbID := testClaimableBalanceID(9)
+
+	t.Run("🔴 clawback from a nonexistent issuer source is a would-fail", func(t *testing.T) {
+		// The payer covers the fee; the issuer is the operation source and its
+		// account no longer exists, so Core returns opNO_ACCOUNT.
+		holderID := xdr.MustAddress(holder)
+		svc := classicFixture(t,
+			accountEntryResult(t, payer, 100_0000000),
+			ledgerEntryResult(t, trustlineLedgerKey(holderID, asset), xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeTrustline,
+				TrustLine: &xdr.TrustLineEntry{
+					AccountId: holderID,
+					Asset:     asset.ToTrustLineAsset(),
+					Balance:   50_0000000,
+					Limit:     100_0000000,
+					Flags:     xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsTrustlineClawbackEnabledFlag),
+				},
+			}),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRWithOpSource(t, payer, issuer, xdr.OperationBody{
+			Type: xdr.OperationTypeClawback,
+			ClawbackOp: &xdr.ClawbackOp{
+				From:   holderID.ToMuxedAccount(),
+				Asset:  asset,
+				Amount: 10_0000000,
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 clawing back a claimable balance from a nonexistent issuer source is a would-fail", func(t *testing.T) {
+		claimant := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, payer, 100_0000000),
+			claimableBalanceEntryResult(t, cbID, asset, claimant, true),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRWithOpSource(t, payer, issuer, xdr.OperationBody{
+			Type:                       xdr.OperationTypeClawbackClaimableBalance,
+			ClawbackClaimableBalanceOp: &xdr.ClawbackClaimableBalanceOp{BalanceId: cbID},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 merging an AUTH_IMMUTABLE account is a would-fail", func(t *testing.T) {
+		dst := keypair.MustRandom().Address()
+		id := xdr.MustAddress(payer)
+		entry := xdr.AccountEntry{
+			AccountId:  id,
+			Balance:    100_0000000,
+			SeqNum:     1,
+			Thresholds: xdr.Thresholds{1, 0, 0, 0},
+			Flags:      xdr.Uint32(xdr.AccountFlagsAuthImmutableFlag),
+		}
+		svc := classicFixture(t,
+			ledgerEntryResult(t, accountLedgerKey(id), xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &entry}),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, payer, &txnbuild.AccountMerge{Destination: dst}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a claim amount that would wrap the limit check is a would-fail", func(t *testing.T) {
+		claimant := keypair.MustRandom().Address()
+		v0 := xdr.ClaimantV0{
+			Destination: xdr.MustAddress(claimant),
+			Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional},
+		}
+		entry := xdr.ClaimableBalanceEntry{
+			BalanceId: cbID,
+			Claimants: []xdr.Claimant{{Type: xdr.ClaimantTypeClaimantTypeV0, V0: &v0}},
+			Asset:     asset,
+			Amount:    math.MaxInt64 - 10,
+		}
+		svc := classicFixture(t,
+			accountEntryResult(t, claimant, 100_0000000),
+			trustlineEntryResult(t, claimant, asset, 50_0000000, 100_0000000),
+			ledgerEntryResult(t, claimableBalanceLedgerKey(cbID), xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeClaimableBalance, ClaimableBalance: &entry,
+			}),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
+			Type:                    xdr.OperationTypeClaimClaimableBalance,
+			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{BalanceId: cbID},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 merging the creator right after creating a claimable balance is a would-fail", func(t *testing.T) {
+		// The create bumps the creator's numSponsoring in the working state, and
+		// Core refuses to merge an account that sponsors reserves.
+		dst := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, payer, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildMultiOpTxXDRFrom(t, payer,
+			&txnbuild.CreateClaimableBalance{
+				Amount: "1", Asset: txnbuild.NativeAsset{},
+				Destinations: []txnbuild.Claimant{txnbuild.NewClaimant(dst, nil)},
+			},
+			&txnbuild.AccountMerge{Destination: dst},
+		))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 }

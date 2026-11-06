@@ -1035,6 +1035,10 @@ func computeAccountMergeChanges(dest, opSource xdr.AccountId, before map[string]
 	if !ok {
 		return nil, wouldFail("destination account %s does not exist", dest.Address())
 	}
+	// Core refuses to merge an immutable account (ACCOUNT_MERGE_IMMUTABLE_SET).
+	if source.Flags&xdr.Uint32(xdr.AccountFlagsAuthImmutableFlag) != 0 {
+		return nil, wouldFail("account %s has AUTH_IMMUTABLE set and cannot be merged", opSource.Address())
+	}
 	// Signers count toward NumSubEntries but vanish with the account, so they
 	// do not block a merge. Anything beyond them (trustlines, offers, data
 	// entries) does.
@@ -1081,12 +1085,15 @@ func computeCreateClaimableBalanceChanges(cb xdr.CreateClaimableBalanceOp, opSou
 	}
 
 	// The creator sponsors one base reserve per claimant, paid in XLM whatever
-	// the escrowed asset is. The counters themselves (numSponsoring, the
-	// entry's sponsor) are bookkeeping no processor reads and are not modeled.
+	// the escrowed asset is. The numSponsoring counter is modeled on the working
+	// entry because later operations read it: it raises the creator's minimum
+	// balance and blocks merging the creator while the entry exists.
 	reserve := int64(len(cb.Claimants)) * processors.BaseReserveStroops
 	if int64(source.Balance)-processors.MinimumBalance(source)-int64(source.Liabilities().Selling) < reserve {
 		return nil, wouldFail("source account %s cannot afford the %d stroop reserve for the claimable balance", opSource.Address(), reserve)
 	}
+	srcAfter := source
+	bumpNumSponsoring(&srcAfter, uint32(len(cb.Claimants)))
 
 	var changes xdr.LedgerEntryChanges
 	clawbackEnabled := false
@@ -1096,12 +1103,12 @@ func computeCreateClaimableBalanceChanges(cb xdr.CreateClaimableBalanceOp, opSou
 		if available < int64(cb.Amount) {
 			return nil, wouldFail("source account %s has insufficient XLM: available %d stroops, escrowing %d", opSource.Address(), available, cb.Amount)
 		}
-		srcAfter := source
 		srcAfter.Balance -= cb.Amount
 		changes = accountChangePair(source, srcAfter)
 	case opSource.Address() == cb.Asset.GetIssuer():
 		// The issuer escrows newly issued units; there is no trustline side.
 		clawbackEnabled = source.Flags&xdr.Uint32(xdr.AccountFlagsAuthClawbackEnabledFlag) != 0
+		changes = accountChangePair(source, srcAfter)
 	default:
 		line, ok := lookupTrustline(before, opSource, cb.Asset)
 		if !ok {
@@ -1117,7 +1124,7 @@ func computeCreateClaimableBalanceChanges(cb xdr.CreateClaimableBalanceOp, opSou
 		clawbackEnabled = line.Flags&xdr.Uint32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag) != 0
 		after := line
 		after.Balance -= cb.Amount
-		changes = trustlineChangePair(line, after)
+		changes = append(accountChangePair(source, srcAfter), trustlineChangePair(line, after)...)
 	}
 
 	claimants := make([]xdr.Claimant, len(cb.Claimants))
@@ -1197,7 +1204,10 @@ func computeClaimClaimableBalanceChanges(op xdr.ClaimClaimableBalanceOp, opSourc
 		if line.Flags&xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag) == 0 {
 			return nil, wouldFail("account %s is not authorized to hold %s", opSource.Address(), cb.Asset.StringCanonical())
 		}
-		if int64(line.Limit) < int64(line.Balance)+int64(line.Liabilities().Buying)+int64(cb.Amount) {
+		// Room is computed by subtraction so a huge claim amount cannot wrap
+		// the comparison past the limit (balance plus buying liabilities never
+		// exceed the limit on a valid ledger entry).
+		if int64(cb.Amount) > int64(line.Limit)-int64(line.Balance)-int64(line.Liabilities().Buying) {
 			return nil, wouldFail("claiming this balance would exceed the trustline limit for %s", cb.Asset.StringCanonical())
 		}
 		after := line
@@ -1209,6 +1219,9 @@ func computeClaimClaimableBalanceChanges(op xdr.ClaimClaimableBalanceOp, opSourc
 // computeClawbackClaimableBalanceChanges removes a clawback-enabled
 // claimable-balance entry entirely; the escrowed units are burned.
 func computeClawbackClaimableBalanceChanges(op xdr.ClawbackClaimableBalanceOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
+	if _, ok := lookupAccount(before, opSource); !ok {
+		return nil, wouldFail("source account %s does not exist", opSource.Address())
+	}
 	cb, ok := lookupClaimableBalance(before, op.BalanceId)
 	if !ok {
 		return nil, wouldFail("the claimable balance does not exist")
@@ -1225,6 +1238,27 @@ func computeClawbackClaimableBalanceChanges(op xdr.ClawbackClaimableBalanceOp, o
 		{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: claimableBalanceLedgerEntry(cb)},
 		{Type: xdr.LedgerEntryChangeTypeLedgerEntryRemoved, Removed: &removedKey},
 	}, nil
+}
+
+// bumpNumSponsoring raises the account's sponsoring counter, materializing the
+// v2 extension if the account does not carry one yet (with the mandatory
+// per-signer sponsoring slots), into fresh structs so the shared before entry
+// stays untouched.
+func bumpNumSponsoring(account *xdr.AccountEntry, n uint32) {
+	var v1 xdr.AccountEntryExtensionV1
+	if account.Ext.V1 != nil {
+		v1 = *account.Ext.V1
+	}
+	var v2 xdr.AccountEntryExtensionV2
+	if v1.Ext.V2 != nil {
+		v2 = *v1.Ext.V2
+	}
+	v2.NumSponsoring += xdr.Uint32(n)
+	if v2.SignerSponsoringIDs == nil {
+		v2.SignerSponsoringIDs = make([]xdr.SponsorshipDescriptor, len(account.Signers))
+	}
+	v1.Ext = xdr.AccountEntryExtensionV1Ext{V: 2, V2: &v2}
+	account.Ext = xdr.AccountEntryExt{V: 1, V1: &v1}
 }
 
 // claimableBalanceID derives the deterministic ID the network would assign to
@@ -1386,6 +1420,9 @@ func predicateSatisfied(p xdr.ClaimPredicate, now time.Time) bool {
 // holder's trustline. The trustline must have been created clawback-enabled.
 func computeClawbackChanges(cb xdr.ClawbackOp, opSource xdr.AccountId, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
 	from := cb.From.ToAccountId()
+	if _, ok := lookupAccount(before, opSource); !ok {
+		return nil, wouldFail("source account %s does not exist", opSource.Address())
+	}
 	if cb.Asset.GetIssuer() != opSource.Address() {
 		return nil, wouldFail("only the issuer of %s can claw it back", cb.Asset.StringCanonical())
 	}
