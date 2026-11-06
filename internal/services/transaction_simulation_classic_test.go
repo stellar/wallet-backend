@@ -546,6 +546,26 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		assert.Equal(t, "100", feeDebit.Amount.String)
 	})
 
+	t.Run("🔴 fee bid below the network minimum is a would-fail", func(t *testing.T) {
+		// txnbuild enforces the minimum client-side, so the low bid is set on
+		// the raw envelope; Core rejects it with txINSUFFICIENT_FEE.
+		dst := keypair.MustRandom().Address()
+		svc := classicFixture(t,
+			accountEntryResult(t, src, 100_0000000),
+			accountEntryResult(t, dst, 50_0000000),
+		)
+		var envelope xdr.TransactionEnvelope
+		require.NoError(t, xdr.SafeUnmarshalBase64(buildTxXDRFrom(t, src, &txnbuild.Payment{
+			Destination: dst, Amount: "1", Asset: txnbuild.NativeAsset{},
+		}), &envelope))
+		envelope.V1.Tx.Fee = 50
+		lowBidXDR, err := xdr.MarshalBase64(envelope)
+		require.NoError(t, err)
+
+		_, err = svc.SimulateStateChanges(ctx, lowBidXDR)
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 removing a signer the account does not have is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.SetOptions{

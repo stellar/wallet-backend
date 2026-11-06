@@ -53,9 +53,14 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		return ingest.LedgerTransaction{}, 0, err
 	}
 
-	// The network rejects a transaction whose source cannot cover the fee bid,
-	// before the operation ever runs.
+	// The network rejects a transaction whose bid is below the base fee per
+	// operation, or whose source cannot cover the full bid, before the
+	// operation ever runs.
 	fee := int64(envelope.Fee())
+	feeCharged := int64(len(envelope.Operations())) * baseFeeStroops
+	if fee < feeCharged {
+		return ingest.LedgerTransaction{}, 0, wouldFail("fee bid %d is below the network minimum %d", fee, feeCharged)
+	}
 	feeSource, ok := lookupAccount(before, txSource)
 	if !ok {
 		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
@@ -64,11 +69,10 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s cannot cover the %d stroop fee", txSource.Address(), fee)
 	}
 
-	// Outside surge pricing, Core charges the base fee per operation and the
-	// bid only caps it. Charge it up front by debiting the fee source in the
-	// before image, the order Core applies it in, so every handler computes
-	// against the post-fee balance without threading the fee through.
-	feeCharged := min(fee, int64(len(envelope.Operations()))*baseFeeStroops)
+	// Outside surge pricing, Core charges exactly the base fee per operation,
+	// not the bid. Charge it up front by debiting the fee source in the before
+	// image, the order Core applies it in, so every handler computes against
+	// the post-fee balance without threading the fee through.
 	feeSource.Balance -= xdr.Int64(feeCharged)
 	storeAccount(before, feeSource)
 
