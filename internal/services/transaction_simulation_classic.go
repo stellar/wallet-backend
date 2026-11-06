@@ -1311,17 +1311,46 @@ func claimantTrustlineKeys(envelope xdr.TransactionEnvelope, working map[string]
 		if op.Body.Type != xdr.OperationTypeClaimClaimableBalance {
 			continue
 		}
-		cb, ok := lookupClaimableBalance(working, op.Body.ClaimClaimableBalanceOp.BalanceId)
-		if !ok || cb.Asset.Type == xdr.AssetTypeAssetTypeNative {
+		balanceID := op.Body.ClaimClaimableBalanceOp.BalanceId
+		var asset xdr.Asset
+		if cb, ok := lookupClaimableBalance(working, balanceID); ok {
+			asset = cb.Asset
+		} else if created, ok := assetOfCreatedBalance(envelope, balanceID); ok {
+			// The balance is created by this same transaction, so it is not on
+			// the ledger yet; its asset comes from the create operation.
+			asset = created
+		} else {
+			continue
+		}
+		if asset.Type == xdr.AssetTypeAssetTypeNative {
 			continue
 		}
 		opSource := classicOperationSource(envelope, op)
-		if opSource.Address() == cb.Asset.GetIssuer() {
+		if opSource.Address() == asset.GetIssuer() {
 			continue
 		}
-		keys = append(keys, trustlineLedgerKey(opSource, cb.Asset))
+		keys = append(keys, trustlineLedgerKey(opSource, asset))
 	}
 	return keys
+}
+
+// assetOfCreatedBalance finds the asset of a claimable balance that an earlier
+// operation of the same transaction creates, by matching the deterministic ID
+// each createClaimableBalance operation would be assigned.
+func assetOfCreatedBalance(envelope xdr.TransactionEnvelope, id xdr.ClaimableBalanceId) (xdr.Asset, bool) {
+	for i, op := range envelope.Operations() {
+		if op.Body.Type != xdr.OperationTypeCreateClaimableBalance {
+			continue
+		}
+		created, err := claimableBalanceID(envelope, i)
+		if err != nil {
+			continue
+		}
+		if created.Type == id.Type && created.V0 != nil && id.V0 != nil && *created.V0 == *id.V0 {
+			return op.Body.CreateClaimableBalanceOp.Asset, true
+		}
+	}
+	return xdr.Asset{}, false
 }
 
 // validateClaimPredicate rejects predicate shapes Core refuses at creation:
