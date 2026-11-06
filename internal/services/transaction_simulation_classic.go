@@ -15,6 +15,21 @@ import (
 // and Core rejects the 21st with SET_OPTIONS_TOO_MANY_SIGNERS.
 const maxAccountSigners = 20
 
+// maxAccountSubEntries is the protocol's cap on subentries per account
+// (trustlines, data entries, signers, offers).
+const maxAccountSubEntries = 1000
+
+// printableASCII reports whether every byte is printable ASCII (0x20-0x7E),
+// the character set Core accepts for data entry names and home domains.
+func printableASCII(s string) bool {
+	for _, c := range []byte(s) {
+		if c <= 0x1f || c >= 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // ledgerTransactionFromClassic builds the simulated ledger transaction for a
 // classic transaction. RPC cannot simulate classic operations, so this path
 // derives the outcome itself in three steps: list the ledger entries the
@@ -137,16 +152,17 @@ func validateClassicOperation(op xdr.Operation) error {
 		if so.SetFlags != nil && so.ClearFlags != nil && *so.SetFlags&*so.ClearFlags != 0 {
 			return wouldFail("setFlags and clearFlags overlap on %#x", *so.SetFlags&*so.ClearFlags)
 		}
+		// An empty home domain is valid and clears it.
+		if so.HomeDomain != nil && !printableASCII(string(*so.HomeDomain)) {
+			return wouldFail("home domain contains non-printable characters")
+		}
 	case xdr.OperationTypeManageData:
-		// Core requires a non-empty name of printable ASCII (0x20-0x7E).
 		name := string(op.Body.ManageDataOp.DataName)
 		if len(name) == 0 {
 			return wouldFail("data entry name cannot be empty")
 		}
-		for _, c := range []byte(name) {
-			if c <= 0x1f || c >= 0x7f {
-				return wouldFail("data entry name contains non-printable characters")
-			}
+		if !printableASCII(name) {
+			return wouldFail("data entry name contains non-printable characters")
 		}
 	default:
 		// createAccount's starting balance is validated against the minimum
@@ -804,6 +820,9 @@ func accountSpendableBalance(account xdr.AccountEntry) int64 {
 // affordSubentry verifies the account can afford the base reserve one more
 // subentry locks up and bumps its subentry counter.
 func affordSubentry(account *xdr.AccountEntry) error {
+	if account.NumSubEntries >= maxAccountSubEntries {
+		return wouldFail("account %s is at the %d-subentry limit", account.AccountId.Address(), maxAccountSubEntries)
+	}
 	if accountSpendableBalance(*account) < processors.BaseReserveStroops {
 		return wouldFail("account %s cannot afford the base reserve for a new subentry", account.AccountId.Address())
 	}

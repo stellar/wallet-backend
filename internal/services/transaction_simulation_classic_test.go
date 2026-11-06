@@ -711,6 +711,35 @@ func TestTransactionSimulationService_classicReviewFixes(t *testing.T) {
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 
+	t.Run("🔴 non-printable home domain is a would-fail", func(t *testing.T) {
+		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
+		domain := xdr.String32("example\x01.com")
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type:         xdr.OperationTypeSetOptions,
+			SetOptionsOp: &xdr.SetOptionsOp{HomeDomain: &domain},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 adding a subentry at the 1000-subentry cap is a would-fail", func(t *testing.T) {
+		id := xdr.MustAddress(src)
+		entry := xdr.AccountEntry{
+			AccountId:     id,
+			Balance:       100_000_0000000, // plenty of reserve headroom
+			SeqNum:        1,
+			Thresholds:    xdr.Thresholds{1, 0, 0, 0},
+			NumSubEntries: 1000,
+		}
+		svc := classicFixture(t, ledgerEntryResult(t,
+			accountLedgerKey(id),
+			xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &entry},
+		))
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.ManageData{
+			Name: "config", Value: []byte("v1"),
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
 	t.Run("🔴 threshold above 255 is a would-fail", func(t *testing.T) {
 		svc := classicFixture(t, accountEntryResult(t, src, 100_0000000))
 		high := xdr.Uint32(300)
