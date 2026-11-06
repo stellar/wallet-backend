@@ -967,12 +967,9 @@ func computeAllowTrustChanges(at xdr.AllowTrustOp, opSource xdr.AccountId, befor
 
 // computeTrustlineFlagChanges applies an issuer's flag change to the trustor's
 // trustline for the asset. Lowering the authorization level requires the
-// issuer's AUTH_REVOCABLE flag, matching Core.
-//
-// Note: fully revoking authorization on the real network also cancels the
-// trustor's open offers in the asset and redeems its pool shares; those
-// entries are outside the declarative footprint, so the preview shows the
-// flag change only.
+// issuer's AUTH_REVOCABLE flag, matching Core, and a full revocation is only
+// previewed when the trustline has no open offers or pool shares whose
+// cancellation the preview cannot model.
 func computeTrustlineFlagChanges(issuer, trustor xdr.AccountId, asset xdr.Asset, set, clear xdr.Uint32, before map[string]xdr.LedgerEntry) (xdr.LedgerEntryChanges, error) {
 	if asset.GetIssuer() != issuer.Address() {
 		return nil, wouldFail("only the issuer of %s can change its trustline flags", asset.StringCanonical())
@@ -999,6 +996,27 @@ func computeTrustlineFlagChanges(issuer, trustor xdr.AccountId, asset xdr.Asset,
 	if trustlineAuthLevel(newFlags) < trustlineAuthLevel(line.Flags) &&
 		issuerAccount.Flags&xdr.Uint32(xdr.AccountFlagsAuthRevocableFlag) == 0 {
 		return nil, wouldFail("issuer %s cannot revoke authorization without the AUTH_REVOCABLE flag", issuer.Address())
+	}
+
+	// Revoking below maintain-liabilities also makes Core cancel the trustor's
+	// open offers in the asset and redeem its pool shares, side effects whose
+	// entries cannot be enumerated through the declarative footprint (and whose
+	// removal can itself fail). Zero liabilities and zero pool uses mean
+	// neither exists, so the flag-only preview is exact; otherwise fail closed
+	// instead of previewing an incomplete result. Downgrading to
+	// maintain-liabilities keeps offers and pool shares alive, so it stays
+	// previewable.
+	if trustlineAuthLevel(line.Flags) > 0 && trustlineAuthLevel(newFlags) == 0 {
+		poolUses := xdr.Int32(0)
+		if v1, ok := line.Ext.GetV1(); ok {
+			if v2, ok := v1.Ext.GetV2(); ok {
+				poolUses = v2.LiquidityPoolUseCount
+			}
+		}
+		liabilities := line.Liabilities()
+		if liabilities.Buying != 0 || liabilities.Selling != 0 || poolUses != 0 {
+			return nil, fmt.Errorf("%w: revoking this trustline's authorization also cancels its open offers or redeems its pool shares, which cannot be previewed", ErrUnsupportedTransaction)
+		}
 	}
 
 	after := line
