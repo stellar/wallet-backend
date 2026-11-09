@@ -2295,4 +2295,88 @@ func TestTransactionSimulationService_classicReviewFixesPR6Round2(t *testing.T) 
 		}))
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
+
+	t.Run("🔴 a fee-bump whose inner source does not exist is a would-fail", func(t *testing.T) {
+		// Every operation carries its own source, so the inner transaction
+		// source only matters for its sequence number; Core still requires the
+		// account to exist.
+		feePayer := keypair.MustRandom().Address()
+		innerSource := keypair.MustRandom().Address()
+		opSource := keypair.MustRandom().Address()
+		dst := keypair.MustRandom().Address()
+		dstAID := xdr.MustAddress(dst)
+		txXDR := buildFeeBumpTxXDRWithOpSource(t, feePayer, innerSource, opSource, 400, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: dstAID.ToMuxedAccount(),
+				Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				Amount:      1_0000000,
+			},
+		})
+		svc := classicStrictFixture(t,
+			accountEntryResult(t, feePayer, 100_0000000),
+			accountEntryResult(t, opSource, 100_0000000),
+			accountEntryResult(t, dst, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, txXDR)
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🟢 a fee-bump with an existing inner source and explicit op sources works", func(t *testing.T) {
+		feePayer := keypair.MustRandom().Address()
+		innerSource := keypair.MustRandom().Address()
+		opSource := keypair.MustRandom().Address()
+		dst := keypair.MustRandom().Address()
+		dstAID := xdr.MustAddress(dst)
+		txXDR := buildFeeBumpTxXDRWithOpSource(t, feePayer, innerSource, opSource, 400, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: dstAID.ToMuxedAccount(),
+				Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				Amount:      1_0000000,
+			},
+		})
+		svc := classicStrictFixture(t,
+			accountEntryResult(t, feePayer, 100_0000000),
+			accountEntryResult(t, innerSource, 100_0000000),
+			accountEntryResult(t, opSource, 100_0000000),
+			accountEntryResult(t, dst, 100_0000000),
+		)
+		_, err := svc.SimulateStateChanges(ctx, txXDR)
+		require.NoError(t, err)
+	})
+}
+
+// buildFeeBumpTxXDRWithOpSource is buildFeeBumpTxXDRFrom with an explicit
+// operation source, so the inner transaction source backs no operation.
+func buildFeeBumpTxXDRWithOpSource(t *testing.T, feeSource, innerSource, opSource string, bumpFee int64, body xdr.OperationBody) string {
+	t.Helper()
+	innerAID := xdr.MustAddress(innerSource)
+	feeAID := xdr.MustAddress(feeSource)
+	opAID := xdr.MustAddress(opSource)
+	opMuxed := opAID.ToMuxedAccount()
+	env := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump,
+		FeeBump: &xdr.FeeBumpTransactionEnvelope{
+			Tx: xdr.FeeBumpTransaction{
+				FeeSource: feeAID.ToMuxedAccount(),
+				Fee:       xdr.Int64(bumpFee),
+				InnerTx: xdr.FeeBumpTransactionInnerTx{
+					Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+					V1: &xdr.TransactionV1Envelope{
+						Tx: xdr.Transaction{
+							SourceAccount: innerAID.ToMuxedAccount(),
+							Fee:           100,
+							SeqNum:        1,
+							Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+							Operations:    []xdr.Operation{{SourceAccount: &opMuxed, Body: body}},
+						},
+					},
+				},
+			},
+		},
+	}
+	b64, err := xdr.MarshalBase64(env)
+	require.NoError(t, err)
+	return b64
 }

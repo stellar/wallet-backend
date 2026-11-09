@@ -47,8 +47,12 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	feeAccount := envelope.FeeAccount().ToAccountId()
 
 	// 1. Validate each operation and fetch every ledger entry the transaction
-	//    touches, always including the fee-paying account.
-	keys := []xdr.LedgerKey{accountLedgerKey(feeAccount)}
+	//    touches, always including the fee-paying account and the transaction
+	//    source. For a fee-bump the two differ, and the inner source must exist
+	//    whether or not any operation runs on its behalf, because its sequence
+	//    number is consumed.
+	txSource := envelope.SourceAccount().ToAccountId()
+	keys := []xdr.LedgerKey{accountLedgerKey(feeAccount), accountLedgerKey(txSource)}
 	for _, op := range ops {
 		if err := validateClassicOperation(op); err != nil {
 			return ingest.LedgerTransaction{}, 0, err
@@ -109,6 +113,9 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 	}
 	if accountSpendableBalance(feeSource) < feeBid {
 		return ingest.LedgerTransaction{}, 0, wouldFail("fee-paying account %s cannot cover the %d stroop fee bid", feeAccount.Address(), feeBid)
+	}
+	if _, ok := lookupAccount(working, txSource); !ok {
+		return ingest.LedgerTransaction{}, 0, wouldFail("transaction source account %s does not exist", txSource.Address())
 	}
 
 	// Charge the fee before any operation runs: outside surge pricing Core
