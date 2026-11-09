@@ -411,6 +411,23 @@ func accountEntryResultWithFlags(t *testing.T, address string, balanceStroops in
 	)
 }
 
+func accountEntryResultWithBuyingLiabilities(t *testing.T, address string, balanceStroops, buyingLiabilities int64) entities.LedgerEntryResult {
+	t.Helper()
+	id := xdr.MustAddress(address)
+	return ledgerEntryResult(t,
+		accountLedgerKey(id),
+		xdr.LedgerEntryData{Type: xdr.LedgerEntryTypeAccount, Account: &xdr.AccountEntry{
+			AccountId:  id,
+			Balance:    xdr.Int64(balanceStroops),
+			SeqNum:     1,
+			Thresholds: xdr.Thresholds{1, 0, 0, 0},
+			Ext: xdr.AccountEntryExt{V: 1, V1: &xdr.AccountEntryExtensionV1{
+				Liabilities: xdr.Liabilities{Buying: xdr.Int64(buyingLiabilities)},
+			}},
+		}},
+	)
+}
+
 func trustlineEntryResultWithFlags(t *testing.T, address string, asset xdr.Asset, balance int64, flags xdr.Uint32) entities.LedgerEntryResult {
 	const limit = int64(100_0000000)
 	t.Helper()
@@ -2185,6 +2202,70 @@ func TestTransactionSimulationService_classicReviewFixesPR6(t *testing.T) {
 			},
 			&txnbuild.AccountMerge{Destination: dst},
 		))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+}
+
+// TestTransactionSimulationService_classicReviewFixesPR6Round2 pins the second
+// Copilot review round on the complete-coverage PR.
+func TestTransactionSimulationService_classicReviewFixesPR6Round2(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("🔴 a native self-payment credit must fit alongside buying liabilities", func(t *testing.T) {
+		src := keypair.MustRandom().Address()
+		srcAID := xdr.MustAddress(src)
+		const balance, buying = int64(100_0000000), int64(5_0000000)
+		svc := classicFixture(t, accountEntryResultWithBuyingLiabilities(t, src, balance, buying))
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, src, xdr.OperationBody{
+			Type: xdr.OperationTypePayment,
+			PaymentOp: &xdr.PaymentOp{
+				Destination: srcAID.ToMuxedAccount(),
+				Asset:       xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+				// Fits within the int64 ceiling against the balance alone, but
+				// not once the open buy offers are counted. The margin stays
+				// below the liabilities but above the fee debit.
+				Amount: xdr.Int64(math.MaxInt64 - balance - buying + 1_000_000),
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a merge must fit alongside the destination's buying liabilities", func(t *testing.T) {
+		src := keypair.MustRandom().Address()
+		dst := keypair.MustRandom().Address()
+		const dstBalance, buying = int64(100_0000000), int64(5_0000000)
+		svc := classicFixture(t,
+			accountEntryResult(t, src, math.MaxInt64-dstBalance-buying+1_000_000),
+			accountEntryResultWithBuyingLiabilities(t, dst, dstBalance, buying),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildTxXDRFrom(t, src, &txnbuild.AccountMerge{Destination: dst}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
+
+	t.Run("🔴 a native claim must fit alongside the claimant's buying liabilities", func(t *testing.T) {
+		claimant := keypair.MustRandom().Address()
+		const balance, buying = int64(100_0000000), int64(5_0000000)
+		cbID := testClaimableBalanceID(7)
+		v0 := xdr.ClaimantV0{
+			Destination: xdr.MustAddress(claimant),
+			Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional},
+		}
+		entry := xdr.ClaimableBalanceEntry{
+			BalanceId: cbID,
+			Claimants: []xdr.Claimant{{Type: xdr.ClaimantTypeClaimantTypeV0, V0: &v0}},
+			Asset:     xdr.Asset{Type: xdr.AssetTypeAssetTypeNative},
+			Amount:    xdr.Int64(math.MaxInt64 - balance - buying + 1_000_000),
+		}
+		svc := classicFixture(t,
+			accountEntryResultWithBuyingLiabilities(t, claimant, balance, buying),
+			ledgerEntryResult(t, claimableBalanceLedgerKey(cbID), xdr.LedgerEntryData{
+				Type: xdr.LedgerEntryTypeClaimableBalance, ClaimableBalance: &entry,
+			}),
+		)
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, claimant, xdr.OperationBody{
+			Type:                    xdr.OperationTypeClaimClaimableBalance,
+			ClaimClaimableBalanceOp: &xdr.ClaimClaimableBalanceOp{BalanceId: cbID},
+		}))
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
 }

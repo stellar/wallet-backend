@@ -669,8 +669,8 @@ func computePaymentChanges(p xdr.PaymentOp, opSource xdr.AccountId, before map[s
 			// the working state. The token-transfer processor still derives
 			// the debit/credit rows from the operation itself, matching
 			// history.
-			if int64(p.Amount) > math.MaxInt64-int64(srcAccount.Balance) {
-				return nil, wouldFail("payment would overflow the XLM balance of %s", opSource.Address())
+			if int64(p.Amount) > math.MaxInt64-int64(srcAccount.Balance)-int64(srcAccount.Liabilities().Buying) {
+				return nil, wouldFail("payment would exceed the maximum XLM balance of %s", opSource.Address())
 			}
 			return xdr.LedgerEntryChanges{}, nil
 		}
@@ -1074,8 +1074,8 @@ func computeAccountMergeChanges(dest, opSource xdr.AccountId, before map[string]
 	if int64(source.SeqNum) >= int64(ledgerSeq+1)<<32 {
 		return nil, wouldFail("account %s has a sequence number too far ahead to be merged", opSource.Address())
 	}
-	if int64(destAccount.Balance) > math.MaxInt64-int64(source.Balance) {
-		return nil, wouldFail("destination account %s cannot receive the merged balance without overflowing", dest.Address())
+	if int64(source.Balance) > math.MaxInt64-int64(destAccount.Balance)-int64(destAccount.Liabilities().Buying) {
+		return nil, wouldFail("destination account %s cannot receive the merged balance without exceeding the maximum balance", dest.Address())
 	}
 
 	destAfter := destAccount
@@ -1205,8 +1205,8 @@ func computeClaimClaimableBalanceChanges(op xdr.ClaimClaimableBalanceOp, opSourc
 
 	switch {
 	case cb.Asset.Type == xdr.AssetTypeAssetTypeNative:
-		if int64(source.Balance) > math.MaxInt64-int64(cb.Amount) {
-			return nil, wouldFail("account %s cannot receive the claimed balance without overflowing", opSource.Address())
+		if int64(cb.Amount) > math.MaxInt64-int64(source.Balance)-int64(source.Liabilities().Buying) {
+			return nil, wouldFail("account %s cannot receive the claimed balance without exceeding the maximum balance", opSource.Address())
 		}
 		after := source
 		after.Balance += cb.Amount
