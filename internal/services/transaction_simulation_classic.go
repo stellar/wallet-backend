@@ -286,6 +286,9 @@ func validateClassicOperation(op xdr.Operation) error {
 		if len(cb.Claimants) == 0 {
 			return wouldFail("a claimable balance needs at least one claimant")
 		}
+		if !creditAssetCodeValid(cb.Asset) {
+			return wouldFail("claimable balance asset code is malformed")
+		}
 		seen := map[string]bool{}
 		for _, claimant := range cb.Claimants {
 			v0 := claimant.MustV0()

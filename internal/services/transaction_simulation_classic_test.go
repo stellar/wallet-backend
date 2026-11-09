@@ -2268,4 +2268,31 @@ func TestTransactionSimulationService_classicReviewFixesPR6Round2(t *testing.T) 
 		}))
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 	})
+
+	t.Run("🔴 creating a claimable balance with a malformed asset code is a would-fail", func(t *testing.T) {
+		issuer := keypair.MustRandom().Address()
+		claimant := keypair.MustRandom().Address()
+		// An empty alphanum4 code never needs a trustline when the issuer is
+		// the source, so without validation the issuance branch would succeed.
+		badAsset := xdr.Asset{
+			Type:      xdr.AssetTypeAssetTypeCreditAlphanum4,
+			AlphaNum4: &xdr.AlphaNum4{Issuer: xdr.MustAddress(issuer)},
+		}
+		svc := classicFixture(t, accountEntryResult(t, issuer, 100_0000000))
+		_, err := svc.SimulateStateChanges(ctx, buildRawTxXDRFrom(t, issuer, xdr.OperationBody{
+			Type: xdr.OperationTypeCreateClaimableBalance,
+			CreateClaimableBalanceOp: &xdr.CreateClaimableBalanceOp{
+				Asset:  badAsset,
+				Amount: 1_0000000,
+				Claimants: []xdr.Claimant{{
+					Type: xdr.ClaimantTypeClaimantTypeV0,
+					V0: &xdr.ClaimantV0{
+						Destination: xdr.MustAddress(claimant),
+						Predicate:   xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional},
+					},
+				}},
+			},
+		}))
+		assert.ErrorIs(t, err, ErrSimulationFailed)
+	})
 }
