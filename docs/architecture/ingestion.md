@@ -46,7 +46,7 @@ Live mode follows the network tip, one ledger after another, and in normal opera
 6. It records which protocol cursors exist, so it knows which protocols to ingest. See [Cursors](#cursors).
 7. It reads `latest_ingest_ledger`.
 8. If the value is 0, it runs the [checkpoint bootstrap](#checkpoint-bootstrap). The first ledger to ingest is the checkpoint ledger.
-9. Otherwise it runs startup reconciliation, then starts at `latest_ingest_ledger + 1`. Reconciliation deletes every row above the cursor ledger from the five bulk tables, in one transaction. These rows exist only when an earlier run crashed during a commit, as described under [Persisting a batch](#persisting-a-batch). Each delete matches rows whose TOID is at or past the first TOID of the next ledger. When the cursor ledger has a `transactions` row, the deletes also filter on `ledger_created_at` at or after that ledger's close time, so TimescaleDB skips every older chunk. A failure here stops the process, because ingesting over the leftover rows would collide on primary keys. Each deleted batch logs `startup reconciliation: deleted`.
+9. Otherwise it runs startup reconciliation, then starts at `latest_ingest_ledger + 1`. Reconciliation deletes every row above the cursor ledger from the five bulk tables, in one transaction. These rows exist only when an earlier run crashed during a commit, as described under [Persisting a batch](#persisting-a-batch). Each delete matches rows whose TOID is at or past the first TOID of the next ledger. The same transaction also deletes the `transaction_hashes` rows of the `transactions` rows above the cursor. It matches them by key, the `(hash_bucket, hash_prefix, ledger_close_epoch)` of each such transaction, so each delete runs on one chunk. When the cursor ledger has a `transactions` row, the deletes also filter on `ledger_created_at` at or after that ledger's close time, so TimescaleDB skips every older chunk. A failure here stops the process, because ingesting over the leftover rows would collide on primary keys. Each deleted batch logs `startup reconciliation: deleted`.
 10. It prepares the ledger source for an unbounded range from the first ledger, then starts the pipeline.
 
 ### Pipeline
@@ -181,6 +181,7 @@ flowchart LR
 - **Flush to database.** Each batch writes every `BACKFILL_DB_INSERT_BATCH_SIZE` ledgers (default 100). A flush is one transaction with `synchronous_commit = off` that writes the five bulk tables in turn. Backfill does not use the live commit set or its sibling transactions. A failed flush is retried up to 5 times, waiting 1, 2, 4, 8 s, and stops at once on the permanent persist errors.
 - **Lower oldest cursor.** The last flush of a batch sets `oldest_ingest_ledger` to the lower of its current value and the batch's first ledger, in the same transaction. When the last flush had no ledgers left, a separate transaction does it.
 - **Compress done chunks.** When a contiguous run of batches from the start has finished, backfill runs `compress_chunk` on the uncompressed chunks that end inside that run, for each table in the bulk-table list. Backfill waits for compression to finish before it exits.
+- **Recompress the lookup table.** `insertTransactions` writes the `transaction_hashes` rows with the transactions, and they land in the rowstore part of all 1,024 lookup chunks. After every 500 million lookup rows written, and at the end, backfill runs `transaction_hashes_maintenance` in recompression-only mode (job id 0) on its own connections, which recompresses every lookup chunk, so those parts stay small. Sizes and timings by transaction rate: [Scaling by transaction rate](data-model.md#scaling-by-transaction-rate).
 
 A ledger fetch in backfill retries up to 10 times with the same waits as live fetch, and retries every error, including datastore buffer death.
 
@@ -299,15 +300,19 @@ The buffer stores data this way:
 
 ## TimescaleDB policies the live ingester applies
 
-The live ingester applies these settings on every start. Backfill does not. All of them apply to the five bulk tables that ingestion loads with `COPY`: `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes`. One list in the code drives these settings, startup reconciliation, and backfill compression.
+The live ingester applies these settings on every start. Backfill does not. Unless noted, they apply to the five bulk tables that ingestion loads with `COPY`: `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes`. One list in the code drives these settings, startup reconciliation, and backfill compression.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `CHUNK_INTERVAL` | `1 day` | `set_chunk_time_interval`. Affects chunks created after the change. |
-| `RETENTION_PERIOD` | empty | Empty removes any retention policy. A value adds or updates a `drop_after` retention policy. |
+| `RETENTION_PERIOD` | empty | Empty removes any retention policy. A value adds or updates a `drop_after` retention policy on the bulk tables. The lookup table follows `transactions` through its maintenance jobs. |
 | `COMPRESSION_SCHEDULE_INTERVAL` | empty | How often the compression job runs. Empty leaves it unchanged. |
 | `COMPRESSION_COMPRESS_AFTER` | empty | How long after a chunk closes before it can be compressed. Empty leaves it unchanged. |
 | `COMPRESSION_MAX_CHUNKS` | 0 | `maxchunks_to_compress` per job run. 0 leaves it unchanged (TimescaleDB default: no limit). |
+| `TX_HASH_MAINTENANCE_INTERVAL` | `1 day` | Schedule of each `transaction_hashes_maintenance` job. Applies to that table only. |
+| `TX_HASH_MAINTENANCE_WORKERS` | `1` | Number of `transaction_hashes_maintenance` jobs. Each takes a share of the chunks. Applies to that table only. |
+
+`transaction_hashes` takes no `CHUNK_INTERVAL` or `COMPRESSION_*` setting. Its 1,024 chunks are fixed. It has no columnstore or retention policy. The jobs of `transaction_hashes_maintenance` recompress every chunk on each run, on the schedule from `TX_HASH_MAINTENANCE_INTERVAL`, split over `TX_HASH_MAINTENANCE_WORKERS` jobs. They also remove the rows of transactions that retention dropped. See [Data model](data-model.md#compression-and-retention).
 
 The compression jobs come from the hypertable definitions in the migrations. The ingester only changes their schedule and config, and skips a table with a warning when it has no compression job. Policies are updated in place when they differ, so job IDs and run history survive restarts.
 

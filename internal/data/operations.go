@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type OperationModel struct {
 	Metrics *metrics.DBMetrics
 }
 
+// GetByID returns nil when no committed operation has the ID.
 func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) (*types.Operation, error) {
 	columns = prepareColumnsWithID(columns, types.Operation{}, "", "id", "ledger_created_at")
 	var queryBuilder strings.Builder
@@ -33,6 +35,9 @@ func (m *OperationModel) GetByID(ctx context.Context, id int64, columns string) 
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByID", "operations").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByID", "operations").Inc()
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("GetByID", "operations", utils.GetDBErrorType(err)).Inc()
 		return nil, fmt.Errorf("getting operation by id: %w", err)

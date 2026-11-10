@@ -79,6 +79,13 @@ func TestIntegrationTests(t *testing.T) {
 		t.Fatal("DataValidationTestSuite failed, skipping remaining tests")
 	}
 
+	// Lookup table completeness and maintenance, on the transactions validated above
+	t.Run("LookupTableTestSuite", func(t *testing.T) {
+		suite.Run(t, &LookupTableTestSuite{
+			testEnv: testEnv,
+		})
+	})
+
 	// Phase 3: Validate balances after live ingestion processes fixture transactions
 	t.Run("AccountBalancesAfterLiveIngestionTestSuite", func(t *testing.T) {
 		suite.Run(t, &AccountBalancesAfterLiveIngestionTestSuite{

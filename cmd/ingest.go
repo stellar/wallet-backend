@@ -136,6 +136,22 @@ func (c *ingestCmd) Command() *cobra.Command {
 			FlagDefault: 0,
 			Required:    false,
 		},
+		{
+			Name:        "tx-hash-maintenance-interval",
+			Usage:       "How often the transaction_hashes maintenance jobs run. A run deletes the lookup rows of 30-day periods that closed before both the oldest retained transaction and the retention cutoff (no retention policy: no delete), then recompresses the whole lookup table. Set it so the rows written between runs stay in the low hundreds of millions. A daily run keeps the rowstore parts of the 1,024 chunks bounded without tuning: about 4 minutes and 2 GB of WAL on one worker at today's mainnet rate, about 55 minutes on eight workers at 10,000 transactions per second (864 million rows a day). Uses PostgreSQL INTERVAL syntax.",
+			OptType:     types.String,
+			ConfigKey:   &cfg.TransactionHashesMaintenanceInterval,
+			FlagDefault: "1 day",
+			Required:    false,
+		},
+		{
+			Name:        "tx-hash-maintenance-workers",
+			Usage:       "How many transaction_hashes maintenance jobs run at once, each over its own share of the chunks; a run finishes about that many times faster. Use 8 at 10,000 transactions per second. Each job is one TimescaleDB background worker and counts against timescaledb.max_background_workers.",
+			OptType:     types.Int,
+			ConfigKey:   &cfg.TransactionHashesMaintenanceWorkers,
+			FlagDefault: 1,
+			Required:    false,
+		},
 	}
 
 	cfgOpts = append(cfgOpts, utils.DBPoolOptions(&cfg.DBMaxConns, &cfg.DBMinConns, &cfg.DBMaxConnLifetime, &cfg.DBMaxConnIdleTime)...)
@@ -170,6 +186,12 @@ func (c *ingestCmd) Command() *cobra.Command {
 				// silently ignored, so reject any explicitly supplied value, including 0.
 				if config.IsExplicitlySet(startLedgerOpt) || config.IsExplicitlySet(endLedgerOpt) {
 					return fmt.Errorf("--start-ledger and --end-ledger apply to --ingestion-mode=backfill only; live mode resumes from the stored cursor")
+				}
+				if cfg.TransactionHashesMaintenanceInterval == "" {
+					return fmt.Errorf("--tx-hash-maintenance-interval must not be empty")
+				}
+				if cfg.TransactionHashesMaintenanceWorkers < 1 {
+					return fmt.Errorf("--tx-hash-maintenance-workers must be at least 1 (got %d)", cfg.TransactionHashesMaintenanceWorkers)
 				}
 			case services.IngestionModeBackfill:
 				if cfg.StartLedger <= 0 || cfg.EndLedger < cfg.StartLedger {

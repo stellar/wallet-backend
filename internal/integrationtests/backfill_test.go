@@ -143,5 +143,23 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 
 	log.Ctx(ctx).Info("Transaction-account link validation passed for all test accounts")
 
+	// Verify backfill wrote a lookup row for every backfilled transaction, and that the lookup
+	// chunks its recompression pass left resolve by hash
+	missing, err := containers.TransactionsWithoutLookupRow(ctx, firstCheckpoint, backfillEndLedger)
+	suite.Require().NoError(err, "failed to count backfilled transactions without a lookup row")
+	suite.Assert().Zero(missing, "every backfilled transaction should have a transaction_hashes row")
+
+	hashes, err := containers.TransactionHashesInLedgerRange(ctx, firstCheckpoint, backfillEndLedger, 5)
+	suite.Require().NoError(err, "failed to read backfilled transaction hashes")
+	suite.Require().NotEmpty(hashes, "should have transactions in backfilled range")
+	for _, hash := range hashes {
+		tx, err := suite.testEnv.WBClient.GetTransactionByHash(ctx, hash)
+		suite.Require().NoError(err, "failed to get backfilled transaction %s by hash", hash)
+		suite.Require().NotNil(tx, "backfilled transaction %s should not be nil", hash)
+		suite.Assert().Equal(hash, tx.Hash, "backfilled transaction hash mismatch")
+	}
+
+	log.Ctx(ctx).Infof("Lookup validation passed: %d backfilled transactions resolved by hash", len(hashes))
+
 	log.Ctx(ctx).Info("All backfill validations passed successfully!")
 }
