@@ -1752,6 +1752,104 @@ func TestTransactionSimulationService_classicReviewChecks(t *testing.T) {
 	})
 }
 
+func TestPredicateSatisfied(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	abs := func(unix int64) xdr.ClaimPredicate {
+		v := xdr.Int64(unix)
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime, AbsBefore: &v}
+	}
+	not := func(p xdr.ClaimPredicate) xdr.ClaimPredicate {
+		inner := &p
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateNot, NotPredicate: &inner}
+	}
+	and := func(a, b xdr.ClaimPredicate) xdr.ClaimPredicate {
+		ps := []xdr.ClaimPredicate{a, b}
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateAnd, AndPredicates: &ps}
+	}
+	or := func(a, b xdr.ClaimPredicate) xdr.ClaimPredicate {
+		ps := []xdr.ClaimPredicate{a, b}
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateOr, OrPredicates: &ps}
+	}
+	rel := xdr.Int64(60)
+	unconditional := xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional}
+	future, past := abs(now.Unix()+100), abs(now.Unix()-100)
+
+	cases := []struct {
+		name string
+		pred xdr.ClaimPredicate
+		want bool
+	}{
+		{"unconditional", unconditional, true},
+		{"absolute deadline in the future", future, true},
+		{"absolute deadline in the past", past, false},
+		{"absolute deadline exactly now is already expired", abs(now.Unix()), false},
+		{"not of an expired deadline", not(past), true},
+		{"not of a live deadline", not(future), false},
+		{"and needs both", and(future, past), false},
+		{"and with both live", and(future, unconditional), true},
+		{"or needs one", or(past, future), true},
+		{"or with both expired", or(past, past), false},
+		{"nested and(or, not)", and(or(past, future), not(past)), true},
+		{"relative predicate on a stored entry fails closed", xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateBeforeRelativeTime, RelBefore: &rel}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, predicateSatisfied(tc.pred, now))
+		})
+	}
+}
+
+func TestValidateClaimPredicate(t *testing.T) {
+	abs := func(unix int64) xdr.ClaimPredicate {
+		v := xdr.Int64(unix)
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime, AbsBefore: &v}
+	}
+	relPred := func(secs int64) xdr.ClaimPredicate {
+		v := xdr.Int64(secs)
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateBeforeRelativeTime, RelBefore: &v}
+	}
+	not := func(p xdr.ClaimPredicate) xdr.ClaimPredicate {
+		inner := &p
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateNot, NotPredicate: &inner}
+	}
+	and := func(ps ...xdr.ClaimPredicate) xdr.ClaimPredicate {
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateAnd, AndPredicates: &ps}
+	}
+	or := func(ps ...xdr.ClaimPredicate) xdr.ClaimPredicate {
+		return xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateOr, OrPredicates: &ps}
+	}
+	unconditional := xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateUnconditional}
+
+	cases := []struct {
+		name    string
+		pred    xdr.ClaimPredicate
+		wantErr bool
+	}{
+		{"unconditional", unconditional, false},
+		{"absolute deadline", abs(1_700_000_000), false},
+		{"negative absolute deadline", abs(-1), true},
+		{"relative deadline", relPred(60), false},
+		{"negative relative deadline", relPred(-1), true},
+		{"and with two children", and(unconditional, abs(1)), false},
+		{"and with one child", and(unconditional), true},
+		{"or with three children", or(unconditional, unconditional, unconditional), true},
+		{"not with a child", not(unconditional), false},
+		{"not without a child", xdr.ClaimPredicate{Type: xdr.ClaimPredicateTypeClaimPredicateNot}, true},
+		{"four levels of nesting", not(not(not(unconditional))), false},
+		{"five levels of nesting", not(not(not(not(unconditional)))), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateClaimPredicate(tc.pred, 1)
+			if tc.wantErr {
+				assert.ErrorIs(t, err, ErrSimulationFailed)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestTransactionSimulationService_classicMultiOp(t *testing.T) {
 	ctx := context.Background()
 	src := keypair.MustRandom().Address()
