@@ -609,6 +609,12 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("reconciling bulk rows above cursor ledger %d: %w", latestIngestedLedger, err)
 		}
 
+		// First start after the memo migration: every row at or below the cursor was
+		// written without a memo, and live writes memos from latestIngestedLedger+1 on.
+		if err := m.initMemoBackfillCursor(ctx, latestIngestedLedger+1); err != nil {
+			return err
+		}
+
 		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
 		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName)
 		if oldestErr != nil {
@@ -635,7 +641,44 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 		return conn.QueryRow(probeCtx, "SELECT 1").Scan(&one)
 	}
 
+	// The memo backfill runs beside live ingestion under the same advisory lock and is
+	// waited on here, before the deferred lock release and the caller's cleanup, so it
+	// never outlives the lock or the pool. Returns at once when there is nothing to fill.
+	if m.ledgerBackendFactory != nil {
+		backfillCtx, cancelBackfill := context.WithCancel(ctx)
+		backfillDone := make(chan struct{})
+		go func() {
+			defer close(backfillDone)
+			m.runMemoBackfill(backfillCtx)
+		}()
+		defer func() {
+			cancelBackfill()
+			<-backfillDone
+		}()
+	}
+
 	return m.ingestLiveLedgers(ctx, startLedger, checkLockSession)
+}
+
+// initMemoBackfillCursor sets the memo backfill cursor to startAt when it is still at
+// the migration's 0, meaning this is the first live start since the memo columns were
+// added. A cursor already set (a resumed backfill, or a completed one) is left alone.
+func (m *ingestService) initMemoBackfillCursor(ctx context.Context, startAt uint32) error {
+	cursor, err := m.models.IngestStore.Get(ctx, data.MemoBackfillCursorName)
+	if err != nil {
+		return fmt.Errorf("reading memo backfill cursor: %w", err)
+	}
+	if cursor != 0 {
+		return nil
+	}
+	err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+		return m.models.IngestStore.Update(ctx, dbTx, data.MemoBackfillCursorName, startAt)
+	})
+	if err != nil {
+		return fmt.Errorf("initializing memo backfill cursor to %d: %w", startAt, err)
+	}
+	log.Ctx(ctx).Infof("memo backfill cursor initialized to %d; history below it will be filled in the background", startAt)
+	return nil
 }
 
 // initializeCursors initializes both latest and oldest cursors to the same starting ledger.
@@ -645,6 +688,11 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	}
 	if err := m.models.IngestStore.Update(ctx, dbTx, data.OldestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing oldest cursor: %w", err)
+	}
+	// Nothing predates this binary on a fresh database, so the memo backfill is done
+	// from the start (cursor at the oldest ledger).
+	if err := m.models.IngestStore.Update(ctx, dbTx, data.MemoBackfillCursorName, ledger); err != nil {
+		return fmt.Errorf("initializing memo backfill cursor: %w", err)
 	}
 	return nil
 }
