@@ -57,10 +57,24 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return nil, nil
 }
 
+// MemoFilter selects transactions whose stored memo equals exactly (Type, Value); see
+// utils.EncodeMemo for the storage form.
+type MemoFilter struct {
+	Type  int16
+	Value []byte
+}
+
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
-func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
+//
+// With a memo filter the shape changes: the memo lives on transactions, which the CTE never
+// reads, so a LIMIT inside the CTE would under-fill pages. The CTE is then NOT MATERIALIZED and
+// unlimited, the memo predicates sit in the LATERAL probe, and the LIMIT moves to the outer
+// query, so the planner streams the account's history in order and stops at a full page. An
+// account with a long history and few matching memos walks the whole history inside the time
+// range; there is no memo index, and since/until is the bound.
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange, memo *MemoFilter) ([]*types.TransactionWithCursor, error) {
 	// ledger_created_at is always selected even when unrequested: it is the hypertable partition
 	// column, and the AccountTransactionEdge operations/stateChanges resolvers read it from the
 	// transaction node to pin the partition for chunk exclusion. Without it the node carries a zero
@@ -73,11 +87,15 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	// MATERIALIZED CTE scans transactions_accounts with ledger_created_at leading the ORDER BY,
 	// enabling TimescaleDB ChunkAppend on the hypertable.
-	queryBuilder.WriteString(`
-		WITH account_txns AS MATERIALIZED (
+	materialization := "MATERIALIZED"
+	if memo != nil {
+		materialization = "NOT MATERIALIZED"
+	}
+	fmt.Fprintf(&queryBuilder, `
+		WITH account_txns AS %s (
 			SELECT tx_to_id, ledger_created_at
 			FROM transactions_accounts
-			WHERE account_id = $1`)
+			WHERE account_id = $1`, materialization)
 
 	// Hide rows above the committed cursor. Applied inside the CTE so the bound reaches
 	// the transactions_accounts scan, where it prunes chunks, rather than filtering after
@@ -107,9 +125,17 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 			ORDER BY ledger_created_at ASC, tx_to_id ASC`)
 	}
 
-	if limit != nil {
+	if limit != nil && memo == nil {
 		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
 		args = append(args, *limit)
+		argIndex++
+	}
+
+	memoPredicate := ""
+	if memo != nil {
+		memoPredicate = fmt.Sprintf(` AND t.memo_type = $%d AND t.memo = $%d`, argIndex, argIndex+1)
+		args = append(args, memo.Type, memo.Value)
+		argIndex += 2
 	}
 
 	// Close CTE and LATERAL join to fetch full transaction rows. The LIMIT 1 in the lateral
@@ -122,8 +148,8 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
 		FROM account_txns ta
-		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
-		WHERE t.to_id IS NOT NULL`, columns)
+		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at%s LIMIT 1) t ON true
+		WHERE t.to_id IS NOT NULL`, columns, memoPredicate)
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
@@ -131,6 +157,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	} else {
 		queryBuilder.WriteString(`
 		ORDER BY t.ledger_created_at ASC, t.to_id ASC`)
+	}
+
+	if limit != nil && memo != nil {
+		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
+		args = append(args, *limit)
 	}
 
 	query := queryBuilder.String()
