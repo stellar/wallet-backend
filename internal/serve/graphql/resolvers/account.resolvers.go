@@ -45,7 +45,7 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 	}
 
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange)
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange, nil)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
 	}
