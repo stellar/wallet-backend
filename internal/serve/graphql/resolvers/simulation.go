@@ -66,6 +66,17 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 				AccountAddress: accountAddress,
 				CreatorAddress: creatorAddress,
 			}, nil
+		case types.StateChangeReasonMerge:
+			destinationAddress, err := r.resolveRequiredAddress(sc.DestinationAccountID, "destinationAddress")
+			if err != nil {
+				return nil, err
+			}
+			return graphql1.SimulatedAccountMergedChange{
+				Category:           sc.StateChangeCategory,
+				Reason:             sc.StateChangeReason,
+				AccountAddress:     accountAddress,
+				DestinationAddress: destinationAddress,
+			}, nil
 		default: // invalid reason for ACCOUNT; falls through to the error below
 		}
 	case types.StateChangeCategoryAllowance:
