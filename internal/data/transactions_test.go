@@ -61,6 +61,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 
+	memoText := int16(1)
 	txCopy1 := types.Transaction{
 		Hash:            "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
 		ToID:            1,
@@ -69,7 +70,10 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
+		MemoType:        &memoText,
+		Memo:            []byte("hello"),
 	}
+	// txCopy2 leaves MemoType/Memo nil: the row must land with NULL memo columns.
 	txCopy2 := types.Transaction{
 		Hash:            "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763",
 		ToID:            2,
@@ -171,6 +175,21 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			dbInsertedHashes, err := db.QueryMany[types.HashBytea](ctx, dbConnectionPool, "SELECT hash FROM transactions ORDER BY hash")
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
+
+			// Memo columns round-trip, including NULLs for a transaction without one.
+			type memoRow struct {
+				ToID     int64  `db:"to_id"`
+				MemoType *int16 `db:"memo_type"`
+				Memo     []byte `db:"memo"`
+			}
+			memoRows, err := db.QueryMany[memoRow](ctx, dbConnectionPool, "SELECT to_id, memo_type, memo FROM transactions ORDER BY to_id")
+			require.NoError(t, err)
+			require.Len(t, memoRows, tc.wantCount)
+			for i, tx := range tc.txs {
+				assert.Equal(t, tx.ToID, memoRows[i].ToID)
+				assert.Equal(t, tx.MemoType, memoRows[i].MemoType)
+				assert.Equal(t, tx.Memo, memoRows[i].Memo)
+			}
 
 			// Verify account links if expected
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
