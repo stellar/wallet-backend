@@ -31,6 +31,15 @@ type StateChangeFilter struct {
 	Reason          *types.StateChangeReason
 }
 
+// MemoFilter restricts an account's transactions to those whose memo matches
+// exactly. Value uses the same encoding as GraphQLTransaction.Memo: TEXT as
+// UTF-8, ID as a decimal string, HASH and RETURN as 64 hex characters. The
+// server rejects MemoTypeNone.
+type MemoFilter struct {
+	Type  types.MemoType
+	Value string
+}
+
 // buildPaginationVars turns a Page into GraphQL variables, enforcing the
 // forward/backward mutual-exclusion rules. A nil Page yields an empty map and
 // no error, requesting the server's default page.
@@ -100,6 +109,20 @@ func buildStateChangeFilterVars(filter *StateChangeFilter) map[string]any {
 
 	if len(filterObj) > 0 {
 		vars["filter"] = filterObj
+	}
+	return vars
+}
+
+// buildMemoFilterVars turns a MemoFilter into the $memo GraphQL variable. A nil
+// filter yields an empty map, so no $memo variable is sent.
+func buildMemoFilterVars(filter *MemoFilter) map[string]any {
+	vars := make(map[string]any)
+	if filter == nil {
+		return vars
+	}
+	vars["memo"] = map[string]any{
+		"type":  filter.Type,
+		"value": filter.Value,
 	}
 	return vars
 }

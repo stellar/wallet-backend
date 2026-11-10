@@ -316,8 +316,36 @@ func Test_TransactionEdge_UnmarshalJSON(t *testing.T) {
 		assert.Equal(t, "abc123", edge.Node.Hash)
 		assert.Equal(t, int64(100), edge.Node.FeeCharged)
 		assert.Equal(t, uint32(42), edge.Node.LedgerNumber)
+		assert.Nil(t, edge.Node.MemoType, "an absent memoType decodes to nil")
+		assert.Nil(t, edge.Node.Memo, "an absent memo decodes to nil")
+	})
+
+	t.Run("decodes memo fields", func(t *testing.T) {
+		testCases := []struct {
+			name         string
+			memoJSON     string
+			wantMemoType *MemoType
+			wantMemo     *string
+		}{
+			{"not backfilled", `"memoType": null, "memo": null`, nil, nil},
+			{"no memo", `"memoType": "NONE", "memo": null`, ptr(MemoTypeNone), nil},
+			{"text memo", `"memoType": "TEXT", "memo": "hello"`, ptr(MemoTypeText), ptr("hello")},
+			{"id memo", `"memoType": "ID", "memo": "18446744073709551615"`, ptr(MemoTypeID), ptr("18446744073709551615")},
+		}
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				payload := []byte(`{"cursor": "tx-1", "node": {"hash": "abc123", ` + tc.memoJSON + `}}`)
+				var edge TransactionEdge
+				require.NoError(t, json.Unmarshal(payload, &edge))
+				require.NotNil(t, edge.Node)
+				assert.Equal(t, tc.wantMemoType, edge.Node.MemoType)
+				assert.Equal(t, tc.wantMemo, edge.Node.Memo)
+			})
+		}
 	})
 }
+
+func ptr[T any](v T) *T { return &v }
 
 func Test_OperationEdge_UnmarshalJSON(t *testing.T) {
 	t.Run("rejects null node", func(t *testing.T) {

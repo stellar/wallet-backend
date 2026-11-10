@@ -343,10 +343,11 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 }
 
 // GetAccountTransactions fetches a page of an account's transactions. A nil
-// timeRange applies no time bounds and a nil page requests the server's default
-// page. Pass a *QueryOptions to restrict the transaction fields fetched. Returns
-// ErrAccountNotFound if the account does not exist.
-func (c *Client) GetAccountTransactions(ctx context.Context, address string, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.TransactionConnection, error) {
+// memo applies no memo filter, a nil timeRange applies no time bounds and a nil
+// page requests the server's default page. Pass a *QueryOptions to restrict the
+// transaction fields fetched. Returns ErrAccountNotFound if the account does
+// not exist.
+func (c *Client) GetAccountTransactions(ctx context.Context, address string, memo *MemoFilter, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.TransactionConnection, error) {
 	var fields []string
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].TransactionFields
@@ -360,6 +361,7 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, tim
 	variables := mergeVariables(
 		map[string]any{"address": address},
 		paginationVars,
+		buildMemoFilterVars(memo),
 		buildTimeRangeVars(timeRange),
 	)
 
@@ -380,10 +382,10 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, tim
 
 // GetAccountTransactionsWithOpsAndStateChanges fetches a page of an account's
 // transactions with that account's operations and state changes embedded per
-// transaction, in a single GraphQL call. A nil timeRange applies no time bounds
-// and a nil page requests the server's default page. Returns ErrAccountNotFound
-// if the account does not exist.
-func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, timeRange *TimeRange, page *Page) (*types.AccountTransactionConnection, error) {
+// transaction, in a single GraphQL call. A nil memo applies no memo filter, a
+// nil timeRange applies no time bounds and a nil page requests the server's
+// default page. Returns ErrAccountNotFound if the account does not exist.
+func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, memo *MemoFilter, timeRange *TimeRange, page *Page) (*types.AccountTransactionConnection, error) {
 	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
@@ -392,6 +394,7 @@ func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Contex
 	variables := mergeVariables(
 		map[string]any{"address": address},
 		paginationVars,
+		buildMemoFilterVars(memo),
 		buildTimeRangeVars(timeRange),
 	)
 

@@ -18,6 +18,8 @@ const (
 		ledgerCreatedAt
 		isFeeBump
 		ingestedAt
+		memoType
+		memo
 	`
 
 	defaultOperationFields = `
@@ -330,9 +332,9 @@ func buildOperationByIDQuery(fields []string) string {
 func buildAccountTransactionsQuery(fields []string) string {
 	fieldList := buildFieldList(fields, defaultTransactionFields)
 	return fmt.Sprintf(`
-		query AccountTransactions($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountTransactions($address: String!, $memo: MemoFilter, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				transactions(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
+				transactions(memo: $memo, since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
@@ -478,9 +480,9 @@ func buildOperationStateChangesQuery() string {
 // operations and state changes embedded per edge, in one call.
 func buildAccountTransactionsWithOpsAndStateChangesQuery() string {
 	return fmt.Sprintf(`
-		query AccountTransactionsWithOpsAndStateChanges($address: String!, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
+		query AccountTransactionsWithOpsAndStateChanges($address: String!, $memo: MemoFilter, $since: Time, $until: Time, $first: Int, $after: String, $last: Int, $before: String) {
 			accountByAddress(address: $address) {
-				transactions(since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
+				transactions(memo: $memo, since: $since, until: $until, first: $first, after: $after, last: $last, before: $before) {
 					edges {
 						node {
 							%s
