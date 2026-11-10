@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
@@ -277,7 +278,10 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 	//exhaustive:ignore
 	switch effectType {
 	case EffectTrustlineCreated:
-		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
+		newLimit, err := trustlineLimitToStroops(effect.Details["limit"])
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("normalizing trustline limit for account %s (opID %d): %w", effect.Address, effect.OperationID, err)
+		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonAdd).
 			WithTrustlineLimit(nil, &newLimit).
 			Build()
@@ -294,13 +298,32 @@ func (p *EffectsProcessor) parseTrustline(baseBuilder *StateChangeBuilder, effec
 		}
 		prevTrustline := prevLedgerEntryState.Data.MustTrustLine()
 		oldLimit := strconv.FormatInt(int64(prevTrustline.Limit), 10)
-		newLimit := fmt.Sprintf("%v", effect.Details["limit"])
+		newLimit, err := trustlineLimitToStroops(effect.Details["limit"])
+		if err != nil {
+			return types.StateChange{}, fmt.Errorf("normalizing trustline limit for account %s (opID %d): %w", effect.Address, effect.OperationID, err)
+		}
 		stateChange = baseBuilder.WithReason(types.StateChangeReasonUpdate).
 			WithTrustlineLimit(&oldLimit, &newLimit).
 			Build()
 	}
 
 	return stateChange, nil
+}
+
+// trustlineLimitToStroops normalizes the effect's decimal limit (produced by
+// amount.String, e.g. "1000.0000000") into a stroops string ("10000000000"),
+// the unit oldLimit and every other amount column already use. Emitting both
+// limits in one unit keeps the oldLimit/newLimit pair comparable.
+func trustlineLimitToStroops(raw any) (string, error) {
+	limitStr, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("trustline limit detail is %T, expected string", raw)
+	}
+	stroops, err := amount.ParseInt64(limitStr)
+	if err != nil {
+		return "", fmt.Errorf("parsing trustline limit %q: %w", limitStr, err)
+	}
+	return strconv.FormatInt(stroops, 10), nil
 }
 
 // generateBalanceAuthorizationForNewTrustline generates balance authorization state changes
