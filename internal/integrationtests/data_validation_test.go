@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -14,6 +15,7 @@ import (
 	set "github.com/deckarep/golang-set/v2"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/suite"
 
@@ -121,7 +123,38 @@ func validateTransactionBase(suite *DataValidationTestSuite, ctx context.Context
 		suite.Require().Equal("TransactionResultCodeTxSuccess", tx.ResultCode, "result code does not match")
 	}
 
+	wantMemoType, wantMemo := expectedMemo(suite, txHash)
+	suite.Require().NotNil(tx.MemoType, "memo type should be set on a live-ingested transaction")
+	suite.Require().Equal(wantMemoType, *tx.MemoType, "memo type mismatch")
+	suite.Require().Equal(wantMemo, tx.Memo, "memo mismatch")
+
 	return tx
+}
+
+// expectedMemo returns, in the API's form, the memo the suite submitted the
+// transaction with. Transactions outside the use cases carry no memo.
+func expectedMemo(suite *DataValidationTestSuite, txHash string) (types.MemoType, *string) {
+	var memo txnbuild.Memo
+	for _, uc := range slices.Concat(suite.testEnv.UseCases, suite.testEnv.ClaimAndClawbackUseCases) {
+		if uc.GetTransactionResult.Hash == txHash {
+			memo = uc.Memo
+			break
+		}
+	}
+
+	switch m := memo.(type) {
+	case nil:
+		return types.MemoTypeNone, nil
+	case txnbuild.MemoText:
+		value := string(m)
+		return types.MemoTypeText, &value
+	case txnbuild.MemoID:
+		value := strconv.FormatUint(uint64(m), 10)
+		return types.MemoTypeID, &value
+	default:
+		suite.FailNowf("unsupported fixture memo", "%T", memo)
+		return "", nil
+	}
 }
 
 // validateOperationBase validates common operation fields
@@ -303,6 +336,57 @@ func (suite *DataValidationTestSuite) TestPaymentOperationDataValidation() {
 	tx := validateTransactionBase(suite, ctx, txHash)
 	suite.validatePaymentOperations(ctx, txHash, int64(tx.LedgerNumber))
 	suite.validatePaymentStateChanges(ctx, txHash, int64(tx.LedgerNumber))
+}
+
+// TestTransactionMemoFilter checks that filtering the fee-paying source account's
+// transactions by memo returns exactly the fixture submitted with that memo. Every
+// fixture shares that source, so a filter that is ignored or too loose returns more.
+func (suite *DataValidationTestSuite) TestTransactionMemoFilter() {
+	ctx := context.Background()
+	source := suite.testEnv.TxSourceAccountKP.Address()
+	first := int32(50)
+
+	all, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, nil, nil, &wbclient.Page{First: &first})
+	suite.Require().NoError(err, "failed to get unfiltered account transactions")
+	suite.Require().Greater(len(all.Edges), 2, "source account should have several transactions for the filter to narrow")
+
+	testCases := []struct {
+		name        string
+		filter      wbclient.MemoFilter
+		wantUseCase string
+	}{
+		{
+			name:        "text",
+			filter:      wbclient.MemoFilter{Type: types.MemoTypeText, Value: infrastructure.PaymentOpMemoText},
+			wantUseCase: "Stellarclassic/paymentOp",
+		},
+		{
+			name:        "id",
+			filter:      wbclient.MemoFilter{Type: types.MemoTypeID, Value: strconv.FormatUint(infrastructure.SponsoredAccountCreationOpsMemoID, 10)},
+			wantUseCase: "Stellarclassic/sponsoredAccountCreationOps",
+		},
+		{
+			name:   "no_match",
+			filter: wbclient.MemoFilter{Type: types.MemoTypeText, Value: "itest memo nobody sent"},
+		},
+	}
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			got, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, &tc.filter, nil, &wbclient.Page{First: &first})
+			suite.Require().NoError(err, "failed to get account transactions filtered by memo")
+
+			if tc.wantUseCase == "" {
+				suite.Require().Empty(got.Edges, "no transaction carries this memo")
+				return
+			}
+			useCase := infrastructure.FindUseCase(suite.testEnv.UseCases, tc.wantUseCase)
+			suite.Require().NotNil(useCase, "%s use case not found", tc.wantUseCase)
+			suite.Require().Len(got.Edges, 1, "memo filter should match exactly one transaction")
+			suite.Require().Equal(useCase.GetTransactionResult.Hash, got.Edges[0].Node.Hash, "memo filter returned the wrong transaction")
+			suite.Require().Equal(tc.filter.Type, *got.Edges[0].Node.MemoType, "filtered transaction memo type mismatch")
+			suite.Require().Equal(tc.filter.Value, *got.Edges[0].Node.Memo, "filtered transaction memo mismatch")
+		})
+	}
 }
 
 func (suite *DataValidationTestSuite) validatePaymentOperations(ctx context.Context, txHash string, ledgerNumber int64) {
