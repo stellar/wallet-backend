@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/toid"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -20,6 +22,36 @@ import (
 type StateChangeModel struct {
 	DB      *pgxpool.Pool
 	Metrics *metrics.DBMetrics
+	// HiddenTokenRanges are the tokens every read skips, each within one
+	// processor's state_change_id range. Empty outside the API server.
+	HiddenTokenRanges []HiddenTokenRange
+}
+
+// HiddenTokenRange names a token (a 33-byte token_id) whose rows are skipped
+// when their state_change_id falls in [FromID, ToID): one processor's emitter
+// namespace.
+type HiddenTokenRange struct {
+	TokenID []byte
+	FromID  int64
+	ToID    int64
+}
+
+// hiddenTokensCondition returns the " AND ..." predicate that drops rows whose
+// token is hidden, with its arguments appended, or "" when nothing is hidden.
+// tokenColumn and idColumn are the token_id and state_change_id references in
+// the caller's query. Rows with no token are always kept.
+func (m *StateChangeModel) hiddenTokensCondition(tokenColumn, idColumn string, args []interface{}, argIndex int) (string, []interface{}, int) {
+	if len(m.HiddenTokenRanges) == 0 {
+		return "", args, argIndex
+	}
+	parts := make([]string, 0, len(m.HiddenTokenRanges))
+	for _, r := range m.HiddenTokenRanges {
+		parts = append(parts, fmt.Sprintf("NOT (%s = $%d AND %s >= $%d AND %s < $%d)", tokenColumn, argIndex, idColumn, argIndex+1, idColumn, argIndex+2))
+		args = append(args, r.TokenID, r.FromID, r.ToID)
+		argIndex += 3
+	}
+	cond := fmt.Sprintf(" AND (%s IS NULL OR (%s))", tokenColumn, strings.Join(parts, " AND "))
+	return cond, args, argIndex
 }
 
 // StateChangeWriter is the bulk-insert surface external protocol processors use to persist
@@ -41,6 +73,12 @@ var ErrRowEncoding = errors.New("encoding row for COPY")
 // to pick the concrete GraphQL type for each row.
 var stateChangeMandatoryColumns = []string{"to_id", "operation_id", "state_change_id", "account_id", "ledger_created_at", "state_change_category", "state_change_reason"}
 
+// maxAccountStateChangesPerToID limits how many state changes one transaction can add to an
+// account-history page. Without a limit, a transaction with many state changes for the
+// account loads them all into memory at once. The value is a ceiling chosen from mainnet
+// data: observed transactions stay well under it. Rows beyond the cap are dropped.
+const maxAccountStateChangesPerToID = 2000
+
 // BatchGetByAccountAddress gets the state changes that are associated with the given account address.
 // Optional filters: txHash, operationID, category, and reason can be used to further filter results.
 func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, txHash *string, operationID *int64, category *string, reason *string, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder, timeRange *TimeRange) ([]*types.StateChangeWithCursor, error) {
@@ -54,6 +92,10 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		FROM state_changes
 		WHERE account_id = $1
 	`, columns)
+
+	// Hide rows above the committed cursor. state_changes is the one bulk table an account
+	// query reads directly, with no parent join that would drop an orphan on its own.
+	appendIngestCursorBound(&queryBuilder, "to_id")
 
 	// Time range filter: enables TimescaleDB chunk pruning on the state_changes hypertable
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
@@ -87,6 +129,10 @@ func (m *StateChangeModel) BatchGetByAccountAddress(ctx context.Context, account
 		args = append(args, *reason)
 		argIndex++
 	}
+
+	var hidden string
+	hidden, args, argIndex = m.hiddenTokensCondition("token_id", "state_change_id", args, argIndex)
+	queryBuilder.WriteString(hidden)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -164,9 +210,12 @@ func (m *StateChangeModel) BatchCopy(
 	// deterministic, so they are wrapped in ErrRowEncoding and classified as
 	// permanent by callers. Failing here also keeps the pgx transaction usable:
 	// once a COPY stream aborts, the whole transaction is doomed.
+	// One memo shared by every row of this COPY: addresses repeat heavily within a
+	// batch, and the rows are encoded sequentially on this goroutine.
+	memo := make(types.AddressByteaMemo)
 	rows := make([][]any, len(stateChanges))
 	for i, sc := range stateChanges {
-		row, err := stateChangeCopyRow(sc)
+		row, err := stateChangeCopyRow(sc, memo)
 		if err != nil {
 			duration := time.Since(start).Seconds()
 			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "state_changes").Observe(duration)
@@ -223,9 +272,9 @@ func (m *StateChangeModel) BatchCopy(
 
 // stateChangeCopyRow converts one state change into the COPY column values,
 // in the same order as BatchCopy's column list.
-func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
+func stateChangeCopyRow(sc types.StateChange, memo types.AddressByteaMemo) ([]any, error) {
 	// Convert account_id to BYTEA (required field)
-	accountBytes, err := sc.AccountID.Value()
+	accountBytes, err := memo.Bytes(sc.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting account_id: %w", err)
 	}
@@ -235,19 +284,19 @@ func stateChangeCopyRow(sc types.StateChange) ([]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("converting signer_account_id: %w", err)
 	}
-	spenderBytes, err := pgtypeBytesFromNullAddressBytea(sc.SpenderAccountID)
+	spenderBytes, err := memo.NullBytes(sc.SpenderAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting spender_account_id: %w", err)
 	}
-	creatorBytes, err := pgtypeBytesFromNullAddressBytea(sc.CreatorAccountID)
+	creatorBytes, err := memo.NullBytes(sc.CreatorAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting creator_account_id: %w", err)
 	}
-	destinationBytes, err := pgtypeBytesFromNullAddressBytea(sc.DestinationAccountID)
+	destinationBytes, err := memo.NullBytes(sc.DestinationAccountID)
 	if err != nil {
 		return nil, fmt.Errorf("converting destination_account_id: %w", err)
 	}
-	tokenBytes, err := pgtypeBytesFromNullAddressBytea(sc.TokenID)
+	tokenBytes, err := memo.NullBytes(sc.TokenID)
 	if err != nil {
 		return nil, fmt.Errorf("converting token_id: %w", err)
 	}
@@ -307,6 +356,9 @@ func (m *StateChangeModel) BatchGetByToID(ctx context.Context, toID int64, ledge
 
 	args := []interface{}{toID, ledgerCreatedAt}
 	argIndex := 3
+	var hidden string
+	hidden, args, argIndex = m.hiddenTokensCondition("token_id", "state_change_id", args, argIndex)
+	queryBuilder.WriteString(hidden)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -384,6 +436,7 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 	// clause within one lateral probe, so they're no-op leading sort keys; operation_id and
 	// state_change_id are the only columns that actually vary among a probe's matched rows.
 	args := []interface{}{toIDs, ledgerCreatedAts}
+	hidden, args, argIndex := m.hiddenTokensCondition("sc.token_id", "sc.state_change_id", args, 3)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, k.ledger_created_at as cursor_ledger_created_at, sc.to_id as cursor_to_id, sc.operation_id as cursor_operation_id, sc.state_change_id as cursor_state_change_id
@@ -391,12 +444,12 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 		CROSS JOIN LATERAL (
 			SELECT * FROM (
 				SELECT %s FROM state_changes sc
-				WHERE sc.to_id = k.to_id AND sc.ledger_created_at = k.ledger_created_at
+				WHERE sc.to_id = k.to_id AND sc.ledger_created_at = k.ledger_created_at%s
 				OFFSET 0
 			) sub
-			ORDER BY operation_id %s, state_change_id %s`, columns, columns, sortOrder, sortOrder)
+			ORDER BY operation_id %s, state_change_id %s`, columns, columns, hidden, sortOrder, sortOrder)
 	if limit != nil {
-		queryBuilder.WriteString(" LIMIT $3")
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 	queryBuilder.WriteString(`
@@ -427,17 +480,28 @@ func (m *StateChangeModel) BatchGetByToIDs(ctx context.Context, toIDs []int64, l
 
 // BatchGetByOperationID gets state changes for a single operation with pagination support,
 // pinned to the parent operation's ledger_created_at for partition-column chunk exclusion.
+//
+// to_id is pinned as well, derived from the operation ID by TOID bit masking:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// (see the TOID doc comment in operations.go). Binding it makes (ledger_created_at, to_id,
+// operation_id) a prefix of the state_changes primary key, so this probes the PK rather than
+// needing an index on operation_id alone.
 func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationID int64, ledgerCreatedAt time.Time, columns string, limit *int32, cursor *types.StateChangeCursor, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "", stateChangeMandatoryColumns...)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, ledger_created_at as cursor_ledger_created_at, to_id as cursor_to_id, operation_id as cursor_operation_id, state_change_id as cursor_state_change_id
 		FROM state_changes
-		WHERE operation_id = $1 AND ledger_created_at = $2
+		WHERE operation_id = $1 AND to_id = ($1 & (~x'FFF'::bigint)) AND ledger_created_at = $2
 	`, columns)
 
 	args := []interface{}{operationID, ledgerCreatedAt}
 	argIndex := 3
+	var hidden string
+	hidden, args, argIndex = m.hiddenTokensCondition("token_id", "state_change_id", args, argIndex)
+	queryBuilder.WriteString(hidden)
 
 	// Decomposed cursor pagination: expands ROW() tuple comparison into OR clauses so
 	// TimescaleDB ColumnarScan can push filters into vectorized batch processing.
@@ -499,6 +563,9 @@ func (m *StateChangeModel) BatchGetByOperationID(ctx context.Context, operationI
 // pruning: compressed chunks read only the batches overlapping the page window (segmentby
 // account_id, orderby ledger_created_at); uncompressed chunks can use index range scans;
 // chunks outside the range are excluded entirely.
+//
+// Each transaction returns at most maxAccountStateChangesPerToID rows. The cap uses a
+// ROW_NUMBER window, not a join, so the flat scan above stays a flat scan.
 func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Context, accountAddress string, toIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.StateChange, error) {
 	if len(toIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("toIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(toIDs), len(ledgerCreatedAts))
@@ -516,18 +583,27 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 		}
 	}
 	columns = prepareColumnsWithID(columns, types.StateChange{}, "sc", stateChangeMandatoryColumns...)
+	args := []interface{}{types.AddressBytea(accountAddress), toIDs, lo, hi}
+	hidden, args, _ := m.hiddenTokensCondition("sc.token_id", "sc.state_change_id", args, 5)
 	query := fmt.Sprintf(`
 		SELECT %s
-		FROM state_changes sc
-		WHERE sc.account_id = $1
-		  AND sc.to_id = ANY($2::bigint[])
-		  AND sc.ledger_created_at >= $3
-		  AND sc.ledger_created_at <= $4
+		FROM (
+			SELECT sc.*, ROW_NUMBER() OVER (
+				PARTITION BY sc.to_id
+				ORDER BY sc.operation_id DESC, sc.state_change_id DESC
+			) AS row_in_tx
+			FROM state_changes sc
+			WHERE sc.account_id = $1
+			  AND sc.to_id = ANY($2::bigint[])
+			  AND sc.ledger_created_at >= $3
+			  AND sc.ledger_created_at <= $4%s
+		) sc
+		WHERE sc.row_in_tx <= %d
 		ORDER BY sc.ledger_created_at DESC, sc.to_id DESC, sc.operation_id DESC, sc.state_change_id DESC
-	`, columns)
+	`, columns, hidden, maxAccountStateChangesPerToID)
 
 	start := time.Now()
-	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, types.AddressBytea(accountAddress), toIDs, lo, hi)
+	stateChanges, err := db.QueryManyPtrs[types.StateChange](ctx, m.DB, query, args...)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetAccountStateChangesByToIDs", "state_changes").Observe(float64(len(toIDs)))
@@ -543,6 +619,14 @@ func (m *StateChangeModel) BatchGetAccountStateChangesByToIDs(ctx context.Contex
 // Callers supply each operation's parent ledger_created_at so the LATERAL can pin the partition
 // column, giving per-key runtime chunk exclusion instead of a hash join across the whole
 // hypertable.
+//
+// Each probe also pins to_id, derived from that key's operation ID by TOID bit masking:
+//
+//	tx_to_id = operation_id &^ 0xFFF
+//
+// (see the TOID doc comment in operations.go). Binding it makes (ledger_created_at, to_id,
+// operation_id) a prefix of the state_changes primary key, so each probe reads the PK rather
+// than needing an index on operation_id alone.
 func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string, limit *int32, sortOrder SortOrder) ([]*types.StateChangeWithCursor, error) {
 	if len(operationIDs) != len(ledgerCreatedAts) {
 		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
@@ -563,11 +647,12 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 	// BY/LIMIT, which would otherwise force a Merge Append probing every chunk's sparse index —
 	// O(chunk count) instead of O(1) with retention. After the fence, ORDER BY reads the
 	// subquery's bare output column names, not "sc."-qualified ones — there is no "sc" in scope
-	// at that level, only the fenced derived table. ledger_created_at and operation_id are
-	// dropped from the ORDER BY (not just unqualified): both are pinned to a single constant by
-	// the WHERE clause within one lateral probe, so they're no-op leading sort keys; to_id and
-	// state_change_id are the only columns that actually vary among a probe's matched rows.
+	// at that level, only the fenced derived table. ledger_created_at, to_id and operation_id are
+	// dropped from the ORDER BY (not just unqualified): all three are pinned to a single constant
+	// by the WHERE clause within one lateral probe, so they're no-op leading sort keys;
+	// state_change_id is the only column that actually varies among a probe's matched rows.
 	args := []interface{}{operationIDs, ledgerCreatedAts}
+	hidden, args, argIndex := m.hiddenTokensCondition("sc.token_id", "sc.state_change_id", args, 3)
 	var queryBuilder strings.Builder
 	fmt.Fprintf(&queryBuilder, `
 		SELECT %s, k.ledger_created_at as cursor_ledger_created_at, sc.to_id as cursor_to_id, sc.operation_id as cursor_operation_id, sc.state_change_id as cursor_state_change_id
@@ -575,12 +660,12 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		CROSS JOIN LATERAL (
 			SELECT * FROM (
 				SELECT %s FROM state_changes sc
-				WHERE sc.operation_id = k.operation_id AND sc.ledger_created_at = k.ledger_created_at
+				WHERE sc.operation_id = k.operation_id AND sc.to_id = (k.operation_id & (~x'FFF'::bigint)) AND sc.ledger_created_at = k.ledger_created_at%s
 				OFFSET 0
 			) sub
-			ORDER BY to_id %s, state_change_id %s`, columns, columns, sortOrder, sortOrder)
+			ORDER BY state_change_id %s`, columns, columns, hidden, sortOrder)
 	if limit != nil {
-		queryBuilder.WriteString(" LIMIT $3")
+		fmt.Fprintf(&queryBuilder, " LIMIT $%d", argIndex)
 		args = append(args, *limit)
 	}
 	queryBuilder.WriteString(`
@@ -607,4 +692,57 @@ func (m *StateChangeModel) BatchGetByOperationIDs(ctx context.Context, operation
 		return nil, fmt.Errorf("getting state changes by operation IDs: %w", err)
 	}
 	return stateChanges, nil
+}
+
+// DeleteNamespaceLedgerRange deletes one protocol's state-change rows for the
+// inclusive ledger range [fromLedger, toLedger] and returns how many went.
+// base is the protocol's state_change_id namespace base
+// (ProtocolProcessor.StateChangeOrdinalBase).
+//
+// Both predicates prune compressed batches without decompressing them: to_id
+// carries the ledger in its high 32 bits, and both columns are compression
+// orderby columns with per-batch min/max metadata. Runs in its own
+// transaction, begun on beginner, with the DML decompression cap lifted —
+// callers bound the per-statement work by slicing the ledger range (see
+// historyRebuildDeleteSlice), not via the cap.
+func (m *StateChangeModel) DeleteNamespaceLedgerRange(ctx context.Context, beginner db.TxBeginner, base int64, fromLedger, toLedger uint32) (int64, error) {
+	const query = `
+		DELETE FROM state_changes
+		WHERE state_change_id >= $1 AND state_change_id < $2
+		  AND to_id >= $3 AND to_id <= $4
+	`
+	// toid packs the ledger into the high 32 bits of a signed int64, so a ledger
+	// above MaxInt32 wraps negative and the to_id bounds below match no rows — a
+	// wipe that deletes nothing, leaving the re-migration to collide on
+	// already-present state_change_ids. Mainnet is four orders of magnitude below
+	// this; the check makes that failure loud rather than silent.
+	if fromLedger > math.MaxInt32 || toLedger > math.MaxInt32 {
+		return 0, fmt.Errorf("ledger range [%d,%d] exceeds the largest toid ledger %d", fromLedger, toLedger, int64(math.MaxInt32))
+	}
+	fromToID := toid.New(int32(fromLedger), 0, 0).ToInt64()
+	// AfterLedger is the MAXIMUM to_id within toLedger (not the first of
+	// toLedger+1), hence the inclusive upper bound above.
+	maxToID := toid.AfterLedger(int32(toLedger)).ToInt64()
+
+	var deleted int64
+	start := time.Now()
+	err := db.RunInTransaction(ctx, beginner, func(dbTx pgx.Tx) error {
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
+			return fmt.Errorf("lifting DML decompression cap: %w", execErr)
+		}
+		tag, execErr := dbTx.Exec(ctx, query, base, base+types.StateChangeOrdinalNamespaceWidth, fromToID, maxToID)
+		if execErr != nil {
+			return fmt.Errorf("executing namespace-range delete: %w", execErr)
+		}
+		deleted = tag.RowsAffected()
+		return nil
+	})
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("DeleteNamespaceLedgerRange", "state_changes", utils.GetDBErrorType(err)).Inc()
+		return 0, fmt.Errorf("deleting state changes in namespace %d for ledgers [%d,%d]: %w", base, fromLedger, toLedger, err)
+	}
+	return deleted, nil
 }

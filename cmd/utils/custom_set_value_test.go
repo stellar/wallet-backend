@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
@@ -202,56 +201,6 @@ func Test_SetConfigOptionLogLevel(t *testing.T) {
 	}
 }
 
-func TestSetConfigOptionAssets(t *testing.T) {
-	opts := struct{ assets []entities.Asset }{}
-
-	co := config.ConfigOption{
-		Name:           "assets",
-		OptType:        types.String,
-		CustomSetValue: SetConfigOptionAssets,
-		ConfigKey:      &opts.assets,
-	}
-	expectedAssets := []entities.Asset{
-		{
-			Code:   "USDC",
-			Issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-		},
-		{
-			Code:   "ARST",
-			Issuer: "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
-		},
-	}
-
-	testCases := []customSetterTestCase[[]entities.Asset]{
-		{
-			name:            "returns an error if asset is empty",
-			wantErrContains: "assets cannot be empty",
-		},
-		{
-			name:            "returns an error if assets JSON is invalid",
-			args:            []string{"--assets", "invalid"},
-			wantErrContains: "decoding assets JSON: invalid character 'i' looking for beginning of value",
-		},
-		{
-			name:       "handles assets JSON through the CLI flag",
-			args:       []string{"--assets", `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`},
-			wantResult: expectedAssets,
-		},
-		{
-			name:       "handles assets JSON through the ENV vars",
-			envValue:   `[{"code": "USDC", "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"}, {"code": "ARST", "issuer": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO"}]`,
-			wantResult: expectedAssets,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts.assets = []entities.Asset{}
-			customSetterTester(t, tc, co)
-		})
-	}
-}
-
 func TestSetConfigOptionDuration(t *testing.T) {
 	opts := struct{ d time.Duration }{}
 
@@ -293,6 +242,41 @@ func TestSetConfigOptionDuration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			opts.d = 0
 			customSetterTester(t, tc, co)
+		})
+	}
+}
+
+func TestBlendPriceIntervalOption(t *testing.T) {
+	opts := struct{ d time.Duration }{}
+	co := BlendPriceIntervalOption(&opts.d)
+
+	testCases := []customSetterTestCase[time.Duration]{
+		{
+			name:            "returns an error if the duration is negative",
+			args:            []string{"--blend-price-interval=-1s"},
+			wantErrContains: "blend-price-interval must not be negative",
+		},
+		{
+			name:            "returns an error if a negative duration comes through the ENV var",
+			envValue:        "-30s",
+			wantErrContains: "blend-price-interval must not be negative",
+		},
+		{
+			name:       "zero disables the task and is accepted",
+			args:       []string{"--blend-price-interval", "0s"},
+			wantResult: 0,
+		},
+		{
+			name:       "a positive interval is accepted",
+			args:       []string{"--blend-price-interval", "90s"},
+			wantResult: 90 * time.Second,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts.d = 0
+			customSetterTester(t, tc, *co)
 		})
 	}
 }

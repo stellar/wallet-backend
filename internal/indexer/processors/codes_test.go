@@ -3,6 +3,7 @@
 package processors
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -519,6 +520,7 @@ func TestStringForClaimClaimableBalanceResult(t *testing.T) {
 		{name: "line_full", code: xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceLineFull, expected: OpLineFull},
 		{name: "no_trust", code: xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceNoTrust, expected: OpNoTrust},
 		{name: "not_authorized", code: xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceNotAuthorized, expected: OpNotAuthorized},
+		{name: "trustline_frozen", code: xdr.ClaimClaimableBalanceResultCodeClaimClaimableBalanceTrustlineFrozen, expected: OpTrustlineFrozen},
 		{name: "unknown", code: xdr.ClaimClaimableBalanceResultCode(999), wantErr: true},
 	}
 
@@ -715,6 +717,7 @@ func TestStringForLiquidityPoolDepositResult(t *testing.T) {
 		{name: "line_full", code: xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositLineFull, expected: OpLineFull},
 		{name: "bad_price", code: xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositBadPrice, expected: "op_bad_price"},
 		{name: "pool_full", code: xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositPoolFull, expected: "op_pool_full"},
+		{name: "trustline_frozen", code: xdr.LiquidityPoolDepositResultCodeLiquidityPoolDepositTrustlineFrozen, expected: OpTrustlineFrozen},
 		{name: "unknown", code: xdr.LiquidityPoolDepositResultCode(999), wantErr: true},
 	}
 
@@ -744,6 +747,7 @@ func TestStringForLiquidityPoolWithdrawResult(t *testing.T) {
 		{name: "underfunded", code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawUnderfunded, expected: OpUnderfunded},
 		{name: "line_full", code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawLineFull, expected: OpLineFull},
 		{name: "under_minimum", code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawUnderMinimum, expected: "op_under_minimum"},
+		{name: "trustline_frozen", code: xdr.LiquidityPoolWithdrawResultCodeLiquidityPoolWithdrawTrustlineFrozen, expected: OpTrustlineFrozen},
 		{name: "unknown", code: xdr.LiquidityPoolWithdrawResultCode(999), wantErr: true},
 	}
 
@@ -1145,4 +1149,69 @@ func TestForOperationResult_InnerResults(t *testing.T) {
 		assert.Equal(t, OpSuccess, code)
 		assert.True(t, succ)
 	})
+}
+
+// resultCodeEnum is an XDR-generated operation result code enum.
+type resultCodeEnum interface {
+	~int32
+	fmt.Stringer
+	ValidEnum(v int32) bool
+}
+
+// unmappedResultCodes returns every value the SDK defines for E that lookup rejects.
+// It probes a bounded range because the SDK keeps each enum's value map unexported.
+func unmappedResultCodes[E resultCodeEnum](lookup func(E) (string, error)) []string {
+	var unmapped []string
+	var e E
+	for v := int32(-64); v <= 64; v++ {
+		if !e.ValidEnum(v) {
+			continue
+		}
+		if _, err := lookup(E(v)); err != nil {
+			unmapped = append(unmapped, fmt.Sprintf("%s (%d)", E(v), v))
+		}
+	}
+	return unmapped
+}
+
+// TestOperationResultCodesExhaustive fails when the SDK defines a result code that
+// codes.go does not map. An unmapped code fails processing for the whole ledger.
+func TestOperationResultCodesExhaustive(t *testing.T) {
+	tests := []struct {
+		name     string
+		unmapped []string
+	}{
+		{name: "create_account", unmapped: unmappedResultCodes(stringForCreateAccountResult)},
+		{name: "payment", unmapped: unmappedResultCodes(stringForPaymentResult)},
+		{name: "path_payment_strict_receive", unmapped: unmappedResultCodes(stringForPathPaymentStrictReceiveResult)},
+		{name: "manage_buy_offer", unmapped: unmappedResultCodes(stringForManageBuyOfferResult)},
+		{name: "manage_sell_offer", unmapped: unmappedResultCodes(stringForManageSellOfferResult)},
+		{name: "set_options", unmapped: unmappedResultCodes(stringForSetOptionsResult)},
+		{name: "change_trust", unmapped: unmappedResultCodes(stringForChangeTrustResult)},
+		{name: "allow_trust", unmapped: unmappedResultCodes(stringForAllowTrustResult)},
+		{name: "account_merge", unmapped: unmappedResultCodes(stringForAccountMergeResult)},
+		{name: "inflation", unmapped: unmappedResultCodes(stringForInflationResult)},
+		{name: "manage_data", unmapped: unmappedResultCodes(stringForManageDataResult)},
+		{name: "bump_sequence", unmapped: unmappedResultCodes(stringForBumpSequenceResult)},
+		{name: "path_payment_strict_send", unmapped: unmappedResultCodes(stringForPathPaymentStrictSendResult)},
+		{name: "create_claimable_balance", unmapped: unmappedResultCodes(stringForCreateClaimableBalanceResult)},
+		{name: "claim_claimable_balance", unmapped: unmappedResultCodes(stringForClaimClaimableBalanceResult)},
+		{name: "begin_sponsoring", unmapped: unmappedResultCodes(stringForBeginSponsoringResult)},
+		{name: "end_sponsoring", unmapped: unmappedResultCodes(stringForEndSponsoringResult)},
+		{name: "revoke_sponsorship", unmapped: unmappedResultCodes(stringForRevokeSponsorshipResult)},
+		{name: "clawback", unmapped: unmappedResultCodes(stringForClawbackResult)},
+		{name: "clawback_claimable_balance", unmapped: unmappedResultCodes(stringForClawbackClaimableBalanceResult)},
+		{name: "set_trust_line_flags", unmapped: unmappedResultCodes(stringForSetTrustLineFlagsResult)},
+		{name: "liquidity_pool_deposit", unmapped: unmappedResultCodes(stringForLiquidityPoolDepositResult)},
+		{name: "liquidity_pool_withdraw", unmapped: unmappedResultCodes(stringForLiquidityPoolWithdrawResult)},
+		{name: "invoke_host_function", unmapped: unmappedResultCodes(stringForInvokeHostFunctionResult)},
+		{name: "extend_footprint_ttl", unmapped: unmappedResultCodes(stringForExtendFootprintTTLResult)},
+		{name: "restore_footprint", unmapped: unmappedResultCodes(stringForRestoreFootprintResult)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Empty(t, tt.unmapped, "SDK result codes with no string mapping")
+		})
+	}
 }

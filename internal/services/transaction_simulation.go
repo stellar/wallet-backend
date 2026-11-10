@@ -33,6 +33,11 @@ var (
 	ErrSimulationFailed = errors.New("simulation failed")
 )
 
+// simulatedProtocolIDs lists the protocol processors simulation runs: only
+// those whose state changes have simulated GraphQL types. A protocol outside
+// the list still previews its token movements through the SAC processors.
+var simulatedProtocolIDs = []string{"SEP41"}
+
 // SimulatedStateChanges is what a simulation returns: the state changes the
 // indexer would produce if this transaction were actually submitted, evaluated
 // against the ledger in LatestLedger.
@@ -68,9 +73,11 @@ func NewTransactionSimulationService(rpcService RPCService, models *data.Models,
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
-	// The indexer runs with nil ingestion metrics: simulation is a read-only
-	// preview, not ingestion, so it must not feed the ingestion dashboards.
-	ledgerIndexer, err := indexer.NewIndexer(networkPassphrase, pond.NewPool(runtime.NumCPU()), nil)
+	// The indexer runs with nil ingestion metrics and without contract-data
+	// collection: simulation is a read-only preview, not ingestion, so it must
+	// not feed the ingestion dashboards, and it persists nothing for the
+	// contract-data buffer to serve.
+	ledgerIndexer, err := indexer.NewIndexer(networkPassphrase, pond.NewPool(runtime.NumCPU()), nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("creating indexer: %w", err)
 	}
@@ -458,7 +465,7 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 	if len(eventContractIDs) == 0 {
 		return nil, nil
 	}
-	committedByProtocol, err := s.models.ProtocolContracts.BatchGetByContractIDs(ctx, eventContractIDs)
+	committedByProtocol, err := s.models.ProtocolContracts.BatchGetByContractIDs(ctx, s.models.DB, eventContractIDs)
 	if err != nil {
 		return nil, fmt.Errorf("resolving protocol contracts: %w", err)
 	}
@@ -486,7 +493,7 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 		NetworkPassphrase: s.networkPassphrase,
 		Models:            s.models,
 		RPCService:        s.rpcService,
-	}, GetAllProcessorIDs())
+	}, simulatedProtocolIDs)
 	if err != nil {
 		return nil, fmt.Errorf("building protocol processors: %w", err)
 	}

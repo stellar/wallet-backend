@@ -3,6 +3,8 @@ package indexer
 import (
 	"testing"
 
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -50,6 +52,29 @@ func TestIndexerBuffer_PushTransaction(t *testing.T) {
 
 		// Assert GetAllTransactions
 		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
+	})
+
+	t.Run("🟢 same hash at two ToIDs keeps both transactions", func(t *testing.T) {
+		// The same envelope can occupy several tx-set positions: distinct
+		// ToIDs, one hash. Every ToID with a participant entry must have its
+		// canonical transaction row, or the participant link is COPYed with a
+		// zero ledger_created_at and the transaction row is silently dropped.
+		indexerBuffer := NewIndexerBuffer()
+
+		const sharedHash = "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760"
+		tx1 := types.Transaction{Hash: sharedHash, ToID: 1}
+		tx2 := types.Transaction{Hash: sharedHash, ToID: 2}
+
+		indexerBuffer.PushTransaction("alice", &tx1)
+		indexerBuffer.PushTransaction("bob", &tx2)
+
+		assert.Equal(t, 2, indexerBuffer.GetNumberOfTransactions())
+		assert.ElementsMatch(t, []*types.Transaction{&tx1, &tx2}, indexerBuffer.GetTransactions())
+
+		txParticipants := indexerBuffer.GetTransactionsParticipants()
+		for toID := range txParticipants {
+			assert.Contains(t, []int64{tx1.ToID, tx2.ToID}, toID)
+		}
 	})
 }
 
@@ -331,6 +356,63 @@ func TestIndexerBuffer_IngestTransactionResult(t *testing.T) {
 		changes := buffer.GetAccountChanges()
 		require.Len(t, changes, 1)
 		assert.Equal(t, types.AccountOpRemove, changes["GACCT"].Operation)
+	})
+}
+
+func TestIndexerBuffer_ContractDataChanges(t *testing.T) {
+	// OperationIndex is only an identity marker here: it makes each change
+	// distinguishable so the assertions can pin concatenation order.
+	change := func(operationIndex uint32) ingest.Change {
+		return ingest.Change{Type: xdr.LedgerEntryTypeContractData, OperationIndex: operationIndex}
+	}
+
+	t.Run("🟢 folds per-contract changes in fold order", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+
+		// The two results overlap on "CSHARED" and each also touches a contract
+		// the other does not.
+		first := &TransactionResult{
+			Transaction: &tx,
+			ContractDataChanges: map[string][]ingest.Change{
+				"CSHARED": {change(0), change(1)},
+				"CONLY1":  {change(2)},
+			},
+		}
+		second := &TransactionResult{
+			Transaction: &tx,
+			ContractDataChanges: map[string][]ingest.Change{
+				"CSHARED": {change(3)},
+				"CONLY2":  {change(4)},
+			},
+		}
+
+		buffer.IngestTransactionResult(first)
+		buffer.IngestTransactionResult(second)
+
+		got := buffer.GetContractDataChanges()
+		require.Len(t, got, 3)
+		assert.Equal(t, []ingest.Change{change(0), change(1), change(3)}, got["CSHARED"],
+			"overlapping contract's changes must concatenate in fold order")
+		assert.Equal(t, []ingest.Change{change(2)}, got["CONLY1"])
+		assert.Equal(t, []ingest.Change{change(4)}, got["CONLY2"])
+	})
+
+	t.Run("🟢 Clear empties the map without nilling it", func(t *testing.T) {
+		buffer := NewIndexerBuffer()
+		tx := types.Transaction{Hash: "e76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48760", ToID: 1}
+
+		buffer.IngestTransactionResult(&TransactionResult{
+			Transaction:         &tx,
+			ContractDataChanges: map[string][]ingest.Change{"CSHARED": {change(0)}},
+		})
+		require.NotEmpty(t, buffer.GetContractDataChanges())
+
+		buffer.Clear()
+
+		got := buffer.GetContractDataChanges()
+		assert.NotNil(t, got, "Clear must keep the map allocated for the next ledger")
+		assert.Empty(t, got)
 	})
 }
 

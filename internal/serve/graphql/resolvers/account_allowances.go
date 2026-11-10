@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -130,6 +131,12 @@ func (r *Resolver) getSEP41Allowances(ctx context.Context, address string, first
 	if err != nil {
 		log.Ctx(ctx).Errorf("failed to get SEP-41 allowances for %s: %v", address, err)
 		return nil, balanceInternalError()
+	}
+
+	// A backward page is fetched closest-cursor first; restore ascending order before
+	// building the connection, as the balance loader does.
+	if sep41Sort == sep41data.SortDESC {
+		slices.Reverse(allowances)
 	}
 
 	conn := NewConnectionWithRelayPagination(allowances, params, encodeAllowanceCursorID)

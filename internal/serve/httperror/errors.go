@@ -6,8 +6,6 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/support/render/httpjson"
-
-	"github.com/stellar/wallet-backend/internal/apptracker"
 )
 
 type ErrorResponse struct {
@@ -62,16 +60,11 @@ func Unauthorized(message string, extras map[string]interface{}) *ErrorResponse 
 	}
 }
 
-func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
+func InternalServerError(ctx context.Context, message string, err error, extras map[string]interface{}) *ErrorResponse {
 	if message == "" {
 		message = "An error occurred while processing this request."
 	}
 	log.Ctx(ctx).Error(err)
-	if appTracker != nil {
-		appTracker.CaptureException(err)
-	} else {
-		log.Warn("App Tracker is nil")
-	}
 
 	return &ErrorResponse{
 		Status: http.StatusInternalServerError,
@@ -80,16 +73,11 @@ func InternalServerError(ctx context.Context, message string, err error, extras 
 	}
 }
 
-func ServiceUnavailable(ctx context.Context, message string, err error, extras map[string]interface{}, appTracker apptracker.AppTracker) *ErrorResponse {
+func ServiceUnavailable(ctx context.Context, message string, err error, extras map[string]interface{}) *ErrorResponse {
 	if message == "" {
 		message = "The service is unavailable."
 	}
 	log.Ctx(ctx).Error(err)
-	if appTracker != nil {
-		appTracker.CaptureException(err)
-	} else {
-		log.Warn("App Tracker is nil")
-	}
 
 	return &ErrorResponse{
 		Status: http.StatusServiceUnavailable,

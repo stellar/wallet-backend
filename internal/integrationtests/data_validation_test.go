@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/alitto/pond/v2"
@@ -995,6 +996,56 @@ func (suite *DataValidationTestSuite) validateAccountMergeStateChanges(ctx conte
 	suite.Require().Len(balanceDebitChanges.Edges, 1, "should have exactly 1 BALANCE/DEBIT change")
 	balanceDebitChange := balanceDebitChanges.Edges[0].Node.(*types.BalanceChange)
 	validateBalanceChange(suite, balanceDebitChange, xlmContractAddress, "50000000", types.StateChangeReasonDebit)
+}
+
+// TestMuxedDestinationCreditsCarryToMuxedID verifies the setup SAC transfers to muxed
+// destinations: the credit lands on the base address and carries the id as toMuxedId. The
+// setup transactions predate live ingestion, so their rows come from the backfill suite.
+func (suite *DataValidationTestSuite) TestMuxedDestinationCreditsCarryToMuxedID() {
+	ctx := context.Background()
+
+	oldestLedger, err := suite.testEnv.Containers.GetIngestCursor(ctx, "oldest_ingest_ledger")
+	suite.Require().NoError(err, "failed to get oldest_ingest_ledger cursor")
+	suite.Require().LessOrEqual(oldestLedger, uint32(8), "the backfill suite must have ingested the setup ledgers first")
+
+	first := int32(10)
+	balanceCategory := types.StateChangeCategoryBalance
+	creditReason := types.StateChangeReasonCredit
+	results := suite.fetchStateChangesInParallel(ctx, []stateChangeQuery{
+		{name: "holder", account: suite.testEnv.HolderContractAddress, category: &balanceCategory, reason: &creditReason},
+		{name: "account1", account: suite.testEnv.BalanceTestAccount1KP.Address(), category: &balanceCategory, reason: &creditReason},
+	}, &first)
+
+	expectations := []struct {
+		name          string
+		plainAmount   string // credit from a transfer to the bare address: no id
+		muxedAmount   string // credit from a transfer to the muxed form: id recorded
+		expectedMuxed string
+	}{
+		{"holder", strconv.Itoa(infrastructure.TestUSDCTransferStroops), strconv.Itoa(infrastructure.TestUSDCMuxedContractTransferStroops), strconv.FormatUint(infrastructure.TestHolderContractMuxedID, 10)},
+		{"account1", "", strconv.Itoa(infrastructure.TestUSDCMuxedAccountTransferStroops), strconv.FormatUint(infrastructure.TestBalanceAccount1MuxedID, 10)},
+	}
+	for _, e := range expectations {
+		usdcCredits := map[string]*types.BalanceChange{}
+		for _, edge := range results[e.name].Edges {
+			bc, ok := edge.Node.(*types.BalanceChange)
+			if ok && bc.TokenID == suite.testEnv.USDCContractAddress {
+				usdcCredits[bc.Amount] = bc
+			}
+		}
+
+		muxedCredit := usdcCredits[e.muxedAmount]
+		suite.Require().NotNil(muxedCredit, "%s: USDC credit of %s from the muxed transfer not found", e.name, e.muxedAmount)
+		validateStateChangeBase(suite, muxedCredit, int64(muxedCredit.GetLedgerNumber()))
+		suite.Require().NotNil(muxedCredit.ToMuxedID, "%s: the muxed credit must carry toMuxedId", e.name)
+		suite.Require().Equal(e.expectedMuxed, *muxedCredit.ToMuxedID, "%s: toMuxedId mismatch", e.name)
+
+		if e.plainAmount != "" {
+			plainCredit := usdcCredits[e.plainAmount]
+			suite.Require().NotNil(plainCredit, "%s: USDC credit of %s from the plain transfer not found", e.name, e.plainAmount)
+			suite.Require().Nil(plainCredit.ToMuxedID, "%s: a transfer to the bare address has no toMuxedId", e.name)
+		}
+	}
 }
 
 func (suite *DataValidationTestSuite) TestInvokeContractOpsDataValidation() {

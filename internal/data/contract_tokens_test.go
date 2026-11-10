@@ -5,11 +5,14 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 )
 
@@ -132,6 +135,148 @@ func TestContractModel_GetExisting(t *testing.T) {
 		require.NoError(t, err)
 
 		cleanUpDB()
+	})
+}
+
+func TestContractModel_GetWithMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
+		require.NoError(t, err)
+	}
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &ContractModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	// seedMixed inserts one row whose metadata an earlier run resolved next to
+	// one that is still the default row Apply writes before enrichment: a NULL
+	// name. Only the first may come back, or the SEP-41 fetcher would mark the
+	// second as settled and never fetch its metadata.
+	seedMixed := func(t *testing.T) {
+		t.Helper()
+		name := "USD Coin"
+		symbol := "USDC"
+		seedErr := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			return m.BatchInsert(ctx, dbTx, []*Contract{
+				{ID: DeterministicContractID("resolved"), ContractID: "resolved", Type: "sep41", Name: &name, Symbol: &symbol, Decimals: 7},
+				{ID: DeterministicContractID("default_row"), ContractID: "default_row", Type: "sep41", Decimals: 0},
+			})
+		})
+		require.NoError(t, seedErr)
+	}
+
+	t.Run("returns nil for empty input", func(t *testing.T) {
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{})
+		require.NoError(t, queryErr)
+		require.Nil(t, ids)
+	})
+
+	t.Run("returns only rows whose name is set", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		// Read through the pool, which is how Prefetch calls this: before the
+		// persist transaction opens.
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{"resolved", "default_row", "absent"})
+		require.NoError(t, queryErr)
+		require.Equal(t, []string{"resolved"}, ids)
+
+		cleanUpDB()
+	})
+
+	t.Run("reads through a transaction", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		txRunErr := db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+			ids, queryErr := m.GetWithMetadata(ctx, dbTx, []string{"resolved", "default_row"})
+			require.NoError(t, queryErr)
+			require.Equal(t, []string{"resolved"}, ids)
+			return nil
+		})
+		require.NoError(t, txRunErr)
+
+		cleanUpDB()
+	})
+
+	t.Run("returns empty when no row has metadata", func(t *testing.T) {
+		cleanUpDB()
+		seedMixed(t)
+
+		ids, queryErr := m.GetWithMetadata(ctx, dbConnectionPool, []string{"default_row"})
+		require.NoError(t, queryErr)
+		require.Empty(t, ids)
+
+		cleanUpDB()
+	})
+}
+
+func TestContractModel_GetTokenMetadataByContractIDs(t *testing.T) {
+	ctx := context.Background()
+
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	cleanUpDB := func() {
+		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM contract_tokens`)
+		require.NoError(t, err)
+	}
+	defer cleanUpDB()
+
+	reg := prometheus.NewRegistry()
+	dbMetrics := metrics.NewMetrics(reg).DB
+	m := &ContractModel{
+		DB:      dbConnectionPool,
+		Metrics: dbMetrics,
+	}
+
+	name1, symbol1 := "USD Coin", "USDC"
+	name2, symbol2 := "BLND Token", "BLND"
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return m.BatchInsert(ctx, dbTx, []*Contract{
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sep41", Name: &name1, Symbol: &symbol1, Decimals: 7},
+			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name2, Symbol: &symbol2, Decimals: 7},
+		})
+	})
+	require.NoError(t, err)
+
+	t.Run("returns metadata for requested contracts, silently skipping unknown ones", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, []string{"contract1", "contract3"})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "contract1", got[0].ContractID)
+		require.NotNil(t, got[0].Name)
+		assert.Equal(t, "USD Coin", *got[0].Name)
+		require.NotNil(t, got[0].Symbol)
+		assert.Equal(t, "USDC", *got[0].Symbol)
+		assert.Equal(t, uint32(7), got[0].Decimals)
+	})
+
+	t.Run("returns metadata for every requested contract that exists", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, []string{"contract1", "contract2"})
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+	})
+
+	t.Run("empty contractIDs returns an empty slice without querying", func(t *testing.T) {
+		got, err := m.GetTokenMetadataByContractIDs(ctx, nil)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		require.Empty(t, got)
 	})
 }
 
@@ -599,4 +744,32 @@ func TestContractModel_BatchUpdateMetadata(t *testing.T) {
 
 		cleanUpDB()
 	})
+}
+
+// TestContractModel_BatchInsert_rejectsSACWithoutAsset pins the schema invariant behind
+// #695: a SAC's asset is bound to its contract id, so a SAC row without code and issuer
+// is a classification error and must not be storable.
+func TestContractModel_BatchInsert_rejectsSACWithoutAsset(t *testing.T) {
+	ctx := context.Background()
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &ContractModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	const contractAddr = "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+
+	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
+		return m.BatchInsert(ctx, dbTx, []*Contract{{
+			ID:         DeterministicContractID(contractAddr),
+			ContractID: contractAddr,
+			Type:       string(types.ContractTypeSAC),
+			Decimals:   7,
+		}})
+	})
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "23514", pgErr.Code, "expected check_violation")
+	require.Equal(t, "contract_tokens_sac_has_asset", pgErr.ConstraintName)
 }

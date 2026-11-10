@@ -1,0 +1,33 @@
+# Contributor override: builds a local debug image instead of pulling the published one.
+# Use with `docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build`.
+name: wallet-backend
+
+services:
+  api:
+    image: wallet-backend:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_MODE: debug
+        VERSION: dev
+    environment:
+      LOG_LEVEL: DEBUG
+    ports:
+      - 40000:40000
+    # To debug, uncomment the two lines below and attach a Delve client to localhost:40000.
+    # The entrypoint must change too, or `dlv` is passed to wallet-backend as a subcommand.
+    # The process starts right away (--continue); breakpoints apply once a client attaches.
+    # entrypoint: ["dlv", "exec", "/usr/local/bin/wallet-backend", "--headless", "--listen=:40000", "--api-version=2", "--accept-multiclient", "--continue", "--"]
+    # command: ["serve"]
+
+  # ingest and migrate reuse the image the api service builds.
+  ingest:
+    image: wallet-backend:dev
+    pull_policy: never
+    environment:
+      LOG_LEVEL: DEBUG
+
+  migrate:
+    image: wallet-backend:dev
+    pull_policy: never

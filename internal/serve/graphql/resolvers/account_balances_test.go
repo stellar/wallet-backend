@@ -1,6 +1,7 @@
 package resolvers
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"testing"
@@ -107,6 +108,7 @@ func TestAccountResolver_SEP41BalancesReturnedByBalancesConnection(t *testing.T)
 	)
 
 	resolver := &accountResolver{&Resolver{
+		models:        &data.Models{DB: testDBConnectionPool},
 		rpcService:    rpcMock,
 		balanceReader: reader,
 		metrics:       m,
@@ -126,4 +128,71 @@ func TestAccountResolver_SEP41BalancesReturnedByBalancesConnection(t *testing.T)
 	require.NotNil(t, sep41Bal.Name)
 	assert.Equal(t, "USDC", *sep41Bal.Name)
 	assert.Equal(t, graphql1.TokenTypeSep41, sep41Bal.TokenType)
+}
+
+// commitAfterNativeRead commits a change through the pool right after the
+// native-balance read, i.e. between two of the balances resolver's source
+// queries.
+type commitAfterNativeRead struct {
+	BalanceReader
+	commit func()
+}
+
+func (r commitAfterNativeRead) GetNativeBalance(ctx context.Context, accountAddress string) (*data.NativeBalance, error) {
+	nb, err := r.BalanceReader.GetNativeBalance(ctx, accountAddress)
+	r.commit()
+	return nb, err
+}
+
+// TestAccountResolver_BalancesReadOneSnapshot pins that the balances resolver
+// reads every source in one snapshot: a SEP-41 balance committed after the
+// native read, which comes first, is invisible to the same page.
+func TestAccountResolver_BalancesReadOneSnapshot(t *testing.T) {
+	acct := keypair.MustRandom().Address()
+	contractAddr := "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+	cid := data.DeterministicContractID(contractAddr)
+
+	execTestDB(t, `
+		INSERT INTO contract_tokens (id, contract_id, type, name, symbol, decimals) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, symbol = EXCLUDED.symbol, decimals = EXCLUDED.decimals
+	`, cid, contractAddr, "sep41", "USDC", "USDC", 7)
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM sep41_balances WHERE account_id = $1`, types.AddressBytea(acct))
+	})
+	execTestDB(t, `
+		INSERT INTO sep41_balances (account_id, contract_id, balance, last_modified_ledger)
+		VALUES ($1, $2, $3, $4)
+	`, types.AddressBytea(acct), cid, "100", uint32(9999))
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	rpcMock := services.NewRPCServiceMock(t)
+	rpcMock.On("NetworkPassphrase").Return("Test SDF Network ; September 2015").Maybe()
+
+	reader := commitAfterNativeRead{
+		BalanceReader: NewBalanceReader(
+			&data.TrustlineBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+			&data.NativeBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+			&data.SACBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+			&data.LiquidityPoolBalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+			&sep41data.BalanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+			&sep41data.AllowanceModel{DB: testDBConnectionPool, Metrics: m.DB},
+		),
+		commit: func() {
+			execTestDB(t, `UPDATE sep41_balances SET balance = 200 WHERE account_id = $1`, types.AddressBytea(acct))
+		},
+	}
+	resolver := &accountResolver{&Resolver{
+		models:        &data.Models{DB: testDBConnectionPool},
+		rpcService:    rpcMock,
+		balanceReader: reader,
+		metrics:       m,
+	}}
+
+	ctx := getTestCtx("balances", []string{"balance", "tokenId"})
+	conn, err := resolver.Balances(ctx, &types.Account{StellarAddress: types.AddressBytea(acct)}, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, conn.Edges, 1)
+	sep41Bal, ok := conn.Edges[0].Node.(*graphql1.SEP41Balance)
+	require.True(t, ok, "edge[0] should be SEP41Balance, got %T", conn.Edges[0].Node)
+	assert.Equal(t, "100", sep41Bal.Balance, "a commit between source reads must not reach the same page")
 }

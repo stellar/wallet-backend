@@ -5,6 +5,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -240,6 +241,27 @@ func Test_CheckForForbiddenSigners(t *testing.T) {
 				require.NoError(t, err)
 				return muxed.Address()
 			}(),
+			forbiddenSigners: forbiddenSigners,
+		},
+		{
+			name: "🟢CredentialsAddress/muxed_contract_signer_is_not_an_account",
+			authEntries: []xdr.SorobanAuthorizationEntry{
+				{
+					Credentials: xdr.SorobanCredentials{
+						Type: xdr.SorobanCredentialsTypeSorobanCredentialsAddress,
+						Address: &xdr.SorobanAddressCredentials{
+							Address: xdr.ScAddress{
+								Type: xdr.ScAddressTypeScAddressTypeMuxedContract,
+								MuxedContract: &xdr.MuxedContract{
+									Id:         7,
+									ContractId: xdr.ContractId(strkey.MustDecode(strkey.VersionByteContract, "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA")),
+								},
+							},
+						},
+					},
+				},
+			},
+			opSourceAccount:  allowedSigner1,
 			forbiddenSigners: forbiddenSigners,
 		},
 		{

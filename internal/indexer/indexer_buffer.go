@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -21,7 +22,7 @@ import (
 //
 // ARCHITECTURE:
 // 1. Canonical Storage Layer:
-//   - txByHash: Single pointer per unique transaction (keyed by hash)
+//   - txByToID: Single pointer per unique transaction (keyed by ToID)
 //   - opByID: Single pointer per unique operation (keyed by ID)
 //   - This layer owns the actual data and ensures only ONE copy exists in memory
 //
@@ -29,6 +30,13 @@ import (
 //   - participantsByToID: Maps each transaction ToID to a set of participant IDs (a map used as a set)
 //   - participantsByOpID: Maps each operation ID to a set of participant IDs (a map used as a set)
 //   - Efficiently tracks which participants interacted with each tx/op
+//
+// Both layers of each pair share one key domain (ToID for transactions, ID for
+// operations), so a participant entry can never exist without its canonical
+// row. ToID is the only key that holds that invariant: a hash identifies an
+// envelope, not a position, so keying by hash collapses two tx-set positions
+// carrying the same envelope into one canonical row while both ToIDs keep
+// their participant entries.
 //
 // MEMORY OPTIMIZATION:
 // When multiple participants interact with the same transaction or operation, they all point
@@ -67,7 +75,7 @@ type ContractEventKey struct {
 }
 
 type IndexerBuffer struct {
-	txByHash                       map[string]*types.Transaction
+	txByToID                       map[int64]*types.Transaction
 	participantsByToID             map[int64]map[string]struct{}
 	opByID                         map[int64]*types.Operation
 	participantsByOpID             map[int64]map[string]struct{}
@@ -89,13 +97,18 @@ type IndexerBuffer struct {
 	wasmBytecodesByHash   map[string][]byte                 // wasmHash → raw bytecode (consumed by classification dispatch)
 	protocolContractsByID map[string]data.ProtocolContracts // contractID → ProtocolContracts
 	contractEventsByKey   map[ContractEventKey][]xdr.ContractEvent
+	// contractDataChangesByContract groups the ledger's ContractData changes by the owning
+	// contract's C-address strkey. Within a contract, changes arrive in transaction application
+	// order (the fold is serial in transaction order), so last-write-wins folding per entry key
+	// stays deterministic for the protocol processors that consume this at persist time.
+	contractDataChangesByContract map[string][]ingest.Change
 }
 
 // NewIndexerBuffer creates a new IndexerBuffer with initialized data structures.
 // All maps are pre-allocated to avoid nil map access.
 func NewIndexerBuffer() *IndexerBuffer {
 	return &IndexerBuffer{
-		txByHash:                       make(map[string]*types.Transaction),
+		txByToID:                       make(map[int64]*types.Transaction),
 		participantsByToID:             make(map[int64]map[string]struct{}),
 		opByID:                         make(map[int64]*types.Operation),
 		participantsByOpID:             make(map[int64]map[string]struct{}),
@@ -112,11 +125,12 @@ func NewIndexerBuffer() *IndexerBuffer {
 		wasmBytecodesByHash:            make(map[string][]byte),
 		protocolContractsByID:          make(map[string]data.ProtocolContracts),
 		contractEventsByKey:            make(map[ContractEventKey][]xdr.ContractEvent),
+		contractDataChangesByContract:  make(map[string][]ingest.Change),
 	}
 }
 
 // PushTransaction adds a transaction and associates it with a participant.
-// Uses canonical pointer pattern: stores one copy of each transaction (by hash) and tracks
+// Uses canonical pointer pattern: stores one copy of each transaction (by ToID) and tracks
 // which participants interacted with it. Multiple participants can reference the same transaction.
 func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.Transaction) {
 	b.recordTransaction(participant, transaction)
@@ -125,17 +139,16 @@ func (b *IndexerBuffer) PushTransaction(participant string, transaction *types.T
 // recordTransaction is the shared internal helper that stores a transaction pointer and
 // records the participant:
 //
-// 1. Check if transaction already exists in txByHash
+// 1. Check if transaction already exists in txByToID
 // 2. If not, store the transaction pointer
 // 3. Add participant to this transaction's participant set in participantsByToID
 func (b *IndexerBuffer) recordTransaction(participant string, transaction *types.Transaction) {
-	txHash := transaction.Hash.String()
-	if _, exists := b.txByHash[txHash]; !exists {
-		b.txByHash[txHash] = transaction
+	toID := transaction.ToID
+	if _, exists := b.txByToID[toID]; !exists {
+		b.txByToID[toID] = transaction
 	}
 
 	// Track this participant by ToID
-	toID := transaction.ToID
 	participants, exists := b.participantsByToID[toID]
 	if !exists {
 		participants = make(map[string]struct{})
@@ -148,7 +161,7 @@ func (b *IndexerBuffer) recordTransaction(participant string, transaction *types
 
 // GetNumberOfTransactions returns the count of unique transactions in the buffer.
 func (b *IndexerBuffer) GetNumberOfTransactions() int {
-	return len(b.txByHash)
+	return len(b.txByToID)
 }
 
 // GetNumberOfOperations returns the count of unique operations in the buffer.
@@ -158,8 +171,8 @@ func (b *IndexerBuffer) GetNumberOfOperations() int {
 
 // GetTransactions returns all unique transactions.
 func (b *IndexerBuffer) GetTransactions() []*types.Transaction {
-	txs := make([]*types.Transaction, 0, len(b.txByHash))
-	for _, txPtr := range b.txByHash {
+	txs := make([]*types.Transaction, 0, len(b.txByToID))
+	for _, txPtr := range b.txByToID {
 		txs = append(txs, txPtr)
 	}
 
@@ -394,7 +407,11 @@ type TransactionResult struct {
 	ProtocolWasmBytecodes map[string][]byte
 	ProtocolContracts     []data.ProtocolContracts
 	ContractEvents        map[ContractEventKey][]xdr.ContractEvent
-	ParticipantCount      int
+	// ContractDataChanges groups the transaction's ContractData changes by owning contract
+	// C-address, composed in GetChanges order (tx-level before, operations ascending, tx-level
+	// after); nil when the transaction is unsuccessful or touches no ContractData.
+	ContractDataChanges map[string][]ingest.Change
+	ParticipantCount    int
 }
 
 // IngestTransactionResult folds a single transaction's result into the buffer, applying the same
@@ -456,6 +473,22 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 	for key, events := range r.ContractEvents {
 		b.PushContractEvents(key, events)
 	}
+
+	// Random map order over contract addresses is fine here: each per-address
+	// slice is appended as one unit, and the fold itself runs in transaction
+	// application order, which is the only ordering consumers rely on.
+	for addr, changes := range r.ContractDataChanges {
+		b.contractDataChangesByContract[addr] = append(b.contractDataChangesByContract[addr], changes...)
+	}
+}
+
+// GetContractDataChanges returns the buffer's ContractData changes grouped by
+// owning contract C-address, in transaction application order within each
+// contract; callers must not modify it. The map is allocated at construction
+// and never replaced, so a buffer from NewIndexerBuffer never returns nil here
+// — the RequiresContractData processors range over the result unconditionally.
+func (b *IndexerBuffer) GetContractDataChanges() map[string][]ingest.Change {
+	return b.contractDataChangesByContract
 }
 
 // Clear resets the buffer to its initial empty state while preserving allocated capacity. Both
@@ -467,7 +500,7 @@ func (b *IndexerBuffer) IngestTransactionResult(r *TransactionResult) {
 // from two different ledgers must never coexist in those maps.
 func (b *IndexerBuffer) Clear() {
 	// Clear maps (keep allocated backing arrays)
-	clear(b.txByHash)
+	clear(b.txByToID)
 	clear(b.participantsByToID)
 	clear(b.opByID)
 	clear(b.participantsByOpID)
@@ -480,6 +513,7 @@ func (b *IndexerBuffer) Clear() {
 	clear(b.wasmBytecodesByHash)
 	clear(b.protocolContractsByID)
 	clear(b.contractEventsByKey)
+	clear(b.contractDataChangesByContract)
 
 	// Reset slices (reuse underlying arrays by slicing to zero)
 	b.stateChanges = b.stateChanges[:0]

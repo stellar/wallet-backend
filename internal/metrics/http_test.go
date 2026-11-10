@@ -38,8 +38,8 @@ func TestHTTPMetrics_RequestsDuration(t *testing.T) {
 	m.RequestsDuration.WithLabelValues("/graphql", "POST").Observe(0.25)
 
 	// CollectAndCount counts distinct label-value combinations (metric series), NOT
-	// internal structure (quantiles, buckets, _sum, _count). A SummaryVec with two
-	// observed label combos returns 2, regardless of how many quantiles it tracks.
+	// internal structure (buckets, _sum, _count). A HistogramVec with two observed
+	// label combos returns 2, regardless of how many buckets it has.
 	assert.Equal(t, 2, testutil.CollectAndCount(m.RequestsDuration))
 }
 

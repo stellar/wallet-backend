@@ -17,7 +17,13 @@ import (
 
 const (
 	DefaultMaxConnIdleTime time.Duration = 10 * time.Second
-	DefaultMaxConns        int32         = 10
+	// MinIngestMaxConns is the smallest pool live persist can run in: 6 connections
+	// held at its commit barrier (the coordinator plus 5 siblings), plus the
+	// advisory-lock session, which is held until the process exits. Below this, a
+	// sibling waits forever for a connection nothing releases.
+	MinIngestMaxConns int32 = 7
+	// DefaultMaxConns leaves headroom for the transient classification reads.
+	DefaultMaxConns        int32         = 12
 	DefaultMinConns        int32         = 5
 	DefaultMaxConnLifetime time.Duration = 5 * time.Minute
 )
@@ -96,10 +102,16 @@ func SQLDBFromPool(pool *pgxpool.Pool) *sql.DB {
 	return stdlib.OpenDBFromPool(pool)
 }
 
+// TxBeginner starts transactions. *pgxpool.Pool begins one on any pooled
+// connection; *pgxpool.Conn begins one on that specific connection.
+type TxBeginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 // RunInTransaction runs the given atomic function in a pgx transaction.
 // It automatically rolls back on error and commits on success.
-func RunInTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	pgxTx, err := pool.Begin(ctx)
+func RunInTransaction(ctx context.Context, beginner TxBeginner, fn func(pgx.Tx) error) error {
+	pgxTx, err := beginner.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning pgx transaction: %w", err)
 	}

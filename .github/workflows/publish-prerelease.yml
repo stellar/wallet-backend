@@ -68,11 +68,14 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          if aws ecr describe-images \
-            --repository-name stg/wallet-backend \
-            --image-ids imageTag="$VERSION" \
-            --region us-east-1 >/dev/null 2>&1; then
+          set -uo pipefail
+          # Fail closed: only ImageNotFoundException lets the build proceed.
+          if out=$(aws ecr describe-images --repository-name stg/wallet-backend --image-ids imageTag="$VERSION" --region us-east-1 2>&1); then
             echo "::error::ECR tag stg/wallet-backend:$VERSION already exists."
+            exit 1
+          fi
+          if ! grep -q "ImageNotFoundException" <<<"$out"; then
+            echo "::error::Could not verify ECR tag stg/wallet-backend:$VERSION: $out"
             exit 1
           fi
           echo "ECR tag $VERSION not present. Proceeding."
@@ -83,7 +86,10 @@ jobs:
           VERSION: ${{ inputs.version }}
           COMMIT_SHA: ${{ steps.resolve_sha.outputs.sha }}
         run: |
+          set -euo pipefail
           export TAG="${ECR_REGISTRY}/stg/wallet-backend:${VERSION}"
+          # The binary reports this version via `wallet-backend version`.
+          export VERSION
           export LABEL="${COMMIT_SHA}"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export BUILD_DATE

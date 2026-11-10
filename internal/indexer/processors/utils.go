@@ -3,11 +3,11 @@
 package processors
 
 import (
-	"encoding/hex"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/stellar/go-stellar-sdk/hash"
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -19,14 +19,6 @@ import (
 // PoolIDToString converts a pool ID to its string representation
 func PoolIDToString(id xdr.PoolId) string {
 	return xdr.Hash(id).HexString()
-}
-
-// formatPrefix adds an underscore suffix to a prefix if it's not empty
-func formatPrefix(p string) string {
-	if p != "" {
-		p += "_"
-	}
-	return p
 }
 
 // AddLiquidityPoolAssetDetails adds liquidity pool asset details to the result map
@@ -42,38 +34,6 @@ func AddLiquidityPoolAssetDetails(result map[string]interface{}, lpp xdr.Liquidi
 	}
 	result["liquidity_pool_id"] = PoolIDToString(poolID)
 	return nil
-}
-
-// AddAccountAndMuxedAccountDetails adds account and muxed account details to the result map
-func AddAccountAndMuxedAccountDetails(result map[string]interface{}, a xdr.MuxedAccount, prefix string) error {
-	accountID := a.ToAccountId()
-	result[prefix] = accountID.Address()
-	prefix = formatPrefix(prefix)
-	if a.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		muxedAccountAddress, err := a.GetAddress()
-		if err != nil {
-			return fmt.Errorf("getting muxed account address: %w", err)
-		}
-		result[prefix+"muxed"] = muxedAccountAddress
-		muxedAccountID, err := a.GetId()
-		if err != nil {
-			return fmt.Errorf("getting muxed account ID: %w", err)
-		}
-		result[prefix+"muxed_id"] = muxedAccountID
-	}
-	return nil
-}
-
-// LedgerKeyToLedgerKeyHash converts a ledger key to its hash representation
-func LedgerKeyToLedgerKeyHash(ledgerKey xdr.LedgerKey) string {
-	ledgerKeyByte, err := ledgerKey.MarshalBinary()
-	if err != nil {
-		return ""
-	}
-	hashedLedgerKeyByte := hash.Hash(ledgerKeyByte)
-	ledgerKeyHash := hex.EncodeToString(hashedLedgerKeyByte[:])
-
-	return ledgerKeyHash
 }
 
 // AddAssetDetails adds asset details to the result map with an optional prefix
@@ -99,62 +59,58 @@ func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) 
 	return nil
 }
 
-// addAuthFlagDetails adds account flag details to the result map
-func addAuthFlagDetails(result map[string]interface{}, f xdr.AccountFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
+// assetContractIDMemoMaxEntries bounds an assetContractIDMemo at roughly 15 MiB
+// (about 300 bytes per entry, measured). On overflow the memo clears and the
+// assets still in use re-warm on their next lookup.
+const assetContractIDMemoMaxEntries = 50_000
 
-	if f.IsAuthRequired() {
-		n = append(n, int32(xdr.AccountFlagsAuthRequiredFlag))
-		s = append(s, "auth_required")
-	}
-
-	if f.IsAuthRevocable() {
-		n = append(n, int32(xdr.AccountFlagsAuthRevocableFlag))
-		s = append(s, "auth_revocable")
-	}
-
-	if f.IsAuthImmutable() {
-		n = append(n, int32(xdr.AccountFlagsAuthImmutableFlag))
-		s = append(s, "auth_immutable")
-	}
-
-	if f.IsAuthClawbackEnabled() {
-		n = append(n, int32(xdr.AccountFlagsAuthClawbackEnabledFlag))
-		s = append(s, "auth_clawback_enabled")
-	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
+// assetContractIDMemo caches asset→contract-ID derivations (a SHA-256 over the
+// asset's contract-ID preimage plus a strkey encode) per processor. Entries never
+// invalidate because the processor's network passphrase is fixed at construction.
+// sync.Map because the indexer pool workers share one processor instance. Keys are
+// "<type>\x00<code>\x00<issuer>", the complete identity of an asset; neither a
+// trimmed alphanumeric code nor a base32 issuer can contain NUL, so no two assets
+// share a key, and both accessors normalize to the same three components. Callers
+// pass only assets backed by ledger state or by an event the SDK verified against
+// its SAC, never an asset read from an unverified contract event. The zero value
+// is ready to use.
+type assetContractIDMemo struct {
+	m       sync.Map // "<type>\x00<code>\x00<issuer>" → strkey-encoded contract ID
+	entries atomic.Int64
 }
 
-// addTrustLineFlagDetails adds trustline flag details to the result map
-func addTrustLineFlagDetails(result map[string]interface{}, f xdr.TrustLineFlags, prefix string) {
-	var (
-		n []int32
-		s []string
-	)
-
-	if f.IsAuthorized() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedFlag))
-		s = append(s, "authorized")
+// fromDetails returns the contract ID of the asset described by the extracted
+// asset detail strings.
+func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+	key := assetType + "\x00" + assetCode + "\x00" + assetIssuer
+	if id, ok := memo.m.Load(key); ok {
+		return id.(string), nil
 	}
-
-	if f.IsAuthorizedToMaintainLiabilitiesFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag))
-		s = append(s, "authorized_to_maintain_liabilites")
+	id, err := getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+	if err != nil {
+		return "", err
 	}
-
-	if f.IsClawbackEnabledFlag() {
-		n = append(n, int32(xdr.TrustLineFlagsTrustlineClawbackEnabledFlag))
-		s = append(s, "clawback_enabled")
+	if _, loaded := memo.m.LoadOrStore(key, id); !loaded && memo.entries.Add(1) > assetContractIDMemoMaxEntries {
+		memo.m.Clear()
+		memo.entries.Store(0)
 	}
-
-	result[prefix+"_flags"] = n
-	result[prefix+"_flags_s"] = s
+	return id, nil
 }
+
+// fromCreditAsset returns the contract ID of an issued asset held as its code
+// and issuer, the shape token transfer events carry. The code length fixes the
+// asset type, the same way xdr.MustNewCreditAsset derives it from the code.
+func (memo *assetContractIDMemo) fromCreditAsset(networkPassphrase string, assetCode, assetIssuer string) (string, error) {
+	assetType := "credit_alphanum4"
+	if len(assetCode) > 4 {
+		assetType = "credit_alphanum12"
+	}
+	return memo.fromDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+}
+
+// operationXDRBuffers recycles XDR encoding buffers across ConvertOperation
+// calls, which run on every indexer pool worker concurrently.
+var operationXDRBuffers = sync.Pool{New: func() any { return xdr.NewEncodingBuffer() }}
 
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	var asset xdr.Asset
@@ -178,8 +134,22 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
 }
 
+// Every strkey version byte is a multiple of 8, so its top five bits — which
+// are exactly what the first base32 character encodes — determine it. A strkey
+// that does not start with these characters cannot decode to the corresponding
+// version byte, which lets the checks below skip a base32 decode and a CRC
+// validation for the account and contract addresses that make up nearly every
+// transfer endpoint.
+const (
+	liquidityPoolStrkeyPrefix    = 'L' // strkey.VersionByteLiquidityPool
+	claimableBalanceStrkeyPrefix = 'B' // strkey.VersionByteClaimableBalance
+)
+
 // isLiquidityPool checks if the given account ID is a liquidity pool
 func isLiquidityPool(accountID string) bool {
+	if len(accountID) == 0 || accountID[0] != liquidityPoolStrkeyPrefix {
+		return false
+	}
 	// Try to decode the account ID as a strkey
 	versionByte, _, err := strkey.DecodeAny(accountID)
 	if err != nil {
@@ -191,6 +161,9 @@ func isLiquidityPool(accountID string) bool {
 
 // isClaimableBalance checks if the given ID is a claimable balance
 func isClaimableBalance(id string) bool {
+	if len(id) == 0 || id[0] != claimableBalanceStrkeyPrefix {
+		return false
+	}
 	versionByte, _, err := strkey.DecodeAny(id)
 	if err != nil {
 		return false
@@ -265,7 +238,11 @@ func ConvertOperation(
 	opIndex uint32,
 	opResults []xdr.OperationResult,
 ) (*types.Operation, error) {
-	xdrBytes, err := op.MarshalBinary()
+	// A pooled encoder reuses its scratch across calls and pool workers;
+	// MarshalBinary returns the owned, exact-size copy the row retains.
+	buf := operationXDRBuffers.Get().(*xdr.EncodingBuffer)
+	xdrBytes, err := buf.MarshalBinary(op)
+	operationXDRBuffers.Put(buf)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
 	}
@@ -293,4 +270,12 @@ func ConvertOperation(
 		LedgerCreatedAt: transaction.Ledger.ClosedAt(),
 		LedgerNumber:    transaction.Ledger.LedgerSequence(),
 	}, nil
+}
+
+// deployerAddressString converts a create-contract preimage's deployer address to its strkey
+// form, reporting ok=false when it is a kind types.AddressBytea cannot store. Muxed deployers
+// reduce to their base address, mirroring the classic path's MuxedAccount.ToAccountId(), so
+// one holder cannot produce duplicate rows that violate the operations_accounts primary key.
+func deployerAddressString(addr xdr.ScAddress) (string, bool, error) {
+	return types.StorableAddressString(addr) //nolint:wrapcheck // thin delegate; the callee wraps its errors
 }

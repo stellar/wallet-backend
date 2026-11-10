@@ -4,14 +4,17 @@ SUDO := $(shell docker version >/dev/null 2>&1 || echo "sudo")
 # Extract short commit hash from the current checked-out branch.
 LABEL ?= $(shell git rev-parse --short HEAD)$(and $(shell git status -s),-dirty-$(shell id -u -n))
 
-# When building the application for deployment, set the TAG parameter according to your organization's DockerHub repository.
+# Release version injected into the binary and image labels.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+# Docker build mode: release (optimized, stripped) or debug (delve, no optimizations).
+BUILD_MODE ?= release
+
+# Releases publish to public.ecr.aws/stellar/wallet-backend and, for existing users, Docker Hub. The default tag is for local builds.
 TAG ?= stellar/wallet-backend:$(LABEL)
 
 # https://github.com/opencontainers/image-spec/blob/master/annotations.md
 BUILD_DATE ?= $(shell date -u +%FT%TZ)
-
-# Version of Stellar Core to be installed. Choose from jammy builds at https://apt.stellar.org/pool/stable/s/stellar-core/
-STELLAR_CORE_VERSION ?= 21.0.0-1872.c6f474133.jammy
 
 # ==================================================================================== #
 # QUALITY & PREPARATION
@@ -103,6 +106,22 @@ gql-validate: ## Validate GraphQL schema
 	$(shell go env GOPATH)/bin/gqlgen validate
 	@echo "✅ GraphQL schema is valid"
 
+gql-docs: ## Generate docs/api/schema.md from the GraphQL schema
+	go run ./tools/gqldocs -out docs/api/schema.md
+
+gql-docs-check: ## Fail if docs/api/schema.md is out of date
+	@tmp=$$(mktemp) && go run ./tools/gqldocs -out $$tmp && diff -u docs/api/schema.md $$tmp; status=$$?; rm -f $$tmp; \
+	if [ $$status -ne 0 ]; then echo "docs/api/schema.md is stale: run make gql-docs"; exit 1; fi
+
+docs-lint: ## Lint markdown and check links in README.md and docs/
+	@command -v markdownlint >/dev/null 2>&1 || { echo "ERROR: markdownlint not found (npm i -g markdownlint-cli)"; exit 1; }
+	markdownlint README.md docs CONTRIBUTING.md SUPPORT.md
+	@command -v lychee >/dev/null 2>&1 || { echo "ERROR: lychee not found (brew install lychee)"; exit 1; }
+	lychee --config .lychee.toml README.md 'docs/**/*.md' CONTRIBUTING.md SUPPORT.md
+
+docs-check: gql-docs-check docs-lint ## All docs checks
+	./scripts/check-config-docs.sh
+
 # ==================================================================================== #
 # TESTING
 # ==================================================================================== #
@@ -118,6 +137,7 @@ build-integration-image: ## Build integration test Docker image with git commit 
 		--file Dockerfile \
 		--tag "$$IMAGE_TAG" \
 		--build-arg GIT_COMMIT="$$GIT_COMMIT" \
+		--build-arg VERSION=integration-test \
 		.; \
 	echo "✅ Built image: $$IMAGE_TAG"
 
@@ -130,6 +150,7 @@ rebuild-integration-image: ## Force rebuild integration test Docker image
 		--no-cache \
 		--tag "$$IMAGE_TAG" \
 		--build-arg GIT_COMMIT="$$GIT_COMMIT" \
+		--build-arg VERSION=integration-test \
 		.; \
 	echo "✅ Force rebuilt image: $$IMAGE_TAG"
 
@@ -146,14 +167,20 @@ docker-build:
 		--file Dockerfile \
 		--pull \
 		--label org.opencontainers.image.created="$(BUILD_DATE)" \
+		--label org.opencontainers.image.version="$(VERSION)" \
+		--label org.opencontainers.image.revision="$(LABEL)" \
 		--tag $(TAG) \
+		--build-arg VERSION=$(VERSION) \
 		--build-arg GIT_COMMIT=$(LABEL) \
-		--build-arg STELLAR_CORE_VERSION=$(STELLAR_CORE_VERSION) \
+		--build-arg BUILD_MODE=$(BUILD_MODE) \
 		--platform linux/amd64 \
 		.
 
 docker-push:
 	$(SUDO) docker push $(TAG)
 
+build: ## Build the binary
+	go build -ldflags "-X main.Version=$(VERSION) -X main.GitCommit=$(LABEL)" -o wallet-backend .
+
 go-install:
-	go install -ldflags "-X main.GitCommit=$(LABEL)" .
+	go install -ldflags "-X main.Version=$(VERSION) -X main.GitCommit=$(LABEL)" .

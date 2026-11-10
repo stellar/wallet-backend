@@ -286,6 +286,14 @@ func (s *SharedContainers) setupContracts(ctx context.Context, t *testing.T, dir
 	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), s.holderContractAddress, TestUSDCTransferStroops)
 	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to contract %s", s.holderContractAddress)
 
+	// SAC transfers to muxed destinations (CAP-84 W... contract, CAP-67 M... account)
+	holderW := MuxedContractAddress(s.holderContractAddress, TestHolderContractMuxedID)
+	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), holderW, TestUSDCMuxedContractTransferStroops)
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to muxed contract %s", holderW)
+	account1M := MuxedAccountAddress(s.balanceTestAccount1KeyPair.Address(), TestBalanceAccount1MuxedID)
+	s.invokeContractTransfer(ctx, t, s.usdcContractAddress, s.masterKeyPair.Address(), account1M, TestUSDCMuxedAccountTransferStroops)
+	log.Ctx(ctx).Infof("✅ Transferred USDC SAC tokens to muxed account %s", account1M)
+
 	// Create SEP-41 Balance for C-Address
 	s.mintSEP41Tokens(ctx, t, s.sep41ContractAddress, s.holderContractAddress, TestSEP41MintStroops)
 	log.Ctx(ctx).Infof("✅ Minted SEP-41 tokens to contract %s", s.holderContractAddress)
@@ -324,7 +332,7 @@ func (s *SharedContainers) setupWalletBackend(ctx context.Context) error {
 
 	// Start wallet-backend service
 	s.WalletBackendContainer.API, err = createWalletBackendAPIContainer(ctx, walletBackendAPIContainerName,
-		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair)
+		s.walletBackendImage, s.TestNetwork, s.clientAuthKeyPair, nil)
 	if err != nil {
 		return fmt.Errorf("creating wallet backend API container: %w", err)
 	}
@@ -410,6 +418,13 @@ func (s *SharedContainers) waitForIngestSync(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// WaitForIngestCatchup blocks until live ingestion has caught up with the RPC tip. Exported so
+// tests that submit their own fixtures after initial setup (e.g. the Blend integration suite) can
+// wait for those fixtures to be indexed without reaching into the unexported waitForIngestSync.
+func (s *SharedContainers) WaitForIngestCatchup(ctx context.Context) error {
+	return s.waitForIngestSync(ctx)
 }
 
 // NewSharedContainers creates and starts all containers needed for integration tests

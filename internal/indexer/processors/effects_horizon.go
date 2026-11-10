@@ -9,96 +9,55 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"time"
 
-	"github.com/guregu/null"
 	"github.com/stellar/go-stellar-sdk/amount"
-	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
-	"github.com/stellar/go-stellar-sdk/support/errors"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 // EffectOutput is a representation of an operation that aligns with the BigQuery table history_effects
 type EffectOutput struct {
-	Address        string                 `json:"address"`
-	AddressMuxed   null.String            `json:"address_muxed,omitempty"`
-	OperationID    int64                  `json:"operation_id"`
-	Details        map[string]interface{} `json:"details"`
-	Type           int32                  `json:"type"`
-	TypeString     string                 `json:"type_string"`
-	LedgerClosed   time.Time              `json:"closed_at"`
-	LedgerSequence uint32                 `json:"ledger_sequence"`
-	EffectIndex    uint32                 `json:"index"`
-	EffectID       string                 `json:"id"`
+	Address     string                 `json:"address"`
+	OperationID int64                  `json:"operation_id"`
+	Details     map[string]interface{} `json:"details"`
+	Type        int32                  `json:"type"`
+	TypeString  string                 `json:"type_string"`
 }
 
 // EffectType is the numeric type for an effect
 type EffectType int
 
 const (
-	EffectAccountThresholdsUpdated           EffectType = 4
-	EffectAccountHomeDomainUpdated           EffectType = 5
-	EffectAccountFlagsUpdated                EffectType = 6
-	EffectSignerCreated                      EffectType = 10
-	EffectSignerRemoved                      EffectType = 11
-	EffectSignerUpdated                      EffectType = 12
-	EffectTrustlineCreated                   EffectType = 20
-	EffectTrustlineRemoved                   EffectType = 21
-	EffectTrustlineUpdated                   EffectType = 22
-	EffectTrustlineFlagsUpdated              EffectType = 26
-	EffectDataCreated                        EffectType = 40
-	EffectDataRemoved                        EffectType = 41
-	EffectDataUpdated                        EffectType = 42
-	EffectAccountSponsorshipCreated          EffectType = 60
-	EffectAccountSponsorshipUpdated          EffectType = 61
-	EffectAccountSponsorshipRemoved          EffectType = 62
-	EffectTrustlineSponsorshipCreated        EffectType = 63
-	EffectTrustlineSponsorshipUpdated        EffectType = 64
-	EffectTrustlineSponsorshipRemoved        EffectType = 65
-	EffectDataSponsorshipCreated             EffectType = 66
-	EffectDataSponsorshipUpdated             EffectType = 67
-	EffectDataSponsorshipRemoved             EffectType = 68
-	EffectClaimableBalanceSponsorshipCreated EffectType = 69
-	EffectClaimableBalanceSponsorshipUpdated EffectType = 70
-	EffectClaimableBalanceSponsorshipRemoved EffectType = 71
-	EffectSignerSponsorshipCreated           EffectType = 72
-	EffectSignerSponsorshipUpdated           EffectType = 73
-	EffectSignerSponsorshipRemoved           EffectType = 74
-	EffectLiquidityPoolRevoked               EffectType = 95
+	EffectAccountThresholdsUpdated EffectType = 4
+	EffectAccountHomeDomainUpdated EffectType = 5
+	EffectAccountFlagsUpdated      EffectType = 6
+	EffectSignerCreated            EffectType = 10
+	EffectSignerRemoved            EffectType = 11
+	EffectSignerUpdated            EffectType = 12
+	EffectTrustlineCreated         EffectType = 20
+	EffectTrustlineRemoved         EffectType = 21
+	EffectTrustlineUpdated         EffectType = 22
+	EffectTrustlineFlagsUpdated    EffectType = 26
+	EffectDataCreated              EffectType = 40
+	EffectDataRemoved              EffectType = 41
+	EffectDataUpdated              EffectType = 42
 )
 
 // EffectTypeNames stores a map of effect type ID and names
 var EffectTypeNames = map[EffectType]string{
-	EffectAccountThresholdsUpdated:           "account_thresholds_updated",
-	EffectAccountHomeDomainUpdated:           "account_home_domain_updated",
-	EffectAccountFlagsUpdated:                "account_flags_updated",
-	EffectSignerCreated:                      "signer_created",
-	EffectSignerRemoved:                      "signer_removed",
-	EffectSignerUpdated:                      "signer_updated",
-	EffectTrustlineCreated:                   "trustline_created",
-	EffectTrustlineRemoved:                   "trustline_removed",
-	EffectTrustlineUpdated:                   "trustline_updated",
-	EffectTrustlineFlagsUpdated:              "trustline_flags_updated",
-	EffectDataCreated:                        "data_created",
-	EffectDataRemoved:                        "data_removed",
-	EffectDataUpdated:                        "data_updated",
-	EffectAccountSponsorshipCreated:          "account_sponsorship_created",
-	EffectAccountSponsorshipUpdated:          "account_sponsorship_updated",
-	EffectAccountSponsorshipRemoved:          "account_sponsorship_removed",
-	EffectTrustlineSponsorshipCreated:        "trustline_sponsorship_created",
-	EffectTrustlineSponsorshipUpdated:        "trustline_sponsorship_updated",
-	EffectTrustlineSponsorshipRemoved:        "trustline_sponsorship_removed",
-	EffectDataSponsorshipCreated:             "data_sponsorship_created",
-	EffectDataSponsorshipUpdated:             "data_sponsorship_updated",
-	EffectDataSponsorshipRemoved:             "data_sponsorship_removed",
-	EffectClaimableBalanceSponsorshipCreated: "claimable_balance_sponsorship_created",
-	EffectClaimableBalanceSponsorshipUpdated: "claimable_balance_sponsorship_updated",
-	EffectClaimableBalanceSponsorshipRemoved: "claimable_balance_sponsorship_removed",
-	EffectSignerSponsorshipCreated:           "signer_sponsorship_created",
-	EffectSignerSponsorshipUpdated:           "signer_sponsorship_updated",
-	EffectSignerSponsorshipRemoved:           "signer_sponsorship_removed",
-	EffectLiquidityPoolRevoked:               "liquidity_pool_revoked",
+	EffectAccountThresholdsUpdated: "account_thresholds_updated",
+	EffectAccountHomeDomainUpdated: "account_home_domain_updated",
+	EffectAccountFlagsUpdated:      "account_flags_updated",
+	EffectSignerCreated:            "signer_created",
+	EffectSignerRemoved:            "signer_removed",
+	EffectSignerUpdated:            "signer_updated",
+	EffectTrustlineCreated:         "trustline_created",
+	EffectTrustlineRemoved:         "trustline_removed",
+	EffectTrustlineUpdated:         "trustline_updated",
+	EffectTrustlineFlagsUpdated:    "trustline_flags_updated",
+	EffectDataCreated:              "data_created",
+	EffectDataRemoved:              "data_removed",
+	EffectDataUpdated:              "data_updated",
 }
 
 // Effects returns the operation effects
@@ -107,11 +66,7 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 		return []EffectOutput{}, nil
 	}
 
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
-	if err != nil {
-		return nil, fmt.Errorf("getting operation changes: %w", err)
-	}
-
+	var err error
 	wrapper := &effectsWrapper{
 		effects:   []EffectOutput{},
 		operation: operation,
@@ -128,8 +83,6 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 		wrapper.addAllowTrustEffects()
 	case xdr.OperationTypeManageData:
 		err = wrapper.addManageDataEffects()
-	case xdr.OperationTypeBeginSponsoringFutureReserves, xdr.OperationTypeEndSponsoringFutureReserves, xdr.OperationTypeRevokeSponsorship:
-	// The effects of these operations are obtained  indirectly from the ledger entries
 	case xdr.OperationTypeSetTrustLineFlags:
 		wrapper.addSetTrustLineFlagsEffects()
 	default:
@@ -137,25 +90,6 @@ func Effects(operation *TransactionOperationWrapper) ([]EffectOutput, error) {
 	}
 	if err != nil {
 		return nil, err
-	}
-
-	// Effects generated for multiple operations. Keep the effect categories
-	// separated so they are "together" in case of different order or meta
-	// changes generate by core (unordered_map).
-
-	// Sponsorships
-	for _, change := range changes {
-		if err = wrapper.addLedgerEntrySponsorshipEffects(change); err != nil {
-			return nil, err
-		}
-		wrapper.addSignerSponsorshipEffects(change)
-	}
-
-	for i := range wrapper.effects {
-		wrapper.effects[i].LedgerClosed = operation.LedgerClosed
-		wrapper.effects[i].LedgerSequence = operation.LedgerSequence
-		wrapper.effects[i].EffectIndex = uint32(i)
-		wrapper.effects[i].EffectID = fmt.Sprintf("%d-%d", wrapper.effects[i].OperationID, wrapper.effects[i].EffectIndex)
 	}
 
 	return wrapper.effects, nil
@@ -166,201 +100,23 @@ type effectsWrapper struct {
 	operation *TransactionOperationWrapper
 }
 
-func (e *effectsWrapper) add(address string, addressMuxed null.String, effectType EffectType, details map[string]interface{}) {
+func (e *effectsWrapper) add(address string, effectType EffectType, details map[string]interface{}) {
 	e.effects = append(e.effects, EffectOutput{
-		Address:      address,
-		AddressMuxed: addressMuxed,
-		OperationID:  e.operation.ID(),
-		TypeString:   EffectTypeNames[effectType],
-		Type:         int32(effectType),
-		Details:      details,
+		Address:     address,
+		OperationID: e.operation.ID(),
+		TypeString:  EffectTypeNames[effectType],
+		Type:        int32(effectType),
+		Details:     details,
 	})
 }
 
 func (e *effectsWrapper) addUnmuxed(address *xdr.AccountId, effectType EffectType, details map[string]interface{}) {
-	e.add(address.Address(), null.String{}, effectType, details)
+	e.add(address.Address(), effectType, details)
 }
 
 func (e *effectsWrapper) addMuxed(address *xdr.MuxedAccount, effectType EffectType, details map[string]interface{}) {
-	var addressMuxed null.String
-	if address.Type == xdr.CryptoKeyTypeKeyTypeMuxedEd25519 {
-		addressMuxed = null.StringFrom(address.Address())
-	}
 	accID := address.ToAccountId()
-	e.add(accID.Address(), addressMuxed, effectType, details)
-}
-
-var sponsoringEffectsTable = map[xdr.LedgerEntryType]struct {
-	created, updated, removed EffectType
-}{
-	xdr.LedgerEntryTypeAccount: {
-		created: EffectAccountSponsorshipCreated,
-		updated: EffectAccountSponsorshipUpdated,
-		removed: EffectAccountSponsorshipRemoved,
-	},
-	xdr.LedgerEntryTypeTrustline: {
-		created: EffectTrustlineSponsorshipCreated,
-		updated: EffectTrustlineSponsorshipUpdated,
-		removed: EffectTrustlineSponsorshipRemoved,
-	},
-	xdr.LedgerEntryTypeData: {
-		created: EffectDataSponsorshipCreated,
-		updated: EffectDataSponsorshipUpdated,
-		removed: EffectDataSponsorshipRemoved,
-	},
-	xdr.LedgerEntryTypeClaimableBalance: {
-		created: EffectClaimableBalanceSponsorshipCreated,
-		updated: EffectClaimableBalanceSponsorshipUpdated,
-		removed: EffectClaimableBalanceSponsorshipRemoved,
-	},
-
-	// We intentionally don't have Sponsoring effects for Offer
-	// entries because we don't generate creation effects for them.
-}
-
-func (e *effectsWrapper) addSignerSponsorshipEffects(change ingest.Change) {
-	if change.Type != xdr.LedgerEntryTypeAccount {
-		return
-	}
-
-	preSigners := map[string]xdr.AccountId{}
-	postSigners := map[string]xdr.AccountId{}
-	if change.Pre != nil {
-		account := change.Pre.Data.MustAccount()
-		preSigners = account.SponsorPerSigner()
-	}
-	if change.Post != nil {
-		account := change.Post.Data.MustAccount()
-		postSigners = account.SponsorPerSigner()
-	}
-
-	var all []string
-	for signer := range preSigners {
-		all = append(all, signer)
-	}
-	for signer := range postSigners {
-		if _, ok := preSigners[signer]; ok {
-			continue
-		}
-		all = append(all, signer)
-	}
-	sort.Strings(all)
-
-	for _, signer := range all {
-		pre, foundPre := preSigners[signer]
-		post, foundPost := postSigners[signer]
-		details := map[string]interface{}{}
-
-		switch {
-		case !foundPre && !foundPost:
-			continue
-		case !foundPre && foundPost:
-			details["sponsor"] = post.Address()
-			details["signer"] = signer
-			srcAccount := change.Post.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipCreated, details)
-		case !foundPost && foundPre:
-			details["former_sponsor"] = pre.Address()
-			details["signer"] = signer
-			srcAccount := change.Pre.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipRemoved, details)
-		case foundPre && foundPost:
-			formerSponsor := pre.Address()
-			newSponsor := post.Address()
-			if formerSponsor == newSponsor {
-				continue
-			}
-
-			details["former_sponsor"] = formerSponsor
-			details["new_sponsor"] = newSponsor
-			details["signer"] = signer
-			srcAccount := change.Post.Data.MustAccount().AccountId
-			e.addUnmuxed(&srcAccount, EffectSignerSponsorshipUpdated, details)
-		}
-	}
-}
-
-func (e *effectsWrapper) addLedgerEntrySponsorshipEffects(change ingest.Change) error {
-	effectsForEntryType, found := sponsoringEffectsTable[change.Type]
-	if !found {
-		return nil
-	}
-
-	details := map[string]interface{}{}
-	var effectType EffectType
-
-	switch {
-	case (change.Pre == nil || change.Pre.SponsoringID() == nil) &&
-		(change.Post != nil && change.Post.SponsoringID() != nil):
-		effectType = effectsForEntryType.created
-		details["sponsor"] = (*change.Post.SponsoringID()).Address()
-	case (change.Pre != nil && change.Pre.SponsoringID() != nil) &&
-		(change.Post == nil || change.Post.SponsoringID() == nil):
-		effectType = effectsForEntryType.removed
-		details["former_sponsor"] = (*change.Pre.SponsoringID()).Address()
-	case (change.Pre != nil && change.Pre.SponsoringID() != nil) &&
-		(change.Post != nil && change.Post.SponsoringID() != nil):
-		preSponsor := (*change.Pre.SponsoringID()).Address()
-		postSponsor := (*change.Post.SponsoringID()).Address()
-		if preSponsor == postSponsor {
-			return nil
-		}
-		effectType = effectsForEntryType.updated
-		details["new_sponsor"] = postSponsor
-		details["former_sponsor"] = preSponsor
-	default:
-		return nil
-	}
-
-	var (
-		accountID    *xdr.AccountId
-		muxedAccount *xdr.MuxedAccount
-	)
-
-	var data xdr.LedgerEntryData
-	if change.Post != nil {
-		data = change.Post.Data
-	} else {
-		data = change.Pre.Data
-	}
-
-	switch change.Type {
-	case xdr.LedgerEntryTypeAccount:
-		a := data.MustAccount().AccountId
-		accountID = &a
-	case xdr.LedgerEntryTypeTrustline:
-		tl := data.MustTrustLine()
-		accountID = &tl.AccountId
-		if tl.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
-			details["asset_type"] = "liquidity_pool"
-			details["liquidity_pool_id"] = PoolIDToString(*tl.Asset.LiquidityPoolId)
-		} else {
-			details["asset"] = tl.Asset.ToAsset().StringCanonical()
-		}
-	case xdr.LedgerEntryTypeData:
-		muxedAccount = e.operation.SourceAccount()
-		details["data_name"] = string(data.MustData().DataName)
-	case xdr.LedgerEntryTypeClaimableBalance:
-		muxedAccount = e.operation.SourceAccount()
-		var err error
-		details["balance_id"], err = xdr.MarshalHex(data.MustClaimableBalance().BalanceId)
-		if err != nil {
-			return errors.Wrapf(err, "Invalid balanceId in change from op %d", e.operation.Index)
-		}
-	case xdr.LedgerEntryTypeLiquidityPool:
-		// liquidity pools cannot be sponsored
-		fallthrough
-	default:
-		return errors.Errorf("invalid sponsorship ledger entry type %v", change.Type.String())
-	}
-
-	if accountID != nil {
-		e.addUnmuxed(accountID, effectType, details)
-	} else {
-		e.addMuxed(muxedAccount, effectType, details)
-	}
-
-	return nil
+	e.add(accID.Address(), effectType, details)
 }
 
 func (e *effectsWrapper) addAccountCreatedEffects() {
@@ -381,7 +137,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	op := e.operation.Operation.Body.MustSetOptionsOp()
 
 	if op.HomeDomain != nil {
-		e.addMuxed(source, EffectAccountHomeDomainUpdated,
+		e.addMuxed(&source, EffectAccountHomeDomainUpdated,
 			map[string]interface{}{
 				"home_domain": string(*op.HomeDomain),
 			},
@@ -403,7 +159,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	}
 
 	if len(thresholdDetails) > 0 {
-		e.addMuxed(source, EffectAccountThresholdsUpdated, thresholdDetails)
+		e.addMuxed(&source, EffectAccountThresholdsUpdated, thresholdDetails)
 	}
 
 	flagDetails := map[string]interface{}{}
@@ -415,10 +171,10 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 	}
 
 	if len(flagDetails) > 0 {
-		e.addMuxed(source, EffectAccountFlagsUpdated, flagDetails)
+		e.addMuxed(&source, EffectAccountFlagsUpdated, flagDetails)
 	}
 
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.Changes()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -448,14 +204,14 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 		for _, addy := range beforeSortedSigners {
 			weight, ok := after[addy]
 			if !ok {
-				e.addMuxed(source, EffectSignerRemoved, map[string]interface{}{
+				e.addMuxed(&source, EffectSignerRemoved, map[string]interface{}{
 					"public_key": addy,
 				})
 				continue
 			}
 
 			if weight != before[addy] {
-				e.addMuxed(source, EffectSignerUpdated, map[string]interface{}{
+				e.addMuxed(&source, EffectSignerUpdated, map[string]interface{}{
 					"public_key": addy,
 					"weight":     weight,
 				})
@@ -477,7 +233,7 @@ func (e *effectsWrapper) addSetOptionsEffects() error {
 				continue
 			}
 
-			e.addMuxed(source, EffectSignerCreated, map[string]interface{}{
+			e.addMuxed(&source, EffectSignerCreated, map[string]interface{}{
 				"public_key": addy,
 				"weight":     weight,
 			})
@@ -490,7 +246,7 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 	source := e.operation.SourceAccount()
 
 	op := e.operation.Operation.Body.MustChangeTrustOp()
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.Changes()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -541,7 +297,7 @@ func (e *effectsWrapper) addChangeTrustEffects() error {
 			}
 		}
 
-		e.addMuxed(source, effect, details)
+		e.addMuxed(&source, effect, details)
 		break
 	}
 
@@ -562,24 +318,24 @@ func (e *effectsWrapper) addAllowTrustEffects() {
 
 	switch {
 	case xdr.TrustLineFlags(op.Authorize).IsAuthorized():
-		e.addMuxed(source, EffectTrustlineFlagsUpdated, details)
+		e.addMuxed(&source, EffectTrustlineFlagsUpdated, details)
 		// Forward compatibility
 		setFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, &setFlags, nil)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, &setFlags, nil)
 	case xdr.TrustLineFlags(op.Authorize).IsAuthorizedToMaintainLiabilitiesFlag():
 		e.addMuxed(
-			source,
+			&source,
 			EffectTrustlineFlagsUpdated,
 			details,
 		)
 		// Forward compatibility
 		setFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, &setFlags, nil)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, &setFlags, nil)
 	default:
-		e.addMuxed(source, EffectTrustlineFlagsUpdated, details)
+		e.addMuxed(&source, EffectTrustlineFlagsUpdated, details)
 		// Forward compatibility, show both as cleared
 		clearFlags := xdr.Uint32(xdr.TrustLineFlagsAuthorizedFlag | xdr.TrustLineFlagsAuthorizedToMaintainLiabilitiesFlag)
-		e.addTrustLineFlagsEffect(source, &op.Trustor, asset, nil, &clearFlags)
+		e.addTrustLineFlagsEffect(&source, &op.Trustor, asset, nil, &clearFlags)
 	}
 }
 
@@ -588,7 +344,7 @@ func (e *effectsWrapper) addManageDataEffects() error {
 	op := e.operation.Operation.Body.MustManageDataOp()
 	details := map[string]interface{}{"name": op.DataName}
 	effect := EffectType(0)
-	changes, err := e.operation.Transaction.GetOperationChanges(e.operation.Index)
+	changes, err := e.operation.Changes()
 	if err != nil {
 		return fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -620,14 +376,14 @@ func (e *effectsWrapper) addManageDataEffects() error {
 		break
 	}
 
-	e.addMuxed(source, effect, details)
+	e.addMuxed(&source, effect, details)
 	return nil
 }
 
 func (e *effectsWrapper) addSetTrustLineFlagsEffects() {
 	source := e.operation.SourceAccount()
 	op := e.operation.Operation.Body.MustSetTrustLineFlagsOp()
-	e.addTrustLineFlagsEffect(source, &op.Trustor, op.Asset, &op.SetFlags, &op.ClearFlags)
+	e.addTrustLineFlagsEffect(&source, &op.Trustor, op.Asset, &op.SetFlags, &op.ClearFlags)
 }
 
 func (e *effectsWrapper) addTrustLineFlagsEffect(

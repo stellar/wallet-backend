@@ -10,18 +10,31 @@ type IngestionMetrics struct {
 	// OldestLedger tracks the oldest ingested ledger (backfill boundary).
 	// PromQL: wallet_ingestion_oldest_ledger
 	OldestLedger prometheus.Gauge
-	// Duration observes ledger processing time: process_ledger + prepare_classification +
-	// insert_into_db. It excludes the ledger-fetch phase (including tip-wait) by design — see
-	// LedgerFetchDuration for that — since fetch time is bounded by backend/tip latency, not by
-	// this process's own work.
+	// Duration observes one ledger's processing time: its process_ledger plus
+	// its amortized share of the batch's prepare_classification and
+	// insert_into_db. With batches > 1 it therefore does not equal the sum of
+	// the PhaseDuration observations, which record whole-batch wall time. It
+	// excludes the ledger-fetch phase (including tip-wait) by design — see
+	// LedgerFetchDuration for that — since fetch time is bounded by
+	// backend/tip latency, not by this process's own work.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_duration_seconds_bucket[5m]))
 	Duration prometheus.Histogram
 	// PhaseDuration observes per-phase ingestion time, labeled by phase.
+	// process_ledger is one observation per ledger; prepare_classification
+	// and insert_into_db are one observation per persist batch at the batch's
+	// full wall time (see persistBatch for why). insert_into_db includes
+	// failed attempts and retry backoff. PersistBatchSize carries how many
+	// ledgers each commit coalesced.
 	// PromQL: histogram_quantile(0.99, rate(wallet_ingestion_phase_duration_seconds_bucket{phase="process_ledger"}[5m]))
 	PhaseDuration *prometheus.HistogramVec
 	// LedgersProcessed counts total ledgers ingested.
 	// PromQL: rate(wallet_ingestion_ledgers_total[5m])
 	LedgersProcessed prometheus.Counter
+	// PersistBatchSize observes how many ledgers each persist commit coalesced.
+	// Sits at 1 while the pipeline keeps pace; larger values mean the persist
+	// stage found a backlog and amortized it into one commit.
+	// PromQL: histogram_quantile(0.5, rate(wallet_ingestion_persist_batch_size_bucket[5m]))
+	PersistBatchSize prometheus.Histogram
 	// TransactionsTotal counts total transactions ingested.
 	// PromQL: rate(wallet_ingestion_transactions_total[5m])
 	TransactionsTotal prometheus.Counter
@@ -72,6 +85,16 @@ type IngestionMetrics struct {
 	// Any non-zero value means that gap is real and resolution needs building.
 	// PromQL: increase(wallet_ingestion_external_ref_contracts_total[1h]) > 0
 	ExternalRefContractsTotal prometheus.Counter
+	// ProtocolDecodeFailuresTotal counts protocol events and ledger entries that
+	// carry a recognized key/topic symbol but fail to decode. A recognized symbol
+	// with an unexpected payload shape means the on-chain contract no longer
+	// matches what the decoder models — probable contract drift (an upgrade of a
+	// tracked contract), not routine noise. The dropped event or entry is skipped
+	// entirely, so a nonzero rate means silent data loss for that protocol until
+	// the decoder is updated. The protocol_id label is the owning protocol (e.g.
+	// "BLEND"); kind is "event" or "entry".
+	// PromQL: rate(wallet_ingestion_protocol_decode_failures_total[5m]) > 0
+	ProtocolDecodeFailuresTotal *prometheus.CounterVec
 }
 
 func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
@@ -86,17 +109,27 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}),
 		Duration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_duration_seconds",
-			Help:    "Duration of ledger processing (process + persist). Excludes the ledger-fetch phase, including tip-wait; see wallet_ingestion_ledger_fetch_duration_seconds for that.",
+			Help:    "Duration of ledger processing (process + amortized share of the batch's classify and persist). Excludes the ledger-fetch phase, including tip-wait; see wallet_ingestion_ledger_fetch_duration_seconds for that.",
 			Buckets: []float64{0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7, 10},
 		}),
 		PhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "wallet_ingestion_phase_duration_seconds",
-			Help:    "Duration of each ingestion phase.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60},
+			Name: "wallet_ingestion_phase_duration_seconds",
+			Help: "Duration of each ingestion phase. prepare_classification and insert_into_db record whole-batch wall time once per batch; insert_into_db includes retries and backoff.",
+			// The 0.6 and 1 boundaries are the grading bars: the pipeline's
+			// contract is that the slowest stage's p99 stays under the ledger
+			// close time, and those two bracket the close times this service
+			// ingests at. 0.5 and 0.75 sit just below them so movement between
+			// runs is visible rather than rounded away.
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10, 30, 60},
 		}, []string{"phase"}),
 		LedgersProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_ledgers_total",
 			Help: "Total number of ledgers processed during ingestion.",
+		}),
+		PersistBatchSize: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "wallet_ingestion_persist_batch_size",
+			Help:    "Ledgers coalesced into one persist commit. 1 while the pipeline keeps pace; larger under backlog.",
+			Buckets: []float64{1, 2, 3, 4, 5, 8, 12, 16, 24, 32, 48, 64},
 		}),
 		TransactionsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "wallet_ingestion_transactions_total",
@@ -143,7 +176,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		}, []string{"type", "category"}),
 		ProtocolStateProcessingDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_protocol_state_processing_duration_seconds",
-			Help:    "Duration of protocol state persistence by protocol ID and phase (process_ledger, load_current_state, persist_history, persist_current_state).",
+			Help:    "Duration of protocol state persistence by protocol ID and phase (process_ledger, persist_history, persist_current_state).",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		}, []string{"protocol_id", "phase"}),
 		WasmClassificationFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -154,6 +187,10 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_external_ref_contracts_total",
 			Help: "Contract instances skipped because their executable is a CAP-0085 external reference, which carries no WASM hash. These contracts are left unclassified.",
 		}),
+		ProtocolDecodeFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_ingestion_protocol_decode_failures_total",
+			Help: "Contract events and ledger entries with a recognized key/topic symbol that failed to decode, by protocol_id and kind (\"event\" or \"entry\"). A recognized symbol with an unexpected payload signals probable contract drift; the affected event or entry is dropped.",
+		}, []string{"protocol_id", "kind"}),
 	}
 	reg.MustRegister(
 		m.LatestLedger,
@@ -161,6 +198,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.Duration,
 		m.PhaseDuration,
 		m.LedgersProcessed,
+		m.PersistBatchSize,
 		m.TransactionsTotal,
 		m.OperationsTotal,
 		m.ParticipantsCount,
@@ -174,6 +212,7 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.ProtocolStateProcessingDuration,
 		m.WasmClassificationFailuresTotal,
 		m.ExternalRefContractsTotal,
+		m.ProtocolDecodeFailuresTotal,
 	)
 	return m
 }

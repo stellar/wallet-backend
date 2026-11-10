@@ -1,0 +1,12 @@
+{
+  "workspace": ".",
+  "go_sast_enabled": true,
+  "go_disabled_rules": "go-error-not-checked",
+  "sast_ignore_overrides": "go-hardcoded-credentials:pkg/wbclient/types/types.go,go-hardcoded-credentials:internal/services/sep41/validator.go",
+  "secret_scanning_enabled": true,
+  "console_tabular_enabled": true,
+  "dockerfiles": "Dockerfile,Dockerfile-timescale-cnpg",
+  "socket_tier_1_enabled": false,
+  "trivy_vuln_enabled": false,
+  "trufflehog_exclude_dir": "vendor,.git"
+}

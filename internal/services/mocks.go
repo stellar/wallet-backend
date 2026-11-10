@@ -125,8 +125,18 @@ type TokenIngestionServiceMock struct {
 
 var _ TokenIngestionService = (*TokenIngestionServiceMock)(nil)
 
-func (m *TokenIngestionServiceMock) ProcessTokenChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange, accountChangesByAccountID map[string]types.AccountChange, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
-	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey, accountChangesByAccountID, sacBalanceChangesByKey, lpShareChangesByKey, lpChangesByPoolID)
+func (m *TokenIngestionServiceMock) ProcessTrustlineChanges(ctx context.Context, dbTx pgx.Tx, trustlineChangesByTrustlineKey map[indexer.TrustlineChangeKey]types.TrustlineChange) error {
+	args := m.Called(ctx, dbTx, trustlineChangesByTrustlineKey)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessSACBalanceChanges(ctx context.Context, dbTx pgx.Tx, sacBalanceChangesByKey map[indexer.SACBalanceChangeKey]types.SACBalanceChange) error {
+	args := m.Called(ctx, dbTx, sacBalanceChangesByKey)
+	return args.Error(0)
+}
+
+func (m *TokenIngestionServiceMock) ProcessNativeAndPoolChanges(ctx context.Context, dbTx pgx.Tx, accountChangesByAccountID map[string]types.AccountChange, lpShareChangesByKey map[indexer.LiquidityPoolShareChangeKey]types.LiquidityPoolShareChange, lpChangesByPoolID map[string]types.LiquidityPoolChange) error {
+	args := m.Called(ctx, dbTx, accountChangesByAccountID, lpShareChangesByKey, lpChangesByPoolID)
 	return args.Error(0)
 }
 
@@ -273,6 +283,11 @@ func (m *ProtocolProcessorMock) ProcessLedger(ctx context.Context, input Protoco
 	return args.Error(0)
 }
 
+func (m *ProtocolProcessorMock) RequiresContractData() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
+
 func (m *ProtocolProcessorMock) Reset() {
 	m.Called()
 }
@@ -291,6 +306,11 @@ func (m *ProtocolProcessorMock) PersistHistory(ctx context.Context, dbTx pgx.Tx)
 }
 
 func (m *ProtocolProcessorMock) PersistCurrentState(ctx context.Context, dbTx pgx.Tx) error {
+	args := m.Called(ctx, dbTx)
+	return args.Error(0)
+}
+
+func (m *ProtocolProcessorMock) WipeCurrentState(ctx context.Context, dbTx pgx.Tx) error {
 	args := m.Called(ctx, dbTx)
 	return args.Error(0)
 }

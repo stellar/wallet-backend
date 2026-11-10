@@ -23,10 +23,13 @@ type TransactionModel struct {
 
 func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns string) (*types.Transaction, error) {
 	columns = prepareColumnsWithID(columns, types.Transaction{}, "", "to_id", "ledger_created_at")
-	query := fmt.Sprintf(`SELECT %s FROM transactions WHERE hash = $1`, columns)
+	var queryBuilder strings.Builder
+	fmt.Fprintf(&queryBuilder, `SELECT %s FROM transactions WHERE hash = $1`, columns)
+	appendIngestCursorBound(&queryBuilder, "to_id")
+
+	query := queryBuilder.String()
 	start := time.Now()
-	hashBytea := types.HashBytea(hash)
-	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, hashBytea)
+	transaction, err := db.QueryOne[types.Transaction](ctx, m.DB, query, types.HashBytea(hash))
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByHash", "transactions").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByHash", "transactions").Inc()
@@ -58,6 +61,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 			SELECT tx_to_id, ledger_created_at
 			FROM transactions_accounts
 			WHERE account_id = $1`)
+
+	// Hide rows above the committed cursor. Applied inside the CTE so the bound reaches
+	// the transactions_accounts scan, where it prunes chunks, rather than filtering after
+	// the LATERAL probe.
+	appendIngestCursorBound(&queryBuilder, "tx_to_id")
 
 	// Time range filter: enables TimescaleDB chunk pruning at the earliest query stage
 	args, argIndex = appendTimeRangeConditions(&queryBuilder, "ledger_created_at", timeRange, args, argIndex)
@@ -137,21 +145,32 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 //   - Lower 12 bits = operation index (1-4095, or 0 for transaction itself)
 //   - Clearing these bits yields the transaction's to_id
 //
+// Callers supply each operation's ledger_created_at (an operation shares its transaction's
+// ledger), so the LATERAL matches the complete transactions primary key (to_id, ledger_created_at)
+// and runs as one per-key probe with runtime chunk exclusion. The LIMIT 1 keeps the planner from
+// flattening the subquery into a join that decompresses the whole hypertable (see
+// BatchGetByStateChangeIDs).
+//
+// The probe reads transactions only and does not check that the operation row exists. Callers
+// pass the IDs of operations they already loaded.
+//
 // See SEP-35: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0035.md
-func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, columns string) ([]*types.TransactionWithOperationID, error) {
-	columns = prepareColumnsWithID(columns, types.Transaction{}, "transactions", "to_id", "ledger_created_at")
-	// Join operations to transactions using TOID encoding:
-	// An operation ID's lower 12 bits encode the operation index within the transaction.
-	// Masking these bits (id &~ 0xFFF) gives the transaction's to_id.
+func (m *TransactionModel) BatchGetByOperationIDs(ctx context.Context, operationIDs []int64, ledgerCreatedAts []time.Time, columns string) ([]*types.TransactionWithOperationID, error) {
+	if len(operationIDs) != len(ledgerCreatedAts) {
+		return nil, fmt.Errorf("operationIDs and ledgerCreatedAts must be parallel arrays of equal length, got %d and %d", len(operationIDs), len(ledgerCreatedAts))
+	}
+	columns = prepareColumnsWithID(columns, types.Transaction{}, "t", "to_id", "ledger_created_at")
 	query := fmt.Sprintf(`
-		SELECT %s, o.id as operation_id
-		FROM operations o
-		INNER JOIN transactions
-		ON (o.id & (~x'FFF'::bigint)) = transactions.to_id
-		WHERE o.id = ANY($1)`, columns)
+		SELECT %s, k.operation_id
+		FROM UNNEST($1::bigint[], $2::timestamptz[]) AS k(operation_id, ledger_created_at)
+		CROSS JOIN LATERAL (
+			SELECT %s FROM transactions t
+			WHERE t.to_id = (k.operation_id & (~x'FFF'::bigint)) AND t.ledger_created_at = k.ledger_created_at
+			LIMIT 1
+		) t`, columns, columns)
 	start := time.Now()
 	// QueryManyPtrs uses RowToAddrOfStructByNameLax: struct may have more fields than selected columns (dynamic `columns` param)
-	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs)
+	transactions, err := db.QueryManyPtrs[types.TransactionWithOperationID](ctx, m.DB, query, operationIDs, ledgerCreatedAts)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchGetByOperationIDs", "transactions").Observe(float64(len(operationIDs)))
@@ -204,6 +223,8 @@ func (m *TransactionModel) BatchGetByStateChangeIDs(ctx context.Context, scToIDs
 // BatchCopy inserts transactions using pgx's binary COPY protocol.
 // Uses pgx.Tx for binary format which is faster than lib/pq's text format.
 // Uses native pgtype types for optimal performance (see https://github.com/jackc/pgx/issues/763).
+// The transactions_accounts links are written separately by BatchCopyAccounts,
+// so the two tables can stream on independent connections.
 //
 // IMPORTANT: BatchCopy will FAIL if any duplicate records exist. The PostgreSQL COPY
 // protocol does not support conflict handling. Callers must ensure no duplicates exist
@@ -212,7 +233,6 @@ func (m *TransactionModel) BatchCopy(
 	ctx context.Context,
 	pgxTx pgx.Tx,
 	txs []*types.Transaction,
-	stellarAddressesByToID map[int64]map[string]struct{},
 ) (int, error) {
 	if len(txs) == 0 {
 		return 0, nil
@@ -220,8 +240,7 @@ func (m *TransactionModel) BatchCopy(
 
 	start := time.Now()
 
-	// COPY transactions using pgx binary format with native pgtype types. Upstream participants handling ensures that
-	// account address is not NULL here.
+	// COPY transactions using pgx binary format with native pgtype types.
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
@@ -260,54 +279,28 @@ func (m *TransactionModel) BatchCopy(
 		return 0, fmt.Errorf("expected %d rows copied, got %d", len(txs), copyCount)
 	}
 
-	// COPY transactions_accounts using pgx binary format with native pgtype types
-	if len(stellarAddressesByToID) > 0 {
-		// Build ToID -> LedgerCreatedAt lookup from transactions
-		ledgerCreatedAtByToID := make(map[int64]time.Time, len(txs))
-		for _, tx := range txs {
-			ledgerCreatedAtByToID[tx.ToID] = tx.LedgerCreatedAt
-		}
-
-		var taRows [][]any
-		for toID, addresses := range stellarAddressesByToID {
-			ledgerCreatedAt := ledgerCreatedAtByToID[toID]
-			ledgerCreatedAtPgtype := pgtype.Timestamptz{Time: ledgerCreatedAt, Valid: true}
-			toIDPgtype := pgtype.Int8{Int64: toID, Valid: true}
-			for addr := range addresses {
-				addrBytes, addrErr := types.AddressBytea(addr).Value()
-				if addrErr != nil {
-					return 0, fmt.Errorf("converting address %s to bytes: %w", addr, addrErr)
-				}
-				taRows = append(taRows, []any{
-					ledgerCreatedAtPgtype,
-					toIDPgtype,
-					addrBytes,
-				})
-			}
-		}
-
-		_, err = pgxTx.CopyFrom(
-			ctx,
-			pgx.Identifier{"transactions_accounts"},
-			[]string{"ledger_created_at", "tx_to_id", "account_id"},
-			pgx.CopyFromRows(taRows),
-		)
-		if err != nil {
-			duration := time.Since(start).Seconds()
-			m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
-			m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
-			m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
-			m.Metrics.QueryErrors.WithLabelValues("BatchCopy", "transactions_accounts", utils.GetDBErrorType(err)).Inc()
-			return 0, fmt.Errorf("pgx CopyFrom transactions_accounts: %w", err)
-		}
-
-		m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions_accounts").Inc()
-	}
-
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchCopy", "transactions").Observe(duration)
 	m.Metrics.BatchSize.WithLabelValues("BatchCopy", "transactions").Observe(float64(len(txs)))
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 
 	return len(txs), nil
+}
+
+// BatchCopyAccounts inserts the transactions_accounts links using pgx's binary
+// COPY protocol. txs supplies each transaction's ledger_created_at, the link
+// table's partition column; the two arguments come from the same buffer and
+// are read only.
+//
+// IMPORTANT: like BatchCopy, this FAILS on duplicates — COPY has no conflict
+// handling.
+func (m *TransactionModel) BatchCopyAccounts(
+	ctx context.Context,
+	pgxTx pgx.Tx,
+	txs []*types.Transaction,
+	stellarAddressesByToID map[int64]map[string]struct{},
+) error {
+	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", txs,
+		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
+		stellarAddressesByToID)
 }

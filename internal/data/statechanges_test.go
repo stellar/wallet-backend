@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -814,33 +816,32 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 
 	address := keypair.MustRandom().Address()
 
-	// Create test transactions first (hash is BYTEA)
+	// Create test transactions first (hash is BYTEA). TOID encoding puts a transaction's to_id
+	// on a 4096 boundary and its operations in (to_id, to_id+4096); the state changes below
+	// honor that, as production data always does.
 	testHash1 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000001")
 	testHash2 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000002")
-	testHash3 := types.HashBytea("0000000000000000000000000000000000000000000000000000000000000003")
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
 		VALUES
-			($2, 1, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
-			($3, 2, 200, 'TransactionResultCodeTxSuccess', 2, $1, true),
-			($4, 3, 300, 'TransactionResultCodeTxSuccess', 3, $1, false)
-	`, now, testHash1, testHash2, testHash3)
+			($2, 4096, 100, 'TransactionResultCodeTxSuccess', 1, $1, false),
+			($3, 8192, 200, 'TransactionResultCodeTxSuccess', 2, $1, true)
+	`, now, testHash1, testHash2)
 	require.NoError(t, err)
 
-	// Create test state changes
+	// Create test state changes: operation 4097 emits two, operation 8193 emits one.
 	_, err = dbConnectionPool.Exec(ctx, `
 		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
 		VALUES
-			(1, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 123),
-			(2, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 456),
-			(3, 1, 'BALANCE', 'CREDIT', $1, 3, $2, 123)
+			(4096, 1, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(4096, 2, 'BALANCE', 'CREDIT', $1, 1, $2, 4097),
+			(8192, 1, 'BALANCE', 'CREDIT', $1, 2, $2, 8193)
 	`, now, types.AddressBytea(address))
 	require.NoError(t, err)
 
-	// Test BatchGetByOperationID
 	limit := int32(10)
 	ledgerCreatedAts := []time.Time{now, now}
-	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, ledgerCreatedAts, "", &limit, ASC)
+	stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193}, ledgerCreatedAts, "", &limit, ASC)
 	require.NoError(t, err)
 	assert.Len(t, stateChanges, 3)
 
@@ -849,18 +850,30 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	for _, sc := range stateChanges {
 		operationIDsFound[sc.StateChange.OperationID]++
 	}
-	assert.Equal(t, 2, operationIDsFound[123])
-	assert.Equal(t, 1, operationIDsFound[456])
+	assert.Equal(t, 2, operationIDsFound[4097])
+	assert.Equal(t, 1, operationIDsFound[8193])
+
+	// The single-key path is a different query (no UNNEST/LATERAL) that derives the same to_id
+	// pin from the operation ID, and must return the same rows.
+	t.Run("single operation ID returns the same rows as the batch path", func(t *testing.T) {
+		stateChanges, err := m.BatchGetByOperationID(ctx, 4097, now, "", &limit, nil, ASC)
+		require.NoError(t, err)
+		require.Len(t, stateChanges, 2)
+		for _, sc := range stateChanges {
+			assert.Equal(t, int64(4097), sc.StateChange.OperationID)
+			assert.Equal(t, int64(4096), sc.StateChange.ToID)
+		}
+	})
 
 	t.Run("wrong ledger_created_at for a key excludes it (time pin enforced)", func(t *testing.T) {
 		wrongTime := now.Add(-24 * time.Hour)
-		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{wrongTime}, "", &limit, ASC)
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{wrongTime}, "", &limit, ASC)
 		require.NoError(t, err)
 		assert.Empty(t, stateChanges)
 	})
 
 	t.Run("mismatched array lengths error", func(t *testing.T) {
-		_, err := m.BatchGetByOperationIDs(ctx, []int64{123, 456}, []time.Time{now}, "", &limit, ASC)
+		_, err := m.BatchGetByOperationIDs(ctx, []int64{4097, 8193}, []time.Time{now}, "", &limit, ASC)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parallel arrays of equal length")
 	})
@@ -868,7 +881,7 @@ func TestStateChangeModel_BatchGetByOperationIDs(t *testing.T) {
 	// Regression: the cursor's ledger_created_at must not be read off the LATERAL's own
 	// projection (which only carries the caller-requested columns).
 	t.Run("narrow column selection excluding ledger_created_at still resolves the cursor", func(t *testing.T) {
-		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{123}, []time.Time{now}, "state_change_category", &limit, ASC)
+		stateChanges, err := m.BatchGetByOperationIDs(ctx, []int64{4097}, []time.Time{now}, "state_change_category", &limit, ASC)
 		require.NoError(t, err)
 		require.Len(t, stateChanges, 2)
 		for _, sc := range stateChanges {
@@ -1161,6 +1174,29 @@ func TestStateChangeModel_BatchGetAccountStateChangesByToIDs(t *testing.T) {
 		assert.Equal(t, int64(4096), scs[2].ToID)
 		assert.Equal(t, int64(1), scs[2].StateChangeID)
 	})
+
+	t.Run("caps rows per transaction so one dense transaction cannot flood the page", func(t *testing.T) {
+		// A transaction with more state changes than the cap must come back trimmed to the cap.
+		const denseToID = int64(12288)
+		const denseRows = maxAccountStateChangesPerToID + 500
+		_, err := dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+			SELECT $1, 1, 'BALANCE', 'CREDIT', $2, 1, $3, g
+			FROM generate_series(1, $4) AS g
+		`, denseToID, now, types.AddressBytea(acct), denseRows)
+		require.NoError(t, err)
+
+		scs, err := m.BatchGetAccountStateChangesByToIDs(ctx, acct, []int64{denseToID}, []time.Time{now}, "")
+		require.NoError(t, err)
+		require.Len(t, scs, maxAccountStateChangesPerToID, "one transaction is capped at the per-transaction limit")
+		for _, sc := range scs {
+			assert.Equal(t, denseToID, sc.ToID)
+			assert.Equal(t, acct, sc.AccountID.String())
+		}
+		// The window keeps the highest operation_ids (ORDER BY operation_id DESC).
+		assert.Equal(t, int64(denseRows), scs[0].OperationID, "highest operation_id retained")
+		assert.Equal(t, int64(denseRows-maxAccountStateChangesPerToID+1), scs[len(scs)-1].OperationID, "cap boundary retained")
+	})
 }
 
 // A client selecting no time fields must still get state changes whose LedgerCreatedAt is
@@ -1350,4 +1386,176 @@ func TestStateChangeModel_BatchCopy_KeyValueEncodeErrorIsSentinel(t *testing.T) 
 	// No COPY stream was opened, so the transaction is still usable.
 	_, err = pgxTx.Exec(ctx, "SELECT 1")
 	require.NoError(t, err)
+}
+
+// TestStateChangeModel_DeleteNamespaceLedgerRange pins the history-rebuild
+// delete to the intersection of one protocol's state_change_id namespace and an
+// inclusive ledger range: rows of other protocols in the same ledgers, and rows
+// of the same protocol in neighbouring ledgers, must survive.
+func TestStateChangeModel_DeleteNamespaceLedgerRange(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	address := types.AddressBytea(keypair.MustRandom().Address())
+
+	// seed inserts one row in the given namespace at the given ledger, placed at
+	// the given transaction/operation index within it.
+	seed := func(base int64, ledger, txIndex, opIndex int32) {
+		t.Helper()
+		toID := toid.New(ledger, txIndex, opIndex).ToInt64()
+		_, execErr := dbConnectionPool.Exec(ctx, `
+			INSERT INTO state_changes (to_id, operation_id, state_change_id, state_change_category,
+				state_change_reason, ledger_created_at, ledger_number, account_id)
+			VALUES ($1, $2, $3, 'BALANCE', 'CREDIT', $4, $5, $6)
+		`, toID, toID, base+1, now, ledger, address)
+		require.NoError(t, execErr)
+	}
+
+	// remaining lists the surviving rows as (namespace base, ledger).
+	remaining := func() [][2]int64 {
+		t.Helper()
+		rows, queryErr := dbConnectionPool.Query(ctx,
+			`SELECT state_change_id - 1, ledger_number FROM state_changes ORDER BY state_change_id, to_id`)
+		require.NoError(t, queryErr)
+		defer rows.Close()
+		var out [][2]int64
+		for rows.Next() {
+			var base, ledger int64
+			require.NoError(t, rows.Scan(&base, &ledger))
+			out = append(out, [2]int64{base, ledger})
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+
+	const (
+		indexerBase = types.StateChangeOrdinalBaseIndexer
+		sep41Base   = types.StateChangeOrdinalBaseSEP41
+		blendBase   = types.StateChangeOrdinalBaseBlend
+	)
+
+	seed(indexerBase, 10, 1, 0)
+	seed(indexerBase, 20, 1, 0)
+	seed(indexerBase, 30, 1, 0)
+	seed(sep41Base, 10, 1, 0)
+	seed(sep41Base, 20, 1, 0)
+	// A late operation in ledger 20 — the ledger bound must cover the whole
+	// ledger, not just its first transaction.
+	seed(sep41Base, 20, 2000, 100)
+	seed(sep41Base, 30, 1, 0)
+	seed(blendBase, 20, 1, 0)
+	require.Len(t, remaining(), 8)
+
+	// A single-ledger range takes both SEP-41 rows in ledger 20 and nothing else.
+	deleted, err := m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 20, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+	assert.Equal(t, [][2]int64{
+		{indexerBase, 10},
+		{indexerBase, 20},
+		{indexerBase, 30},
+		{sep41Base, 10},
+		{sep41Base, 30},
+		{blendBase, 20},
+	}, remaining())
+
+	// A range spanning the surviving SEP-41 ledgers takes them, still leaving the
+	// other namespaces untouched in the very same ledgers.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 10, 30)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+	assert.Equal(t, [][2]int64{
+		{indexerBase, 10},
+		{indexerBase, 20},
+		{indexerBase, 30},
+		{blendBase, 20},
+	}, remaining())
+
+	// A range disjoint from every row deletes nothing.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, blendBase, 1, 9)
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.Len(t, remaining(), 4)
+
+	// Re-running a completed delete is a no-op, which is what makes a failed
+	// rebuild safe to retry.
+	deleted, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, 10, 30)
+	require.NoError(t, err)
+	assert.Zero(t, deleted)
+	assert.Len(t, remaining(), 4)
+
+	// A ledger past the toid ledger field errors instead of wrapping negative
+	// into a to_id range that silently matches nothing.
+	_, err = m.DeleteNamespaceLedgerRange(ctx, dbConnectionPool, sep41Base, math.MaxInt32+1, math.MaxInt32+1)
+	require.ErrorContains(t, err, "exceeds the largest toid ledger")
+	assert.Len(t, remaining(), 4)
+}
+
+// TestStateChangeModel_BatchGetByAccountAddress_IngestCursorBound pins that an account
+// read never returns rows belonging to a ledger past the committed cursor. Live
+// ingestion's sibling COPY transactions commit before the coordinating transaction that
+// carries the cursor, so those rows genuinely exist in the table between the two commits
+// and, after a crash, until startup reconciliation runs.
+func TestStateChangeModel_BatchGetByAccountAddress_IngestCursorBound(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	address := keypair.MustRandom().Address()
+
+	// Two ledgers, one state change each, at real TOIDs so the ledger occupies the high
+	// 32 bits the bound shifts on.
+	cursorLedger, aheadLedger := int32(10), int32(11)
+	atCursor := toid.New(cursorLedger, 1, 1).ToInt64()
+	aboveCursor := toid.New(aheadLedger, 1, 1).ToInt64()
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO state_changes (to_id, state_change_id, state_change_category, state_change_reason, ledger_created_at, ledger_number, account_id, operation_id)
+		VALUES ($1, 1, 'BALANCE', 'CREDIT', $3, $5, $4, $1),
+		       ($2, 1, 'BALANCE', 'CREDIT', $3, $6, $4, $2)
+	`, atCursor, aboveCursor, now, types.AddressBytea(address), cursorLedger, aheadLedger)
+	require.NoError(t, err)
+
+	m := &StateChangeModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	setCursor := func(t *testing.T, ledger int32) {
+		t.Helper()
+		_, execErr := dbConnectionPool.Exec(ctx,
+			`INSERT INTO ingest_store (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+			LatestLedgerCursorName, fmt.Sprintf("%d", ledger))
+		require.NoError(t, execErr)
+	}
+
+	t.Run("no cursor row leaves the read unbounded", func(t *testing.T) {
+		// A NULL bound must not silently filter everything out.
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		assert.Len(t, stateChanges, 2)
+	})
+
+	t.Run("a ledger past the cursor is hidden", func(t *testing.T) {
+		setCursor(t, cursorLedger)
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		require.Len(t, stateChanges, 1)
+		assert.Equal(t, atCursor, stateChanges[0].StateChange.ToID)
+	})
+
+	t.Run("the cursor ledger itself is visible", func(t *testing.T) {
+		setCursor(t, aheadLedger)
+		stateChanges, qErr := m.BatchGetByAccountAddress(ctx, address, nil, nil, nil, nil, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		assert.Len(t, stateChanges, 2)
+	})
 }

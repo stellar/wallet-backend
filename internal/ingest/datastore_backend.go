@@ -271,9 +271,8 @@ func (b *datastoreBackend) GetLedger(ctx context.Context, sequence uint32) (xdr.
 // GetLatestLedgerSequence returns the highest ledger the buffer has delivered so far — its
 // prefetch frontier — mirroring the SDK BufferedStorageBackend. During bulk consumption the
 // frontier runs ahead of the consumer; at the live tip it stalls at the last available ledger.
-// Returns 0 before any batch has been delivered. This is what lets the migration's
-// flushWindowsAtTip coalesce in bulk (seq <= frontier) and flush at the tip (seq > frontier),
-// instead of flushing every ledger as it would if this returned the unbounded range's zero To().
+// Returns 0 before any batch has been delivered. Live ingestion's lag gauge polls this off
+// the consumer goroutine, which is why the read is lock-free (see the buffer field docs).
 func (b *datastoreBackend) GetLatestLedgerSequence(_ context.Context) (uint32, error) {
 	if b.closed {
 		return 0, fmt.Errorf("datastoreBackend is closed")

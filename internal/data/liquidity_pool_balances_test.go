@@ -87,18 +87,15 @@ func TestLiquidityPoolBalanceModel_GetByAccount(t *testing.T) {
 		require.Equal(t, int64(200), balances[0].AmountB)
 	})
 
-	t.Run("omits pool shares with no matching pool row (INNER JOIN)", func(t *testing.T) {
+	t.Run("rejects a pool share with no matching pool row", func(t *testing.T) {
 		cleanUpDB()
 		accountAddr := keypair.MustRandom().Address()
 		_, err := dbConnectionPool.Exec(ctx, `
 			INSERT INTO liquidity_pool_balances (account_id, pool_id, shares, last_modified_ledger)
 			VALUES ($1, $2, 1000, 1)
 		`, types.AddressBytea(accountAddr), poolIDHex(9))
-		require.NoError(t, err)
-
-		balances, err := m.GetByAccount(ctx, accountAddr, nil, nil, ASC)
-		require.NoError(t, err)
-		require.Empty(t, balances)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "liquidity_pool_balances_pool_id_fkey")
 	})
 
 	t.Run("paginates with limit and cursor in ASC and DESC order", func(t *testing.T) {
@@ -144,6 +141,13 @@ func TestLiquidityPoolBalanceModel_BatchUpsertAndCopy(t *testing.T) {
 
 	dbMetrics := metrics.NewMetrics(prometheus.NewRegistry()).DB
 	m := &LiquidityPoolBalanceModel{DB: dbConnectionPool, Metrics: dbMetrics}
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO liquidity_pools (pool_id, asset_a, amount_a, asset_b, amount_b, last_modified_ledger) VALUES
+		($1, 'native', 100, 'USDC:ISSUER1', 200, 10),
+		($2, 'BTC:ISSUER2', 300, 'ETH:ISSUER3', 400, 11)
+	`, poolIDHex(1), poolIDHex(2))
+	require.NoError(t, err)
 
 	cleanUpDB := func() {
 		_, err = dbConnectionPool.Exec(ctx, `DELETE FROM liquidity_pool_balances`)
@@ -195,6 +199,27 @@ func TestLiquidityPoolBalanceModel_BatchUpsertAndCopy(t *testing.T) {
 		require.NoError(t, tx.Commit(ctx))
 		_, ok = sharesFor(account, pool)
 		require.False(t, ok)
+	})
+
+	t.Run("drops a share whose pool has no row", func(t *testing.T) {
+		cleanUpDB()
+		account := keypair.MustRandom().Address()
+		orphanPool := poolIDHex(9)
+		seededPool := poolIDHex(1)
+
+		tx, err := dbConnectionPool.Begin(ctx)
+		require.NoError(t, err)
+		require.NoError(t, m.BatchUpsert(ctx, tx, []LiquidityPoolBalance{
+			{AccountID: types.AddressBytea(account), PoolID: orphanPool, Shares: 500, LedgerNumber: 20},
+			{AccountID: types.AddressBytea(account), PoolID: seededPool, Shares: 600, LedgerNumber: 20},
+		}, nil))
+		require.NoError(t, tx.Commit(ctx))
+
+		_, ok := sharesFor(account, orphanPool)
+		require.False(t, ok)
+		got, ok := sharesFor(account, seededPool)
+		require.True(t, ok)
+		require.Equal(t, int64(600), got)
 	})
 
 	t.Run("BatchCopy bulk inserts", func(t *testing.T) {

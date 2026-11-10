@@ -14,6 +14,7 @@ import (
 	// the import cycle a protocol package (which imports services) would create
 	// with an in-package test. Add new protocol packages here as they land so
 	// BuildProcessors validates their state_change_id bases in CI automatically.
+	_ "github.com/stellar/wallet-backend/internal/services/blend"
 	_ "github.com/stellar/wallet-backend/internal/services/sep41"
 )
 
@@ -39,5 +40,17 @@ func TestBuildProcessorsAllRegistered(t *testing.T) {
 			t.Errorf("protocols %q and %q share base %d", other, p.ProtocolID(), base)
 		}
 		seen[base] = p.ProtocolID()
+	}
+}
+
+// TestStateChangeOrdinalBaseByProtocol pins the reader-side map to the
+// processors: every registered processor is in it with its own base, and it
+// names no protocol that is not registered.
+func TestStateChangeOrdinalBaseByProtocol(t *testing.T) {
+	procs, err := services.BuildProcessors(services.ProtocolDeps{}, services.GetAllProcessorIDs())
+	require.NoError(t, err)
+	require.Len(t, types.StateChangeOrdinalBaseByProtocol, len(procs))
+	for _, p := range procs {
+		assert.Equal(t, p.StateChangeOrdinalBase(), types.StateChangeOrdinalBaseByProtocol[p.ProtocolID()], "protocol %q", p.ProtocolID())
 	}
 }

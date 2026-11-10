@@ -56,6 +56,16 @@ func (r *queryResolver) OperationByID(ctx context.Context, id int64) (*types.Ope
 	return r.models.Operations.GetByID(ctx, id, strings.Join(dbColumns, ", "))
 }
 
+// BlendPools is the resolver for the blendPools field.
+func (r *queryResolver) BlendPools(ctx context.Context, first *int32, after *string, last *int32, before *string) (*graphql1.BlendPoolConnection, error) {
+	return r.getBlendPools(ctx, first, after, last, before)
+}
+
+// BlendPool is the resolver for the blendPool field.
+func (r *queryResolver) BlendPool(ctx context.Context, address string) (*graphql1.BlendPool, error) {
+	return r.getBlendPool(ctx, address)
+}
+
 // SimulateStateChanges is the resolver for the simulateStateChanges field.
 // It delegates to the transaction simulation service and maps its sentinel
 // errors onto the GraphQL error convention (extensions.code).

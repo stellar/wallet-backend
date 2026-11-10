@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/hex"
+	"math"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -223,6 +224,147 @@ func TestAddressBytea_String(t *testing.T) {
 	}
 }
 
+func TestAddressBytea_Value_rejectsNon32BytePayloads(t *testing.T) {
+	// A CAP-40 signed-payload key (P...) decodes to more than 32 bytes; the 33-byte storage
+	// format fits exactly one 32-byte key, so Value must reject it rather than truncate.
+	// A muxed M-address is not a rejection case: Value reduces it to its 32-byte base key.
+	var ed25519 xdr.Uint256
+	copy(ed25519[:], strkey.MustDecode(strkey.VersionByteAccountID, keypair.MustRandom().Address()))
+	signerKey := xdr.SignerKey{
+		Type:                 xdr.SignerKeyTypeSignerKeyTypeEd25519SignedPayload,
+		Ed25519SignedPayload: &xdr.SignerKeyEd25519SignedPayload{Ed25519: ed25519, Payload: []byte{1, 2, 3, 4}},
+	}
+	signedPayloadAddress, err := signerKey.GetAddress()
+	require.NoError(t, err)
+
+	_, err = AddressBytea(signedPayloadAddress).Value()
+	assert.ErrorContains(t, err, "32-byte")
+}
+
+func TestAddressByteaMemo_Bytes_matchesValue(t *testing.T) {
+	kp := keypair.MustRandom()
+
+	testCases := []struct {
+		name  string
+		input AddressBytea
+	}{
+		{name: "🟢valid G address", input: AddressBytea(kp.Address())},
+		{name: "🟢valid C address", input: AddressBytea("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")},
+		{name: "🟢empty string", input: ""},
+		{name: "🔴invalid address", input: "not-a-valid-address"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := make(AddressByteaMemo)
+			wantVal, wantErr := tc.input.Value()
+
+			// Repeated calls must keep matching Value exactly, hit or miss.
+			for range 2 {
+				got, err := memo.Bytes(tc.input)
+				if wantErr != nil {
+					require.Error(t, err)
+					assert.Equal(t, wantErr.Error(), err.Error())
+					assert.Nil(t, got)
+				} else {
+					require.NoError(t, err)
+					if wantVal == nil {
+						assert.Nil(t, got)
+					} else {
+						assert.Equal(t, wantVal, driver.Value(got))
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestAddressByteaMemo_Bytes_sharesTheSliceAcrossHits(t *testing.T) {
+	kp := keypair.MustRandom()
+	memo := make(AddressByteaMemo)
+
+	first, err := memo.Bytes(AddressBytea(kp.Address()))
+	require.NoError(t, err)
+	second, err := memo.Bytes(AddressBytea(kp.Address()))
+	require.NoError(t, err)
+
+	// The memo's whole point is skipping the decode and the 33-byte allocation on a
+	// hit, so both calls must return the same backing array.
+	assert.Same(t, &first[0], &second[0])
+}
+
+func TestAddressByteaMemo_Bytes_cachesOnlySuccesses(t *testing.T) {
+	memo := make(AddressByteaMemo)
+
+	_, err := memo.Bytes("not-a-valid-address")
+	assert.Error(t, err)
+
+	_, err = memo.Bytes("")
+	assert.NoError(t, err)
+
+	assert.Empty(t, memo)
+}
+
+func TestAddressByteaMemo_NullBytes(t *testing.T) {
+	kp := keypair.MustRandom()
+	validAddress := AddressBytea(kp.Address())
+	wantBytes, err := validAddress.Value()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name  string
+		input NullAddressBytea
+		want  []byte
+	}{
+		{name: "🟢invalid (NULL)", input: NullAddressBytea{Valid: false}, want: nil},
+		{name: "🟢valid address", input: NullAddressBytea{AddressBytea: validAddress, Valid: true}, want: wantBytes.([]byte)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			memo := make(AddressByteaMemo)
+			got, err := memo.NullBytes(tc.input)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func BenchmarkAddressBytea_Value(b *testing.B) {
+	addresses := benchmarkAddresses()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		_, err := addresses[i%len(addresses)].Value()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressByteaMemo_Bytes(b *testing.B) {
+	addresses := benchmarkAddresses()
+	memo := make(AddressByteaMemo)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		_, err := memo.Bytes(addresses[i%len(addresses)])
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// benchmarkAddresses mirrors the repetition the persist COPY builds see: a small
+// working set of unique addresses converted over and over within one batch.
+func benchmarkAddresses() []AddressBytea {
+	addresses := make([]AddressBytea, 8)
+	for i := range addresses {
+		addresses[i] = AddressBytea(keypair.MustRandom().Address())
+	}
+	return addresses
+}
+
 func TestNullableJSONB_Value(t *testing.T) {
 	testCases := []struct {
 		name            string
@@ -422,8 +564,10 @@ func TestDecodeAccountFlags(t *testing.T) {
 }
 
 func TestDecodeTrustlineFlags(t *testing.T) {
-	t.Run("zero decodes to nil", func(t *testing.T) {
-		assert.Nil(t, DecodeTrustlineFlags(0))
+	t.Run("zero decodes to an empty non-nil slice", func(t *testing.T) {
+		flags := DecodeTrustlineFlags(0)
+		assert.NotNil(t, flags)
+		assert.Empty(t, flags)
 	})
 
 	t.Run("decodes set bits in fixed order", func(t *testing.T) {
@@ -582,6 +726,50 @@ func TestMuxedAddressBytea_NormalizesToBaseAccount(t *testing.T) {
 	assert.NotEqual(t, baseBytes, vOther)
 }
 
+// muxedContractOver builds the W... strkey (CAP-84) for contract baseC with the given id.
+func muxedContractOver(t *testing.T, baseC string, id uint64) string {
+	t.Helper()
+	var muxed strkey.MuxedContract
+	require.NoError(t, muxed.SetContractID(baseC))
+	muxed.SetID(id)
+	address, err := muxed.Address()
+	require.NoError(t, err)
+	return address
+}
+
+// TestMuxedContractAddressBytea_NormalizesToContract verifies that a muxed contract address
+// stores as its base contract key, the same way a muxed account stores as its base account.
+func TestMuxedContractAddressBytea_NormalizesToContract(t *testing.T) {
+	// SEP-23 test vector: contract CA7Q...UWDA with id 0.
+	const (
+		sep23W = "WA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUAAAAAAAAAAAAAWWC"
+		sep23C = "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJUWDA"
+	)
+	require.Equal(t, sep23W, muxedContractOver(t, sep23C, 0), "sanity: the builder reproduces the SEP-23 vector")
+
+	baseBytes, err := AddressBytea(sep23C).Value()
+	require.NoError(t, err)
+	vW, err := AddressBytea(sep23W).Value()
+	require.NoError(t, err)
+	require.Len(t, baseBytes.([]byte), 33)
+	assert.Equal(t, baseBytes, vW, "the W-address must store as its base contract")
+	assert.Equal(t, byte(strkey.VersionByteContract), vW.([]byte)[0],
+		"stored version byte must be the contract (C) byte, not the muxed contract (W) byte")
+
+	// Two ids over the same contract collapse to the same key.
+	vA, err := AddressBytea(muxedContractOver(t, sep23C, 1)).Value()
+	require.NoError(t, err)
+	vB, err := AddressBytea(muxedContractOver(t, sep23C, math.MaxUint64)).Value()
+	require.NoError(t, err)
+	assert.Equal(t, baseBytes, vA)
+	assert.Equal(t, baseBytes, vB)
+
+	// Round trip: the stored bytes scan back as the base contract address.
+	var scanned AddressBytea
+	require.NoError(t, scanned.Scan(vW))
+	assert.Equal(t, AddressBytea(sep23C), scanned)
+}
+
 // signedPayloadOver builds the P... strkey for a CAP-40 signed-payload signer over baseG.
 func signedPayloadOver(t *testing.T, baseG string, payload []byte) string {
 	t.Helper()
@@ -615,6 +803,15 @@ func TestAddressBytea_RejectsMalformedPayload(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), shortMuxed)
+
+	// A short muxed contract (W...) payload is rejected the same way.
+	shortMuxedContract, err := strkey.Encode(strkey.VersionByteMuxedContract, []byte{1, 2, 3, 4, 5})
+	require.NoError(t, err)
+	require.NotPanics(t, func() {
+		_, err = AddressBytea(shortMuxedContract).Value()
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), shortMuxedContract)
 
 	// Control: a normal contract address still encodes fine.
 	_, err = AddressBytea("CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA").Value()
@@ -857,4 +1054,78 @@ func TestNullSignerKeyBytea(t *testing.T) {
 		var n NullSignerKeyBytea
 		assert.ErrorContains(t, n.Scan(bytes.Repeat([]byte{0x00}, 32)), "expected at least 33 bytes")
 	})
+}
+
+func TestStorableAddressString(t *testing.T) {
+	kp := keypair.MustRandom()
+	accountAddr := kp.Address()
+	accountID := xdr.MustAddress(accountAddr)
+	var contractID xdr.ContractId
+	copy(contractID[:], bytes.Repeat([]byte{0xcc}, 32))
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, accountAddr))
+	cbHash := xdr.Hash{0xcb}
+	poolID := xdr.PoolId{0x1f}
+
+	testCases := []struct {
+		name   string
+		addr   xdr.ScAddress
+		want   string
+		wantOK bool
+	}{
+		{
+			name:   "account",
+			addr:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeAccount, AccountId: &accountID},
+			want:   accountAddr,
+			wantOK: true,
+		},
+		{
+			name:   "contract",
+			addr:   xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeContract, ContractId: &contractID},
+			want:   contractAddr,
+			wantOK: true,
+		},
+		{
+			name: "muxed_reduces_to_base",
+			addr: xdr.ScAddress{
+				Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+				MuxedAccount: &xdr.MuxedEd25519Account{Id: 9, Ed25519: ed},
+			},
+			want:   accountAddr,
+			wantOK: true,
+		},
+		{
+			name: "muxed_contract_reduces_to_base",
+			addr: xdr.ScAddress{
+				Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+				MuxedContract: &xdr.MuxedContract{Id: 9, ContractId: contractID},
+			},
+			want:   contractAddr,
+			wantOK: true,
+		},
+		{
+			name: "claimable_balance_rejected",
+			addr: xdr.ScAddress{
+				Type: xdr.ScAddressTypeScAddressTypeClaimableBalance,
+				ClaimableBalanceId: &xdr.ClaimableBalanceId{
+					Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0,
+					V0:   &cbHash,
+				},
+			},
+		},
+		{
+			name: "liquidity_pool_rejected",
+			addr: xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeLiquidityPool, LiquidityPoolId: &poolID},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := StorableAddressString(tc.addr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

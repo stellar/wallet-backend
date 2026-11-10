@@ -342,6 +342,12 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 			}, nil
 		default: // invalid reason for TRUSTLINE; falls through to the error below
 		}
+	case types.StateChangeCategoryBlendSupply, types.StateChangeCategoryBlendCollateral,
+		types.StateChangeCategoryBlendDebt, types.StateChangeCategoryBlendAuction,
+		types.StateChangeCategoryBlendEmissions, types.StateChangeCategoryBlendBackstopEmissions,
+		types.StateChangeCategoryBlendBackstop, types.StateChangeCategoryBlendBackstopQueue:
+		// No simulated Blend types yet; simulation does not run the Blend
+		// processor, so these falling through to the error is a pipeline bug.
 	}
 	return nil, fmt.Errorf("state change has no simulated GraphQL type for (category=%s, reason=%s)",
 		sc.StateChangeCategory, sc.StateChangeReason)

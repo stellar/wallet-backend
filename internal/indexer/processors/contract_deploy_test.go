@@ -36,7 +36,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 
 	ctx := context.Background()
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -59,7 +59,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
 					subInvocationsStateChanges = []types.StateChange{
-						builder.Clone().
+						builder.
 							WithCreator(deployerAccountID).
 							WithAccount(deployedContractID).
 							Build(),
@@ -79,6 +79,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -86,7 +87,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							return op
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
-							builder.Clone().
+							builder.
 								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
@@ -101,6 +102,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -108,7 +110,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							return op
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
-							builder.Clone().
+							builder.
 								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
@@ -122,6 +124,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							if withSubinvocations {
 								op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 								includeSubInvocations(op)
+								setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 							}
 							if feeBump {
 								op = makeFeeBumpOp(txSourceAccount, op)
@@ -212,19 +215,21 @@ func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t 
 		},
 	}
 
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(contractB), contractInstanceCreated(contractC)}, nil)
+
 	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
 	stateChanges, err := proc.ProcessOperation(ctx, op)
 	require.NoError(t, err)
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
 
 	wantOrder := []types.StateChange{
-		builder.Clone().WithCreator(rootDeployer).WithAccount(contractA).Build(),
-		builder.Clone().WithCreator(subDeployerB).WithAccount(contractB).Build(),
-		builder.Clone().WithCreator(subDeployerC).WithAccount(contractC).Build(),
+		builder.WithCreator(rootDeployer).WithAccount(contractA).Build(),
+		builder.WithCreator(subDeployerB).WithAccount(contractB).Build(),
+		builder.WithCreator(subDeployerC).WithAccount(contractC).Build(),
 	}
 
 	require.Len(t, stateChanges, len(wantOrder))
@@ -274,7 +279,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		return op
 	}
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -296,7 +301,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
 				subInvocationsStateChanges = []types.StateChange{
-					builder.Clone().
+					builder.
 						WithCreator(deployerAccountID).
 						WithAccount(deployedContractID).
 						Build(),
@@ -315,6 +320,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -331,6 +337,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 						if withSubinvocations {
 							op.Operation.Body.InvokeHostFunctionOp.Auth = makeAuthEntries(t, op, makeScAddress(authSignerAccount))
 							includeSubInvocations(op)
+							setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(deployedContractID)}, nil)
 						}
 						if feeBump {
 							op = makeFeeBumpOp(txSourceAccount, op)
@@ -352,4 +359,183 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 			assertStateChangesElementsMatch(t, tc.wantStateChanges, stateChanges)
 		})
 	}
+}
+
+// Test_ContractDeployProcessor_Process_unstorableDeployerAddress covers the CAP-0067 ScAddress
+// arms that a contract-deploy preimage can carry but an account column cannot store.
+//
+// These reach the processor as ordinary transaction-envelope data: stellar-core's
+// doCheckValidForSoroban validates isAssetValid only for the from-asset preimage and never
+// inspects a from-address one, so the transaction is admitted and closed in a ledger; the host
+// rejects the address only at apply time, and the indexer runs its state-change processors over
+// failed transactions too. A claimable-balance address in particular would land a B... strkey in
+// creator_account_id, whose 33-byte payload fails AddressBytea.Value() and wedges the ledger's
+// persist transaction permanently.
+func Test_ContractDeployProcessor_Process_unstorableDeployerAddress(t *testing.T) {
+	ctx := context.Background()
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+
+	var h xdr.Hash
+	for i := range h {
+		h[i] = byte(i)
+	}
+
+	addrs := []struct {
+		name string
+		addr xdr.ScAddress
+	}{
+		{"claimableBalance", makeScClaimableBalance(h)},
+		{"liquidityPool", makeScLiquidityPool(h)},
+	}
+	hostFnTypes := []xdr.HostFunctionType{
+		xdr.HostFunctionTypeHostFunctionTypeCreateContract,
+		xdr.HostFunctionTypeHostFunctionTypeCreateContractV2,
+	}
+
+	for _, tc := range addrs {
+		for _, hostFnType := range hostFnTypes {
+			prefix := strings.ReplaceAll(hostFnType.String(), "HostFunctionTypeHostFunctionType", "")
+			t.Run(fmt.Sprintf("🔴%s/%s/rootHostFunction", prefix, tc.name), func(t *testing.T) {
+				op := makeBasicSorobanOp()
+				setFromScAddress(op, hostFnType, tc.addr)
+
+				stateChanges, err := proc.ProcessOperation(ctx, op)
+				require.NoError(t, err, "an unstorable deployer address must be skipped, not surfaced as an error that fails the ledger")
+				assert.Empty(t, stateChanges, "no contract is ever created from this address, so there is nothing to record")
+			})
+		}
+	}
+}
+
+// Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree covers the same guard
+// reached through the auth tree instead of the root host function. This is the wider vector: the
+// processor walks invokeHostOp.Auth for every host-function type, and auth entries carry no
+// signature under SOURCE_ACCOUNT credentials and are not semantically validated before apply, so
+// the poisoned address can ride along on an ordinary contract invocation.
+func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t *testing.T) {
+	const goodDeployer = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+
+	ctx := context.Background()
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+
+	var h xdr.Hash
+	for i := range h {
+		h[i] = byte(i)
+	}
+	badPreimage := xdr.ContractIdPreimageFromAddress{Address: makeScClaimableBalance(h), Salt: TestSalt}
+	goodPreimage := xdr.ContractIdPreimageFromAddress{Address: makeScAddress(goodDeployer), Salt: TestSalt}
+
+	goodContractID, err := calculateContractID(network.TestNetworkPassphrase, goodPreimage)
+	require.NoError(t, err)
+	badContractID, err := calculateContractID(network.TestNetworkPassphrase, badPreimage)
+	require.NoError(t, err)
+
+	createHostFn := func(preimage xdr.ContractIdPreimageFromAddress) xdr.SorobanAuthorizedFunction {
+		return xdr.SorobanAuthorizedFunction{
+			Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeCreateContractHostFn,
+			CreateContractHostFn: &xdr.CreateContractArgs{
+				ContractIdPreimage: xdr.ContractIdPreimage{
+					Type:        xdr.ContractIdPreimageTypeContractIdPreimageFromAddress,
+					FromAddress: &preimage,
+				},
+			},
+		}
+	}
+
+	// An ordinary contract invocation — not a create-contract host function — whose auth tree
+	// declares an unstorable deployment and a legitimate one as siblings under a common parent.
+	// They are siblings rather than parent and child so this pins only what the guard decides:
+	// whether a rejected node's own descendants should still be emitted is a separate,
+	// pre-existing question about auth declarations that were never executed.
+	op := makeBasicSorobanOp()
+	op.Operation.Body = xdr.OperationBody{
+		Type: xdr.OperationTypeInvokeHostFunction,
+		InvokeHostFunctionOp: &xdr.InvokeHostFunctionOp{
+			HostFunction: xdr.HostFunction{
+				Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
+				InvokeContract: &xdr.InvokeContractArgs{
+					ContractAddress: makeScContract(deployedContractID),
+					FunctionName:    "noop",
+					Args:            []xdr.ScVal{},
+				},
+			},
+			Auth: []xdr.SorobanAuthorizationEntry{{
+				Credentials: xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+				RootInvocation: xdr.SorobanAuthorizedInvocation{
+					Function: xdr.SorobanAuthorizedFunction{
+						Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn,
+					},
+					SubInvocations: []xdr.SorobanAuthorizedInvocation{
+						{Function: createHostFn(badPreimage)},
+						{Function: createHostFn(goodPreimage)},
+					},
+				},
+			}},
+		},
+	}
+
+	// The meta shows both instances created, so only the guard decides which deploy is recorded.
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(badContractID), contractInstanceCreated(goodContractID)}, nil)
+
+	stateChanges, err := proc.ProcessOperation(ctx, op)
+	require.NoError(t, err)
+
+	// The guard skips only the unstorable deployment; its sibling still lands.
+	wantStateChanges := []types.StateChange{
+		NewStateChangeBuilder(12345, closeTime.Unix(), op.TransactionID()).
+			WithOperationID(op.ID()).
+			WithReason(types.StateChangeReasonCreate).
+			WithCategory(types.StateChangeCategoryAccount).
+			WithCreator(goodDeployer).
+			WithAccount(goodContractID).
+			Build(),
+	}
+	assertStateChangesElementsMatch(t, wantStateChanges, stateChanges)
+
+	// The property that actually closes the wedge: every creator this processor emits must
+	// survive the encoder the persist path runs it through (see stateChangeCopyRow in
+	// internal/data/statechanges.go). A failure here is what aborts the ledger's persist
+	// transaction and halts ingestion permanently.
+	for _, sc := range stateChanges {
+		_, encErr := sc.CreatorAccountID.Value()
+		require.NoError(t, encErr, "emitted creator_account_id %q must encode for the state_changes COPY", sc.CreatorAccountID.String())
+	}
+}
+
+// Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored is the regression test
+// for fabricated deploy records: a CreateContract declared in an unmatched auth
+// entry's invocation tree produces no record unless the meta holds the created instance
+// entry for that exact contract. The meta here carries an unrelated created instance, so
+// an implementation that accepted any created instance would fail this test.
+func Test_ContractDeployProcessor_Process_declaredOnlyDeployIsIgnored(t *testing.T) {
+	const unrelatedCreatedContract = "CDNVQW44C3HALYNVQ4SOBXY5EWYTGVYXX6JPESOLQDABJI5FC5LTRRUE" // absent from the declared tree
+
+	op := makeInvokeContractOp()
+	op.Operation.Body.InvokeHostFunctionOp.Auth = []xdr.SorobanAuthorizationEntry{{
+		Credentials:    xdr.SorobanCredentials{Type: xdr.SorobanCredentialsTypeSorobanCredentialsSourceAccount},
+		RootInvocation: xdr.SorobanAuthorizedInvocation{Function: xdr.SorobanAuthorizedFunction{Type: xdr.SorobanAuthorizedFunctionTypeSorobanAuthorizedFunctionTypeContractFn, ContractFn: &xdr.InvokeContractArgs{ContractAddress: makeScContract(invokedContractID)}}},
+	}}
+	includeSubInvocations(op) // declares deployedContractID created by deployerAccountID
+	// Meta: a different contract was created; deployedContractID was not.
+	setOperationMeta(op, xdr.LedgerEntryChanges{contractInstanceCreated(unrelatedCreatedContract)}, nil)
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
+}
+
+// Test_ContractDeployProcessor_Process_failedTxDeploysNothing: a failed transaction creates
+// no contract, so a CreateContract host function in it produces no record.
+func Test_ContractDeployProcessor_Process_failedTxDeploysNothing(t *testing.T) {
+	const fromSourceAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+
+	op := makeBasicSorobanOp()
+	setFromAddress(op, xdr.HostFunctionTypeHostFunctionTypeCreateContract, fromSourceAccount)
+	op.Transaction.Result = xdr.TransactionResultPair{Result: xdr.TransactionResult{Result: xdr.TransactionResultResult{Code: xdr.TransactionResultCodeTxFailed}}}
+
+	proc := NewContractDeployProcessor(network.TestNetworkPassphrase, nil)
+	stateChanges, err := proc.ProcessOperation(context.Background(), op)
+	require.NoError(t, err)
+	assert.Empty(t, stateChanges)
 }

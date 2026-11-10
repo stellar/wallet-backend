@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -122,6 +123,12 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			stellarAddressesByOpID: map[int64]map[string]struct{}{},
 			wantCount:              1,
 		},
+		{
+			name:                   "🔴participant_for_unknown_operation_id",
+			operations:             []*types.Operation{&op1},
+			stellarAddressesByOpID: map[int64]map[string]struct{}{999999: {kp1.Address(): {}}},
+			wantErrContains:        "no row supplies ledger_created_at for operation_id 999999",
+		},
 	}
 
 	// Create pgx connection for BatchCopy (requires pgx.Tx, not sqlx.Tx)
@@ -147,7 +154,10 @@ func Test_OperationModel_BatchCopy(t *testing.T) {
 			pgxTx, err := conn.Begin(ctx)
 			require.NoError(t, err)
 
-			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+			gotCount, err := m.BatchCopy(ctx, pgxTx, tc.operations)
+			if err == nil {
+				err = m.BatchCopyAccounts(ctx, pgxTx, tc.operations, tc.stellarAddressesByOpID)
+			}
 
 			if tc.wantErrContains != "" {
 				require.Error(t, err)
@@ -597,6 +607,76 @@ func TestOperationModel_GetByID(t *testing.T) {
 	assert.WithinDuration(t, now, operation.LedgerCreatedAt, time.Second)
 }
 
+// TestOperationModel_IngestCursorBound pins the cursor bound on both operation read
+// shapes a client can reach directly: the by-id lookup, where a caller can supply the
+// id of an operation whose ledger is not yet part of the served chain, and the account
+// list, where the bound sits inside the MATERIALIZED CTE over operations_accounts.
+func TestOperationModel_IngestCursorBound(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+
+	now := time.Now()
+	address := keypair.MustRandom().Address()
+
+	cursorLedger, aheadLedger := int32(10), int32(11)
+	txAtCursor := toid.New(cursorLedger, 1, 0).ToInt64()
+	txAboveCursor := toid.New(aheadLedger, 1, 0).ToInt64()
+	atCursor := toid.New(cursorLedger, 1, 1).ToInt64()
+	aboveCursor := toid.New(aheadLedger, 1, 1).ToInt64()
+	hashAtCursor := types.HashBytea("00000000000000000000000000000000000000000000000000000000000000aa")
+	hashAboveCursor := types.HashBytea("00000000000000000000000000000000000000000000000000000000000000bb")
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		VALUES ($3, $1, 100, 'TransactionResultCodeTxSuccess', $5, $6, false),
+		       ($4, $2, 100, 'TransactionResultCodeTxSuccess', $7, $6, false)
+	`, txAtCursor, txAboveCursor, hashAtCursor, hashAboveCursor, cursorLedger, now, aheadLedger)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations (id, operation_type, operation_xdr, result_code, successful, ledger_number, ledger_created_at)
+		VALUES ($1, 'PAYMENT', $3, 'op_success', true, $4, $6),
+		       ($2, 'PAYMENT', $3, 'op_success', true, $5, $6)
+	`, atCursor, aboveCursor, types.XDRBytea([]byte("xdr")), cursorLedger, aheadLedger, now)
+	require.NoError(t, err)
+
+	_, err = dbConnectionPool.Exec(ctx, `
+		INSERT INTO operations_accounts (ledger_created_at, operation_id, account_id)
+		VALUES ($3, $1, $4), ($3, $2, $4)
+	`, atCursor, aboveCursor, now, types.AddressBytea(address))
+	require.NoError(t, err)
+
+	m := &OperationModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	_, err = dbConnectionPool.Exec(ctx,
+		`INSERT INTO ingest_store (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		LatestLedgerCursorName, fmt.Sprintf("%d", cursorLedger))
+	require.NoError(t, err)
+
+	t.Run("by-id resolves an operation at or below the cursor", func(t *testing.T) {
+		operation, qErr := m.GetByID(ctx, atCursor, "")
+		require.NoError(t, qErr)
+		assert.Equal(t, atCursor, operation.ID)
+	})
+
+	t.Run("by-id does not resolve an operation past the cursor", func(t *testing.T) {
+		_, qErr := m.GetByID(ctx, aboveCursor, "")
+		require.Error(t, qErr)
+	})
+
+	t.Run("the account list hides a ledger past the cursor", func(t *testing.T) {
+		operations, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil)
+		require.NoError(t, qErr)
+		require.Len(t, operations, 1)
+		assert.Equal(t, atCursor, operations[0].Operation.ID)
+	})
+}
+
 func TestOperationModel_BatchGetByStateChangeIDs(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -739,10 +819,15 @@ func BenchmarkOperationModel_BatchCopy(b *testing.B) {
 				}
 				b.StartTimer()
 
-				_, err = m.BatchCopy(ctx, pgxTx, ops, addressesByOpID)
+				_, err = m.BatchCopy(ctx, pgxTx, ops)
 				if err != nil {
 					pgxTx.Rollback(ctx)
 					b.Fatalf("BatchCopy failed: %v", err)
+				}
+				err = m.BatchCopyAccounts(ctx, pgxTx, ops, addressesByOpID)
+				if err != nil {
+					pgxTx.Rollback(ctx)
+					b.Fatalf("BatchCopyAccounts failed: %v", err)
 				}
 
 				b.StopTimer()

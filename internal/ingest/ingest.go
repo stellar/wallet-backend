@@ -18,12 +18,12 @@ import (
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	httphandler "github.com/stellar/wallet-backend/internal/serve/httphandler"
 	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/blend"   // also registers BLEND validator + processor via init()
 	_ "github.com/stellar/wallet-backend/internal/services/sep41" // registers SEP-41 validator + processor via init()
 )
 
@@ -46,34 +46,35 @@ const (
 )
 
 type Configs struct {
-	IngestionMode          string
-	OldestLedgerCursorName string
-	DatabaseURL            string
-	ServerPort             int
-	StartLedger            int
-	EndLedger              int
-	LogLevel               logrus.Level
-	AppTracker             apptracker.AppTracker
-	RPCURL                 string
-	Network                string
-	NetworkPassphrase      string
-	GetLedgersLimit        int
-	AdminPort              int
-	ArchiveURL             string
-	CheckpointFrequency    int
+	IngestionMode       string
+	DatabaseURL         string
+	ServerPort          int
+	StartLedger         int
+	EndLedger           int
+	LogLevel            logrus.Level
+	RPCURL              string
+	NetworkPassphrase   string
+	GetLedgersLimit     int
+	AdminPort           int
+	ArchiveURL          string
+	CheckpointFrequency int
 	// LedgerBackendType specifies which backend to use for fetching ledgers
 	LedgerBackendType LedgerBackendType
 	// Datastore holds the datastore ledger backend configuration (flag/env driven).
 	Datastore DatastoreConfig
 	// BackfillWorkers limits concurrent batch processing during backfill.
-	// Defaults to runtime.NumCPU(). Lower values reduce RAM usage.
+	// Defaults to runtime.GOMAXPROCS(0). Lower values reduce RAM usage.
 	BackfillWorkers int
 	// BackfillBatchSize is the number of ledgers processed per batch during backfill.
 	// Defaults to 250. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillBatchSize int
 	// BackfillDBInsertBatchSize is the number of ledgers to process before flushing to DB.
-	// Defaults to 50. Lower values reduce RAM usage at cost of more DB transactions.
+	// Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.
 	BackfillDBInsertBatchSize int
+	// LivePersistMaxBatchSize caps how many consecutive ledgers live
+	// ingestion coalesces into one persist commit when persist falls behind.
+	// 1 persists every ledger in its own commit.
+	LivePersistMaxBatchSize int
 	// ChunkInterval sets the TimescaleDB chunk time interval for hypertables.
 	// Only affects future chunks. Uses PostgreSQL INTERVAL syntax (e.g., "1 day", "7 days").
 	ChunkInterval string
@@ -95,6 +96,9 @@ type Configs struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+	// BlendPriceInterval is the wait between Blend v2 oracle price snapshot passes.
+	// 0 disables the snapshot task. Only takes effect in live ingestion mode.
+	BlendPriceInterval time.Duration
 }
 
 func (c Configs) BuildPoolConfig() db.PoolConfig {
@@ -114,12 +118,26 @@ func (c Configs) BuildPoolConfig() db.PoolConfig {
 	return cfg
 }
 
+// validateIngestPoolConfig fails fast on a pool too small for live persist's commit
+// barrier, which would otherwise wedge silently: no error, no crash-loop, just a
+// climbing lag gauge. Backfill never holds the barrier, so only live mode runs it.
+func validateIngestPoolConfig(poolCfg db.PoolConfig) error {
+	if poolCfg.MaxConns < db.MinIngestMaxConns {
+		return fmt.Errorf("db-max-conns is %d, below the %d connections live persist requires", poolCfg.MaxConns, db.MinIngestMaxConns)
+	}
+	return nil
+}
+
 func Ingest(cfg Configs) error {
-	// A SIGINT/SIGTERM cancels this root context, which propagates into the ingest
-	// loop and the in-flight ledger's transaction, so that ledger is rolled back
-	// rather than committed. Ingestion is idempotent and gap-driven: the rolled-back
-	// ledger is simply re-fetched and re-ingested on the next startup, so no partial
-	// state is ever persisted. Cleanup (deferred below) then drains the servers and
+	// A SIGINT/SIGTERM cancels this root context, which propagates into the
+	// ingest pipeline. What happens to the in-flight batch:
+	//   - before its commit barrier: rolls back entirely;
+	//   - at the barrier: commits fully — the barrier runs detached
+	//     (context.WithoutCancel in persistLedgerData), so a batch never
+	//     half-commits on shutdown.
+	// Ingestion is idempotent and gap-driven: a rolled-back batch re-fetches
+	// and re-ingests on the next startup (crash recovery: see
+	// persistLedgerData). Cleanup (deferred below) then drains the servers and
 	// tears down the remaining resources in order.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -132,7 +150,7 @@ func Ingest(cfg Configs) error {
 
 	runErr := ingestService.Run(ctx, uint32(cfg.StartLedger), uint32(cfg.EndLedger))
 	if runErr != nil {
-		if isShutdownRequested(ctx, runErr) {
+		if isCleanShutdown(ctx, runErr, cfg.IngestionMode) {
 			log.Ctx(ctx).Infof("shutdown requested; exiting cleanly: %v", runErr)
 			return nil
 		}
@@ -142,12 +160,16 @@ func Ingest(cfg Configs) error {
 	return nil
 }
 
-// isShutdownRequested classifies a Run error as a clean-exit shutdown (root
-// ctx cancelled by SIGINT/SIGTERM) versus a genuine failure. ctx is checked
-// directly rather than just err, since a cancellation can surface through
-// several different wrapped errors depending on where in the ingest loop it
-// was observed.
-func isShutdownRequested(ctx context.Context, err error) bool {
+// isCleanShutdown classifies a live-ingest Run error as a clean-exit shutdown
+// (root ctx cancelled by SIGINT/SIGTERM) versus a genuine failure. Bounded
+// backfills must report cancellation as incomplete rather than successful.
+// ctx is checked directly rather than just err, since a cancellation can
+// surface through several different wrapped errors depending on where in the
+// ingest loop it was observed.
+func isCleanShutdown(ctx context.Context, err error, ingestionMode string) bool {
+	if ingestionMode != services.IngestionModeLive {
+		return false
+	}
 	if ctx.Err() != nil {
 		return true
 	}
@@ -160,6 +182,11 @@ func isShutdownRequested(ctx context.Context, err error) bool {
 // returns.
 func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func(), error) {
 	poolCfg := cfg.BuildPoolConfig()
+	if cfg.IngestionMode == services.IngestionModeLive {
+		if err := validateIngestPoolConfig(poolCfg); err != nil {
+			return nil, nil, err
+		}
+	}
 	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, cfg.DatabaseURL, poolCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connecting to the database: %w", err)
@@ -170,7 +197,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	// must not mutate or remove the policies the live pods rely on; and an active
 	// retention policy would drop the very history a backfill is writing.
 	if cfg.IngestionMode == services.IngestionModeLive {
-		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, cfg.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
+		if err := configureHypertableSettings(ctx, dbConnectionPool, cfg.ChunkInterval, cfg.RetentionPeriod, data.OldestLedgerCursorName, cfg.CompressionScheduleInterval, cfg.CompressAfter, cfg.MaxChunksToCompress); err != nil {
 			return nil, nil, fmt.Errorf("configuring hypertable settings: %w", err)
 		}
 	}
@@ -197,6 +224,26 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	contractMetadataService, err := services.NewContractMetadataService(rpcService)
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating contract metadata service: %w", err)
+	}
+
+	// The Blend v2 oracle price snapshot task. Live-only: backfill replays historical
+	// ledgers and has no use for a periodic wall-clock snapshot of current prices.
+	var postLockTasks []func(context.Context)
+	if cfg.IngestionMode == services.IngestionModeLive && cfg.BlendPriceInterval > 0 {
+		blendPrices, err := blend.NewPriceSnapshotService(blend.PriceSnapshotConfig{
+			OraclePrices:      models.Blend.OraclePrices,
+			Metadata:          contractMetadataService,
+			Interval:          cfg.BlendPriceInterval,
+			NetworkPassphrase: cfg.NetworkPassphrase,
+			RPC:               rpcService,
+			Metrics:           m.BlendPrices,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("instantiating blend price snapshot service: %w", err)
+		}
+		// Started by the ingest service only after it acquires the live
+		// advisory lock — a lock-losing instance must not snapshot prices.
+		postLockTasks = append(postLockTasks, blendPrices.Run)
 	}
 
 	// Build a single ProtocolDeps to pass through both the validator and
@@ -274,29 +321,27 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	wasmExtractor := services.NewWasmSpecExtractor()
 
 	ingestService, err := services.NewIngestService(services.IngestServiceConfig{
-		IngestionMode:          cfg.IngestionMode,
-		Models:                 models,
-		OldestLedgerCursorName: cfg.OldestLedgerCursorName,
-		AppTracker:             cfg.AppTracker,
-		RPCService:             rpcService,
-		LedgerBackend:          ledgerBackend,
-		LedgerBackendFactory:   ledgerBackendFactory,
+		IngestionMode:        cfg.IngestionMode,
+		Models:               models,
+		RPCService:           rpcService,
+		LedgerBackend:        ledgerBackend,
+		LedgerBackendFactory: ledgerBackendFactory,
 		// Never matches for the RPC backend (it never wraps ErrBufferDead), so this is safe
 		// to wire unconditionally rather than branching on cfg.LedgerBackendType.
 		IsPermanentFetchError:     func(err error) bool { return errors.Is(err, ErrBufferDead) },
 		TokenIngestionService:     tokenIngestionService,
 		CheckpointService:         checkpointService,
 		Metrics:                   m,
-		GetLedgersLimit:           cfg.GetLedgersLimit,
-		Network:                   cfg.Network,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
 		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,
 		WasmSpecExtractor:         wasmExtractor,
+		PostLockTasks:             postLockTasks,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("instantiating ingest service: %w", err)
@@ -357,7 +402,6 @@ func startServers(cfg Configs, models *data.Models, rpcService services.RPCServi
 	healthHandler := httphandler.HealthHandler{
 		Models:     models,
 		RPCService: rpcService,
-		AppTracker: cfg.AppTracker,
 	}
 	mux.Handle("/ingest-metrics", promhttp.HandlerFor(m.Registry(), promhttp.HandlerOpts{}))
 	mux.Handle("/health", http.HandlerFunc(healthHandler.GetHealth))

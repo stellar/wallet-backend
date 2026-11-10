@@ -26,8 +26,8 @@ type ProtocolContracts struct {
 // ProtocolContractsModelInterface defines the interface for protocol_contracts operations.
 type ProtocolContractsModelInterface interface {
 	BatchInsert(ctx context.Context, dbTx pgx.Tx, contracts []ProtocolContracts) error
-	GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error)
-	BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
+	GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error)
+	BatchGetByContractIDs(ctx context.Context, q db.Querier, contractIDs [][]byte) (map[string][]ProtocolContracts, error)
 	GetByWasmHashes(ctx context.Context, wasmHashes []types.HashBytea) ([]ProtocolContracts, error)
 }
 
@@ -90,7 +90,9 @@ func (m *ProtocolContractsModel) BatchInsert(ctx context.Context, dbTx pgx.Tx, c
 }
 
 // GetByProtocolID returns all contracts associated with a protocol via protocol_wasms.
-func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID string) ([]ProtocolContracts, error) {
+// The read runs on the given querier, so callers inside a transaction see their own
+// uncommitted writes instead of a separate pool connection's snapshot.
+func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, q db.Querier, protocolID string) ([]ProtocolContracts, error) {
 	const query = `
 		SELECT pc.contract_id, pc.wasm_hash, pc.name, pc.created_at
 		FROM protocol_contracts pc
@@ -99,7 +101,7 @@ func (m *ProtocolContractsModel) GetByProtocolID(ctx context.Context, protocolID
 	`
 
 	start := time.Now()
-	contracts, err := db.QueryMany[ProtocolContracts](ctx, m.DB, query, protocolID)
+	contracts, err := db.QueryMany[ProtocolContracts](ctx, q, query, protocolID)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("GetByProtocolID", "protocol_contracts").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("GetByProtocolID", "protocol_contracts").Inc()
@@ -141,8 +143,11 @@ func (m *ProtocolContractsModel) GetByWasmHashes(ctx context.Context, wasmHashes
 // BatchGetByContractIDs returns, for the given contract IDs, the protocol_contracts
 // rows whose wasm is classified to a protocol, grouped by protocol ID. Live ingestion
 // uses this to resolve membership for only the contracts that emitted events in a
-// ledger, instead of loading every committed contract for a protocol.
-func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
+// ledger, instead of loading every committed contract for a protocol. q must be the
+// persist transaction when rows it staged must be visible: a batched persist
+// classifies contracts at the batch head, and later ledgers of the same uncommitted
+// batch resolve membership through this lookup.
+func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, q db.Querier, contractIDs [][]byte) (map[string][]ProtocolContracts, error) {
 	if len(contractIDs) == 0 {
 		return nil, nil
 	}
@@ -155,7 +160,7 @@ func (m *ProtocolContractsModel) BatchGetByContractIDs(ctx context.Context, cont
 	`
 
 	start := time.Now()
-	rows, err := m.DB.Query(ctx, query, contractIDs)
+	rows, err := q.Query(ctx, query, contractIDs)
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByContractIDs", "protocol_contracts").Inc()

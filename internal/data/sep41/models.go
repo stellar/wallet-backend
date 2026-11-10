@@ -14,9 +14,11 @@ type Models struct {
 }
 
 // NewModels constructs the SEP-41 Models aggregate wired to the given pool/metrics.
-func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) Models {
+// hiddenContracts (C-addresses) are skipped by every balance and allowance
+// read; pass nil outside the API server.
+func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics, hiddenContracts []string) Models {
 	return Models{
-		Balances:   &BalanceModel{DB: pool, Metrics: dbMetrics},
-		Allowances: &AllowanceModel{DB: pool, Metrics: dbMetrics},
+		Balances:   &BalanceModel{DB: pool, Metrics: dbMetrics, HiddenContracts: hiddenContracts},
+		Allowances: &AllowanceModel{DB: pool, Metrics: dbMetrics, HiddenContracts: hiddenContracts},
 	}
 }

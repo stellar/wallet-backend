@@ -124,17 +124,21 @@ type OperationParticipants struct {
 // This function processes ALL operations regardless of transaction success.
 func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.LedgerTransaction) (map[int64]OperationParticipants, error) {
 	ledgerSequence := transaction.Ledger.LedgerSequence()
-	operationsParticipants := map[int64]OperationParticipants{}
+	ledgerClosed := transaction.Ledger.ClosedAt()
+	ops := transaction.Envelope.Operations()
+	operationsParticipants := make(map[int64]OperationParticipants, len(ops))
 
-	for opi, xdrOp := range transaction.Envelope.Operations() {
+	// Every operation's wrapper shares one transaction.
+	tx := &transaction
+
+	for opi, xdrOp := range ops {
 		// 1. Build op wrapper, so we can use its methods
 		op := &TransactionOperationWrapper{
 			Index:          uint32(opi),
-			Transaction:    transaction,
+			Transaction:    tx,
 			Operation:      xdrOp,
 			LedgerSequence: ledgerSequence,
-			Network:        p.networkPassphrase,
-			LedgerClosed:   transaction.Ledger.ClosedAt(),
+			LedgerClosed:   ledgerClosed,
 		}
 		opID := op.ID()
 
@@ -146,14 +150,11 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 			continue
 		}
 
-		// 3. Add participants to the map
-		if _, ok := operationsParticipants[opID]; !ok {
-			operationsParticipants[opID] = OperationParticipants{
-				OpWrapper:    op,
-				Participants: participants,
-			}
-		} else {
-			operationsParticipants[opID].Participants.Append(participants.ToSlice()...)
+		// 3. Add participants to the map. opID embeds the operation index, so every iteration
+		// writes a distinct key and no merge with an existing entry is possible.
+		operationsParticipants[opID] = OperationParticipants{
+			OpWrapper:    op,
+			Participants: participants,
 		}
 	}
 
@@ -163,36 +164,35 @@ func (p *ParticipantsProcessor) GetOperationsParticipants(transaction ingest.Led
 // GetOperationParticipants returns the participants for a transaction operation.
 // In case of a Soroban operation, it calls the participantsForSorobanOp function to get the Soroban participants.
 func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperationWrapper) (set.Set[string], error) {
-	// 1. Calculate participants using the default stellar/go methods that only look for G-accounts
+	// A failed transaction changes no state beyond its fee. Payment destinations,
+	// signer keys and auth entries are unverified submitter input, so only the accounts
+	// whose state changed are attributed. The set is never empty, so the operation row
+	// still exists for the submitter.
+	if !op.Transaction.Successful() {
+		participants := set.NewThreadUnsafeSet(op.Transaction.Envelope.SourceAccount().ToAccountId().Address())
+		if op.Transaction.Envelope.IsFeeBump() {
+			participants.Add(op.Transaction.Envelope.FeeBumpAccount().ToAccountId().Address())
+		}
+		return participants, nil
+	}
+
+	// 1. Participants from the operation body (G-accounts named by classic operations)
 	participantsAccountIDs, err := op.Participants()
 	if err != nil {
 		return nil, fmt.Errorf("reading operation %d participants: %w", op.ID(), err)
 	}
-	participants := set.NewThreadUnsafeSet[string]()
+	participants := set.NewThreadUnsafeSetWithSize[string](len(participantsAccountIDs))
 	for _, accountID := range participantsAccountIDs {
 		participants.Add(accountID.Address())
 	}
 
-	// 1.1. Return early if the operation is not a Soroban operation
 	if !op.Transaction.IsSorobanTx() {
 		return participants, nil
 	}
 
-	// 1.2. Skip Soroban participants for failed transactions (they don't have ledger changes)
-	if !op.Transaction.Successful() {
-		return participants, nil
-	}
-
-	// 2. Get Soroban participants
-	sorobanParticipants, err := participantsForSorobanOp(op)
-	if err != nil {
+	// 2. Soroban participants, from the operation body and the executed meta.
+	if err := participantsForSorobanOp(op, participants); err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}
-
-	// Merged element-wise rather than with Union, which would allocate a third set.
-	sorobanParticipants.Each(func(participant string) bool {
-		participants.Add(participant)
-		return false
-	})
 	return participants, nil
 }

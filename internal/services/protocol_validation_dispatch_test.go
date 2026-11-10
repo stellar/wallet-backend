@@ -343,7 +343,7 @@ func TestApplyClassificationPlan(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, cA.prefetchCalls)
 
-		// Simulate ingestProcessedDataWithRetry's retry loop: the same plan is
+		// Simulate persistLedgerDataWithRetry's retry loop: the same plan is
 		// applied across multiple attempts.
 		for i := 0; i < 3; i++ {
 			require.NoError(t, ApplyClassificationPlan(ctx, nil, nil, plan, nil))

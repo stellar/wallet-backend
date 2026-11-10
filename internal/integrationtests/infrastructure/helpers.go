@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -98,6 +99,29 @@ func WaitForTransactionConfirmation(ctx context.Context, rpcService services.RPC
 		return entities.RPCGetTransactionResult{}, fmt.Errorf("failed to get transaction status after %d attempts: %w", attemptsCount, outerErr)
 	}
 	return txResult, nil
+}
+
+// MuxedAccountAddress returns the M... strkey (CAP-67) for account g with the given id.
+func MuxedAccountAddress(g string, id uint64) string {
+	muxed, err := xdr.MuxedAccountFromAccountId(g, id)
+	if err != nil {
+		panic(err)
+	}
+	return muxed.Address()
+}
+
+// MuxedContractAddress returns the W... strkey (CAP-84) for contract c with the given id.
+func MuxedContractAddress(c string, id uint64) string {
+	var muxed strkey.MuxedContract
+	if err := muxed.SetContractID(c); err != nil {
+		panic(err)
+	}
+	muxed.SetID(id)
+	address, err := muxed.Address()
+	if err != nil {
+		panic(err)
+	}
+	return address
 }
 
 func SCAccountID(address string) (xdr.ScAddress, error) {

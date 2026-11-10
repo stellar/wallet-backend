@@ -48,7 +48,7 @@ type AccountBalancesAfterCheckpointTestSuite struct {
 // TestCheckpoint_Account1_HasInitialBalances verifies that balance test account 1
 // has the expected initial balances from checkpoint setup:
 // - Native XLM (~10000)
-// - USDC trustline (100)
+// - USDC trustline (140: 100 funded plus 40 from a SAC transfer to its muxed form)
 // - EURC trustline (100)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
@@ -78,7 +78,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account1_Ha
 
 			switch b.Code {
 			case "USDC":
-				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal("140.0000000", b.GetBalance(), "100 funded plus 40 from the SAC transfer to the muxed form of this account")
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 			case "EURC":
 				suite.Require().Equal("100.0000000", b.GetBalance())
@@ -134,7 +134,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_Account2_Ha
 
 // TestCheckpoint_HolderContract_HasInitialBalances verifies that the holder contract
 // has the expected initial balances from checkpoint setup:
-// - USDC SAC tokens (200)
+// - USDC SAC tokens (230: 200 direct plus 30 from a SAC transfer to its muxed form)
 func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContract_HasInitialBalances() {
 	balances, err := suite.testEnv.WBClient.GetAllAccountBalances(
 		context.Background(),
@@ -148,7 +148,7 @@ func (suite *AccountBalancesAfterCheckpointTestSuite) TestCheckpoint_HolderContr
 	for _, balance := range balances {
 		switch b := balance.(type) {
 		case *types.SACBalance:
-			suite.Require().Equal("200.0000000", b.GetBalance())
+			suite.Require().Equal("230.0000000", b.GetBalance(), "200 direct plus 30 from the SAC transfer to the muxed form of this contract")
 			suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 			suite.Require().Equal(types.TokenTypeSAC, b.GetTokenType())
 			suite.Require().Equal("USDC", b.Code)
@@ -273,7 +273,7 @@ type AccountBalancesAfterLiveIngestionTestSuite struct {
 // TestLiveIngestion_Account1_HasUpdatedBalances verifies that balance test account 1
 // has the expected balances after fixture transactions are processed:
 // - Native XLM
-// - USDC trustline (100) - unchanged
+// - USDC trustline (140) - unchanged
 // - EURC trustline (50) - reduced from 100 after transfer to contract
 // - SEP-41 token - the remainder of its mint after a partial transfer to account 2
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Account1_HasUpdatedBalances() {
@@ -306,7 +306,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 			switch b.Code {
 			case "USDC":
-				suite.Require().Equal("100.0000000", b.GetBalance())
+				suite.Require().Equal("140.0000000", b.GetBalance(), "100 funded plus 40 from the SAC transfer to the muxed form of this account")
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 			case "EURC":
 				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC balance should be reduced to 50 after transfer")
@@ -383,7 +383,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Accou
 
 // TestLiveIngestion_HolderContract_HasNewEURC verifies that the holder contract
 // has the expected balances after fixture transactions add EURC:
-// - USDC SAC tokens (200) - unchanged
+// - USDC SAC tokens (230) - unchanged
 // - EURC SAC tokens (50) - NEW from transfer from account 1
 // - SEP-41 token (500) - backfilled by DataMigrationTestSuite's current-state migration
 func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_HolderContract_HasNewEURC() {
@@ -405,7 +405,7 @@ func (suite *AccountBalancesAfterLiveIngestionTestSuite) TestLiveIngestion_Holde
 
 			switch b.Code {
 			case "USDC":
-				suite.Require().Equal("200.0000000", b.GetBalance())
+				suite.Require().Equal("230.0000000", b.GetBalance(), "200 direct plus 30 from the SAC transfer to the muxed form of this contract")
 				suite.Require().Equal(suite.testEnv.USDCContractAddress, b.GetTokenID())
 			case "EURC":
 				suite.Require().Equal("50.0000000", b.GetBalance(), "EURC SAC balance should be 50 from transfer")

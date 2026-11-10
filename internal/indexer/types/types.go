@@ -74,11 +74,12 @@ func (a *AddressBytea) Scan(value any) error {
 
 // Value implements driver.Valuer - converts StrKey string to 33-byte []byte.
 //
-// Muxed addresses (M...) carry a 40-byte payload — a 32-byte ed25519 key followed by an
-// 8-byte multiplexing id (SEP-23). They are reduced to their base account here: the id is
+// Muxed addresses carry a 40-byte payload: a 32-byte key followed by an 8-byte multiplexing
+// id (SEP-23). A muxed account (M...) wraps an ed25519 key and a muxed contract (W...,
+// CAP-84) wraps a contract id. Both are reduced to their base address here: the id is
 // off-chain routing metadata, not part of the stored key. This is a storage-layer backstop;
-// ingestion is expected to normalize muxed addresses to their base account before this point
-// (see the SEP-41 processor and the classic path's MuxedAccount.ToAccountId()). Any other
+// ingestion is expected to normalize muxed addresses to their base address before this point
+// (see StorableAddressString and the classic path's MuxedAccount.ToAccountId()). Any other
 // payload length is rejected rather than silently truncated, so a malformed address surfaces
 // as an error instead of corrupt data. That covers signer keys too: signer columns store
 // them via SignerKeyBytea, so a signed-payload key (P...) reaching an account column is a
@@ -91,14 +92,18 @@ func (a AddressBytea) Value() (driver.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decoding stellar address %s: %w", a, err)
 	}
-	if versionByte == strkey.VersionByteMuxedAccount {
-		// Guard the payload length before slicing, since the decoder may not enforce
-		// it: a muxed payload must be exactly 40 bytes (32-byte ed25519 key + 8-byte id).
+	if versionByte == strkey.VersionByteMuxedAccount || versionByte == strkey.VersionByteMuxedContract {
+		// Defence in depth before slicing: the decoder already rejects a muxed payload
+		// that is not exactly 40 bytes (32-byte key + 8-byte id).
 		if len(rawBytes) != 40 {
 			return nil, fmt.Errorf("stellar muxed address %s has a %d-byte payload; expected 40 bytes", a, len(rawBytes))
 		}
-		versionByte = strkey.VersionByteAccountID
-		rawBytes = rawBytes[:32] // keep the ed25519 key; drop the trailing 8-byte id
+		if versionByte == strkey.VersionByteMuxedAccount {
+			versionByte = strkey.VersionByteAccountID
+		} else {
+			versionByte = strkey.VersionByteContract
+		}
+		rawBytes = rawBytes[:32] // keep the key; drop the trailing 8-byte id
 	}
 	if len(rawBytes) != 32 {
 		return nil, fmt.Errorf("stellar address %s has a %d-byte key payload; the account_id column stores only 32-byte account/contract keys", a, len(rawBytes))
@@ -112,6 +117,42 @@ func (a AddressBytea) Value() (driver.Value, error) {
 // String returns the Stellar address as a string.
 func (a AddressBytea) String() string {
 	return string(a)
+}
+
+// StorableAddressString converts an ScAddress to the strkey form an AddressBytea column
+// stores, reporting ok=false for any kind other than account, contract, muxed account or
+// muxed contract.
+//
+// A muxed account reduces to its base G-address and a muxed contract (CAP-84) to its base
+// C-address: the multiplexing id is off-chain routing metadata, not identity. Returning the
+// M- or W-form would let one holder enter a participant set as two distinct strings, which
+// AddressBytea.Value() then collapses to one key. Claimable-balance and liquidity-pool
+// addresses have no account row to key on, so callers skip them.
+func StorableAddressString(addr xdr.ScAddress) (string, bool, error) {
+	switch addr.Type {
+	case xdr.ScAddressTypeScAddressTypeAccount, xdr.ScAddressTypeScAddressTypeContract:
+	case xdr.ScAddressTypeScAddressTypeMuxedAccount:
+		muxed := addr.MustMuxedAccount()
+		addrStr, err := strkey.Encode(strkey.VersionByteAccountID, muxed.Ed25519[:])
+		if err != nil {
+			return "", false, fmt.Errorf("encoding muxed account base address: %w", err)
+		}
+		return addrStr, true, nil
+	case xdr.ScAddressTypeScAddressTypeMuxedContract:
+		muxed := addr.MustMuxedContract()
+		addrStr, err := strkey.Encode(strkey.VersionByteContract, muxed.ContractId[:])
+		if err != nil {
+			return "", false, fmt.Errorf("encoding muxed contract base address: %w", err)
+		}
+		return addrStr, true, nil
+	default:
+		return "", false, nil
+	}
+	addrStr, err := addr.String()
+	if err != nil {
+		return "", false, fmt.Errorf("encoding address strkey: %w", err)
+	}
+	return addrStr, true, nil
 }
 
 // NullAddressBytea represents a nullable Stellar address stored as BYTEA in the database.
@@ -245,6 +286,42 @@ func (n NullSignerKeyBytea) Value() (driver.Value, error) {
 // String returns the signer key as a string (convenience accessor).
 func (n NullSignerKeyBytea) String() string {
 	return string(n.SignerKeyBytea)
+}
+
+// AddressByteaMemo caches strkey→BYTEA conversions across the rows of one batch
+// build. Addresses repeat heavily within a single COPY — every transfer of a token
+// shares its token_id, an account's rows share its account_id — so a hit skips the
+// whole strkey decode (base32 + CRC16) and the 33-byte allocation.
+//
+// The memo is a plain map for use by exactly one goroutine, and hits return the
+// SAME []byte every time: callers must treat the slice as read-only.
+type AddressByteaMemo map[string][]byte
+
+// Bytes returns the 33-byte BYTEA form of a, converting on the first sight of an
+// address and serving the shared slice afterwards. Output and errors match
+// AddressBytea.Value exactly ("" → nil, invalid → error); failures are not cached.
+func (m AddressByteaMemo) Bytes(a AddressBytea) ([]byte, error) {
+	if a == "" {
+		return nil, nil
+	}
+	if cached, ok := m[string(a)]; ok {
+		return cached, nil
+	}
+	val, err := a.Value()
+	if err != nil {
+		return nil, err
+	}
+	bytes := val.([]byte)
+	m[string(a)] = bytes
+	return bytes, nil
+}
+
+// NullBytes is Bytes for the nullable wrapper: NULL → (nil, nil).
+func (m AddressByteaMemo) NullBytes(n NullAddressBytea) ([]byte, error) {
+	if !n.Valid {
+		return nil, nil
+	}
+	return m.Bytes(n.AddressBytea)
 }
 
 // HashBytea represents a transaction hash stored as BYTEA in the database.
@@ -626,6 +703,18 @@ const (
 	StateChangeCategoryFlags                StateChangeCategory = "FLAGS"
 	StateChangeCategoryTrustline            StateChangeCategory = "TRUSTLINE"
 	StateChangeCategoryBalanceAuthorization StateChangeCategory = "BALANCE_AUTHORIZATION"
+
+	// Blend v2 lending categories. Each names the on-chain object an account
+	// position changes against, mirroring the core convention (category =
+	// object, reason = action).
+	StateChangeCategoryBlendSupply            StateChangeCategory = "BLEND_SUPPLY"
+	StateChangeCategoryBlendCollateral        StateChangeCategory = "BLEND_COLLATERAL"
+	StateChangeCategoryBlendDebt              StateChangeCategory = "BLEND_DEBT"
+	StateChangeCategoryBlendAuction           StateChangeCategory = "BLEND_AUCTION"
+	StateChangeCategoryBlendEmissions         StateChangeCategory = "BLEND_EMISSIONS"
+	StateChangeCategoryBlendBackstopEmissions StateChangeCategory = "BLEND_BACKSTOP_EMISSIONS"
+	StateChangeCategoryBlendBackstop          StateChangeCategory = "BLEND_BACKSTOP"
+	StateChangeCategoryBlendBackstopQueue     StateChangeCategory = "BLEND_BACKSTOP_QUEUE"
 )
 
 type StateChangeReason string
@@ -642,6 +731,16 @@ const (
 	StateChangeReasonUpdate StateChangeReason = "UPDATE"
 	StateChangeReasonSet    StateChangeReason = "SET"
 	StateChangeReasonClear  StateChangeReason = "CLEAR"
+
+	// Blend v2 lending reasons. Amount-bearing positions reuse CREDIT/DEBIT
+	// (and the queue ADD/REMOVE, defaulted debt BURN); the verbs below cover
+	// actions with no generic equivalent.
+	StateChangeReasonBorrow    StateChangeReason = "BORROW"
+	StateChangeReasonRepay     StateChangeReason = "REPAY"
+	StateChangeReasonFlashLoan StateChangeReason = "FLASH_LOAN"
+	StateChangeReasonBadDebt   StateChangeReason = "BAD_DEBT"
+	StateChangeReasonFill      StateChangeReason = "FILL"
+	StateChangeReasonClaim     StateChangeReason = "CLAIM"
 )
 
 // Flag bitmask constants for encoding/decoding authorization flags.
@@ -743,9 +842,10 @@ func DecodeAccountFlags(bitmask int16) []AccountFlag {
 }
 
 // DecodeTrustlineFlags decodes only the trustline authorization bits of bitmask into
-// TrustlineFlag values, in fixed order. Returns nil when no trustline bits are set.
+// TrustlineFlag values, in fixed order. Returns an empty, non-nil slice when no
+// trustline bits are set, distinguishing an explicit zero bitmask from SQL NULL.
 func DecodeTrustlineFlags(bitmask int16) []TrustlineFlag {
-	var flags []TrustlineFlag
+	flags := make([]TrustlineFlag, 0)
 	for _, fb := range trustlineFlagBits {
 		if bitmask&fb.bit != 0 {
 			flags = append(flags, fb.flag)
@@ -893,6 +993,15 @@ const (
 	StateChangeOrdinalBaseSEP41   int64 = 1 * StateChangeOrdinalNamespaceWidth
 	StateChangeOrdinalBaseBlend   int64 = 2 * StateChangeOrdinalNamespaceWidth
 )
+
+// StateChangeOrdinalBaseByProtocol maps a protocol ID to the emitter base its
+// processor writes under. Readers that scope a filter to one protocol's
+// state changes use it. A processor's StateChangeOrdinalBase must agree with
+// its entry here.
+var StateChangeOrdinalBaseByProtocol = map[string]int64{
+	"SEP41": StateChangeOrdinalBaseSEP41,
+	"BLEND": StateChangeOrdinalBaseBlend,
+}
 
 // Sub-namespace registry within the indexer's emitter namespace.
 //
@@ -1193,5 +1302,48 @@ type TrustlineRemovedChangeModel struct {
 
 // BalanceAuthorizationChangeModel maps to GraphQL BalanceAuthorizationChange: BALANCE_AUTHORIZATION × SET/CLEAR.
 type BalanceAuthorizationChangeModel struct {
+	StateChange
+}
+
+// Blend v2 state-change models. One per concrete GraphQL type; the category
+// names the on-chain object and the reason the action (see the schema docs).
+
+// BlendSupplyChangeModel maps to BlendSupplyChange in the GraphQL schema.
+type BlendSupplyChangeModel struct {
+	StateChange
+}
+
+// BlendCollateralChangeModel maps to BlendCollateralChange in the GraphQL schema.
+type BlendCollateralChangeModel struct {
+	StateChange
+}
+
+// BlendDebtChangeModel maps to BlendDebtChange in the GraphQL schema.
+type BlendDebtChangeModel struct {
+	StateChange
+}
+
+// BlendAuctionChangeModel maps to BlendAuctionChange in the GraphQL schema.
+type BlendAuctionChangeModel struct {
+	StateChange
+}
+
+// BlendEmissionsClaimChangeModel maps to BlendEmissionsClaimChange in the GraphQL schema.
+type BlendEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopEmissionsClaimChangeModel maps to BlendBackstopEmissionsClaimChange in the GraphQL schema.
+type BlendBackstopEmissionsClaimChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopChangeModel maps to BlendBackstopChange in the GraphQL schema.
+type BlendBackstopChangeModel struct {
+	StateChange
+}
+
+// BlendBackstopQueueChangeModel maps to BlendBackstopQueueChange in the GraphQL schema.
+type BlendBackstopQueueChangeModel struct {
 	StateChange
 }

@@ -15,11 +15,9 @@ import (
 	supporthttp "github.com/stellar/go-stellar-sdk/support/http"
 	"github.com/stellar/go-stellar-sdk/support/log"
 
-	"github.com/stellar/wallet-backend/internal/apptracker"
 	"github.com/stellar/wallet-backend/internal/data"
 	sep41data "github.com/stellar/wallet-backend/internal/data/sep41"
 	"github.com/stellar/wallet-backend/internal/db"
-	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
@@ -57,23 +55,22 @@ type Configs struct {
 	// listener. Mirrors the ingest admin server.
 	AdminPort                   int
 	DatabaseURL                 string
-	ServerBaseURL               string
 	ClientAuthPublicKeys        []string
 	ClientAuthMaxTimeoutSeconds int
 	ClientAuthMaxBodySizeBytes  int
 	LogLevel                    logrus.Level
-	SupportedAssets             []entities.Asset
 	NetworkPassphrase           string
 
 	// RPC
 	RPCURL string
 
+	// HiddenContractsFile is the YAML list of contracts the API does not
+	// return; empty uses the list built into the binary.
+	HiddenContractsFile string
+
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
 
 	// DB pool tuning — all default to db.Default* constants when zero.
 	DBMaxConns        int
@@ -107,7 +104,6 @@ type handlerDeps struct {
 	Port                int
 	DatabaseURL         string
 	RequestAuthVerifier auth.HTTPRequestVerifier
-	SupportedAssets     []entities.Asset
 	NetworkPassphrase   string
 
 	// Services
@@ -124,9 +120,6 @@ type handlerDeps struct {
 	// GraphQL
 	GraphQLComplexityLimit      int
 	GraphQLIntrospectionEnabled bool
-
-	// Error Tracker
-	AppTracker apptracker.AppTracker
 }
 
 func Serve(cfg Configs) error {
@@ -193,6 +186,10 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("creating models for Serve: %w", err)
 	}
+	hiddenContracts, err := LoadHiddenContracts(cfg.HiddenContractsFile)
+	if err != nil {
+		return handlerDeps{}, fmt.Errorf("loading hidden contracts: %w", err)
+	}
 
 	requestAuthVerifier, err := buildRequestAuthVerifier(ctx, cfg)
 	if err != nil {
@@ -205,6 +202,9 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		return handlerDeps{}, fmt.Errorf("instantiating rpc service: %w", err)
 	}
 
+	log.Ctx(ctx).Infof("Hiding %d contracts: %v", len(hiddenContracts.Labels()), hiddenContracts.Labels())
+	applyHiddenContracts(models, dbConnectionPool, m.DB, hiddenContracts)
+
 	simulationService, err := services.NewTransactionSimulationService(rpcService, models, cfg.NetworkPassphrase)
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating transaction simulation service: %w", err)
@@ -213,7 +213,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	return handlerDeps{
 		Models:                      models,
 		RequestAuthVerifier:         requestAuthVerifier,
-		SupportedAssets:             cfg.SupportedAssets,
 		Metrics:                     m,
 		RPCService:                  rpcService,
 		SimulationService:           simulationService,
@@ -223,7 +222,6 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 		LiquidityPoolBalanceModel:   models.LiquidityPoolBalance,
 		SEP41BalanceModel:           models.SEP41.Balances,
 		SEP41AllowanceModel:         models.SEP41.Allowances,
-		AppTracker:                  cfg.AppTracker,
 		NetworkPassphrase:           cfg.NetworkPassphrase,
 		GraphQLComplexityLimit:      cfg.GraphQLComplexityLimit,
 		GraphQLIntrospectionEnabled: cfg.GraphQLIntrospectionEnabled,
@@ -252,14 +250,18 @@ func handler(deps handlerDeps) http.Handler {
 
 	// Add metrics middleware first to capture all requests
 	mux.Use(middleware.MetricsMiddleware(deps.Metrics.HTTP))
-	mux.Use(middleware.RecoverHandler(deps.AppTracker))
+	mux.Use(middleware.RecoverHandler())
 
 	mux.Get("/health", httphandler.HealthHandler{
 		Models:     deps.Models,
 		RPCService: deps.RPCService,
-		AppTracker: deps.AppTracker,
 	}.GetHealth)
-	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{}).ServeHTTP)
+	// Unauthenticated scrape endpoint: bound concurrent scrapes and their duration so a
+	// large registry cannot be scraped in parallel for CPU and allocation cost.
+	mux.Get("/api-metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{
+		MaxRequestsInFlight: 5,
+		Timeout:             10 * time.Second,
+	}).ServeHTTP)
 
 	// API routes (conditionally authenticated)
 	mux.Group(func(r chi.Router) {
@@ -267,7 +269,7 @@ func handler(deps handlerDeps) http.Handler {
 		r.Use(middleware.RequestTimeoutMiddleware(requestContextTimeout))
 		// Apply authentication middleware only if auth verifier is configured
 		if deps.RequestAuthVerifier != nil {
-			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.AppTracker, deps.Metrics.Auth))
+			r.Use(middleware.AuthenticationMiddleware(deps.RequestAuthVerifier, deps.Metrics.Auth))
 		}
 
 		r.Route("/graphql", func(r chi.Router) {
@@ -416,4 +418,58 @@ func addComplexityCalculation(config *generated.Config) {
 	}
 	config.Complexity.Transaction.Accounts = accountsListComplexityFunc
 	config.Complexity.Operation.Accounts = accountsListComplexityFunc
+
+	// Nested Blend lists are unpaginated but bounded, so each list level carries its
+	// own cardinality multiplier — nested lists are NOT free-riding under a single
+	// outer multiplier; a full blendPools selection is priced as pools ×
+	// reserves-per-pool. Bounds are on-chain constants where the contract has one
+	// (blend-contracts-v2 @ ba22b487: pool MAX_RESERVES=30, backstop MAX_Q4W_SIZE=20;
+	// an auction's bid/lot asset maps are keyed by the pool's reserve tokens, so
+	// ≤ 30ish entries) and documented assumptions where it doesn't
+	// (pools/backstop-deposits/open-auctions per ACCOUNT have no on-chain cap →
+	// priced at 10, a deliberate pricing assumption, not a runtime truncation — the
+	// resolver always returns every row).
+	blendReservesBound := func(childComplexity int) int { return childComplexity * 30 }
+	config.Complexity.BlendPool.Reserves = blendReservesBound
+	config.Complexity.BlendPoolPosition.Reserves = blendReservesBound
+	config.Complexity.BlendBackstopPosition.Q4w = func(childComplexity int) int { return childComplexity * 20 }
+	config.Complexity.BlendAuction.Bid = blendReservesBound
+	config.Complexity.BlendAuction.Lot = blendReservesBound
+	blendPerAccountBound := func(childComplexity int) int { return childComplexity * 10 }
+	config.Complexity.BlendAccountPositions.Pools = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.Backstop = blendPerAccountBound
+	config.Complexity.BlendAccountPositions.ActiveAuctions = blendPerAccountBound
+	// blendPools is Relay-paginated: pool deployment is permissionless, so the outer
+	// row count is client-declared (first/last, resolver-capped at
+	// maxBlendPoolPageLimit == DefaultPageLimit) rather than assumed — the priced
+	// maximum and the executable maximum coincide.
+	config.Complexity.Query.BlendPools = paginatedQueryComplexityFunc
+	// Query.blendPool (single pool by address) and Account.blendPositions (one object)
+	// each resolve in a single resolver call that issues a fixed number of DB queries no
+	// matter how few fields are selected — there is no dataloader behind either, by
+	// design — so that flat cost is charged here. The constants are that query count:
+	// blendPositions runs three errgroup waves of 6, 4 and 3 (13 queries); blendPool runs
+	// its own pool lookup plus the pool catalog's 5-query wave and the reserve-asset
+	// metadata read (7 queries). Pricing them means nested repetition — an account-history
+	// page selecting stateChanges → account → blendPositions resolves one of these per
+	// state-change row — is charged its real fan-out instead of the default 1. The cost is
+	// additive, not multiplicative, so list depth is still charged exactly once: the
+	// cardinality lives on the list fields inside these objects, and an outer multiplier
+	// would double-charge them.
+	config.Complexity.Account.BlendPositions = func(childComplexity int) int { return childComplexity + 13 }
+	config.Complexity.Query.BlendPool = func(childComplexity int, _ string) int { return childComplexity + 7 }
+
+	// Worst case with every field selected (complexity_test.go locks the multipliers;
+	// counts follow the schema: BlendReserve 17 scalars, BlendPool 13 scalars,
+	// BlendReservePosition 18, BlendPoolPosition 7, BlendBackstopPosition 7, BlendQ4W 4,
+	// BlendAuction 3 + bid/lot(2 each); the connection wrapper adds edges + node +
+	// cursor + pageInfo + 4 PageInfo scalars = 8 around each BlendPool node):
+	//   blendPools:     50 × (1 + 1 + 1 + (13 + 30×17) + 1 + 4) = 50 × 531 = 26,550
+	//   blendPositions: 10×(7 + 30×18) + 10×(7 + 20×4) + 10×(3 + 30×2 + 30×2) + 1 + 13
+	//                   = 5,470 + 870 + 1,230 + 1 + 13 = 7,584
+	// Both exceed a 6,000 complexity limit for the FULL selection — deliberate: the
+	// limit must be raised deployment-side to admit them (see the PR notes), or clients
+	// select fewer fields. None of this touches AccountTransactionEdge.operations/
+	// stateChanges or any other existing entry above — those stay exactly as budgeted
+	// for the freighter full-detail query.
 }

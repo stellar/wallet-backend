@@ -15,9 +15,9 @@ import (
 // Common contract for every token balance held by an account.
 type Balance interface {
 	IsBalance()
-	// Balance amount, as a decimal string.
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 	GetBalance() string
-	// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 	GetTokenID() string
 	// Classification of the token.
 	GetTokenType() TokenType
@@ -64,7 +64,7 @@ type BaseStateChange interface {
 	GetLedgerCreatedAt() time.Time
 	// Sequence number of the ledger that produced this change.
 	GetLedgerNumber() uint32
-	// Account whose state changed.
+	// Account or contract whose state changed.
 	GetAccount() *types.Account
 	// Operation that caused this change. Non-null on every concrete type except
 	// BalanceChange, where it is null on transaction-fee rows (fees are charged per
@@ -76,9 +76,9 @@ type BaseStateChange interface {
 
 // Filters for an account's state changes; all conditions are ANDed.
 type AccountStateChangeFilterInput struct {
-	// Only state changes from the transaction with this hash.
+	// Only state changes from the transaction with this hash (64 hex characters). Any other format returns an INVALID_TRANSACTION_HASH error.
 	TransactionHash *string `json:"transactionHash,omitempty"`
-	// Only state changes from the operation with this ID.
+	// Only state changes from the operation with this ID (TOID).
 	OperationID *int64 `json:"operationId,omitempty"`
 	// Only state changes with this category.
 	Category *types.StateChangeCategory `json:"category,omitempty"`
@@ -88,28 +88,283 @@ type AccountStateChangeFilterInput struct {
 
 // Relay-style page of an account's transactions.
 type AccountTransactionConnection struct {
-	Edges    []*types.AccountTransactionEdge `json:"edges"`
-	PageInfo *PageInfo                       `json:"pageInfo"`
+	// Transactions in this page, in ledger order (oldest first).
+	Edges []*types.AccountTransactionEdge `json:"edges"`
+	// Cursors and page flags for fetching adjacent pages.
+	PageInfo *PageInfo `json:"pageInfo"`
 }
 
 // Relay-style page of an account's token balances.
 type BalanceConnection struct {
-	Edges    []*BalanceEdge `json:"edges"`
-	PageInfo *PageInfo      `json:"pageInfo"`
+	// Balances in this page, in the token-type order described on `Account.balances`.
+	Edges []*BalanceEdge `json:"edges"`
+	// Cursors and page flags for fetching adjacent pages.
+	PageInfo *PageInfo `json:"pageInfo"`
 }
 
 // One balance in a page, with its pagination cursor.
 type BalanceEdge struct {
-	Node   Balance `json:"node"`
-	Cursor string  `json:"cursor"`
+	// The balance. Select type-specific fields with inline fragments.
+	Node Balance `json:"node"`
+	// Opaque cursor for this edge. Pass it as `after` or `before`.
+	Cursor string `json:"cursor"`
+}
+
+// BlendAccountPositions aggregates one account's Blend v2 exposure across every
+// pool it has touched. backstopClaimed lists lifetime backstop-emission claims
+// per backstop. Unlike claimedBlnd (per pool), the on-chain backstop claim event
+// carries no pool address, so these totals are reported per backstop, not per
+// pool.
+type BlendAccountPositions struct {
+	Pools           []*BlendPoolPosition     `json:"pools"`
+	Backstop        []*BlendBackstopPosition `json:"backstop"`
+	BackstopClaimed []*BlendBackstopClaimed  `json:"backstopClaimed"`
+	// Active Dutch auctions where this account is the auction owner: being
+	// liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+	// address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+	// Sorted by (poolAddress, auctionType).
+	ActiveAuctions []*BlendAuction `json:"activeAuctions"`
+}
+
+// BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+// and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+// noted per field below.
+type BlendAuction struct {
+	PoolAddress string           `json:"poolAddress"`
+	PoolName    *string          `json:"poolName,omitempty"`
+	AuctionType BlendAuctionType `json:"auctionType"`
+	// Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens.
+	Bid []*BlendAuctionAmount `json:"bid"`
+	// Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying.
+	Lot []*BlendAuctionAmount `json:"lot"`
+	// Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down).
+	StartBlock int32 `json:"startBlock"`
+}
+
+// BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot.
+type BlendAuctionAmount struct {
+	AssetContractID string `json:"assetContractId"`
+	// Raw on-chain integer amount at the asset's native decimals, NOT a USD value.
+	Amount string `json:"amount"`
+}
+
+// BlendBackstopClaimed is an account's lifetime backstop-emission claims from
+// one backstop, in that backstop's Comet LP tokens (7 decimals): the backstop
+// converts claimed BLND into its LP token and re-deposits it, so LP tokens are
+// what the claimer receives. Each backstop has its own LP token, so totals from
+// different versions are never summed.
+type BlendBackstopClaimed struct {
+	Version  BlendVersion `json:"version"`
+	LpTokens string       `json:"lpTokens"`
+}
+
+// BlendBackstopPosition is an account's backstop deposit in one pool. The
+// backstop is a single protocol-wide contract holding each pool's first-loss
+// capital separately, so exposure is inherently per-pool (poolAddress) even
+// though the backstop is not the pool contract itself — one
+// BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+// backstop share balance; lpTokens/usdValue value the whole deposit — active
+// plus queued-for-withdrawal shares — since queued shares keep earning pool
+// interest and remain slashable first-loss capital until actually withdrawn.
+// emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+// emission stream for this pool; it accrues on active shares only (queued
+// shares earn no emissions).
+type BlendBackstopPosition struct {
+	PoolAddress string  `json:"poolAddress"`
+	PoolName    *string `json:"poolName,omitempty"`
+	// The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes.
+	Version *BlendVersion `json:"version,omitempty"`
+	Shares  string        `json:"shares"`
+	// The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
+	// Null when that rate is unknown: the pool's blend_backstop_pools balance can
+	// be absent or zeroed (an emissions-only write creates the row with zero
+	// balance columns) while this account provably holds shares — a conversion
+	// reported as "0" there would be indistinguishable from a closed position.
+	LpTokens            *string     `json:"lpTokens,omitempty"`
+	UsdValue            *float64    `json:"usdValue,omitempty"`
+	Q4w                 []*BlendQ4w `json:"q4w"`
+	EmissionsEarnedBlnd string      `json:"emissionsEarnedBlnd"`
+	EmissionsEarnedUsd  *float64    `json:"emissionsEarnedUsd,omitempty"`
+}
+
+// BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+// any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+// suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+// the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+// the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+// and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+// across reserves; netApy additionally folds in each reserve's
+// emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+// emissions, not netted against the pool's borrow side. Both are nil if any
+// priced reserve's supplyApy is nil, since weighting that reserve in at 0%
+// yield would report a number that looks real and isn't.
+type BlendPool struct {
+	Address string  `json:"address"`
+	Name    *string `json:"name,omitempty"`
+	// The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes.
+	Version *BlendVersion `json:"version,omitempty"`
+	// Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+	// (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+	// SETUP reject both. Null until the pool's config entry has been ingested, and
+	// also null for an unrecognized on-chain status value.
+	Status           *BlendPoolStatus `json:"status,omitempty"`
+	OracleContractID *string          `json:"oracleContractId,omitempty"`
+	// Share of borrower interest routed to the pool's backstop, as 7-decimal
+	// fixed point (4750000 = 47.5%).
+	BackstopRate *int32          `json:"backstopRate,omitempty"`
+	MaxPositions *int32          `json:"maxPositions,omitempty"`
+	SuppliedUsd  *float64        `json:"suppliedUsd,omitempty"`
+	BorrowedUsd  *float64        `json:"borrowedUsd,omitempty"`
+	BackstopUsd  *float64        `json:"backstopUsd,omitempty"`
+	InterestApy  *float64        `json:"interestApy,omitempty"`
+	NetApy       *float64        `json:"netApy,omitempty"`
+	Reserves     []*BlendReserve `json:"reserves"`
+	// Pool admin address (G... or C...). Distinguishes owned pools (admin can
+	// retune parameters) from standard pools whose admin is disabled. Null when
+	// not yet observed.
+	Admin *string `json:"admin,omitempty"`
+	// Whether this pool is in the backstop's reward zone and therefore receives BLND emissions.
+	InRewardZone bool `json:"inRewardZone"`
+}
+
+// Relay-style page of the Blend v2 pool catalog.
+type BlendPoolConnection struct {
+	Edges    []*BlendPoolEdge `json:"edges"`
+	PageInfo *PageInfo        `json:"pageInfo"`
+}
+
+// One Blend v2 pool in a page, with its pagination cursor.
+type BlendPoolEdge struct {
+	Node   *BlendPool `json:"node"`
+	Cursor string     `json:"cursor"`
+}
+
+// BlendPoolPosition rolls up an account's reserve positions within one pool.
+type BlendPoolPosition struct {
+	PoolAddress string   `json:"poolAddress"`
+	PoolName    *string  `json:"poolName,omitempty"`
+	UsdValue    *float64 `json:"usdValue,omitempty"`
+	SuppliedUsd *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd *float64 `json:"borrowedUsd,omitempty"`
+	// Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+	// PositionsEstimate convention shown by the Blend UI:
+	// (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+	// 0 for a position with debt but no supply (bad debt is forgiven). Null when
+	// any contributing reserve is missing a fresh oracle price, or has a null
+	// supplyApy/borrowApy of its own.
+	NetApy *float64 `json:"netApy,omitempty"`
+	// Lifetime BLND this account has claimed from this pool's reserve emissions.
+	ClaimedBlnd string                  `json:"claimedBlnd"`
+	Reserves    []*BlendReservePosition `json:"reserves"`
+}
+
+// BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+// seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+// through the same shares→LP→USD conversion as the position's totals, and go
+// null under the same unknown-rate condition as the position's lpTokens.
+type BlendQ4w struct {
+	Amount     string   `json:"amount"`
+	Expiration int64    `json:"expiration"`
+	LpTokens   *string  `json:"lpTokens,omitempty"`
+	UsdValue   *float64 `json:"usdValue,omitempty"`
+}
+
+// BlendReserve is a pool-wide reserve catalog view: current utilization,
+// supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+// token amounts, all as of "now" (rates are projected forward from the
+// reserve's last on-chain update).
+type BlendReserve struct {
+	AssetContractID string   `json:"assetContractId"`
+	TokenName       *string  `json:"tokenName,omitempty"`
+	TokenSymbol     *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals   *int32   `json:"tokenDecimals,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	Utilization     *float64 `json:"utilization,omitempty"`
+	// Compounded interest rate for each side. Null when the reserve's rate curve
+	// compounds past what a Float can hold — reserve config is permissionless, so
+	// an arbitrarily steep curve is representable on-chain but not here.
+	SupplyApy          *float64 `json:"supplyApy,omitempty"`
+	BorrowApy          *float64 `json:"borrowApy,omitempty"`
+	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
+	EmissionsBorrowApr *float64 `json:"emissionsBorrowApr,omitempty"`
+	SuppliedTokens     string   `json:"suppliedTokens"`
+	BorrowedTokens     string   `json:"borrowedTokens"`
+	SuppliedUsd        *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd        *float64 `json:"borrowedUsd,omitempty"`
+	// Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral.
+	CFactor *int32 `json:"cFactor,omitempty"`
+	// Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports.
+	LFactor  *int32   `json:"lFactor,omitempty"`
+	PriceUsd *float64 `json:"priceUsd,omitempty"`
+}
+
+// BlendReservePosition is an account's position in one reserve of a pool.
+// suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+// projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+// amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+// the reserve's b/d emission streams; claimed history is tracked per pool only
+// (see BlendPoolPosition.claimedBlnd), not per reserve.
+type BlendReservePosition struct {
+	AssetContractID  string   `json:"assetContractId"`
+	TokenName        *string  `json:"tokenName,omitempty"`
+	TokenSymbol      *string  `json:"tokenSymbol,omitempty"`
+	TokenDecimals    *int32   `json:"tokenDecimals,omitempty"`
+	SuppliedTokens   string   `json:"suppliedTokens"`
+	CollateralTokens string   `json:"collateralTokens"`
+	BorrowedTokens   string   `json:"borrowedTokens"`
+	SuppliedUsd      *float64 `json:"suppliedUsd,omitempty"`
+	BorrowedUsd      *float64 `json:"borrowedUsd,omitempty"`
+	// Compounded interest rate for each side. Null when the reserve's rate curve
+	// compounds past what a Float can hold — reserve config is permissionless, so
+	// an arbitrarily steep curve is representable on-chain but not here.
+	SupplyApy *float64 `json:"supplyApy,omitempty"`
+	BorrowApy *float64 `json:"borrowApy,omitempty"`
+	// The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+	// value over the side's pool-wide supplied USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsSupplyApr *float64 `json:"emissionsSupplyApr,omitempty"`
+	// The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+	// value over the side's pool-wide borrowed USD, NOT scaled to this account's
+	// holding. 0 when no active stream (unconfigured or expired), null when the
+	// stream is active but the reserve or BLND price is unavailable.
+	EmissionsBorrowApr *float64 `json:"emissionsBorrowApr,omitempty"`
+	// Lifetime interest earned on the supply side of this reserve: the current
+	// underlying value of the account's supply+collateral bTokens (at projected,
+	// as-of-now rates) minus the net principal it contributed — a cost basis
+	// tracked across the account's whole deposit/withdraw history. Token-denominated:
+	// a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+	// priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+	// collateral's underlying value at the reserve's rate when the fill is
+	// processed, so collateral lost to a fill cancels out instead of being reported
+	// as earned interest. Survives a full exit: a position zeroed to no tokens still
+	// reports the earnings realized up to the exit (current value 0 minus the
+	// negative leftover cost basis). May be slightly negative from cost-basis dust
+	// truncation or bRate movement after an exit.
+	InterestEarned string `json:"interestEarned"`
+	// Lifetime interest paid on the debt side of this reserve, mirroring
+	// interestEarned: the current underlying value of the account's liability
+	// dTokens (at projected, as-of-now rates) minus its net borrowed principal
+	// (cost basis tracked from borrow/repay history). Token-denominated (raw
+	// integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+	// full exit the same way. May be slightly negative for the same dust/rate
+	// reasons.
+	InterestPaid        string   `json:"interestPaid"`
+	EmissionsEarnedBlnd string   `json:"emissionsEarnedBlnd"`
+	EmissionsEarnedUsd  *float64 `json:"emissionsEarnedUsd,omitempty"`
+	// The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD.
+	PriceUsd *float64 `json:"priceUsd,omitempty"`
 }
 
 // An account's liquidity-pool share holding. `balance` is the account's pool
 // shares and `tokenId` is the pool ID; `reserves` carries the pool's constituent
 // assets and amounts.
 type LiquidityPoolBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	Balance string `json:"balance"`
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
+	TokenID string `json:"tokenId"`
+	// Classification of the token.
 	TokenType TokenType `json:"tokenType"`
 	// The pool's constituent assets and reserve amounts.
 	Reserves []*LiquidityPoolReserve `json:"reserves"`
@@ -119,10 +374,10 @@ type LiquidityPoolBalance struct {
 
 func (LiquidityPoolBalance) IsBalance() {}
 
-// Balance amount, as a decimal string.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this LiquidityPoolBalance) GetBalance() string { return this.Balance }
 
-// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 func (this LiquidityPoolBalance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
@@ -130,24 +385,28 @@ func (this LiquidityPoolBalance) GetTokenType() TokenType { return this.TokenTyp
 
 // One constituent asset of a liquidity pool and its reserve amount.
 type LiquidityPoolReserve struct {
-	// Canonical asset name (code:issuer, or 'native').
+	// Canonical asset name: CODE:ISSUER, or native for XLM.
 	Asset string `json:"asset"`
-	// Reserve amount, as a decimal string.
+	// Amount of this asset in the pool, with 7 decimal places.
 	Amount string `json:"amount"`
 }
 
 // The account's native XLM balance.
 type NativeBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	Balance string `json:"balance"`
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
+	TokenID string `json:"tokenId"`
+	// Classification of the token.
 	TokenType TokenType `json:"tokenType"`
-	// Base reserve requirement (excludes liabilities):
+	// Minimum XLM balance the account must hold, with 7 decimal places. It is the
+	// base reserve requirement and excludes liabilities:
 	// (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
 	// Spendable balance = balance - minimumBalance - sellingLiabilities.
 	MinimumBalance string `json:"minimumBalance"`
-	// XLM locked in open buy offers.
+	// XLM locked in open buy offers, with 7 decimal places.
 	BuyingLiabilities string `json:"buyingLiabilities"`
-	// XLM locked in open sell offers.
+	// XLM locked in open sell offers, with 7 decimal places.
 	SellingLiabilities string `json:"sellingLiabilities"`
 	// Number of subentries on the account (trustlines, offers, data entries, signers).
 	NumSubentries uint32 `json:"numSubentries"`
@@ -157,10 +416,10 @@ type NativeBalance struct {
 
 func (NativeBalance) IsBalance() {}
 
-// Balance amount, as a decimal string.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this NativeBalance) GetBalance() string { return this.Balance }
 
-// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 func (this NativeBalance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
@@ -168,36 +427,47 @@ func (this NativeBalance) GetTokenType() TokenType { return this.TokenType }
 
 // Relay-style page of operations.
 type OperationConnection struct {
-	Edges    []*OperationEdge `json:"edges"`
-	PageInfo *PageInfo        `json:"pageInfo"`
+	// Operations in this page, in ledger order (oldest first).
+	Edges []*OperationEdge `json:"edges"`
+	// Cursors and page flags for fetching adjacent pages.
+	PageInfo *PageInfo `json:"pageInfo"`
 }
 
 // One operation in a page, with its pagination cursor.
 type OperationEdge struct {
-	Node   *types.Operation `json:"node"`
-	Cursor string           `json:"cursor"`
+	// The operation.
+	Node *types.Operation `json:"node"`
+	// Opaque cursor for this edge. Pass it as `after` or `before`.
+	Cursor string `json:"cursor"`
 }
 
 // Relay-style pagination metadata; cursors are opaque strings.
 type PageInfo struct {
-	StartCursor     *string `json:"startCursor,omitempty"`
-	EndCursor       *string `json:"endCursor,omitempty"`
-	HasNextPage     bool    `json:"hasNextPage"`
-	HasPreviousPage bool    `json:"hasPreviousPage"`
+	// Cursor of the first edge in this page; null when the page is empty.
+	StartCursor *string `json:"startCursor,omitempty"`
+	// Cursor of the last edge in this page; null when the page is empty.
+	EndCursor *string `json:"endCursor,omitempty"`
+	// Forward paging (`first`, or no paging arguments): true when more edges follow this page. Backward paging (`last`): true whenever `before` was given.
+	HasNextPage bool `json:"hasNextPage"`
+	// Backward paging (`last`): true when more edges precede this page. Forward paging: true whenever `after` was given.
+	HasPreviousPage bool `json:"hasPreviousPage"`
 }
 
-// Root queries. Entities not found return null.
+// Root queries. All lookups are read-only.
 type Query struct {
 }
 
 // A Stellar Asset Contract balance held by a contract address.
 type SACBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	Balance string `json:"balance"`
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
+	TokenID string `json:"tokenId"`
+	// Classification of the token.
 	TokenType TokenType `json:"tokenType"`
 	// Asset code of the wrapped classic asset.
 	Code string `json:"code"`
-	// Issuer address of the wrapped classic asset.
+	// Issuer account address (G...) of the wrapped classic asset.
 	Issuer string `json:"issuer"`
 	// Number of decimal places in the balance amount.
 	Decimals int32 `json:"decimals"`
@@ -209,10 +479,10 @@ type SACBalance struct {
 
 func (SACBalance) IsBalance() {}
 
-// Balance amount, as a decimal string.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this SACBalance) GetBalance() string { return this.Balance }
 
-// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 func (this SACBalance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
@@ -220,13 +490,13 @@ func (this SACBalance) GetTokenType() TokenType { return this.TokenType }
 
 // An approve() grant issued by a SEP-41 token holder.
 type SEP41Allowance struct {
-	// Token holder that granted the allowance.
+	// Token holder (G... or C...) that granted the allowance.
 	Owner string `json:"owner"`
-	// Address authorized to spend from the holder's balance.
+	// Address (G... or C...) authorized to spend from the holder's balance.
 	Spender string `json:"spender"`
-	// Contract ID of the token.
+	// Contract ID (C...) of the token.
 	TokenID string `json:"tokenId"`
-	// Approved allowance, as a decimal string in the token's smallest unit.
+	// Approved allowance, as an integer string in the token's smallest unit.
 	Amount string `json:"amount"`
 	// Last ledger sequence at which the allowance is live.
 	ExpirationLedger uint32 `json:"expirationLedger"`
@@ -236,20 +506,27 @@ type SEP41Allowance struct {
 
 // Relay-style page of SEP-41 allowances.
 type SEP41AllowanceConnection struct {
-	Edges    []*SEP41AllowanceEdge `json:"edges"`
-	PageInfo *PageInfo             `json:"pageInfo"`
+	// Allowances in this page, ordered by spender.
+	Edges []*SEP41AllowanceEdge `json:"edges"`
+	// Cursors and page flags for fetching adjacent pages.
+	PageInfo *PageInfo `json:"pageInfo"`
 }
 
 // One SEP-41 allowance in a page, with its pagination cursor.
 type SEP41AllowanceEdge struct {
-	Node   *SEP41Allowance `json:"node"`
-	Cursor string          `json:"cursor"`
+	// The allowance.
+	Node *SEP41Allowance `json:"node"`
+	// Opaque cursor for this edge. Pass it as `after` or `before`.
+	Cursor string `json:"cursor"`
 }
 
 // A pure SEP-41 (non-SAC) contract token balance.
 type SEP41Balance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	Balance string `json:"balance"`
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
+	TokenID string `json:"tokenId"`
+	// Classification of the token.
 	TokenType TokenType `json:"tokenType"`
 	// Token name reported by the contract; null when the contract does not expose one.
 	Name *string `json:"name,omitempty"`
@@ -263,10 +540,10 @@ type SEP41Balance struct {
 
 func (SEP41Balance) IsBalance() {}
 
-// Balance amount, as a decimal string.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this SEP41Balance) GetBalance() string { return this.Balance }
 
-// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 func (this SEP41Balance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
@@ -772,32 +1049,39 @@ func (this SimulatedTrustlineUpdatedChange) GetAccountAddress() string { return 
 
 // Relay-style page of state changes.
 type StateChangeConnection struct {
-	Edges    []*StateChangeEdge `json:"edges"`
-	PageInfo *PageInfo          `json:"pageInfo"`
+	// State changes in this page, in ledger order (oldest first).
+	Edges []*StateChangeEdge `json:"edges"`
+	// Cursors and page flags for fetching adjacent pages.
+	PageInfo *PageInfo `json:"pageInfo"`
 }
 
 // One state change in a page, with its pagination cursor.
 type StateChangeEdge struct {
-	Node   BaseStateChange `json:"node"`
-	Cursor string          `json:"cursor"`
+	// The state change. Select concrete-type fields with inline fragments.
+	Node BaseStateChange `json:"node"`
+	// Opaque cursor for this edge. Pass it as `after` or `before`.
+	Cursor string `json:"cursor"`
 }
 
 // A classic Stellar asset held via a trustline.
 type TrustlineBalance struct {
-	Balance   string    `json:"balance"`
-	TokenID   string    `json:"tokenId"`
+	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
+	Balance string `json:"balance"`
+	// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
+	TokenID string `json:"tokenId"`
+	// Classification of the token.
 	TokenType TokenType `json:"tokenType"`
-	// Asset code.
+	// Asset code (1-12 characters).
 	Code string `json:"code"`
-	// Asset issuer address.
+	// Issuer account address (G...).
 	Issuer string `json:"issuer"`
 	// Classic asset type, determined by the asset code length.
 	AssetType AssetType `json:"assetType"`
-	// Trustline limit, as a decimal string.
+	// Trustline limit, with 7 decimal places.
 	Limit string `json:"limit"`
-	// Amount locked in open buy offers.
+	// Amount locked in open buy offers, with 7 decimal places.
 	BuyingLiabilities string `json:"buyingLiabilities"`
-	// Amount locked in open sell offers.
+	// Amount locked in open sell offers, with 7 decimal places.
 	SellingLiabilities string `json:"sellingLiabilities"`
 	// Ledger in which this trustline was last modified.
 	LastModifiedLedger uint32 `json:"lastModifiedLedger"`
@@ -809,10 +1093,10 @@ type TrustlineBalance struct {
 
 func (TrustlineBalance) IsBalance() {}
 
-// Balance amount, as a decimal string.
+// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
 func (this TrustlineBalance) GetBalance() string { return this.Balance }
 
-// Identifier of the token: a contract ID, or the liquidity pool ID for pool shares.
+// Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares.
 func (this TrustlineBalance) GetTokenID() string { return this.TokenID }
 
 // Classification of the token.
@@ -871,6 +1155,195 @@ func (e *AssetType) UnmarshalJSON(b []byte) error {
 }
 
 func (e AssetType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which object a Blend v2 Dutch auction sells off.
+type BlendAuctionType string
+
+const (
+	// A user's collateral, sold to cover their debt.
+	BlendAuctionTypeUserLiquidation BlendAuctionType = "USER_LIQUIDATION"
+	// Backstop LP tokens, sold to cover debt socialized to the backstop.
+	BlendAuctionTypeBadDebt BlendAuctionType = "BAD_DEBT"
+	// Accrued pool interest, sold for backstop LP tokens.
+	BlendAuctionTypeInterest BlendAuctionType = "INTEREST"
+)
+
+var AllBlendAuctionType = []BlendAuctionType{
+	BlendAuctionTypeUserLiquidation,
+	BlendAuctionTypeBadDebt,
+	BlendAuctionTypeInterest,
+}
+
+func (e BlendAuctionType) IsValid() bool {
+	switch e {
+	case BlendAuctionTypeUserLiquidation, BlendAuctionTypeBadDebt, BlendAuctionTypeInterest:
+		return true
+	}
+	return false
+}
+
+func (e BlendAuctionType) String() string {
+	return string(e)
+}
+
+func (e *BlendAuctionType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendAuctionType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendAuctionType", str)
+	}
+	return nil
+}
+
+func (e BlendAuctionType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendAuctionType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendAuctionType) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// BlendPoolStatus is a pool's operational status. On-chain encoding:
+// 0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+// 5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+// borrowing; 4-6 reject both.
+type BlendPoolStatus string
+
+const (
+	BlendPoolStatusAdminActive BlendPoolStatus = "ADMIN_ACTIVE"
+	BlendPoolStatusActive      BlendPoolStatus = "ACTIVE"
+	BlendPoolStatusAdminOnIce  BlendPoolStatus = "ADMIN_ON_ICE"
+	BlendPoolStatusOnIce       BlendPoolStatus = "ON_ICE"
+	BlendPoolStatusAdminFrozen BlendPoolStatus = "ADMIN_FROZEN"
+	BlendPoolStatusFrozen      BlendPoolStatus = "FROZEN"
+	BlendPoolStatusSetup       BlendPoolStatus = "SETUP"
+)
+
+var AllBlendPoolStatus = []BlendPoolStatus{
+	BlendPoolStatusAdminActive,
+	BlendPoolStatusActive,
+	BlendPoolStatusAdminOnIce,
+	BlendPoolStatusOnIce,
+	BlendPoolStatusAdminFrozen,
+	BlendPoolStatusFrozen,
+	BlendPoolStatusSetup,
+}
+
+func (e BlendPoolStatus) IsValid() bool {
+	switch e {
+	case BlendPoolStatusAdminActive, BlendPoolStatusActive, BlendPoolStatusAdminOnIce, BlendPoolStatusOnIce, BlendPoolStatusAdminFrozen, BlendPoolStatusFrozen, BlendPoolStatusSetup:
+		return true
+	}
+	return false
+}
+
+func (e BlendPoolStatus) String() string {
+	return string(e)
+}
+
+func (e *BlendPoolStatus) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendPoolStatus(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendPoolStatus", str)
+	}
+	return nil
+}
+
+func (e BlendPoolStatus) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendPoolStatus) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendPoolStatus) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// BlendVersion is the Blend deployment a backstop belongs to. V2 is the original
+// deployment; V2_1 is the 2026-09-30 redeploy with the patched Comet LP token.
+// Both are indexed. Values for V2 backstop positions reflect the old Comet
+// pool's on-chain state after the 2026-08-25 incident.
+type BlendVersion string
+
+const (
+	BlendVersionV2   BlendVersion = "V2"
+	BlendVersionV2_1 BlendVersion = "V2_1"
+)
+
+var AllBlendVersion = []BlendVersion{
+	BlendVersionV2,
+	BlendVersionV2_1,
+}
+
+func (e BlendVersion) IsValid() bool {
+	switch e {
+	case BlendVersionV2, BlendVersionV2_1:
+		return true
+	}
+	return false
+}
+
+func (e BlendVersion) String() string {
+	return string(e)
+}
+
+func (e *BlendVersion) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = BlendVersion(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid BlendVersion", str)
+	}
+	return nil
+}
+
+func (e BlendVersion) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *BlendVersion) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e BlendVersion) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

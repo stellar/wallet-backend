@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"iter"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -29,18 +30,25 @@ import (
 
 // Test helpers
 
-func makeContractCodeChange(hash xdr.Hash, code []byte) ingest.Change {
-	return ingest.Change{
-		Type: xdr.LedgerEntryTypeContractCode,
-		Post: &xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractCode,
-				ContractCode: &xdr.ContractCodeEntry{
-					Hash: hash,
-					Code: code,
-				},
+// makeContractCodeEntry builds a ContractCode ledger entry. The live checkpoint reader
+// wraps it in an ingest.Change; the hot-archive iterator yields it bare.
+func makeContractCodeEntry(hash xdr.Hash, code []byte) xdr.LedgerEntry {
+	return xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractCode,
+			ContractCode: &xdr.ContractCodeEntry{
+				Hash: hash,
+				Code: code,
 			},
 		},
+	}
+}
+
+func makeContractCodeChange(hash xdr.Hash, code []byte) ingest.Change {
+	entry := makeContractCodeEntry(hash, code)
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractCode,
+		Post: &entry,
 	}
 }
 
@@ -59,28 +67,25 @@ func makeAccountChange() ingest.Change {
 	}
 }
 
-// makeContractInstanceChange builds an ingest.Change for a ContractData entry with
+// makeContractInstanceEntry builds a ContractData ledger entry with
 // ScvLedgerKeyContractInstance key and a WASM executable (non-SAC).
-func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest.Change {
-	return ingest.Change{
-		Type: xdr.LedgerEntryTypeContractData,
-		Post: &xdr.LedgerEntry{
-			Data: xdr.LedgerEntryData{
-				Type: xdr.LedgerEntryTypeContractData,
-				ContractData: &xdr.ContractDataEntry{
-					Contract: xdr.ScAddress{
-						Type:       xdr.ScAddressTypeScAddressTypeContract,
-						ContractId: (*xdr.ContractId)(&contractHash),
-					},
-					Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
-					Durability: xdr.ContractDataDurabilityPersistent,
-					Val: xdr.ScVal{
-						Type: xdr.ScValTypeScvContractInstance,
-						Instance: &xdr.ScContractInstance{
-							Executable: xdr.ContractExecutable{
-								Type:     xdr.ContractExecutableTypeContractExecutableWasm,
-								WasmHash: &wasmHash,
-							},
+func makeContractInstanceEntry(contractHash [32]byte, wasmHash xdr.Hash) xdr.LedgerEntry {
+	return xdr.LedgerEntry{
+		Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeContractData,
+			ContractData: &xdr.ContractDataEntry{
+				Contract: xdr.ScAddress{
+					Type:       xdr.ScAddressTypeScAddressTypeContract,
+					ContractId: (*xdr.ContractId)(&contractHash),
+				},
+				Key:        xdr.ScVal{Type: xdr.ScValTypeScvLedgerKeyContractInstance},
+				Durability: xdr.ContractDataDurabilityPersistent,
+				Val: xdr.ScVal{
+					Type: xdr.ScValTypeScvContractInstance,
+					Instance: &xdr.ScContractInstance{
+						Executable: xdr.ContractExecutable{
+							Type:     xdr.ContractExecutableTypeContractExecutableWasm,
+							WasmHash: &wasmHash,
 						},
 					},
 				},
@@ -89,10 +94,62 @@ func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest
 	}
 }
 
+// makeContractInstanceChange builds an ingest.Change for a ContractData entry with
+// ScvLedgerKeyContractInstance key and a WASM executable (non-SAC).
+func makeContractInstanceChange(contractHash [32]byte, wasmHash xdr.Hash) ingest.Change {
+	entry := makeContractInstanceEntry(contractHash, wasmHash)
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeContractData,
+		Post: &entry,
+	}
+}
+
+// makeSACInstanceEntry builds a Stellar-Asset-Contract instance ledger entry. The
+// contract ID is the one the asset derives under passphrase, which is what
+// sac.AssetFromContractData checks before reporting the entry as a SAC.
+func makeSACInstanceEntry(t *testing.T, code, issuer, passphrase string) xdr.LedgerEntry {
+	t.Helper()
+
+	asset, err := xdr.NewCreditAsset(code, issuer)
+	require.NoError(t, err)
+	contractID, err := asset.ContractID(passphrase)
+	require.NoError(t, err)
+	data, err := sac.AssetToContractData(false, code, issuer, contractID)
+	require.NoError(t, err)
+
+	return xdr.LedgerEntry{Data: data}
+}
+
+// hotArchiveIterFromEntries builds a hotArchiveIterFactory yielding the given entries,
+// standing in for the SDK's hot-archive bucket-list iterator. Called with no entries it
+// yields nothing, which is the checkpoint fixture's default.
+func hotArchiveIterFromEntries(entries ...xdr.LedgerEntry) hotArchiveIterFactory {
+	return func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) iter.Seq2[xdr.LedgerEntry, error] {
+		return func(yield func(xdr.LedgerEntry, error) bool) {
+			for _, entry := range entries {
+				if !yield(entry, nil) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// hotArchiveIterError builds a hotArchiveIterFactory whose iterator fails on its first
+// yield, the shape a mid-stream bucket read error takes.
+func hotArchiveIterError(err error) hotArchiveIterFactory {
+	return func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) iter.Seq2[xdr.LedgerEntry, error] {
+		return func(yield func(xdr.LedgerEntry, error) bool) {
+			yield(xdr.LedgerEntry{}, err)
+		}
+	}
+}
+
 // checkpointTestFixture holds a checkpointService and all mocked dependencies.
 type checkpointTestFixture struct {
 	svc                       *checkpointService
 	reader                    *ChangeReaderMock
+	archive                   *HistoryArchiveMock
 	trustlineAssetModel       *wbdata.TrustlineAssetModelMock
 	trustlineBalanceModel     *wbdata.TrustlineBalanceModelMock
 	nativeBalanceModel        *wbdata.NativeBalanceModelMock
@@ -129,9 +186,11 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 	protocolWasmModelMock := wbdata.NewProtocolWasmsModelMock(t)
 	protocolContractsModelMock := wbdata.NewProtocolContractsModelMock(t)
 
+	archiveMock := &HistoryArchiveMock{}
+
 	svc := &checkpointService{
 		db:                        dbPool,
-		archive:                   &HistoryArchiveMock{},
+		archive:                   archiveMock,
 		trustlineAssetModel:       trustlineAssetModelMock,
 		trustlineBalanceModel:     trustlineBalanceModelMock,
 		nativeBalanceModel:        nativeBalanceModelMock,
@@ -145,11 +204,15 @@ func setupCheckpointTest(t *testing.T) checkpointTestFixture {
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
+		// The hot-archive pass runs on every load, so the factory must be set for every
+		// test; an empty iterator keeps tests that only script the live reader unaffected.
+		hotArchiveIterFactory: hotArchiveIterFromEntries(),
 	}
 
 	return checkpointTestFixture{
 		svc:                       svc,
 		reader:                    readerMock,
+		archive:                   archiveMock,
 		trustlineAssetModel:       trustlineAssetModelMock,
 		trustlineBalanceModel:     trustlineBalanceModelMock,
 		nativeBalanceModel:        nativeBalanceModelMock,
@@ -285,6 +348,21 @@ func makeLpEntryChange(poolID xdr.PoolId, assetA, assetB xdr.Asset, reserveA, re
 	}
 }
 
+// makeUnsupportedLpEntryChange builds a checkpoint change for a LiquidityPoolEntry whose
+// body is not constant product, the shape liquidity_pools cannot represent.
+func makeUnsupportedLpEntryChange(poolID xdr.PoolId) ingest.Change {
+	return ingest.Change{
+		Type: xdr.LedgerEntryTypeLiquidityPool,
+		Post: &xdr.LedgerEntry{Data: xdr.LedgerEntryData{
+			Type: xdr.LedgerEntryTypeLiquidityPool,
+			LiquidityPool: &xdr.LiquidityPoolEntry{
+				LiquidityPoolId: poolID,
+				Body:            xdr.LiquidityPoolEntryBody{Type: xdr.LiquidityPoolTypeLiquidityPoolConstantProduct + 1},
+			},
+		}},
+	}
+}
+
 func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -336,10 +414,50 @@ func TestCheckpointService_PopulateFromCheckpoint_LiquidityPoolEntries(t *testin
 		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
 			return readerMock, nil
 		},
+		hotArchiveIterFactory: hotArchiveIterFromEntries(),
 	}
 
 	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
+}
+
+func TestCheckpointService_PopulateFromCheckpoint_UnsupportedLiquidityPoolBodyFails(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	dbPool, err := db.OpenDBConnectionPool(context.Background(), dbt.DSN)
+	require.NoError(t, err)
+	defer dbPool.Close()
+
+	poolID := xdr.PoolId{1, 2, 3}
+
+	// LiquidityPoolType admits only constant product, so the decoder rejects any
+	// other discriminant and this shape cannot come off an archive. Constructed
+	// here to pin the behaviour if that ever changes: liquidity_pool_balances
+	// references liquidity_pools, so a pool the load cannot represent must abort
+	// it rather than silently drop every holder's shares.
+	readerMock := NewChangeReaderMock(t)
+	readerMock.On("Read").Return(makeUnsupportedLpEntryChange(poolID), nil).Once()
+	readerMock.On("Close").Return(nil).Once()
+
+	svc := &checkpointService{
+		db:                        dbPool,
+		archive:                   &HistoryArchiveMock{},
+		trustlineBalanceModel:     wbdata.NewTrustlineBalanceModelMock(t),
+		nativeBalanceModel:        wbdata.NewNativeBalanceModelMock(t),
+		sacBalanceModel:           wbdata.NewSACBalanceModelMock(t),
+		liquidityPoolModel:        wbdata.NewLiquidityPoolModelMock(t),
+		liquidityPoolBalanceModel: wbdata.NewLiquidityPoolBalanceModelMock(t),
+		networkPassphrase:         network.TestNetworkPassphrase,
+		readerFactory: func(_ context.Context, _ historyarchive.ArchiveInterface, _ uint32) (ingest.ChangeReader, error) {
+			return readerMock, nil
+		},
+		hotArchiveIterFactory: hotArchiveIterFromEntries(),
+	}
+
+	err = svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "liquidity_pools cannot represent")
+	assert.Contains(t, err.Error(), xdr.Hash(poolID).HexString())
 }
 
 func TestCheckpointService_PopulateFromCheckpoint_ContractDataEntry(t *testing.T) {
@@ -386,6 +504,245 @@ func makeSACInstanceChange(t *testing.T, code, issuer, passphrase string) (inges
 	}, contractID
 }
 
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveWasmPersisted proves contract
+// code evicted to the hot archive still reaches protocol_wasms. The live reader sees
+// nothing; the hash comes from the hot-archive pass alone.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveWasmPersisted(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	wasmHash := xdr.Hash{0xA1, 0xB2, 0xC3}
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(makeContractCodeEntry(wasmHash, []byte{0xDE, 0xAD}))
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything,
+		mock.MatchedBy(func(wasms []wbdata.ProtocolWasms) bool {
+			return len(wasms) == 1 && wasms[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:]))
+		}),
+	).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveWasmUnblocksLiveInstance covers
+// the exact gap the hot-archive pass closes: a live contract instance whose code was
+// evicted. Without the archived code entry, persistProtocolContracts drops the mapping
+// (the contracts_with_missing_wasm_skipped subtest documents that fallback).
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveWasmUnblocksLiveInstance(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	contractHash := [32]byte{0x0A, 0x0B, 0x0C}
+	wasmHash := xdr.Hash{0x1A, 0x2B, 0x3C}
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
+
+	f.reader.On("Read").Return(makeContractInstanceChange(contractHash, wasmHash), nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(makeContractCodeEntry(wasmHash, []byte{0xBE, 0xEF}))
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == contractAddr
+	})).Return(nil).Once()
+	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(wasms []wbdata.ProtocolWasms) bool {
+		return len(wasms) == 1 && wasms[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:]))
+	})).Return(nil).Once()
+	f.protocolContractsModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []wbdata.ProtocolContracts) bool {
+		return len(cs) == 1 &&
+			cs[0].ContractID == types.HashBytea(hex.EncodeToString(contractHash[:])) &&
+			cs[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:]))
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveInstanceIngested proves an
+// archived wasm-executable instance lands in both contract_tokens and protocol_contracts
+// even though the live reader never sees it.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveInstanceIngested(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	contractHash := [32]byte{0x21, 0x22, 0x23}
+	wasmHash := xdr.Hash{0x31, 0x32, 0x33}
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
+
+	// The instance is yielded before its code: the mapping is recorded first and is only
+	// matched against wasmClassifications in finalize, after the whole pass has run.
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(
+		makeContractInstanceEntry(contractHash, wasmHash),
+		makeContractCodeEntry(wasmHash, []byte{0xFE, 0xED}),
+	)
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ID == wbdata.DeterministicContractID(contractAddr) &&
+			cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeUnknown)
+	})).Return(nil).Once()
+	f.protocolWasmModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(wasms []wbdata.ProtocolWasms) bool {
+		return len(wasms) == 1 && wasms[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:]))
+	})).Return(nil).Once()
+	f.protocolContractsModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []wbdata.ProtocolContracts) bool {
+		return len(cs) == 1 &&
+			cs[0].ContractID == types.HashBytea(hex.EncodeToString(contractHash[:])) &&
+			cs[0].WasmHash == types.HashBytea(hex.EncodeToString(wasmHash[:]))
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveBalanceKeySkipped proves archived
+// Balance-key entries are ignored: live ingestion recreates their rows when the entries
+// are restored, so the hot-archive pass must not write balances or contract_tokens.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveBalanceKeySkipped(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	holder := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	balanceEntry := *makeContractBalanceChange([32]byte{0x41, 0x42, 0x43}, holder).Post
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(balanceEntry)
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+
+	f.sacBalanceModel.AssertNotCalled(t, "BatchCopy", mock.Anything, mock.Anything, mock.Anything)
+	f.contractModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceKeepsLiveBalance proves
+// an archived SAC instance still registers its contract_tokens row, so a live balance entry
+// under it survives finalize's verified-SAC filter. The SAC extends its instance TTL by 7
+// days and balances by 30, so a quiet asset's instance archives while holder balances stay
+// live; restoring the instance emits no balance change, so this is the only pass that can
+// record those balances.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveSACInstanceKeepsLiveBalance(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	sacEntry := makeSACInstanceEntry(t, "USDC", issuer, f.svc.networkPassphrase)
+	contractData := sacEntry.Data.MustContractData()
+	contractID := [32]byte(*contractData.Contract.ContractId)
+	contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractID[:])
+
+	// Fixture guard: a broken entry would also drop the balance, so assert the
+	// entry really takes the SAC branch.
+	result := f.svc.processContractInstanceChange(
+		ingest.Change{Type: sacEntry.Data.Type, Post: &sacEntry},
+		contractAddr,
+		contractData,
+	)
+	require.True(t, result.IsSAC, "fixture entry must be recognized as a SAC instance")
+
+	// The balance is live; only the instance is archived.
+	f.reader.On("Read").Return(makeSACBalanceChange(contractID, [32]byte{8, 8, 8}), nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+	f.svc.hotArchiveIterFactory = hotArchiveIterFromEntries(sacEntry)
+
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.MatchedBy(func(cs []*wbdata.Contract) bool {
+		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC)
+	})).Return(nil).Once()
+	f.sacBalanceModel.On("BatchCopy", mock.Anything, mock.Anything, mock.MatchedBy(func(b []wbdata.SACBalance) bool {
+		return len(b) == 1 && b[0].ContractID == wbdata.DeterministicContractID(contractAddr)
+	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchivePreP23Skipped exercises the real
+// factory against a pre-protocol-23 checkpoint, which has no hot-archive bucket list. The
+// archive mock is stubbed for GetCheckpointHAS alone, so any attempt to open a bucket
+// after the version check would fail this test on an unexpected call.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchivePreP23Skipped(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	f.svc.hotArchiveIterFactory = defaultHotArchiveIterFactory
+	f.archive.On("GetCheckpointHAS", uint32(100)).
+		Return(historyarchive.HistoryArchiveState{Version: 1}, nil).Once()
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+	f.archive.AssertExpectations(t)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_HotArchiveIteratorErrorAborts proves a
+// failed hot-archive read aborts the load transaction rather than committing a checkpoint
+// that silently omits archived entries.
+func TestCheckpointService_PopulateFromCheckpoint_HotArchiveIteratorErrorAborts(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	iterErr := errors.New("bucket stream truncated")
+	f.svc.hotArchiveIterFactory = hotArchiveIterError(iterErr)
+
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	cursorsCalled := false
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error {
+		cursorsCalled = true
+		return nil
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "reading hot archive entries")
+	assert.ErrorIs(t, err, iterErr)
+
+	// The pass runs inside the load transaction and before finalize, so neither the
+	// finalize-stage writes nor cursor initialization may have run.
+	assert.False(t, cursorsCalled)
+	f.contractModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
+	f.protocolWasmModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
+	f.protocolContractsModel.AssertNotCalled(t, "BatchInsert", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestDefaultHotArchiveIterFactory(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("has_error", func(t *testing.T) {
+		archive := &HistoryArchiveMock{}
+		hasErr := errors.New("archive unreachable")
+		archive.On("GetCheckpointHAS", uint32(100)).
+			Return(historyarchive.HistoryArchiveState{}, hasErr).Once()
+
+		var errs []error
+		for _, iterErr := range defaultHotArchiveIterFactory(ctx, archive, 100) {
+			errs = append(errs, iterErr)
+		}
+
+		// The failure surfaces as a single yielded error rather than a panic or a silently
+		// empty pass, which is what lets processHotArchive abort the load.
+		require.Len(t, errs, 1)
+		require.Error(t, errs[0])
+		assert.ErrorContains(t, errs[0], "getting checkpoint HAS for hot archive at ledger 100")
+		assert.ErrorIs(t, errs[0], hasErr)
+		archive.AssertExpectations(t)
+	})
+
+	t.Run("pre_p23_skips", func(t *testing.T) {
+		archive := &HistoryArchiveMock{}
+		archive.On("GetCheckpointHAS", uint32(100)).
+			Return(historyarchive.HistoryArchiveState{Version: 1}, nil).Once()
+
+		count := 0
+		for range defaultHotArchiveIterFactory(ctx, archive, 100) {
+			count++
+		}
+
+		assert.Zero(t, count)
+		archive.AssertExpectations(t)
+	})
+}
+
 // makeSACBalanceChange builds an ingest.Change for a ContractData Balance
 // entry whose holder is itself a contract — the shape
 // sac.ContractBalanceFromContractData requires to recognize a SAC balance.
@@ -393,6 +750,14 @@ func makeSACInstanceChange(t *testing.T, code, issuer, passphrase string) (inges
 // records such a balance only when the contract is also confirmed via its
 // instance entry (see makeSACInstanceChange).
 func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest.Change {
+	return makeSACBalanceChangeForHolder(tokenContractHash, xdr.ScAddress{
+		Type:       xdr.ScAddressTypeScAddressTypeContract,
+		ContractId: (*xdr.ContractId)(&holderContractHash),
+	})
+}
+
+// makeSACBalanceChangeForHolder is makeSACBalanceChange with an arbitrary holder ScAddress.
+func makeSACBalanceChangeForHolder(tokenContractHash [32]byte, holder xdr.ScAddress) ingest.Change {
 	return ingest.Change{
 		Type: xdr.LedgerEntryTypeContractData,
 		Post: &xdr.LedgerEntry{
@@ -407,13 +772,7 @@ func makeSACBalanceChange(tokenContractHash, holderContractHash [32]byte) ingest
 						Type: xdr.ScValTypeScvVec,
 						Vec: ptrToScVec([]xdr.ScVal{
 							{Type: xdr.ScValTypeScvSymbol, Sym: ptrToScSymbol("Balance")},
-							{
-								Type: xdr.ScValTypeScvAddress,
-								Address: &xdr.ScAddress{
-									Type:       xdr.ScAddressTypeScAddressTypeContract,
-									ContractId: (*xdr.ContractId)(&holderContractHash),
-								},
-							},
+							{Type: xdr.ScValTypeScvAddress, Address: &holder},
 						}),
 					},
 					Durability: xdr.ContractDataDurabilityPersistent,
@@ -451,6 +810,35 @@ func TestCheckpointService_PopulateFromCheckpoint_VerifiedSACBalanceRecorded(t *
 		return len(cs) == 1 && cs[0].ContractID == contractAddr && cs[0].Type == string(types.ContractTypeSAC) &&
 			cs[0].Code != nil && *cs[0].Code == "USDC"
 	})).Return(nil).Once()
+
+	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
+	require.NoError(t, err)
+}
+
+// TestCheckpointService_PopulateFromCheckpoint_MuxedContractHolderSkipped proves a SAC
+// balance entry whose holder key is a muxed contract address (CAP-84 W...) is skipped, not
+// recorded and not a checkpoint failure. CAP-84 forbids a W... in storage keys, so this never
+// comes from stellar-core; the guard is that an unexpected address kind is a soft path.
+func TestCheckpointService_PopulateFromCheckpoint_MuxedContractHolderSkipped(t *testing.T) {
+	f := setupCheckpointTest(t)
+
+	issuer := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
+	instanceChange, contractID := makeSACInstanceChange(t, "USDC", issuer, f.svc.networkPassphrase)
+	holderHash := [32]byte{8, 8, 8}
+	holder := xdr.ScAddress{
+		Type:          xdr.ScAddressTypeScAddressTypeMuxedContract,
+		MuxedContract: &xdr.MuxedContract{Id: 7, ContractId: xdr.ContractId(holderHash)},
+	}
+	balanceChange := makeSACBalanceChangeForHolder(contractID, holder)
+
+	f.reader.On("Read").Return(balanceChange, nil).Once()
+	f.reader.On("Read").Return(instanceChange, nil).Once()
+	f.reader.On("Read").Return(ingest.Change{}, io.EOF).Once()
+	f.reader.On("Close").Return(nil).Once()
+
+	// The instance still records the SAC in contract_tokens; the W-keyed balance is dropped,
+	// so no SAC BatchCopy happens (the strict mock fails the test on an unexpected call).
+	f.contractModel.On("BatchInsert", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	err := f.svc.PopulateFromCheckpoint(context.Background(), 100, func(_ pgx.Tx) error { return nil })
 	require.NoError(t, err)
@@ -713,7 +1101,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		change := makeAccountChangeWithBalance(address, 100_000_000, 3, 5_000_000, 2_000_000)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.nativeBalances, 1)
 		nb := proc.batch.nativeBalances[0]
@@ -731,7 +1119,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		assetCode := "USDC"
 
 		change := makeTrustlineChange(address, assetCode, issuer, 5_000_000, 100_000_000)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.trustlineBalances, 1)
 		tb := proc.batch.trustlineBalances[0]
@@ -745,15 +1133,16 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		address := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 		change := makePoolShareTrustlineChange(address)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
-		// Pool-share trustlines are shares, not asset balances: they go to liquidity_pool_balances.
+		// Pool-share trustlines are shares, not asset balances.
 		assert.Empty(t, proc.batch.trustlineBalances)
 		require.Len(t, proc.batch.liquidityPoolBalances, 1)
-		lpb := proc.batch.liquidityPoolBalances[0]
-		assert.Equal(t, address, string(lpb.AccountID))
-		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), lpb.PoolID)
-		assert.Equal(t, int64(1000), lpb.Shares)
+		share := proc.batch.liquidityPoolBalances[0]
+		assert.Equal(t, address, string(share.AccountID))
+		assert.Equal(t, xdr.Hash(xdr.PoolId{1, 2, 3}).HexString(), share.PoolID)
+		assert.Equal(t, int64(1000), share.Shares)
+		assert.Equal(t, uint32(100), share.LedgerNumber)
 		assert.Equal(t, 1, proc.entries)
 	})
 
@@ -761,7 +1150,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		proc := newTestCheckpointProcessor()
 		issuer := "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 		change := makeLpEntryChange(xdr.PoolId{4, 5, 6}, xdr.MustNewNativeAsset(), xdr.MustNewCreditAsset("USDC", issuer), 100, 200)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		require.Len(t, proc.batch.liquidityPools, 1)
 		lp := proc.batch.liquidityPools[0]
@@ -779,7 +1168,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		wasmHash := xdr.Hash{0x11, 0x22, 0x33}
 
 		change := makeContractInstanceChange(contractHash, wasmHash)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		contractAddr := strkey.MustEncode(strkey.VersionByteContract, contractHash[:])
 		contractUUID := wbdata.DeterministicContractID(contractAddr)
@@ -801,7 +1190,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 		holderAddress := "GAFOZZL77R57WMGES6BO6WJDEIFJ6662GMCVEX6ZESULRX3FRBGSSV5N"
 
 		change := makeContractBalanceChange(contractHash, holderAddress)
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		// Non-SAC balance entries are no longer tracked (SEP-41 tracking removed)
 		assert.Equal(t, 0, proc.entries)
@@ -823,7 +1212,7 @@ func TestCheckpointProcessor_ProcessEntry(t *testing.T) {
 				},
 			},
 		}
-		proc.processEntry(change)
+		require.NoError(t, proc.processEntry(change))
 
 		assert.Equal(t, 0, proc.entries)
 	})

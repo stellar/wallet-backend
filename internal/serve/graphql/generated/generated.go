@@ -38,6 +38,14 @@ type ResolverRoot interface {
 	AllowanceChange() AllowanceChangeResolver
 	BalanceAuthorizationChange() BalanceAuthorizationChangeResolver
 	BalanceChange() BalanceChangeResolver
+	BlendAuctionChange() BlendAuctionChangeResolver
+	BlendBackstopChange() BlendBackstopChangeResolver
+	BlendBackstopEmissionsClaimChange() BlendBackstopEmissionsClaimChangeResolver
+	BlendBackstopQueueChange() BlendBackstopQueueChangeResolver
+	BlendCollateralChange() BlendCollateralChangeResolver
+	BlendDebtChange() BlendDebtChangeResolver
+	BlendEmissionsClaimChange() BlendEmissionsClaimChangeResolver
+	BlendSupplyChange() BlendSupplyChangeResolver
 	DataEntryAddedChange() DataEntryAddedChangeResolver
 	DataEntryRemovedChange() DataEntryRemovedChangeResolver
 	DataEntryUpdatedChange() DataEntryUpdatedChangeResolver
@@ -63,6 +71,7 @@ type ComplexityRoot struct {
 	Account struct {
 		Address         func(childComplexity int) int
 		Balances        func(childComplexity int, first *int32, after *string, last *int32, before *string) int
+		BlendPositions  func(childComplexity int) int
 		Operations      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 		Sep41Allowances func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges    func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
@@ -168,6 +177,242 @@ type ComplexityRoot struct {
 	BalanceEdge struct {
 		Cursor func(childComplexity int) int
 		Node   func(childComplexity int) int
+	}
+
+	BlendAccountPositions struct {
+		ActiveAuctions  func(childComplexity int) int
+		Backstop        func(childComplexity int) int
+		BackstopClaimed func(childComplexity int) int
+		Pools           func(childComplexity int) int
+	}
+
+	BlendAuction struct {
+		AuctionType func(childComplexity int) int
+		Bid         func(childComplexity int) int
+		Lot         func(childComplexity int) int
+		PoolAddress func(childComplexity int) int
+		PoolName    func(childComplexity int) int
+		StartBlock  func(childComplexity int) int
+	}
+
+	BlendAuctionAmount struct {
+		Amount          func(childComplexity int) int
+		AssetContractID func(childComplexity int) int
+	}
+
+	BlendAuctionChange struct {
+		Account         func(childComplexity int) int
+		AuctionType     func(childComplexity int) int
+		Bid             func(childComplexity int) int
+		Category        func(childComplexity int) int
+		Counterparty    func(childComplexity int) int
+		FillPercent     func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Lot             func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendBackstopChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendBackstopClaimed struct {
+		LpTokens func(childComplexity int) int
+		Version  func(childComplexity int) int
+	}
+
+	BlendBackstopEmissionsClaimChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendBackstopPosition struct {
+		EmissionsEarnedBlnd func(childComplexity int) int
+		EmissionsEarnedUsd  func(childComplexity int) int
+		LpTokens            func(childComplexity int) int
+		PoolAddress         func(childComplexity int) int
+		PoolName            func(childComplexity int) int
+		Q4w                 func(childComplexity int) int
+		Shares              func(childComplexity int) int
+		UsdValue            func(childComplexity int) int
+		Version             func(childComplexity int) int
+	}
+
+	BlendBackstopQueueChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendCollateralChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendDebtChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendEmissionsClaimChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+		Transaction     func(childComplexity int) int
+	}
+
+	BlendPool struct {
+		Address          func(childComplexity int) int
+		Admin            func(childComplexity int) int
+		BackstopRate     func(childComplexity int) int
+		BackstopUsd      func(childComplexity int) int
+		BorrowedUsd      func(childComplexity int) int
+		InRewardZone     func(childComplexity int) int
+		InterestApy      func(childComplexity int) int
+		MaxPositions     func(childComplexity int) int
+		Name             func(childComplexity int) int
+		NetApy           func(childComplexity int) int
+		OracleContractID func(childComplexity int) int
+		Reserves         func(childComplexity int) int
+		Status           func(childComplexity int) int
+		SuppliedUsd      func(childComplexity int) int
+		Version          func(childComplexity int) int
+	}
+
+	BlendPoolConnection struct {
+		Edges    func(childComplexity int) int
+		PageInfo func(childComplexity int) int
+	}
+
+	BlendPoolEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
+	BlendPoolPosition struct {
+		BorrowedUsd func(childComplexity int) int
+		ClaimedBlnd func(childComplexity int) int
+		NetApy      func(childComplexity int) int
+		PoolAddress func(childComplexity int) int
+		PoolName    func(childComplexity int) int
+		Reserves    func(childComplexity int) int
+		SuppliedUsd func(childComplexity int) int
+		UsdValue    func(childComplexity int) int
+	}
+
+	BlendQ4W struct {
+		Amount     func(childComplexity int) int
+		Expiration func(childComplexity int) int
+		LpTokens   func(childComplexity int) int
+		UsdValue   func(childComplexity int) int
+	}
+
+	BlendReserve struct {
+		AssetContractID    func(childComplexity int) int
+		BorrowApy          func(childComplexity int) int
+		BorrowedTokens     func(childComplexity int) int
+		BorrowedUsd        func(childComplexity int) int
+		CFactor            func(childComplexity int) int
+		EmissionsBorrowApr func(childComplexity int) int
+		EmissionsSupplyApr func(childComplexity int) int
+		Enabled            func(childComplexity int) int
+		LFactor            func(childComplexity int) int
+		PriceUsd           func(childComplexity int) int
+		SuppliedTokens     func(childComplexity int) int
+		SuppliedUsd        func(childComplexity int) int
+		SupplyApy          func(childComplexity int) int
+		TokenDecimals      func(childComplexity int) int
+		TokenName          func(childComplexity int) int
+		TokenSymbol        func(childComplexity int) int
+		Utilization        func(childComplexity int) int
+	}
+
+	BlendReservePosition struct {
+		AssetContractID     func(childComplexity int) int
+		BorrowApy           func(childComplexity int) int
+		BorrowedTokens      func(childComplexity int) int
+		BorrowedUsd         func(childComplexity int) int
+		CollateralTokens    func(childComplexity int) int
+		EmissionsBorrowApr  func(childComplexity int) int
+		EmissionsEarnedBlnd func(childComplexity int) int
+		EmissionsEarnedUsd  func(childComplexity int) int
+		EmissionsSupplyApr  func(childComplexity int) int
+		InterestEarned      func(childComplexity int) int
+		InterestPaid        func(childComplexity int) int
+		PriceUsd            func(childComplexity int) int
+		SuppliedTokens      func(childComplexity int) int
+		SuppliedUsd         func(childComplexity int) int
+		SupplyApy           func(childComplexity int) int
+		TokenDecimals       func(childComplexity int) int
+		TokenName           func(childComplexity int) int
+		TokenSymbol         func(childComplexity int) int
+	}
+
+	BlendSupplyChange struct {
+		Account         func(childComplexity int) int
+		Amount          func(childComplexity int) int
+		Category        func(childComplexity int) int
+		IngestedAt      func(childComplexity int) int
+		LedgerCreatedAt func(childComplexity int) int
+		LedgerNumber    func(childComplexity int) int
+		Operation       func(childComplexity int) int
+		PoolID          func(childComplexity int) int
+		Reason          func(childComplexity int) int
+		TokenID         func(childComplexity int) int
+		Transaction     func(childComplexity int) int
 	}
 
 	DataEntryAddedChange struct {
@@ -304,6 +549,8 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AccountByAddress     func(childComplexity int, address string) int
+		BlendPool            func(childComplexity int, address string) int
+		BlendPools           func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		OperationByID        func(childComplexity int, id int64) int
 		SimulateStateChanges func(childComplexity int, transactionXdr string) int
 		TransactionByHash    func(childComplexity int, hash string) int
@@ -653,6 +900,7 @@ type AccountResolver interface {
 	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*SEP41AllowanceConnection, error)
+	BlendPositions(ctx context.Context, obj *types.Account) (*BlendAccountPositions, error)
 }
 type AccountCreatedChangeResolver interface {
 	Category(ctx context.Context, obj *types.AccountCreatedChangeModel) (types.StateChangeCategory, error)
@@ -718,6 +966,93 @@ type BalanceChangeResolver interface {
 	TokenID(ctx context.Context, obj *types.BalanceChangeModel) (string, error)
 	Amount(ctx context.Context, obj *types.BalanceChangeModel) (string, error)
 	ToMuxedID(ctx context.Context, obj *types.BalanceChangeModel) (*string, error)
+}
+type BlendAuctionChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendAuctionChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendAuctionChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendAuctionChangeModel) (*types.Transaction, error)
+	PoolID(ctx context.Context, obj *types.BlendAuctionChangeModel) (string, error)
+	AuctionType(ctx context.Context, obj *types.BlendAuctionChangeModel) (BlendAuctionType, error)
+	FillPercent(ctx context.Context, obj *types.BlendAuctionChangeModel) (int32, error)
+	Counterparty(ctx context.Context, obj *types.BlendAuctionChangeModel) (string, error)
+	Lot(ctx context.Context, obj *types.BlendAuctionChangeModel) ([]*BlendAuctionAmount, error)
+	Bid(ctx context.Context, obj *types.BlendAuctionChangeModel) ([]*BlendAuctionAmount, error)
+}
+type BlendBackstopChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendBackstopChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendBackstopChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendBackstopChangeModel) (*types.Transaction, error)
+	Amount(ctx context.Context, obj *types.BlendBackstopChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendBackstopChangeModel) (string, error)
+}
+type BlendBackstopEmissionsClaimChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (*types.Transaction, error)
+	Amount(ctx context.Context, obj *types.BlendBackstopEmissionsClaimChangeModel) (string, error)
+}
+type BlendBackstopQueueChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (*types.Transaction, error)
+	Amount(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendBackstopQueueChangeModel) (string, error)
+}
+type BlendCollateralChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendCollateralChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendCollateralChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendCollateralChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error)
+	Amount(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendCollateralChangeModel) (string, error)
+}
+type BlendDebtChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendDebtChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendDebtChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendDebtChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error)
+	Amount(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendDebtChangeModel) (string, error)
+}
+type BlendEmissionsClaimChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (*string, error)
+	Amount(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendEmissionsClaimChangeModel) (string, error)
+}
+type BlendSupplyChangeResolver interface {
+	Category(ctx context.Context, obj *types.BlendSupplyChangeModel) (types.StateChangeCategory, error)
+	Reason(ctx context.Context, obj *types.BlendSupplyChangeModel) (types.StateChangeReason, error)
+
+	Account(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Account, error)
+	Operation(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Operation, error)
+	Transaction(ctx context.Context, obj *types.BlendSupplyChangeModel) (*types.Transaction, error)
+	TokenID(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error)
+	Amount(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error)
+	PoolID(ctx context.Context, obj *types.BlendSupplyChangeModel) (string, error)
 }
 type DataEntryAddedChangeResolver interface {
 	Category(ctx context.Context, obj *types.DataEntryAddedChangeModel) (types.StateChangeCategory, error)
@@ -789,6 +1124,8 @@ type QueryResolver interface {
 	TransactionByHash(ctx context.Context, hash string) (*types.Transaction, error)
 	AccountByAddress(ctx context.Context, address string) (*types.Account, error)
 	OperationByID(ctx context.Context, id int64) (*types.Operation, error)
+	BlendPools(ctx context.Context, first *int32, after *string, last *int32, before *string) (*BlendPoolConnection, error)
+	BlendPool(ctx context.Context, address string) (*BlendPool, error)
 	SimulateStateChanges(ctx context.Context, transactionXdr string) (*SimulatedStateChanges, error)
 }
 type SignerAddedChangeResolver interface {
@@ -905,6 +1242,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Account.Balances(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+	case "Account.blendPositions":
+		if e.ComplexityRoot.Account.BlendPositions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Account.BlendPositions(childComplexity), true
 	case "Account.operations":
 		if e.ComplexityRoot.Account.Operations == nil {
 			break
@@ -1385,6 +1728,1082 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BalanceEdge.Node(childComplexity), true
+
+	case "BlendAccountPositions.activeAuctions":
+		if e.ComplexityRoot.BlendAccountPositions.ActiveAuctions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.ActiveAuctions(childComplexity), true
+	case "BlendAccountPositions.backstop":
+		if e.ComplexityRoot.BlendAccountPositions.Backstop == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.Backstop(childComplexity), true
+	case "BlendAccountPositions.backstopClaimed":
+		if e.ComplexityRoot.BlendAccountPositions.BackstopClaimed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.BackstopClaimed(childComplexity), true
+	case "BlendAccountPositions.pools":
+		if e.ComplexityRoot.BlendAccountPositions.Pools == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAccountPositions.Pools(childComplexity), true
+
+	case "BlendAuction.auctionType":
+		if e.ComplexityRoot.BlendAuction.AuctionType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.AuctionType(childComplexity), true
+	case "BlendAuction.bid":
+		if e.ComplexityRoot.BlendAuction.Bid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.Bid(childComplexity), true
+	case "BlendAuction.lot":
+		if e.ComplexityRoot.BlendAuction.Lot == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.Lot(childComplexity), true
+	case "BlendAuction.poolAddress":
+		if e.ComplexityRoot.BlendAuction.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.PoolAddress(childComplexity), true
+	case "BlendAuction.poolName":
+		if e.ComplexityRoot.BlendAuction.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.PoolName(childComplexity), true
+	case "BlendAuction.startBlock":
+		if e.ComplexityRoot.BlendAuction.StartBlock == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuction.StartBlock(childComplexity), true
+
+	case "BlendAuctionAmount.amount":
+		if e.ComplexityRoot.BlendAuctionAmount.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionAmount.Amount(childComplexity), true
+	case "BlendAuctionAmount.assetContractId":
+		if e.ComplexityRoot.BlendAuctionAmount.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionAmount.AssetContractID(childComplexity), true
+
+	case "BlendAuctionChange.account":
+		if e.ComplexityRoot.BlendAuctionChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Account(childComplexity), true
+	case "BlendAuctionChange.auctionType":
+		if e.ComplexityRoot.BlendAuctionChange.AuctionType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.AuctionType(childComplexity), true
+	case "BlendAuctionChange.bid":
+		if e.ComplexityRoot.BlendAuctionChange.Bid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Bid(childComplexity), true
+	case "BlendAuctionChange.category":
+		if e.ComplexityRoot.BlendAuctionChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Category(childComplexity), true
+	case "BlendAuctionChange.counterparty":
+		if e.ComplexityRoot.BlendAuctionChange.Counterparty == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Counterparty(childComplexity), true
+	case "BlendAuctionChange.fillPercent":
+		if e.ComplexityRoot.BlendAuctionChange.FillPercent == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.FillPercent(childComplexity), true
+	case "BlendAuctionChange.ingestedAt":
+		if e.ComplexityRoot.BlendAuctionChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.IngestedAt(childComplexity), true
+	case "BlendAuctionChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendAuctionChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.LedgerCreatedAt(childComplexity), true
+	case "BlendAuctionChange.ledgerNumber":
+		if e.ComplexityRoot.BlendAuctionChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.LedgerNumber(childComplexity), true
+	case "BlendAuctionChange.lot":
+		if e.ComplexityRoot.BlendAuctionChange.Lot == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Lot(childComplexity), true
+	case "BlendAuctionChange.operation":
+		if e.ComplexityRoot.BlendAuctionChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Operation(childComplexity), true
+	case "BlendAuctionChange.poolId":
+		if e.ComplexityRoot.BlendAuctionChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.PoolID(childComplexity), true
+	case "BlendAuctionChange.reason":
+		if e.ComplexityRoot.BlendAuctionChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Reason(childComplexity), true
+	case "BlendAuctionChange.transaction":
+		if e.ComplexityRoot.BlendAuctionChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendAuctionChange.Transaction(childComplexity), true
+
+	case "BlendBackstopChange.account":
+		if e.ComplexityRoot.BlendBackstopChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Account(childComplexity), true
+	case "BlendBackstopChange.amount":
+		if e.ComplexityRoot.BlendBackstopChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Amount(childComplexity), true
+	case "BlendBackstopChange.category":
+		if e.ComplexityRoot.BlendBackstopChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Category(childComplexity), true
+	case "BlendBackstopChange.ingestedAt":
+		if e.ComplexityRoot.BlendBackstopChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.IngestedAt(childComplexity), true
+	case "BlendBackstopChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendBackstopChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.LedgerCreatedAt(childComplexity), true
+	case "BlendBackstopChange.ledgerNumber":
+		if e.ComplexityRoot.BlendBackstopChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.LedgerNumber(childComplexity), true
+	case "BlendBackstopChange.operation":
+		if e.ComplexityRoot.BlendBackstopChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Operation(childComplexity), true
+	case "BlendBackstopChange.poolId":
+		if e.ComplexityRoot.BlendBackstopChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.PoolID(childComplexity), true
+	case "BlendBackstopChange.reason":
+		if e.ComplexityRoot.BlendBackstopChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Reason(childComplexity), true
+	case "BlendBackstopChange.transaction":
+		if e.ComplexityRoot.BlendBackstopChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopChange.Transaction(childComplexity), true
+
+	case "BlendBackstopClaimed.lpTokens":
+		if e.ComplexityRoot.BlendBackstopClaimed.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopClaimed.LpTokens(childComplexity), true
+	case "BlendBackstopClaimed.version":
+		if e.ComplexityRoot.BlendBackstopClaimed.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopClaimed.Version(childComplexity), true
+
+	case "BlendBackstopEmissionsClaimChange.account":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Account(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.amount":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Amount(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.category":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Category(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.ingestedAt":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.IngestedAt(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.LedgerCreatedAt(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.ledgerNumber":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.LedgerNumber(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.operation":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Operation(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.reason":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Reason(childComplexity), true
+	case "BlendBackstopEmissionsClaimChange.transaction":
+		if e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopEmissionsClaimChange.Transaction(childComplexity), true
+
+	case "BlendBackstopPosition.emissionsEarnedBlnd":
+		if e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedBlnd(childComplexity), true
+	case "BlendBackstopPosition.emissionsEarnedUsd":
+		if e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.EmissionsEarnedUsd(childComplexity), true
+	case "BlendBackstopPosition.lpTokens":
+		if e.ComplexityRoot.BlendBackstopPosition.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.LpTokens(childComplexity), true
+	case "BlendBackstopPosition.poolAddress":
+		if e.ComplexityRoot.BlendBackstopPosition.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.PoolAddress(childComplexity), true
+	case "BlendBackstopPosition.poolName":
+		if e.ComplexityRoot.BlendBackstopPosition.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.PoolName(childComplexity), true
+	case "BlendBackstopPosition.q4w":
+		if e.ComplexityRoot.BlendBackstopPosition.Q4w == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Q4w(childComplexity), true
+	case "BlendBackstopPosition.shares":
+		if e.ComplexityRoot.BlendBackstopPosition.Shares == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Shares(childComplexity), true
+	case "BlendBackstopPosition.usdValue":
+		if e.ComplexityRoot.BlendBackstopPosition.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.UsdValue(childComplexity), true
+	case "BlendBackstopPosition.version":
+		if e.ComplexityRoot.BlendBackstopPosition.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopPosition.Version(childComplexity), true
+
+	case "BlendBackstopQueueChange.account":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Account(childComplexity), true
+	case "BlendBackstopQueueChange.amount":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Amount(childComplexity), true
+	case "BlendBackstopQueueChange.category":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Category(childComplexity), true
+	case "BlendBackstopQueueChange.ingestedAt":
+		if e.ComplexityRoot.BlendBackstopQueueChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.IngestedAt(childComplexity), true
+	case "BlendBackstopQueueChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendBackstopQueueChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.LedgerCreatedAt(childComplexity), true
+	case "BlendBackstopQueueChange.ledgerNumber":
+		if e.ComplexityRoot.BlendBackstopQueueChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.LedgerNumber(childComplexity), true
+	case "BlendBackstopQueueChange.operation":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Operation(childComplexity), true
+	case "BlendBackstopQueueChange.poolId":
+		if e.ComplexityRoot.BlendBackstopQueueChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.PoolID(childComplexity), true
+	case "BlendBackstopQueueChange.reason":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Reason(childComplexity), true
+	case "BlendBackstopQueueChange.transaction":
+		if e.ComplexityRoot.BlendBackstopQueueChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendBackstopQueueChange.Transaction(childComplexity), true
+
+	case "BlendCollateralChange.account":
+		if e.ComplexityRoot.BlendCollateralChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Account(childComplexity), true
+	case "BlendCollateralChange.amount":
+		if e.ComplexityRoot.BlendCollateralChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Amount(childComplexity), true
+	case "BlendCollateralChange.category":
+		if e.ComplexityRoot.BlendCollateralChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Category(childComplexity), true
+	case "BlendCollateralChange.ingestedAt":
+		if e.ComplexityRoot.BlendCollateralChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.IngestedAt(childComplexity), true
+	case "BlendCollateralChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendCollateralChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.LedgerCreatedAt(childComplexity), true
+	case "BlendCollateralChange.ledgerNumber":
+		if e.ComplexityRoot.BlendCollateralChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.LedgerNumber(childComplexity), true
+	case "BlendCollateralChange.operation":
+		if e.ComplexityRoot.BlendCollateralChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Operation(childComplexity), true
+	case "BlendCollateralChange.poolId":
+		if e.ComplexityRoot.BlendCollateralChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.PoolID(childComplexity), true
+	case "BlendCollateralChange.reason":
+		if e.ComplexityRoot.BlendCollateralChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Reason(childComplexity), true
+	case "BlendCollateralChange.tokenId":
+		if e.ComplexityRoot.BlendCollateralChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.TokenID(childComplexity), true
+	case "BlendCollateralChange.transaction":
+		if e.ComplexityRoot.BlendCollateralChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendCollateralChange.Transaction(childComplexity), true
+
+	case "BlendDebtChange.account":
+		if e.ComplexityRoot.BlendDebtChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Account(childComplexity), true
+	case "BlendDebtChange.amount":
+		if e.ComplexityRoot.BlendDebtChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Amount(childComplexity), true
+	case "BlendDebtChange.category":
+		if e.ComplexityRoot.BlendDebtChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Category(childComplexity), true
+	case "BlendDebtChange.ingestedAt":
+		if e.ComplexityRoot.BlendDebtChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.IngestedAt(childComplexity), true
+	case "BlendDebtChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendDebtChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.LedgerCreatedAt(childComplexity), true
+	case "BlendDebtChange.ledgerNumber":
+		if e.ComplexityRoot.BlendDebtChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.LedgerNumber(childComplexity), true
+	case "BlendDebtChange.operation":
+		if e.ComplexityRoot.BlendDebtChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Operation(childComplexity), true
+	case "BlendDebtChange.poolId":
+		if e.ComplexityRoot.BlendDebtChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.PoolID(childComplexity), true
+	case "BlendDebtChange.reason":
+		if e.ComplexityRoot.BlendDebtChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Reason(childComplexity), true
+	case "BlendDebtChange.tokenId":
+		if e.ComplexityRoot.BlendDebtChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.TokenID(childComplexity), true
+	case "BlendDebtChange.transaction":
+		if e.ComplexityRoot.BlendDebtChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendDebtChange.Transaction(childComplexity), true
+
+	case "BlendEmissionsClaimChange.account":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Account(childComplexity), true
+	case "BlendEmissionsClaimChange.amount":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Amount(childComplexity), true
+	case "BlendEmissionsClaimChange.category":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Category(childComplexity), true
+	case "BlendEmissionsClaimChange.ingestedAt":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.IngestedAt(childComplexity), true
+	case "BlendEmissionsClaimChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.LedgerCreatedAt(childComplexity), true
+	case "BlendEmissionsClaimChange.ledgerNumber":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.LedgerNumber(childComplexity), true
+	case "BlendEmissionsClaimChange.operation":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Operation(childComplexity), true
+	case "BlendEmissionsClaimChange.poolId":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.PoolID(childComplexity), true
+	case "BlendEmissionsClaimChange.reason":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Reason(childComplexity), true
+	case "BlendEmissionsClaimChange.tokenId":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.TokenID(childComplexity), true
+	case "BlendEmissionsClaimChange.transaction":
+		if e.ComplexityRoot.BlendEmissionsClaimChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendEmissionsClaimChange.Transaction(childComplexity), true
+
+	case "BlendPool.address":
+		if e.ComplexityRoot.BlendPool.Address == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Address(childComplexity), true
+	case "BlendPool.admin":
+		if e.ComplexityRoot.BlendPool.Admin == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Admin(childComplexity), true
+	case "BlendPool.backstopRate":
+		if e.ComplexityRoot.BlendPool.BackstopRate == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BackstopRate(childComplexity), true
+	case "BlendPool.backstopUsd":
+		if e.ComplexityRoot.BlendPool.BackstopUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BackstopUsd(childComplexity), true
+	case "BlendPool.borrowedUsd":
+		if e.ComplexityRoot.BlendPool.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.BorrowedUsd(childComplexity), true
+	case "BlendPool.inRewardZone":
+		if e.ComplexityRoot.BlendPool.InRewardZone == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.InRewardZone(childComplexity), true
+	case "BlendPool.interestApy":
+		if e.ComplexityRoot.BlendPool.InterestApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.InterestApy(childComplexity), true
+	case "BlendPool.maxPositions":
+		if e.ComplexityRoot.BlendPool.MaxPositions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.MaxPositions(childComplexity), true
+	case "BlendPool.name":
+		if e.ComplexityRoot.BlendPool.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Name(childComplexity), true
+	case "BlendPool.netApy":
+		if e.ComplexityRoot.BlendPool.NetApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.NetApy(childComplexity), true
+	case "BlendPool.oracleContractId":
+		if e.ComplexityRoot.BlendPool.OracleContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.OracleContractID(childComplexity), true
+	case "BlendPool.reserves":
+		if e.ComplexityRoot.BlendPool.Reserves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Reserves(childComplexity), true
+	case "BlendPool.status":
+		if e.ComplexityRoot.BlendPool.Status == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Status(childComplexity), true
+	case "BlendPool.suppliedUsd":
+		if e.ComplexityRoot.BlendPool.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.SuppliedUsd(childComplexity), true
+	case "BlendPool.version":
+		if e.ComplexityRoot.BlendPool.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPool.Version(childComplexity), true
+
+	case "BlendPoolConnection.edges":
+		if e.ComplexityRoot.BlendPoolConnection.Edges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolConnection.Edges(childComplexity), true
+	case "BlendPoolConnection.pageInfo":
+		if e.ComplexityRoot.BlendPoolConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolConnection.PageInfo(childComplexity), true
+
+	case "BlendPoolEdge.cursor":
+		if e.ComplexityRoot.BlendPoolEdge.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolEdge.Cursor(childComplexity), true
+	case "BlendPoolEdge.node":
+		if e.ComplexityRoot.BlendPoolEdge.Node == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolEdge.Node(childComplexity), true
+
+	case "BlendPoolPosition.borrowedUsd":
+		if e.ComplexityRoot.BlendPoolPosition.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.BorrowedUsd(childComplexity), true
+	case "BlendPoolPosition.claimedBlnd":
+		if e.ComplexityRoot.BlendPoolPosition.ClaimedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.ClaimedBlnd(childComplexity), true
+	case "BlendPoolPosition.netApy":
+		if e.ComplexityRoot.BlendPoolPosition.NetApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.NetApy(childComplexity), true
+	case "BlendPoolPosition.poolAddress":
+		if e.ComplexityRoot.BlendPoolPosition.PoolAddress == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.PoolAddress(childComplexity), true
+	case "BlendPoolPosition.poolName":
+		if e.ComplexityRoot.BlendPoolPosition.PoolName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.PoolName(childComplexity), true
+	case "BlendPoolPosition.reserves":
+		if e.ComplexityRoot.BlendPoolPosition.Reserves == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.Reserves(childComplexity), true
+	case "BlendPoolPosition.suppliedUsd":
+		if e.ComplexityRoot.BlendPoolPosition.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.SuppliedUsd(childComplexity), true
+	case "BlendPoolPosition.usdValue":
+		if e.ComplexityRoot.BlendPoolPosition.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendPoolPosition.UsdValue(childComplexity), true
+
+	case "BlendQ4W.amount":
+		if e.ComplexityRoot.BlendQ4W.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.Amount(childComplexity), true
+	case "BlendQ4W.expiration":
+		if e.ComplexityRoot.BlendQ4W.Expiration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.Expiration(childComplexity), true
+	case "BlendQ4W.lpTokens":
+		if e.ComplexityRoot.BlendQ4W.LpTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.LpTokens(childComplexity), true
+	case "BlendQ4W.usdValue":
+		if e.ComplexityRoot.BlendQ4W.UsdValue == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendQ4W.UsdValue(childComplexity), true
+
+	case "BlendReserve.assetContractId":
+		if e.ComplexityRoot.BlendReserve.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.AssetContractID(childComplexity), true
+	case "BlendReserve.borrowApy":
+		if e.ComplexityRoot.BlendReserve.BorrowApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowApy(childComplexity), true
+	case "BlendReserve.borrowedTokens":
+		if e.ComplexityRoot.BlendReserve.BorrowedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowedTokens(childComplexity), true
+	case "BlendReserve.borrowedUsd":
+		if e.ComplexityRoot.BlendReserve.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.BorrowedUsd(childComplexity), true
+	case "BlendReserve.cFactor":
+		if e.ComplexityRoot.BlendReserve.CFactor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.CFactor(childComplexity), true
+	case "BlendReserve.emissionsBorrowApr":
+		if e.ComplexityRoot.BlendReserve.EmissionsBorrowApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.EmissionsBorrowApr(childComplexity), true
+	case "BlendReserve.emissionsSupplyApr":
+		if e.ComplexityRoot.BlendReserve.EmissionsSupplyApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.EmissionsSupplyApr(childComplexity), true
+	case "BlendReserve.enabled":
+		if e.ComplexityRoot.BlendReserve.Enabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.Enabled(childComplexity), true
+	case "BlendReserve.lFactor":
+		if e.ComplexityRoot.BlendReserve.LFactor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.LFactor(childComplexity), true
+	case "BlendReserve.priceUsd":
+		if e.ComplexityRoot.BlendReserve.PriceUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.PriceUsd(childComplexity), true
+	case "BlendReserve.suppliedTokens":
+		if e.ComplexityRoot.BlendReserve.SuppliedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SuppliedTokens(childComplexity), true
+	case "BlendReserve.suppliedUsd":
+		if e.ComplexityRoot.BlendReserve.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SuppliedUsd(childComplexity), true
+	case "BlendReserve.supplyApy":
+		if e.ComplexityRoot.BlendReserve.SupplyApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.SupplyApy(childComplexity), true
+	case "BlendReserve.tokenDecimals":
+		if e.ComplexityRoot.BlendReserve.TokenDecimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenDecimals(childComplexity), true
+	case "BlendReserve.tokenName":
+		if e.ComplexityRoot.BlendReserve.TokenName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenName(childComplexity), true
+	case "BlendReserve.tokenSymbol":
+		if e.ComplexityRoot.BlendReserve.TokenSymbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.TokenSymbol(childComplexity), true
+	case "BlendReserve.utilization":
+		if e.ComplexityRoot.BlendReserve.Utilization == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReserve.Utilization(childComplexity), true
+
+	case "BlendReservePosition.assetContractId":
+		if e.ComplexityRoot.BlendReservePosition.AssetContractID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.AssetContractID(childComplexity), true
+	case "BlendReservePosition.borrowApy":
+		if e.ComplexityRoot.BlendReservePosition.BorrowApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowApy(childComplexity), true
+	case "BlendReservePosition.borrowedTokens":
+		if e.ComplexityRoot.BlendReservePosition.BorrowedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowedTokens(childComplexity), true
+	case "BlendReservePosition.borrowedUsd":
+		if e.ComplexityRoot.BlendReservePosition.BorrowedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.BorrowedUsd(childComplexity), true
+	case "BlendReservePosition.collateralTokens":
+		if e.ComplexityRoot.BlendReservePosition.CollateralTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.CollateralTokens(childComplexity), true
+	case "BlendReservePosition.emissionsBorrowApr":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsBorrowApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsBorrowApr(childComplexity), true
+	case "BlendReservePosition.emissionsEarnedBlnd":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsEarnedBlnd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsEarnedBlnd(childComplexity), true
+	case "BlendReservePosition.emissionsEarnedUsd":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsEarnedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsEarnedUsd(childComplexity), true
+	case "BlendReservePosition.emissionsSupplyApr":
+		if e.ComplexityRoot.BlendReservePosition.EmissionsSupplyApr == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.EmissionsSupplyApr(childComplexity), true
+	case "BlendReservePosition.interestEarned":
+		if e.ComplexityRoot.BlendReservePosition.InterestEarned == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.InterestEarned(childComplexity), true
+	case "BlendReservePosition.interestPaid":
+		if e.ComplexityRoot.BlendReservePosition.InterestPaid == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.InterestPaid(childComplexity), true
+	case "BlendReservePosition.priceUsd":
+		if e.ComplexityRoot.BlendReservePosition.PriceUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.PriceUsd(childComplexity), true
+	case "BlendReservePosition.suppliedTokens":
+		if e.ComplexityRoot.BlendReservePosition.SuppliedTokens == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SuppliedTokens(childComplexity), true
+	case "BlendReservePosition.suppliedUsd":
+		if e.ComplexityRoot.BlendReservePosition.SuppliedUsd == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SuppliedUsd(childComplexity), true
+	case "BlendReservePosition.supplyApy":
+		if e.ComplexityRoot.BlendReservePosition.SupplyApy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.SupplyApy(childComplexity), true
+	case "BlendReservePosition.tokenDecimals":
+		if e.ComplexityRoot.BlendReservePosition.TokenDecimals == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenDecimals(childComplexity), true
+	case "BlendReservePosition.tokenName":
+		if e.ComplexityRoot.BlendReservePosition.TokenName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenName(childComplexity), true
+	case "BlendReservePosition.tokenSymbol":
+		if e.ComplexityRoot.BlendReservePosition.TokenSymbol == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendReservePosition.TokenSymbol(childComplexity), true
+
+	case "BlendSupplyChange.account":
+		if e.ComplexityRoot.BlendSupplyChange.Account == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Account(childComplexity), true
+	case "BlendSupplyChange.amount":
+		if e.ComplexityRoot.BlendSupplyChange.Amount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Amount(childComplexity), true
+	case "BlendSupplyChange.category":
+		if e.ComplexityRoot.BlendSupplyChange.Category == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Category(childComplexity), true
+	case "BlendSupplyChange.ingestedAt":
+		if e.ComplexityRoot.BlendSupplyChange.IngestedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.IngestedAt(childComplexity), true
+	case "BlendSupplyChange.ledgerCreatedAt":
+		if e.ComplexityRoot.BlendSupplyChange.LedgerCreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.LedgerCreatedAt(childComplexity), true
+	case "BlendSupplyChange.ledgerNumber":
+		if e.ComplexityRoot.BlendSupplyChange.LedgerNumber == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.LedgerNumber(childComplexity), true
+	case "BlendSupplyChange.operation":
+		if e.ComplexityRoot.BlendSupplyChange.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Operation(childComplexity), true
+	case "BlendSupplyChange.poolId":
+		if e.ComplexityRoot.BlendSupplyChange.PoolID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.PoolID(childComplexity), true
+	case "BlendSupplyChange.reason":
+		if e.ComplexityRoot.BlendSupplyChange.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Reason(childComplexity), true
+	case "BlendSupplyChange.tokenId":
+		if e.ComplexityRoot.BlendSupplyChange.TokenID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.TokenID(childComplexity), true
+	case "BlendSupplyChange.transaction":
+		if e.ComplexityRoot.BlendSupplyChange.Transaction == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BlendSupplyChange.Transaction(childComplexity), true
 
 	case "DataEntryAddedChange.account":
 		if e.ComplexityRoot.DataEntryAddedChange.Account == nil {
@@ -1973,6 +3392,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AccountByAddress(childComplexity, args["address"].(string)), true
+	case "Query.blendPool":
+		if e.ComplexityRoot.Query.BlendPool == nil {
+			break
+		}
+
+		args, err := ec.field_Query_blendPool_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.BlendPool(childComplexity, args["address"].(string)), true
+	case "Query.blendPools":
+		if e.ComplexityRoot.Query.BlendPools == nil {
+			break
+		}
+
+		args, err := ec.field_Query_blendPools_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.BlendPools(childComplexity, args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "Query.operationById":
 		if e.ComplexityRoot.Query.OperationByID == nil {
@@ -3498,52 +4939,106 @@ type Account {
 
   """
   All token balances held by this account: native XLM, classic trustlines,
-  SAC, SEP-41, and liquidity-pool shares.
+  SAC, SEP-41, and liquidity-pool shares. Edges come in a fixed order by token
+  type: native, trustlines, SEP-41, then liquidity pools for a G-address; SAC,
+  then SEP-41 for a C-address.
   """
-  balances(first: Int, after: String, last: Int, before: String): BalanceConnection!
+  balances(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): BalanceConnection!
 
   """
-  Transactions this account participated in. Optional since/until bounds
-  enable TimescaleDB chunk pruning on ledger close time.
+  Transactions this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
   transactions(
+    """Only include items whose ledger close time is at or after this time."""
     since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
     until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
     first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
     after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
     last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
     before: String
   ): AccountTransactionConnection!
 
   """
-  Operations this account participated in. Optional since/until bounds enable
-  TimescaleDB chunk pruning on ledger close time.
+  Operations this account participated in, oldest first. Set since/until to
+  bound the ledger close time; bounded queries on long histories run faster.
   """
-  operations(since: Time, until: Time, first: Int, after: String, last: Int, before: String): OperationConnection!
+  operations(
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): OperationConnection!
 
   """
-  State changes affecting this account, optionally filtered. Optional
-  since/until bounds enable TimescaleDB chunk pruning on ledger close time.
+  State changes affecting this account, oldest first, optionally filtered. Set
+  since/until to bound the ledger close time; bounded queries on long histories
+  run faster.
   """
   stateChanges(
+    """Conditions the state changes must match; all are ANDed. Omit for no filtering."""
     filter: AccountStateChangeFilterInput
-    since: Time, until: Time
-    first: Int, after: String, last: Int, before: String
+    """Only include items whose ledger close time is at or after this time."""
+    since: Time
+    """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
+    until: Time
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
   ): StateChangeConnection!
 
   """
-  Active SEP-41 allowances granted by this account (as token holder).
-  Allowances whose expiration ledger is below the latest ingested ledger are
-  filtered out server-side.
+  Active SEP-41 allowances granted by this account (as token holder), ordered
+  by spender. Allowances whose expiration ledger is below the latest ingested
+  ledger are filtered out server-side.
   """
-  sep41Allowances(first: Int, after: String, last: Int, before: String): SEP41AllowanceConnection! @goField(forceResolver: true)
+  sep41Allowances(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): SEP41AllowanceConnection! @goField(forceResolver: true)
+
+  """An account's Blend v2 lending, collateral, borrowing, and backstop positions."""
+  blendPositions: BlendAccountPositions! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/balances.graphqls", Input: `"""Common contract for every token balance held by an account."""
 interface Balance {
-    """Balance amount, as a decimal string."""
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
-    """Identifier of the token: a contract ID, or the liquidity pool ID for pool shares."""
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
     """Classification of the token."""
     tokenType: TokenType!
@@ -3551,19 +5046,23 @@ interface Balance {
 
 """The account's native XLM balance."""
 type NativeBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """
-    Base reserve requirement (excludes liabilities):
+    Minimum XLM balance the account must hold, with 7 decimal places. It is the
+    base reserve requirement and excludes liabilities:
     (2 + numSubentries + numSponsoring - numSponsored) * baseReserve.
     Spendable balance = balance - minimumBalance - sellingLiabilities.
     """
     minimumBalance: String!
-    """XLM locked in open buy offers."""
+    """XLM locked in open buy offers, with 7 decimal places."""
     buyingLiabilities: String!
-    """XLM locked in open sell offers."""
+    """XLM locked in open sell offers, with 7 decimal places."""
     sellingLiabilities: String!
     """Number of subentries on the account (trustlines, offers, data entries, signers)."""
     numSubentries: UInt32!
@@ -3573,21 +5072,24 @@ type NativeBalance implements Balance {
 
 """A classic Stellar asset held via a trustline."""
 type TrustlineBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
-    """Asset code."""
+    """Asset code (1-12 characters)."""
     code: String!
-    """Asset issuer address."""
+    """Issuer account address (G...)."""
     issuer: String!
     """Classic asset type, determined by the asset code length."""
     assetType: AssetType!
-    """Trustline limit, as a decimal string."""
+    """Trustline limit, with 7 decimal places."""
     limit: String!
-    """Amount locked in open buy offers."""
+    """Amount locked in open buy offers, with 7 decimal places."""
     buyingLiabilities: String!
-    """Amount locked in open sell offers."""
+    """Amount locked in open sell offers, with 7 decimal places."""
     sellingLiabilities: String!
     """Ledger in which this trustline was last modified."""
     lastModifiedLedger: UInt32!
@@ -3599,13 +5101,16 @@ type TrustlineBalance implements Balance {
 
 """A Stellar Asset Contract balance held by a contract address."""
 type SACBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """Asset code of the wrapped classic asset."""
     code: String!
-    """Issuer address of the wrapped classic asset."""
+    """Issuer account address (G...) of the wrapped classic asset."""
     issuer: String!
     """Number of decimal places in the balance amount."""
     decimals: Int!
@@ -3617,9 +5122,9 @@ type SACBalance implements Balance {
 
 """One constituent asset of a liquidity pool and its reserve amount."""
 type LiquidityPoolReserve {
-    """Canonical asset name (code:issuer, or 'native')."""
+    """Canonical asset name: CODE:ISSUER, or native for XLM."""
     asset: String!
-    """Reserve amount, as a decimal string."""
+    """Amount of this asset in the pool, with 7 decimal places."""
     amount: String!
 }
 
@@ -3629,8 +5134,11 @@ shares and ` + "`" + `tokenId` + "`" + ` is the pool ID; ` + "`" + `reserves` + 
 assets and amounts.
 """
 type LiquidityPoolBalance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """The pool's constituent assets and reserve amounts."""
@@ -3641,8 +5149,11 @@ type LiquidityPoolBalance implements Balance {
 
 """A pure SEP-41 (non-SAC) contract token balance."""
 type SEP41Balance implements Balance {
+    """Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals."""
     balance: String!
+    """Token identifier: the token's contract ID (C...), which for native XLM and classic assets is the Stellar Asset Contract ID, or the hex-encoded pool ID for liquidity-pool shares."""
     tokenId: String!
+    """Classification of the token."""
     tokenType: TokenType!
 
     """Token name reported by the contract; null when the contract does not expose one."""
@@ -3657,13 +5168,13 @@ type SEP41Balance implements Balance {
 
 """An approve() grant issued by a SEP-41 token holder."""
 type SEP41Allowance {
-    """Token holder that granted the allowance."""
+    """Token holder (G... or C...) that granted the allowance."""
     owner: String!
-    """Address authorized to spend from the holder's balance."""
+    """Address (G... or C...) authorized to spend from the holder's balance."""
     spender: String!
-    """Contract ID of the token."""
+    """Contract ID (C...) of the token."""
     tokenId: String!
-    """Approved allowance, as a decimal string in the token's smallest unit."""
+    """Approved allowance, as an integer string in the token's smallest unit."""
     amount: String!
     """Last ledger sequence at which the allowance is live."""
     expirationLedger: UInt32!
@@ -3671,27 +5182,331 @@ type SEP41Allowance {
     lastModifiedLedger: UInt32!
 }
 `, BuiltIn: false},
-	{Name: "../schema/directives.graphqls", Input: `# GraphQL Directive - provides metadata to control gqlgen code generation
-# Directives are like annotations that modify how GraphQL processes fields
+	{Name: "../schema/blend.graphqls", Input: `# Blend v2 lending protocol GraphQL surface.
+#
+# The Query.blendPools/blendPool entry points (a keyset-paginated pool-wide
+# catalog view, independent of any account) live on the base type Query in
+# queries.graphqls (the BlendPoolConnection/BlendPoolEdge page types live in
+# pagination.graphqls),
+# and Account.blendPositions (an account's lending, collateral, and backstop
+# positions across every Blend v2 pool it touches, plus any active Dutch
+# auctions where the account is the auction owner —
+# BlendAccountPositions.activeAuctions) lives on type Account in
+# account.graphqls. This file defines every Blend v2 object/enum type those
+# fields resolve to.
+#
+# Money-shaped fields use Float for USD/APY values (nullable wherever a missing
+# oracle price makes the value uncomputable — a genuinely zero balance is still
+# 0, not null) and String! for on-chain integer amounts, kept at full precision
+# rather than lossy float64. A stored price older than 24h counts as missing:
+# the pool contract itself refuses prices past that age.
 
-# @goField directive - controls how gqlgen generates Go code for fields
-# This is a gqlgen-specific directive for customizing field resolution
+"""
+BlendAccountPositions aggregates one account's Blend v2 exposure across every
+pool it has touched. backstopClaimed lists lifetime backstop-emission claims
+per backstop. Unlike claimedBlnd (per pool), the on-chain backstop claim event
+carries no pool address, so these totals are reported per backstop, not per
+pool.
+"""
+type BlendAccountPositions {
+  pools: [BlendPoolPosition!]!
+  backstop: [BlendBackstopPosition!]!
+  backstopClaimed: [BlendBackstopClaimed!]!
+  """
+  Active Dutch auctions where this account is the auction owner: being
+  liquidated (USER_LIQUIDATION), or — only when this account IS the backstop
+  address — carrying bad debt (BAD_DEBT) or settling interest (INTEREST).
+  Sorted by (poolAddress, auctionType).
+  """
+  activeAuctions: [BlendAuction!]!
+}
+
+"""
+BlendBackstopClaimed is an account's lifetime backstop-emission claims from
+one backstop, in that backstop's Comet LP tokens (7 decimals): the backstop
+converts claimed BLND into its LP token and re-deposits it, so LP tokens are
+what the claimer receives. Each backstop has its own LP token, so totals from
+different versions are never summed.
+"""
+type BlendBackstopClaimed {
+  version: BlendVersion!
+  lpTokens: String!
+}
+
+"""BlendPoolPosition rolls up an account's reserve positions within one pool."""
+type BlendPoolPosition {
+  poolAddress: String!
+  poolName: String
+  usdValue: Float
+  suppliedUsd: Float
+  borrowedUsd: Float
+  """
+  Supply-vs-borrow interest netting over TOTAL SUPPLIED USD — the blend-sdk-js
+  PositionsEstimate convention shown by the Blend UI:
+  (Σ suppliedUsd·supplyApy − Σ borrowedUsd·borrowApy) / Σ suppliedUsd.
+  0 for a position with debt but no supply (bad debt is forgiven). Null when
+  any contributing reserve is missing a fresh oracle price, or has a null
+  supplyApy/borrowApy of its own.
+  """
+  netApy: Float
+  """Lifetime BLND this account has claimed from this pool's reserve emissions."""
+  claimedBlnd: String!
+  reserves: [BlendReservePosition!]!
+}
+
+"""
+BlendReservePosition is an account's position in one reserve of a pool.
+suppliedTokens/collateralTokens/borrowedTokens are underlying-asset amounts at
+projected (as-of-now) rates. interestEarned/interestPaid are underlying-asset
+amounts too. emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued across
+the reserve's b/d emission streams; claimed history is tracked per pool only
+(see BlendPoolPosition.claimedBlnd), not per reserve.
+"""
+type BlendReservePosition {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  suppliedTokens: String!
+  collateralTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  """
+  Compounded interest rate for each side. Null when the reserve's rate curve
+  compounds past what a Float can hold — reserve config is permissionless, so
+  an arbitrarily steep curve is representable on-chain but not here.
+  """
+  supplyApy: Float
+  borrowApy: Float
+  """
+  The reserve's POOL-WIDE bToken (supply) emission-stream APR: annualized BLND
+  value over the side's pool-wide supplied USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsSupplyApr: Float
+  """
+  The reserve's POOL-WIDE dToken (borrow) emission-stream APR: annualized BLND
+  value over the side's pool-wide borrowed USD, NOT scaled to this account's
+  holding. 0 when no active stream (unconfigured or expired), null when the
+  stream is active but the reserve or BLND price is unavailable.
+  """
+  emissionsBorrowApr: Float
+  """
+  Lifetime interest earned on the supply side of this reserve: the current
+  underlying value of the account's supply+collateral bTokens (at projected,
+  as-of-now rates) minus the net principal it contributed — a cost basis
+  tracked across the account's whole deposit/withdraw history. Token-denominated:
+  a raw integer at the reserve asset's decimals (tokenDecimals), so multiply by
+  priceUsd for a USD value. A liquidation reduces the cost basis by the seized
+  collateral's underlying value at the reserve's rate when the fill is
+  processed, so collateral lost to a fill cancels out instead of being reported
+  as earned interest. Survives a full exit: a position zeroed to no tokens still
+  reports the earnings realized up to the exit (current value 0 minus the
+  negative leftover cost basis). May be slightly negative from cost-basis dust
+  truncation or bRate movement after an exit.
+  """
+  interestEarned: String!
+  """
+  Lifetime interest paid on the debt side of this reserve, mirroring
+  interestEarned: the current underlying value of the account's liability
+  dTokens (at projected, as-of-now rates) minus its net borrowed principal
+  (cost basis tracked from borrow/repay history). Token-denominated (raw
+  integer at tokenDecimals; use priceUsd for USD), lifetime, and survives a
+  full exit the same way. May be slightly negative for the same dust/rate
+  reasons.
+  """
+  interestPaid: String!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+  """The reserve asset's per-unit USD price from the pool's oracle — lets a client value token-denominated fields like interestEarned in USD."""
+  priceUsd: Float
+}
+
+"""
+BlendBackstopPosition is an account's backstop deposit in one pool. The
+backstop is a single protocol-wide contract holding each pool's first-loss
+capital separately, so exposure is inherently per-pool (poolAddress) even
+though the backstop is not the pool contract itself — one
+BlendBackstopPosition per backed pool. shares is the ACTIVE (non-queued)
+backstop share balance; lpTokens/usdValue value the whole deposit — active
+plus queued-for-withdrawal shares — since queued shares keep earning pool
+interest and remain slashable first-loss capital until actually withdrawn.
+emissionsEarnedBlnd is CLAIMABLE (uncollected) BLND accrued on the backstop
+emission stream for this pool; it accrues on active shares only (queued
+shares earn no emissions).
+"""
+type BlendBackstopPosition {
+  poolAddress: String!
+  poolName: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
+  shares: String!
+  """
+  The deposit converted to Comet LP tokens at the pool's shares:tokens rate.
+  Null when that rate is unknown: the pool's blend_backstop_pools balance can
+  be absent or zeroed (an emissions-only write creates the row with zero
+  balance columns) while this account provably holds shares — a conversion
+  reported as "0" there would be indistinguishable from a closed position.
+  """
+  lpTokens: String
+  usdValue: Float
+  q4w: [BlendQ4W!]!
+  emissionsEarnedBlnd: String!
+  emissionsEarnedUsd: Float
+}
+
+"""
+BlendQ4W is one queued backstop withdrawal, unlocking at expiration (unix
+seconds). amount is in backstop shares; lpTokens/usdValue value those shares
+through the same shares→LP→USD conversion as the position's totals, and go
+null under the same unknown-rate condition as the position's lpTokens.
+"""
+type BlendQ4W {
+  amount: String!
+  expiration: Int64!
+  lpTokens: String
+  usdValue: Float
+}
+
+"""
+BlendPool is a pool-wide catalog view of one Blend v2 pool, independent of
+any account. suppliedUsd/borrowedUsd are the sum of each reserve's own
+suppliedUsd/borrowedUsd (nil if any reserve's is nil — a missing price makes
+the pool-wide total genuinely uncomputable, not just smaller). backstopUsd is
+the pool's backstop-LP token balance priced at the Comet LP rate. interestApy
+and netApy are both supplied-USD-weighted means of each reserve's supplyApy
+across reserves; netApy additionally folds in each reserve's
+emissionsSupplyApr — i.e. it is the supply-side yield including BLND
+emissions, not netted against the pool's borrow side. Both are nil if any
+priced reserve's supplyApy is nil, since weighting that reserve in at 0%
+yield would report a number that looks real and isn't.
+"""
+type BlendPool {
+  address: String!
+  name: String
+  """The Blend deployment of the pool's backstop. Null when that backstop is not one the backend indexes."""
+  version: BlendVersion
+  """
+  Pool status. Statuses ADMIN_ACTIVE/ACTIVE/ADMIN_ON_ICE/ON_ICE accept supply
+  (deposits); ADMIN_ACTIVE/ACTIVE also allow borrowing; ADMIN_FROZEN/FROZEN/
+  SETUP reject both. Null until the pool's config entry has been ingested, and
+  also null for an unrecognized on-chain status value.
+  """
+  status: BlendPoolStatus
+  oracleContractId: String
+  """
+  Share of borrower interest routed to the pool's backstop, as 7-decimal
+  fixed point (4750000 = 47.5%).
+  """
+  backstopRate: Int
+  maxPositions: Int
+  suppliedUsd: Float
+  borrowedUsd: Float
+  backstopUsd: Float
+  interestApy: Float
+  netApy: Float
+  reserves: [BlendReserve!]!
+  """
+  Pool admin address (G... or C...). Distinguishes owned pools (admin can
+  retune parameters) from standard pools whose admin is disabled. Null when
+  not yet observed.
+  """
+  admin: String
+  """Whether this pool is in the backstop's reward zone and therefore receives BLND emissions."""
+  inRewardZone: Boolean!
+}
+
+"""
+BlendPoolStatus is a pool's operational status. On-chain encoding:
+0 ADMIN_ACTIVE, 1 ACTIVE, 2 ADMIN_ON_ICE, 3 ON_ICE, 4 ADMIN_FROZEN,
+5 FROZEN, 6 SETUP. Statuses 0-3 accept supply (deposits); 0-1 also allow
+borrowing; 4-6 reject both.
+"""
+enum BlendPoolStatus {
+  ADMIN_ACTIVE
+  ACTIVE
+  ADMIN_ON_ICE
+  ON_ICE
+  ADMIN_FROZEN
+  FROZEN
+  SETUP
+}
+
+"""
+BlendVersion is the Blend deployment a backstop belongs to. V2 is the original
+deployment; V2_1 is the 2026-09-30 redeploy with the patched Comet LP token.
+Both are indexed. Values for V2 backstop positions reflect the old Comet
+pool's on-chain state after the 2026-08-25 incident.
+"""
+enum BlendVersion {
+  V2
+  V2_1
+}
+
+"""
+BlendAuction is one active Dutch auction on a Blend v2 pool. Amounts in bid
+and lot are raw protocol-token i128 decimal strings (not USD), at the scale
+noted per field below.
+"""
+type BlendAuction {
+  poolAddress: String!
+  poolName: String
+  auctionType: BlendAuctionType!
+  """Assets the filler pays. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens."""
+  bid: [BlendAuctionAmount!]!
+  """Assets the filler receives. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying."""
+  lot: [BlendAuctionAmount!]!
+  """Ledger the auction started at — anchors the Dutch-auction lot/bid scaling (0-200 lot ramps up, 200-400 bid ramps down)."""
+  startBlock: Int!
+}
+
+"""
+BlendReserve is a pool-wide reserve catalog view: current utilization,
+supply/borrow APY, emissions APR, and pool-wide (not per-account) underlying
+token amounts, all as of "now" (rates are projected forward from the
+reserve's last on-chain update).
+"""
+type BlendReserve {
+  assetContractId: String!
+  tokenName: String
+  tokenSymbol: String
+  tokenDecimals: Int
+  enabled: Boolean!
+  utilization: Float
+  """
+  Compounded interest rate for each side. Null when the reserve's rate curve
+  compounds past what a Float can hold — reserve config is permissionless, so
+  an arbitrarily steep curve is representable on-chain but not here.
+  """
+  supplyApy: Float
+  borrowApy: Float
+  emissionsSupplyApr: Float
+  emissionsBorrowApr: Float
+  suppliedTokens: String!
+  borrowedTokens: String!
+  suppliedUsd: Float
+  borrowedUsd: Float
+  """Collateral factor as 7-decimal fixed point (9000000 = 0.9): the fraction of this reserve's value usable as collateral."""
+  cFactor: Int
+  """Liability factor as 7-decimal fixed point: scales how much borrowing this reserve's value supports."""
+  lFactor: Int
+  priceUsd: Float
+}
+`, BuiltIn: false},
+	{Name: "../schema/directives.graphqls", Input: `"""Server code-generation hint. It has no effect on query results."""
 directive @goField(
-	# forceResolver: Boolean - forces gqlgen to generate a resolver function
-	# even if the Go struct has a matching field name
-	# Useful when you need custom logic for field resolution
+	"""Always resolve this field through a resolver function."""
 	forceResolver: Boolean
-	
-	# name: String - specifies the Go struct field name to map to
-	# Allows mapping GraphQL field names to different Go field names
+
+	"""Go struct field that backs this GraphQL field."""
 	name: String
-	
-	# omittable: Boolean - indicates if the field can be omitted from queries
-	# Used for optional fields in input types
+
+	"""Generate the input field as omittable."""
 	omittable: Boolean
-	
-	# type: String - specifies the Go type for the field
-	# Overrides gqlgen's default type inference
+
+	"""Go type for this field."""
 	type: String
 ) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
 `, BuiltIn: false},
@@ -3700,32 +5515,59 @@ Stellar operation type, one value per operation defined by the Stellar
 protocol (matching the XDR OperationType names).
 """
 enum OperationType {
+  """Creates and funds a new account."""
   CREATE_ACCOUNT
+  """Sends an asset to a destination account."""
   PAYMENT
+  """Path payment where the destination receives an exact amount."""
   PATH_PAYMENT_STRICT_RECEIVE
+  """Path payment where the source sends an exact amount."""
   PATH_PAYMENT_STRICT_SEND
+  """Creates, updates, or deletes an offer to sell an asset."""
   MANAGE_SELL_OFFER
+  """Creates a passive sell offer, which does not take offers at the same price."""
   CREATE_PASSIVE_SELL_OFFER
+  """Creates, updates, or deletes an offer to buy an asset."""
   MANAGE_BUY_OFFER
+  """Sets account options: flags, thresholds, signers, home domain, inflation destination."""
   SET_OPTIONS
+  """Creates, updates, or removes a trustline."""
   CHANGE_TRUST
+  """Issuer authorizes or deauthorizes a trustline to its asset."""
   ALLOW_TRUST
+  """Merges the source account into a destination account and removes it."""
   ACCOUNT_MERGE
+  """Inflation operation. Fails on protocol 12 and later."""
   INFLATION
+  """Sets, updates, or deletes an account data entry."""
   MANAGE_DATA
+  """Raises the source account's sequence number."""
   BUMP_SEQUENCE
+  """Creates a claimable balance."""
   CREATE_CLAIMABLE_BALANCE
+  """Claims a claimable balance."""
   CLAIM_CLAIMABLE_BALANCE
+  """Starts sponsoring reserves for another account."""
   BEGIN_SPONSORING_FUTURE_RESERVES
+  """Ends a sponsorship started by BEGIN_SPONSORING_FUTURE_RESERVES."""
   END_SPONSORING_FUTURE_RESERVES
+  """Removes or transfers sponsorship of a ledger entry or signer."""
   REVOKE_SPONSORSHIP
+  """Issuer claws back an asset from a holder's trustline."""
   CLAWBACK
+  """Issuer claws back a claimable balance."""
   CLAWBACK_CLAIMABLE_BALANCE
+  """Issuer sets or clears authorization flags on a trustline."""
   SET_TRUST_LINE_FLAGS
+  """Deposits assets into a liquidity pool in exchange for pool shares."""
   LIQUIDITY_POOL_DEPOSIT
+  """Withdraws assets from a liquidity pool by redeeming pool shares."""
   LIQUIDITY_POOL_WITHDRAW
+  """Soroban: invokes a contract function, uploads Wasm, or creates a contract."""
   INVOKE_HOST_FUNCTION
+  """Soroban: extends the time to live of ledger entries in the footprint."""
   EXTEND_FOOTPRINT_TTL
+  """Soroban: restores archived ledger entries in the footprint."""
   RESTORE_FOOTPRINT
 }
 
@@ -3755,6 +5597,22 @@ enum StateChangeCategory {
   TRUSTLINE
   """Asset authorization for a holder: BalanceAuthorizationChange."""
   BALANCE_AUTHORIZATION
+  """Blend v2 uncollateralized supply positions: BlendSupplyChange."""
+  BLEND_SUPPLY
+  """Blend v2 collateralized supply positions: BlendCollateralChange."""
+  BLEND_COLLATERAL
+  """Blend v2 debt positions: BlendDebtChange."""
+  BLEND_DEBT
+  """Blend v2 Dutch-auction fills: BlendAuctionChange."""
+  BLEND_AUCTION
+  """Blend v2 pool reserve emissions: BlendEmissionsClaimChange."""
+  BLEND_EMISSIONS
+  """Blend v2 backstop emissions: BlendBackstopEmissionsClaimChange."""
+  BLEND_BACKSTOP_EMISSIONS
+  """Blend v2 backstop deposits: BlendBackstopChange."""
+  BLEND_BACKSTOP
+  """Blend v2 backstop withdrawal queue entries: BlendBackstopQueueChange."""
+  BLEND_BACKSTOP_QUEUE
 }
 
 """
@@ -3766,17 +5624,17 @@ enum StateChangeReason {
   CREATE
   """ACCOUNT: account merged into another account."""
   MERGE
-  """BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation)."""
+  """BALANCE: value left the account (payment sent, or a transaction-fee charge with null operation); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position decreased."""
   DEBIT
-  """BALANCE: value entered the account (payment received)."""
+  """BALANCE: value entered the account (payment received); BLEND_SUPPLY, BLEND_COLLATERAL, or BLEND_BACKSTOP: position increased."""
   CREDIT
   """BALANCE: tokens minted to the account."""
   MINT
-  """BALANCE: tokens burned from the account (including clawbacks)."""
+  """BALANCE: tokens burned from the account (including clawbacks); BLEND_DEBT: defaulted debt written off (dTokens burnt)."""
   BURN
-  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry added."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry added; BLEND_BACKSTOP_QUEUE: withdrawal queued."""
   ADD
-  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed."""
+  """SIGNER, TRUSTLINE, or DATA_ENTRY: entry removed; BLEND_BACKSTOP_QUEUE: queued withdrawal cancelled."""
   REMOVE
   """SIGNER, TRUSTLINE, or DATA_ENTRY: entry updated; SIGNATURE_THRESHOLD: threshold changed; HOME_DOMAIN: domain changed from one value to another; ALLOWANCE: SEP-41 allowance approved."""
   UPDATE
@@ -3784,6 +5642,18 @@ enum StateChangeReason {
   SET
   """FLAGS or BALANCE_AUTHORIZATION: flags turned off; HOME_DOMAIN: domain removed."""
   CLEAR
+  """BLEND_DEBT: underlying borrowed from the pool."""
+  BORROW
+  """BLEND_DEBT: underlying repaid to the pool."""
+  REPAY
+  """BLEND_DEBT: borrow repaid within the same transaction (fee retained by the pool)."""
+  FLASH_LOAN
+  """BLEND_DEBT: debt socialized to the backstop (dTokens transferred)."""
+  BAD_DEBT
+  """BLEND_AUCTION: a Dutch auction was (partially) filled."""
+  FILL
+  """BLEND_EMISSIONS or BLEND_BACKSTOP_EMISSIONS: accrued emissions claimed."""
+  CLAIM
 }
 
 """Which of an account's three signature thresholds a ThresholdChange refers to."""
@@ -3839,13 +5709,23 @@ enum AssetType {
   """Asset code of 5-12 characters."""
   CREDIT_ALPHANUM12
 }
+
+"""Which object a Blend v2 Dutch auction sells off."""
+enum BlendAuctionType {
+  """A user's collateral, sold to cover their debt."""
+  USER_LIQUIDATION
+  """Backstop LP tokens, sold to cover debt socialized to the backstop."""
+  BAD_DEBT
+  """Accrued pool interest, sold for backstop LP tokens."""
+  INTEREST
+}
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `"""Filters for an account's state changes; all conditions are ANDed."""
 input AccountStateChangeFilterInput {
-  """Only state changes from the transaction with this hash."""
+  """Only state changes from the transaction with this hash (64 hex characters). Any other format returns an INVALID_TRANSACTION_HASH error."""
   transactionHash: String
 
-  """Only state changes from the operation with this ID."""
+  """Only state changes from the operation with this ID (TOID)."""
   operationId: Int64
 
   """Only state changes with this category."""
@@ -3863,7 +5743,7 @@ type Operation {
   type:            OperationType! @goField(name: "operationType")
   """The operation body, base64-encoded XDR."""
   operationXdr:    String! @goField(forceResolver: true)
-  """Operation result code from transaction execution."""
+  """Operation result code in snake case (for example op_success, op_underfunded, op_bad_auth)."""
   resultCode:      String!
   """Whether the operation succeeded."""
   successful:      Boolean!
@@ -3877,72 +5757,115 @@ type Operation {
   """Transaction that contains this operation."""
   transaction: Transaction! @goField(forceResolver: true)
 
-  """Accounts that participated in this operation."""
+  """Accounts and contracts that participated in this operation. Each one has this operation in its ` + "`" + `operations` + "`" + ` history."""
   accounts:        [Account!]! @goField(forceResolver: true)
 
-  """State changes produced by this operation."""
-  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
+  """State changes produced by this operation, in ledger order."""
+  stateChanges(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): StateChangeConnection!
 }
 `, BuiltIn: false},
 	{Name: "../schema/pagination.graphqls", Input: `"""Relay-style page of operations."""
 type OperationConnection {
+    """Operations in this page, in ledger order (oldest first)."""
     edges: [OperationEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One operation in a page, with its pagination cursor."""
 type OperationEdge {
+    """The operation."""
     node: Operation!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of state changes."""
 type StateChangeConnection {
+    """State changes in this page, in ledger order (oldest first)."""
     edges: [StateChangeEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One state change in a page, with its pagination cursor."""
 type StateChangeEdge {
+    """The state change. Select concrete-type fields with inline fragments."""
     node: BaseStateChange!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of an account's token balances."""
 type BalanceConnection {
+    """Balances in this page, in the token-type order described on ` + "`" + `Account.balances` + "`" + `."""
     edges: [BalanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One balance in a page, with its pagination cursor."""
 type BalanceEdge {
+    """The balance. Select type-specific fields with inline fragments."""
     node: Balance!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style page of SEP-41 allowances."""
 type SEP41AllowanceConnection {
+    """Allowances in this page, ordered by spender."""
     edges: [SEP41AllowanceEdge!]!
+    """Cursors and page flags for fetching adjacent pages."""
     pageInfo: PageInfo!
 }
 
 """One SEP-41 allowance in a page, with its pagination cursor."""
 type SEP41AllowanceEdge {
+    """The allowance."""
     node: SEP41Allowance!
+    """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
     cursor: String!
 }
 
 """Relay-style pagination metadata; cursors are opaque strings."""
 type PageInfo {
+    """Cursor of the first edge in this page; null when the page is empty."""
     startCursor: String
+    """Cursor of the last edge in this page; null when the page is empty."""
     endCursor: String
+    """Forward paging (` + "`" + `first` + "`" + `, or no paging arguments): true when more edges follow this page. Backward paging (` + "`" + `last` + "`" + `): true whenever ` + "`" + `before` + "`" + ` was given."""
     hasNextPage: Boolean!
+    """Backward paging (` + "`" + `last` + "`" + `): true when more edges precede this page. Forward paging: true whenever ` + "`" + `after` + "`" + ` was given."""
     hasPreviousPage: Boolean!
+}
+
+"""Relay-style page of the Blend v2 pool catalog."""
+type BlendPoolConnection {
+    edges: [BlendPoolEdge!]!
+    pageInfo: PageInfo!
+}
+
+"""One Blend v2 pool in a page, with its pagination cursor."""
+type BlendPoolEdge {
+    node: BlendPool!
+    cursor: String!
 }
 
 """Relay-style page of an account's transactions."""
 type AccountTransactionConnection {
+  """Transactions in this page, in ledger order (oldest first)."""
   edges:    [AccountTransactionEdge!]!
+  """Cursors and page flags for fetching adjacent pages."""
   pageInfo: PageInfo!
 }
 
@@ -3951,22 +5874,57 @@ One transaction in an account's history, with the transaction's operations and
 state changes inlined so a full account-history page resolves in one query.
 """
 type AccountTransactionEdge {
+  """The transaction."""
   node:         Transaction!
+  """Opaque cursor for this edge. Pass it as ` + "`" + `after` + "`" + ` or ` + "`" + `before` + "`" + `."""
   cursor:       String!
+  """This transaction's operations that the account participated in. Not paginated."""
   operations:   [Operation!]!        @goField(forceResolver: true)
+  """This transaction's state changes that affected the account, newest first. Not paginated: at most 2,000 rows, and a transaction with more drops its oldest."""
   stateChanges: [BaseStateChange!]!  @goField(forceResolver: true)
 }
 `, BuiltIn: false},
-	{Name: "../schema/queries.graphqls", Input: `"""Root queries. Entities not found return null."""
+	{Name: "../schema/queries.graphqls", Input: `"""Root queries. All lookups are read-only."""
 type Query {
-    """Look up a transaction by its hex-encoded hash."""
-    transactionByHash(hash: String!): Transaction
+    """
+    Look up a transaction by hash. Returns null, with an error in the response,
+    when no indexed transaction has this hash.
+    """
+    transactionByHash(
+        """Transaction hash: 64 hex characters. For a fee-bump transaction, the outer (fee-bump) hash. Any other format returns an INVALID_TRANSACTION_HASH error."""
+        hash: String!
+    ): Transaction
 
-    """Look up an account or contract by its address (G... or C...)."""
-    accountByAddress(address: String!): Account
+    """
+    Look up an account (G...) or contract (C...) by address. A contract's history
+    holds the operations it authorised and the state changes applied to it. Any
+    valid address returns an Account, even one with no indexed activity; its
+    connections are then empty.
+    """
+    accountByAddress(
+        """Account strkey (G...) or contract strkey (C...). Any other value, including a muxed address (M...), returns an INVALID_ADDRESS error."""
+        address: String!
+    ): Account
 
-    """Look up an operation by its ID (TOID)."""
-    operationById(id: Int64!): Operation
+    """
+    Look up an operation by its ID (TOID). Returns null, with an error in the
+    response, when no indexed operation has this ID.
+    """
+    operationById(
+        """Operation ID (TOID)."""
+        id: Int64!
+    ): Operation
+
+    """
+    Blend v2 pool-wide catalog, independent of any account, keyset-paginated by
+    pool contract address. Pool deployment is permissionless, so the catalog is
+    unbounded; pages are capped at 50 pools (also the default when first/last
+    is omitted).
+    """
+    blendPools(first: Int, after: String, last: Int, before: String): BlendPoolConnection!
+
+    """Look up one Blend v2 pool by its contract address (C...)."""
+    blendPool(address: String!): BlendPool
 
     """
     Simulate an unsubmitted transaction and return the state changes it would
@@ -4359,7 +6317,7 @@ interface BaseStateChange {
   ledgerCreatedAt:            Time!
   """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
-  """Account whose state changed."""
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
   """
   Operation that caused this change. Non-null on every concrete type except
@@ -4380,24 +6338,42 @@ Clawbacks are recorded as BURN. Transaction-fee rows are (BALANCE, DEBIT) with
 ` + "`" + `toMuxedId` + "`" + ` null; refunds are netted into the fee charge, never a separate row.
 """
 type BalanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
-  """Operation that caused this change; null on transaction-fee rows."""
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token whose balance moved."""
+  """Contract ID (C...) of the token whose balance moved. For XLM and classic assets, the Stellar Asset Contract ID."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Amount moved, as a decimal string in the token's smallest unit."""
+  """Amount moved, as an integer string in the token's smallest unit (stroops for XLM and classic assets)."""
   amount:                     String! @goField(forceResolver: true)
   """
-  CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and
-  MINT only). Rendered as a decimal string so u64 values above 2^53-1 survive
-  JSON number quantization.
+  CAP-67 destination id on the recipient's row: the id of a muxed destination
+  (M... account, or W... contract via the CAP-84 to_muxed_id event field) or,
+  for a classic operation that credits an account (payment, path payment,
+  create account, account merge, claimable balance claim, liquidity pool
+  withdraw), the transaction's MEMO_ID. Set on the CREDIT row of SAC and
+  classic transfers and mints, and on the CREDIT/MINT row of SEP-41
+  transfer/mint events. Null on debits, issuer MINT rows, fee rows and for
+  text/hash memos. Recorded from the release that added each source
+  onward; rows ingested earlier stay null. Rendered as a decimal string so
+  u64 values above 2^53-1 survive JSON number quantization.
   """
   toMuxedId:                  String @goField(forceResolver: true)
 }
@@ -4408,13 +6384,25 @@ a classic account creation, a C-address for a smart-contract deployment.
 Pair: (ACCOUNT, CREATE).
 """
 type AccountCreatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """
@@ -4429,16 +6417,28 @@ An account merge. ` + "`" + `account` + "`" + ` is the merged (removed) account.
 Pair: (ACCOUNT, MERGE).
 """
 type AccountMergedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Account that received the merged account's balance."""
+  """Account (G...) that received the merged account's XLM balance."""
   destinationAddress:         String! @goField(forceResolver: true)
 }
 
@@ -4447,16 +6447,28 @@ A signer added to the account.
 Pair: (SIGNER, ADD).
 """
 type SignerAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the added signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight assigned to the new signer (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -4467,18 +6479,30 @@ An existing signer's weight changed.
 Pair: (SIGNER, UPDATE).
 """
 type SignerUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the updated signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
-  """Previous weight (0-255). 0 when the updated signer is the master key previously locked at weight 0."""
+  """Weight before this change (0-255). Can be 0 when the signer is the master key and its weight was 0."""
   oldWeight:                  Int! @goField(forceResolver: true)
   """New weight (0-255)."""
   newWeight:                  Int! @goField(forceResolver: true)
@@ -4489,16 +6513,28 @@ A signer removed from the account.
 Pair: (SIGNER, REMOVE).
 """
 type SignerRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Address of the removed signer."""
+  """Signer key as a strkey: account (G...), pre-authorized transaction (T...), SHA-256 hash (X...), or signed payload (P...)."""
   signerAddress:              String! @goField(forceResolver: true)
   """Weight the signer had before removal (0-255)."""
   oldWeight:                  Int! @goField(forceResolver: true)
@@ -4510,13 +6546,25 @@ three thresholds changed; one state change is emitted per changed threshold.
 Pair: (SIGNATURE_THRESHOLD, UPDATE).
 """
 type ThresholdChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Which signature threshold changed."""
@@ -4533,13 +6581,25 @@ Pairs: (FLAGS, SET) lists flags that were turned on, (FLAGS, CLEAR) lists flags
 that were turned off.
 """
 type AccountFlagsChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Flags that were set (reason SET) or cleared (reason CLEAR)."""
@@ -4551,13 +6611,25 @@ A home domain set on an account that had none.
 Pair: (HOME_DOMAIN, SET).
 """
 type HomeDomainSetChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """The newly set home domain."""
@@ -4569,13 +6641,25 @@ An existing home domain replaced by a different one.
 Pair: (HOME_DOMAIN, UPDATE).
 """
 type HomeDomainUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Previous home domain."""
@@ -4589,13 +6673,25 @@ A home domain removed from the account.
 Pair: (HOME_DOMAIN, CLEAR).
 """
 type HomeDomainClearedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Home domain the account had when it was removed."""
@@ -4607,13 +6703,25 @@ A data entry created on the account.
 Pair: (DATA_ENTRY, ADD).
 """
 type DataEntryAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -4627,13 +6735,25 @@ An existing data entry's value changed.
 Pair: (DATA_ENTRY, UPDATE).
 """
 type DataEntryUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -4649,13 +6769,25 @@ A data entry removed from the account.
 Pair: (DATA_ENTRY, REMOVE).
 """
 type DataEntryRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
   """Name of the data entry."""
@@ -4670,20 +6802,32 @@ to transfer up to ` + "`" + `amount` + "`" + ` of the token on its behalf.
 Pair: (ALLOWANCE, UPDATE).
 """
 type AllowanceChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the token the allowance applies to."""
+  """Contract ID (C...) of the token the allowance applies to."""
   tokenId:                    String! @goField(forceResolver: true)
-  """Address authorized to spend from the holder's balance."""
+  """Address (G... or C...) authorized to spend from the holder's balance."""
   spender:                    String! @goField(forceResolver: true)
-  """Approved allowance, as a decimal string in the token's smallest unit."""
+  """Approved allowance, as an integer string in the token's smallest unit."""
   amount:                     String! @goField(forceResolver: true)
   """Last ledger sequence at which the allowance is live."""
   expirationLedger:           UInt32! @goField(forceResolver: true)
@@ -4694,20 +6838,32 @@ A trustline created. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, ADD).
 """
 type TrustlineAddedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Initial trustline limit, as a decimal string in stroops."""
+  """Initial trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   limit:                      String! @goField(forceResolver: true)
 }
 
@@ -4716,22 +6872,34 @@ A trustline limit updated. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, UPDATE).
 """
 type TrustlineUpdatedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
-  """Previous trustline limit, as a decimal string in stroops."""
+  """Previous trustline limit, as an integer string in stroops (for example "1000000000")."""
   oldLimit:                   String! @goField(forceResolver: true)
-  """New trustline limit, as a decimal string in stroops."""
+  """New trustline limit, as a decimal string with 7 decimal places (for example "100.0000000")."""
   newLimit:                   String! @goField(forceResolver: true)
 }
 
@@ -4740,18 +6908,30 @@ A trustline removed. Exactly one of tokenId / liquidityPoolId is set.
 Pair: (TRUSTLINE, REMOVE).
 """
 type TrustlineRemovedChange implements BaseStateChange {
+  """Category of account state this change affects."""
   category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
   reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
   ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
   ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
   ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
   account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
   operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the trusted asset; null for liquidity-pool-share trustlines."""
+  """Stellar Asset Contract ID (C...) of the trusted asset; null for liquidity-pool-share trustlines."""
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
   liquidityPoolId:            String @goField(forceResolver: true)
 }
 
@@ -4764,6 +6944,41 @@ plain boolean in the contract balance entry, so ` + "`" + `flags` + "`" + ` is n
 Pairs: (BALANCE_AUTHORIZATION, SET), (BALANCE_AUTHORIZATION, CLEAR).
 """
 type BalanceAuthorizationChange implements BaseStateChange {
+  """Category of account state this change affects."""
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  """Why the change occurred. Each concrete type documents its valid reasons."""
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  """When the indexer persisted this state change."""
+  ingestedAt:                 Time!
+  """Close time of the ledger that produced this change."""
+  ledgerCreatedAt:            Time!
+  """Sequence number of the ledger that produced this change."""
+  ledgerNumber:               UInt32!
+  """Account or contract whose state changed."""
+  account:                    Account! @goField(forceResolver: true)
+  """
+  Operation that caused this change. Non-null on every concrete type except
+  BalanceChange, where it is null on transaction-fee rows (fees are charged per
+  transaction, not per operation).
+  """
+  operation:                  Operation! @goField(forceResolver: true)
+  """Transaction that caused this change."""
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Stellar Asset Contract ID (C...) of the asset; null for liquidity-pool-share trustlines."""
+  tokenId:                    String @goField(forceResolver: true)
+  """Hex-encoded liquidity pool ID for pool-share trustlines; null for asset trustlines."""
+  liquidityPoolId:            String @goField(forceResolver: true)
+  """Trustline flags that changed; null for SAC contract-holder authorization, which has no flags."""
+  flags:                      [TrustlineFlag!] @goField(forceResolver: true)
+}
+
+"""
+A change to the account's uncollateralized supply position in a Blend v2 pool
+reserve: underlying tokens lent to the pool without backing a borrow.
+Pairs: (BLEND_SUPPLY, CREDIT), (BLEND_SUPPLY, DEBIT).
+"""
+type BlendSupplyChange implements BaseStateChange {
   category:                   StateChangeCategory! @goField(forceResolver: true)
   reason:                     StateChangeReason! @goField(forceResolver: true)
   ingestedAt:                 Time!
@@ -4773,21 +6988,197 @@ type BalanceAuthorizationChange implements BaseStateChange {
   operation:                  Operation! @goField(forceResolver: true)
   transaction:                Transaction! @goField(forceResolver: true)
 
-  """Contract ID of the asset; null for liquidity-pool-share trustlines."""
+  """Contract ID of the reserve asset supplied or withdrawn."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Underlying amount moved, as a decimal string in the asset's smallest unit."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool the reserve belongs to."""
+  poolId:                     String! @goField(forceResolver: true)
+}
+
+"""
+A change to the account's collateralized supply position in a Blend v2 pool
+reserve: underlying tokens posted as (or released from) borrow collateral.
+Pairs: (BLEND_COLLATERAL, CREDIT), (BLEND_COLLATERAL, DEBIT).
+"""
+type BlendCollateralChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the reserve asset posted or released."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Underlying amount moved, as a decimal string in the asset's smallest unit."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool the reserve belongs to."""
+  poolId:                     String! @goField(forceResolver: true)
+}
+
+"""
+A change to the account's debt position in a Blend v2 pool reserve.
+Pairs: (BLEND_DEBT, BORROW), (BLEND_DEBT, REPAY), (BLEND_DEBT, FLASH_LOAN),
+(BLEND_DEBT, BAD_DEBT), (BLEND_DEBT, BURN).
+Amount denomination varies by reason: BORROW, REPAY, and FLASH_LOAN carry the
+underlying amount; BAD_DEBT (debt socialized to the backstop) and BURN
+(defaulted debt written off; ` + "`" + `account` + "`" + ` is the pool) carry dTokens.
+"""
+type BlendDebtChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the reserve asset borrowed against."""
+  tokenId:                    String! @goField(forceResolver: true)
+  """Amount moved, as a decimal string (see the type docs for denomination by reason)."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool the debt is owed to."""
+  poolId:                     String! @goField(forceResolver: true)
+}
+
+"""BlendAuctionAmount is one asset's raw protocol-token amount within an auction's bid or lot."""
+type BlendAuctionAmount {
+  assetContractId: String!
+  """Raw on-chain integer amount at the asset's native decimals, NOT a USD value."""
+  amount: String!
+}
+
+"""
+One side of a filled Blend v2 Dutch auction. Every fill produces two rows —
+one for the account being liquidated (or the pool, for BAD_DEBT/INTEREST
+auctions) and one for the filler — each naming the other as ` + "`" + `counterparty` + "`" + `.
+Pair: (BLEND_AUCTION, FILL).
+"""
+type BlendAuctionChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Contract ID of the Blend pool the auction ran on."""
+  poolId:                     String! @goField(forceResolver: true)
+  """Which auction was filled."""
+  auctionType:                BlendAuctionType! @goField(forceResolver: true)
+  """Percentage of the auction filled by this fill, 1-100."""
+  fillPercent:                Int! @goField(forceResolver: true)
+  """The other account in the fill: the filler on the liquidated side, and vice versa."""
+  counterparty:               String! @goField(forceResolver: true)
+  """Assets the filler received. Units by type: USER_LIQUIDATION bTokens; BAD_DEBT backstop LP tokens; INTEREST underlying."""
+  lot:                        [BlendAuctionAmount!]! @goField(forceResolver: true)
+  """Assets the filler assumed. Units by type: USER_LIQUIDATION/BAD_DEBT dTokens; INTEREST backstop LP tokens."""
+  bid:                        [BlendAuctionAmount!]! @goField(forceResolver: true)
+}
+
+"""
+BLND emissions claimed from a Blend v2 pool's reserves.
+Pair: (BLEND_EMISSIONS, CLAIM).
+"""
+type BlendEmissionsClaimChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """
+  Contract ID of the BLND Stellar Asset Contract the emissions pay out in.
+  Null only on networks with no known BLND SAC (e.g. a standalone test network).
+  """
   tokenId:                    String @goField(forceResolver: true)
-  """Liquidity pool ID for pool-share trustlines; null for asset trustlines."""
-  liquidityPoolId:            String @goField(forceResolver: true)
-  """Trustline flags that changed; null for SAC contract-holder authorization, which has no flags."""
-  flags:                      [TrustlineFlag!] @goField(forceResolver: true)
+  """BLND claimed, as a decimal string in stroops."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool whose reserve emissions were claimed."""
+  poolId:                     String! @goField(forceResolver: true)
+}
+
+"""
+Backstop emissions claimed from the Blend v2 backstop. The claimed BLND is
+swapped into Comet LP tokens and auto-restaked (the restake itself emits
+BLEND_BACKSTOP CREDIT rows per pool), so the amount is denominated in LP
+tokens and no single pool or token is attributable to the claim itself.
+Pair: (BLEND_BACKSTOP_EMISSIONS, CLAIM).
+"""
+type BlendBackstopEmissionsClaimChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Comet BLND:USDC LP tokens minted by the claim, as a decimal string."""
+  amount:                     String! @goField(forceResolver: true)
+}
+
+"""
+A change to the account's Blend v2 backstop deposit for one pool, denominated
+in Comet BLND:USDC LP tokens.
+Pairs: (BLEND_BACKSTOP, CREDIT), (BLEND_BACKSTOP, DEBIT).
+"""
+type BlendBackstopChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Comet LP tokens deposited or withdrawn, as a decimal string."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool whose backstop the deposit backs."""
+  poolId:                     String! @goField(forceResolver: true)
+}
+
+"""
+A queue-for-withdrawal entry added to or removed from the account's Blend v2
+backstop position for one pool. ADD queues shares for the 17-day withdrawal
+lock; REMOVE cancels a queued entry (an executed withdrawal is a
+BLEND_BACKSTOP DEBIT instead).
+Pairs: (BLEND_BACKSTOP_QUEUE, ADD), (BLEND_BACKSTOP_QUEUE, REMOVE).
+"""
+type BlendBackstopQueueChange implements BaseStateChange {
+  category:                   StateChangeCategory! @goField(forceResolver: true)
+  reason:                     StateChangeReason! @goField(forceResolver: true)
+  ingestedAt:                 Time!
+  ledgerCreatedAt:            Time!
+  ledgerNumber:               UInt32!
+  account:                    Account! @goField(forceResolver: true)
+  operation:                  Operation! @goField(forceResolver: true)
+  transaction:                Transaction! @goField(forceResolver: true)
+
+  """Backstop shares queued or dequeued, as a decimal string."""
+  amount:                     String! @goField(forceResolver: true)
+  """Contract ID of the Blend pool whose backstop the queue entry belongs to."""
+  poolId:                     String! @goField(forceResolver: true)
 }
 `, BuiltIn: false},
 	{Name: "../schema/transaction.graphqls", Input: `"""A Stellar transaction."""
 type Transaction {
-  """Transaction hash, hex-encoded."""
+  """Transaction hash, 64 hex characters. For a fee-bump transaction, the outer (fee-bump) hash."""
   hash:            String! @goField(forceResolver: true)
   """Fee charged for the transaction, in stroops."""
   feeCharged:      Int64!
-  """Transaction result code from transaction execution."""
+  """Transaction result code, as the XDR TransactionResultCode name (for example TransactionResultCodeTxSuccess)."""
   resultCode:      String!
   """Sequence number of the ledger that included this transaction."""
   ledgerNumber:    UInt32!
@@ -4798,14 +7189,32 @@ type Transaction {
   """When the indexer persisted this transaction."""
   ingestedAt:      Time!
 
-  """Operations contained in this transaction."""
-  operations(first: Int, after: String, last: Int, before: String): OperationConnection!
+  """Operations contained in this transaction, in application order."""
+  operations(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): OperationConnection!
 
-  """Accounts that participated in this transaction."""
+  """Accounts and contracts that participated in this transaction. Each one has this transaction in its ` + "`" + `transactions` + "`" + ` history."""
   accounts:        [Account!]! @goField(forceResolver: true)
 
-  """State changes produced by this transaction."""
-  stateChanges(first: Int, after: String, last: Int, before: String): StateChangeConnection!
+  """State changes produced by this transaction, in ledger order."""
+  stateChanges(
+    """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
+    first: Int
+    """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
+    after: String
+    """Return up to this many edges from the end of the list, or before ` + "`" + `before` + "`" + `. Maximum 100. Cannot be combined with ` + "`" + `first` + "`" + ` or ` + "`" + `after` + "`" + `."""
+    last: Int
+    """Cursor from a previous page. Returns the edges before it. Requires ` + "`" + `last` + "`" + `; ignored without it."""
+    before: String
+  ): StateChangeConnection!
 }
 `, BuiltIn: false},
 }
@@ -5025,6 +7434,43 @@ func (ec *executionContext) field_Query_accountByAddress_args(ctx context.Contex
 		return nil, err
 	}
 	args["address"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_blendPool_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "address", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["address"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_blendPools_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
 	return args, nil
 }
 
@@ -5429,6 +7875,45 @@ func (ec *executionContext) fieldContext_Account_sep41Allowances(ctx context.Con
 	return fc, nil
 }
 
+func (ec *executionContext) _Account_blendPositions(ctx context.Context, field graphql.CollectedField, obj *types.Account) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Account_blendPositions,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Account().BlendPositions(ctx, obj)
+		},
+		nil,
+		ec.marshalNBlendAccountPositions2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Account_blendPositions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Account",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "pools":
+				return ec.fieldContext_BlendAccountPositions_pools(ctx, field)
+			case "backstop":
+				return ec.fieldContext_BlendAccountPositions_backstop(ctx, field)
+			case "backstopClaimed":
+				return ec.fieldContext_BlendAccountPositions_backstopClaimed(ctx, field)
+			case "activeAuctions":
+				return ec.fieldContext_BlendAccountPositions_activeAuctions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAccountPositions", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _AccountCreatedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.AccountCreatedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5610,6 +8095,8 @@ func (ec *executionContext) fieldContext_AccountCreatedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -5931,6 +8418,8 @@ func (ec *executionContext) fieldContext_AccountFlagsChange_account(_ context.Co
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6252,6 +8741,8 @@ func (ec *executionContext) fieldContext_AccountMergedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -6813,6 +9304,8 @@ func (ec *executionContext) fieldContext_AllowanceChange_account(_ context.Conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7221,6 +9714,8 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_account(_ co
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7600,6 +10095,8 @@ func (ec *executionContext) fieldContext_BalanceChange_account(_ context.Context
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -7930,6 +10427,5820 @@ func (ec *executionContext) fieldContext_BalanceEdge_cursor(_ context.Context, f
 	return fc, nil
 }
 
+func (ec *executionContext) _BlendAccountPositions_pools(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_pools,
+		func(ctx context.Context) (any, error) {
+			return obj.Pools, nil
+		},
+		nil,
+		ec.marshalNBlendPoolPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_pools(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendPoolPosition_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendPoolPosition_poolName(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendPoolPosition_usdValue(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPoolPosition_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPoolPosition_borrowedUsd(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPoolPosition_netApy(ctx, field)
+			case "claimedBlnd":
+				return ec.fieldContext_BlendPoolPosition_claimedBlnd(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPoolPosition_reserves(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolPosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAccountPositions_backstop(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_backstop,
+		func(ctx context.Context) (any, error) {
+			return obj.Backstop, nil
+		},
+		nil,
+		ec.marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstop(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendBackstopPosition_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendBackstopPosition_poolName(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendBackstopPosition_version(ctx, field)
+			case "shares":
+				return ec.fieldContext_BlendBackstopPosition_shares(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendBackstopPosition_lpTokens(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendBackstopPosition_usdValue(ctx, field)
+			case "q4w":
+				return ec.fieldContext_BlendBackstopPosition_q4w(ctx, field)
+			case "emissionsEarnedBlnd":
+				return ec.fieldContext_BlendBackstopPosition_emissionsEarnedBlnd(ctx, field)
+			case "emissionsEarnedUsd":
+				return ec.fieldContext_BlendBackstopPosition_emissionsEarnedUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendBackstopPosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAccountPositions_backstopClaimed(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_backstopClaimed,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopClaimed, nil
+		},
+		nil,
+		ec.marshalNBlendBackstopClaimed2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimedᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_backstopClaimed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "version":
+				return ec.fieldContext_BlendBackstopClaimed_version(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendBackstopClaimed_lpTokens(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendBackstopClaimed", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAccountPositions_activeAuctions(ctx context.Context, field graphql.CollectedField, obj *BlendAccountPositions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAccountPositions_activeAuctions,
+		func(ctx context.Context) (any, error) {
+			return obj.ActiveAuctions, nil
+		},
+		nil,
+		ec.marshalNBlendAuction2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAccountPositions_activeAuctions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAccountPositions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "poolAddress":
+				return ec.fieldContext_BlendAuction_poolAddress(ctx, field)
+			case "poolName":
+				return ec.fieldContext_BlendAuction_poolName(ctx, field)
+			case "auctionType":
+				return ec.fieldContext_BlendAuction_auctionType(ctx, field)
+			case "bid":
+				return ec.fieldContext_BlendAuction_bid(ctx, field)
+			case "lot":
+				return ec.fieldContext_BlendAuction_lot(ctx, field)
+			case "startBlock":
+				return ec.fieldContext_BlendAuction_startBlock(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_auctionType(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_auctionType,
+		func(ctx context.Context) (any, error) {
+			return obj.AuctionType, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_auctionType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendAuctionType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_bid(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_bid,
+		func(ctx context.Context) (any, error) {
+			return obj.Bid, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_bid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_lot(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_lot,
+		func(ctx context.Context) (any, error) {
+			return obj.Lot, nil
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_lot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuction_startBlock(ctx context.Context, field graphql.CollectedField, obj *BlendAuction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuction_startBlock,
+		func(ctx context.Context) (any, error) {
+			return obj.StartBlock, nil
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuction_startBlock(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionAmount_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendAuctionAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionAmount_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionAmount_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionAmount_amount(ctx context.Context, field graphql.CollectedField, obj *BlendAuctionAmount) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionAmount_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionAmount_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionAmount",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_auctionType(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_auctionType,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().AuctionType(ctx, obj)
+		},
+		nil,
+		ec.marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_auctionType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendAuctionType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_fillPercent(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_fillPercent,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().FillPercent(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_fillPercent(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_counterparty(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_counterparty,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Counterparty(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_counterparty(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_lot(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_lot,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Lot(ctx, obj)
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_lot(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendAuctionChange_bid(ctx context.Context, field graphql.CollectedField, obj *types.BlendAuctionChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendAuctionChange_bid,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendAuctionChange().Bid(ctx, obj)
+		},
+		nil,
+		ec.marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendAuctionChange_bid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendAuctionChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendAuctionAmount_assetContractId(ctx, field)
+			case "amount":
+				return ec.fieldContext_BlendAuctionAmount_amount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendAuctionAmount", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopClaimed_version(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopClaimed) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopClaimed_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopClaimed_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopClaimed",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopClaimed_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopClaimed) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopClaimed_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopClaimed_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopClaimed",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopEmissionsClaimChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopEmissionsClaimChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_version(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_shares(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_shares,
+		func(ctx context.Context) (any, error) {
+			return obj.Shares, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_shares(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_q4w(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_q4w,
+		func(ctx context.Context) (any, error) {
+			return obj.Q4w, nil
+		},
+		nil,
+		ec.marshalNBlendQ4W2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4wᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_q4w(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "amount":
+				return ec.fieldContext_BlendQ4W_amount(ctx, field)
+			case "expiration":
+				return ec.fieldContext_BlendQ4W_expiration(ctx, field)
+			case "lpTokens":
+				return ec.fieldContext_BlendQ4W_lpTokens(ctx, field)
+			case "usdValue":
+				return ec.fieldContext_BlendQ4W_usdValue(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendQ4W", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_emissionsEarnedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_emissionsEarnedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_emissionsEarnedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopPosition_emissionsEarnedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendBackstopPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopPosition_emissionsEarnedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopPosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendBackstopQueueChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendBackstopQueueChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendBackstopQueueChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendBackstopQueueChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendBackstopQueueChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendBackstopQueueChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().TokenID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendCollateralChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendCollateralChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendCollateralChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendCollateralChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendCollateralChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendCollateralChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().TokenID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendDebtChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendDebtChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendDebtChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendDebtChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendDebtChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendDebtChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().TokenID(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendEmissionsClaimChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendEmissionsClaimChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendEmissionsClaimChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendEmissionsClaimChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendEmissionsClaimChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_address(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_address,
+		func(ctx context.Context) (any, error) {
+			return obj.Address, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_address(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_name(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_version(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_version,
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		ec.marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendVersion does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_status(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type BlendPoolStatus does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_oracleContractId(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_oracleContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.OracleContractID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_oracleContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_backstopRate(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_backstopRate,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopRate, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_backstopRate(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_maxPositions(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_maxPositions,
+		func(ctx context.Context) (any, error) {
+			return obj.MaxPositions, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_maxPositions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_backstopUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_backstopUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BackstopUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_backstopUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_interestApy(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_interestApy,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_interestApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_netApy(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_netApy,
+		func(ctx context.Context) (any, error) {
+			return obj.NetApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_netApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_reserves(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_reserves,
+		func(ctx context.Context) (any, error) {
+			return obj.Reserves, nil
+		},
+		nil,
+		ec.marshalNBlendReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserveᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_reserves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendReserve_assetContractId(ctx, field)
+			case "tokenName":
+				return ec.fieldContext_BlendReserve_tokenName(ctx, field)
+			case "tokenSymbol":
+				return ec.fieldContext_BlendReserve_tokenSymbol(ctx, field)
+			case "tokenDecimals":
+				return ec.fieldContext_BlendReserve_tokenDecimals(ctx, field)
+			case "enabled":
+				return ec.fieldContext_BlendReserve_enabled(ctx, field)
+			case "utilization":
+				return ec.fieldContext_BlendReserve_utilization(ctx, field)
+			case "supplyApy":
+				return ec.fieldContext_BlendReserve_supplyApy(ctx, field)
+			case "borrowApy":
+				return ec.fieldContext_BlendReserve_borrowApy(ctx, field)
+			case "emissionsSupplyApr":
+				return ec.fieldContext_BlendReserve_emissionsSupplyApr(ctx, field)
+			case "emissionsBorrowApr":
+				return ec.fieldContext_BlendReserve_emissionsBorrowApr(ctx, field)
+			case "suppliedTokens":
+				return ec.fieldContext_BlendReserve_suppliedTokens(ctx, field)
+			case "borrowedTokens":
+				return ec.fieldContext_BlendReserve_borrowedTokens(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendReserve_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendReserve_borrowedUsd(ctx, field)
+			case "cFactor":
+				return ec.fieldContext_BlendReserve_cFactor(ctx, field)
+			case "lFactor":
+				return ec.fieldContext_BlendReserve_lFactor(ctx, field)
+			case "priceUsd":
+				return ec.fieldContext_BlendReserve_priceUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendReserve", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_admin(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_admin,
+		func(ctx context.Context) (any, error) {
+			return obj.Admin, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_admin(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPool_inRewardZone(ctx context.Context, field graphql.CollectedField, obj *BlendPool) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPool_inRewardZone,
+		func(ctx context.Context) (any, error) {
+			return obj.InRewardZone, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPool_inRewardZone(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPool",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolConnection_edges(ctx context.Context, field graphql.CollectedField, obj *BlendPoolConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolConnection_edges,
+		func(ctx context.Context) (any, error) {
+			return obj.Edges, nil
+		},
+		nil,
+		ec.marshalNBlendPoolEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdgeᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "node":
+				return ec.fieldContext_BlendPoolEdge_node(ctx, field)
+			case "cursor":
+				return ec.fieldContext_BlendPoolEdge_cursor(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolEdge", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *BlendPoolConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolConnection_pageInfo,
+		func(ctx context.Context) (any, error) {
+			return obj.PageInfo, nil
+		},
+		nil,
+		ec.marshalNPageInfo2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐPageInfo,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "startCursor":
+				return ec.fieldContext_PageInfo_startCursor(ctx, field)
+			case "endCursor":
+				return ec.fieldContext_PageInfo_endCursor(ctx, field)
+			case "hasNextPage":
+				return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+			case "hasPreviousPage":
+				return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PageInfo", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolEdge_node(ctx context.Context, field graphql.CollectedField, obj *BlendPoolEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolEdge_node,
+		func(ctx context.Context) (any, error) {
+			return obj.Node, nil
+		},
+		nil,
+		ec.marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_BlendPool_address(ctx, field)
+			case "name":
+				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendPool_version(ctx, field)
+			case "status":
+				return ec.fieldContext_BlendPool_status(ctx, field)
+			case "oracleContractId":
+				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
+			case "backstopRate":
+				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
+			case "maxPositions":
+				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
+			case "backstopUsd":
+				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
+			case "interestApy":
+				return ec.fieldContext_BlendPool_interestApy(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPool_netApy(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			case "admin":
+				return ec.fieldContext_BlendPool_admin(ctx, field)
+			case "inRewardZone":
+				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *BlendPoolEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolEdge_cursor,
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_poolAddress(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_poolAddress,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolAddress, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_poolAddress(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_poolName(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_poolName,
+		func(ctx context.Context) (any, error) {
+			return obj.PoolName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_poolName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_netApy(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_netApy,
+		func(ctx context.Context) (any, error) {
+			return obj.NetApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_netApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_claimedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_claimedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.ClaimedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_claimedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendPoolPosition_reserves(ctx context.Context, field graphql.CollectedField, obj *BlendPoolPosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendPoolPosition_reserves,
+		func(ctx context.Context) (any, error) {
+			return obj.Reserves, nil
+		},
+		nil,
+		ec.marshalNBlendReservePosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePositionᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendPoolPosition_reserves(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendPoolPosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "assetContractId":
+				return ec.fieldContext_BlendReservePosition_assetContractId(ctx, field)
+			case "tokenName":
+				return ec.fieldContext_BlendReservePosition_tokenName(ctx, field)
+			case "tokenSymbol":
+				return ec.fieldContext_BlendReservePosition_tokenSymbol(ctx, field)
+			case "tokenDecimals":
+				return ec.fieldContext_BlendReservePosition_tokenDecimals(ctx, field)
+			case "suppliedTokens":
+				return ec.fieldContext_BlendReservePosition_suppliedTokens(ctx, field)
+			case "collateralTokens":
+				return ec.fieldContext_BlendReservePosition_collateralTokens(ctx, field)
+			case "borrowedTokens":
+				return ec.fieldContext_BlendReservePosition_borrowedTokens(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendReservePosition_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendReservePosition_borrowedUsd(ctx, field)
+			case "supplyApy":
+				return ec.fieldContext_BlendReservePosition_supplyApy(ctx, field)
+			case "borrowApy":
+				return ec.fieldContext_BlendReservePosition_borrowApy(ctx, field)
+			case "emissionsSupplyApr":
+				return ec.fieldContext_BlendReservePosition_emissionsSupplyApr(ctx, field)
+			case "emissionsBorrowApr":
+				return ec.fieldContext_BlendReservePosition_emissionsBorrowApr(ctx, field)
+			case "interestEarned":
+				return ec.fieldContext_BlendReservePosition_interestEarned(ctx, field)
+			case "interestPaid":
+				return ec.fieldContext_BlendReservePosition_interestPaid(ctx, field)
+			case "emissionsEarnedBlnd":
+				return ec.fieldContext_BlendReservePosition_emissionsEarnedBlnd(ctx, field)
+			case "emissionsEarnedUsd":
+				return ec.fieldContext_BlendReservePosition_emissionsEarnedUsd(ctx, field)
+			case "priceUsd":
+				return ec.fieldContext_BlendReservePosition_priceUsd(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendReservePosition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_amount(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_amount,
+		func(ctx context.Context) (any, error) {
+			return obj.Amount, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_expiration(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_expiration,
+		func(ctx context.Context) (any, error) {
+			return obj.Expiration, nil
+		},
+		nil,
+		ec.marshalNInt642int64,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_expiration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int64 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_lpTokens(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_lpTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.LpTokens, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_lpTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendQ4W_usdValue(ctx context.Context, field graphql.CollectedField, obj *BlendQ4w) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendQ4W_usdValue,
+		func(ctx context.Context) (any, error) {
+			return obj.UsdValue, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendQ4W_usdValue(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendQ4W",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenName,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenSymbol,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenSymbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_tokenDecimals,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenDecimals, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_enabled(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_enabled,
+		func(ctx context.Context) (any, error) {
+			return obj.Enabled, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_enabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_utilization(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_utilization,
+		func(ctx context.Context) (any, error) {
+			return obj.Utilization, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_utilization(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_supplyApy,
+		func(ctx context.Context) (any, error) {
+			return obj.SupplyApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowApy(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowApy,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_emissionsSupplyApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsSupplyApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_emissionsBorrowApr(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_emissionsBorrowApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsBorrowApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_emissionsBorrowApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_suppliedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_suppliedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_suppliedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_cFactor(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_cFactor,
+		func(ctx context.Context) (any, error) {
+			return obj.CFactor, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_cFactor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_lFactor(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_lFactor,
+		func(ctx context.Context) (any, error) {
+			return obj.LFactor, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_lFactor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReserve_priceUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReserve) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReserve_priceUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReserve_priceUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReserve",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_assetContractId(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_assetContractId,
+		func(ctx context.Context) (any, error) {
+			return obj.AssetContractID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_assetContractId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenName(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenName,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenSymbol(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenSymbol,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenSymbol, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenSymbol(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_tokenDecimals(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_tokenDecimals,
+		func(ctx context.Context) (any, error) {
+			return obj.TokenDecimals, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint32,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_tokenDecimals(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_suppliedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_suppliedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_suppliedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_collateralTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_collateralTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.CollateralTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_collateralTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowedTokens(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowedTokens,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedTokens, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowedTokens(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_suppliedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_suppliedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.SuppliedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_suppliedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_supplyApy(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_supplyApy,
+		func(ctx context.Context) (any, error) {
+			return obj.SupplyApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_supplyApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_borrowApy(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_borrowApy,
+		func(ctx context.Context) (any, error) {
+			return obj.BorrowApy, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_borrowApy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsSupplyApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsSupplyApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsSupplyApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsSupplyApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsBorrowApr(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsBorrowApr,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsBorrowApr, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsBorrowApr(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_interestEarned(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_interestEarned,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestEarned, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_interestEarned(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_interestPaid(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_interestPaid,
+		func(ctx context.Context) (any, error) {
+			return obj.InterestPaid, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_interestPaid(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsEarnedBlnd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsEarnedBlnd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedBlnd, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsEarnedBlnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_emissionsEarnedUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_emissionsEarnedUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.EmissionsEarnedUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_emissionsEarnedUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendReservePosition_priceUsd(ctx context.Context, field graphql.CollectedField, obj *BlendReservePosition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendReservePosition_priceUsd,
+		func(ctx context.Context) (any, error) {
+			return obj.PriceUsd, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendReservePosition_priceUsd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendReservePosition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_category(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_category,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Category(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeCategory2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeCategory,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_category(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeCategory does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_reason(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_reason,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Reason(ctx, obj)
+		},
+		nil,
+		ec.marshalNStateChangeReason2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐStateChangeReason,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type StateChangeReason does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_ingestedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_ingestedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.IngestedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_ingestedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_ledgerCreatedAt(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_ledgerCreatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerCreatedAt, nil
+		},
+		nil,
+		ec.marshalNTime2timeᚐTime,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_ledgerCreatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Time does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_ledgerNumber(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_ledgerNumber,
+		func(ctx context.Context) (any, error) {
+			return obj.LedgerNumber, nil
+		},
+		nil,
+		ec.marshalNUInt322uint32,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_ledgerNumber(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type UInt32 does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_account(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_account,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Account(ctx, obj)
+		},
+		nil,
+		ec.marshalNAccount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐAccount,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_account(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_Account_address(ctx, field)
+			case "balances":
+				return ec.fieldContext_Account_balances(ctx, field)
+			case "transactions":
+				return ec.fieldContext_Account_transactions(ctx, field)
+			case "operations":
+				return ec.fieldContext_Account_operations(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Account_stateChanges(ctx, field)
+			case "sep41Allowances":
+				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_operation(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_operation,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Operation(ctx, obj)
+		},
+		nil,
+		ec.marshalNOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Operation_id(ctx, field)
+			case "type":
+				return ec.fieldContext_Operation_type(ctx, field)
+			case "operationXdr":
+				return ec.fieldContext_Operation_operationXdr(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Operation_resultCode(ctx, field)
+			case "successful":
+				return ec.fieldContext_Operation_successful(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Operation_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Operation_ledgerCreatedAt(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Operation_ingestedAt(ctx, field)
+			case "transaction":
+				return ec.fieldContext_Operation_transaction(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Operation_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Operation_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Operation", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_transaction(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_transaction,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Transaction(ctx, obj)
+		},
+		nil,
+		ec.marshalNTransaction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐTransaction,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_transaction(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "hash":
+				return ec.fieldContext_Transaction_hash(ctx, field)
+			case "feeCharged":
+				return ec.fieldContext_Transaction_feeCharged(ctx, field)
+			case "resultCode":
+				return ec.fieldContext_Transaction_resultCode(ctx, field)
+			case "ledgerNumber":
+				return ec.fieldContext_Transaction_ledgerNumber(ctx, field)
+			case "ledgerCreatedAt":
+				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
+			case "isFeeBump":
+				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "ingestedAt":
+				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
+			case "operations":
+				return ec.fieldContext_Transaction_operations(ctx, field)
+			case "accounts":
+				return ec.fieldContext_Transaction_accounts(ctx, field)
+			case "stateChanges":
+				return ec.fieldContext_Transaction_stateChanges(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Transaction", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_tokenId(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_tokenId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().TokenID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_tokenId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_amount(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_amount,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().Amount(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_amount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BlendSupplyChange_poolId(ctx context.Context, field graphql.CollectedField, obj *types.BlendSupplyChangeModel) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_BlendSupplyChange_poolId,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.BlendSupplyChange().PoolID(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_BlendSupplyChange_poolId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BlendSupplyChange",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _DataEntryAddedChange_category(ctx context.Context, field graphql.CollectedField, obj *types.DataEntryAddedChangeModel) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8111,6 +16422,8 @@ func (ec *executionContext) fieldContext_DataEntryAddedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8461,6 +16774,8 @@ func (ec *executionContext) fieldContext_DataEntryRemovedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -8811,6 +17126,8 @@ func (ec *executionContext) fieldContext_DataEntryUpdatedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -9190,6 +17507,8 @@ func (ec *executionContext) fieldContext_HomeDomainClearedChange_account(_ conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -9511,6 +17830,8 @@ func (ec *executionContext) fieldContext_HomeDomainSetChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -9832,6 +18153,8 @@ func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_account(_ conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -10761,6 +19084,8 @@ func (ec *executionContext) fieldContext_Operation_accounts(_ context.Context, f
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -11187,6 +19512,8 @@ func (ec *executionContext) fieldContext_Query_accountByAddress(ctx context.Cont
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -11264,6 +19591,126 @@ func (ec *executionContext) fieldContext_Query_operationById(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_operationById_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_blendPools(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_blendPools,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().BlendPools(ctx, fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+		},
+		nil,
+		ec.marshalNBlendPoolConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_blendPools(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "edges":
+				return ec.fieldContext_BlendPoolConnection_edges(ctx, field)
+			case "pageInfo":
+				return ec.fieldContext_BlendPoolConnection_pageInfo(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPoolConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_blendPools_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_blendPool(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_blendPool,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().BlendPool(ctx, fc.Args["address"].(string))
+		},
+		nil,
+		ec.marshalOBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_blendPool(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "address":
+				return ec.fieldContext_BlendPool_address(ctx, field)
+			case "name":
+				return ec.fieldContext_BlendPool_name(ctx, field)
+			case "version":
+				return ec.fieldContext_BlendPool_version(ctx, field)
+			case "status":
+				return ec.fieldContext_BlendPool_status(ctx, field)
+			case "oracleContractId":
+				return ec.fieldContext_BlendPool_oracleContractId(ctx, field)
+			case "backstopRate":
+				return ec.fieldContext_BlendPool_backstopRate(ctx, field)
+			case "maxPositions":
+				return ec.fieldContext_BlendPool_maxPositions(ctx, field)
+			case "suppliedUsd":
+				return ec.fieldContext_BlendPool_suppliedUsd(ctx, field)
+			case "borrowedUsd":
+				return ec.fieldContext_BlendPool_borrowedUsd(ctx, field)
+			case "backstopUsd":
+				return ec.fieldContext_BlendPool_backstopUsd(ctx, field)
+			case "interestApy":
+				return ec.fieldContext_BlendPool_interestApy(ctx, field)
+			case "netApy":
+				return ec.fieldContext_BlendPool_netApy(ctx, field)
+			case "reserves":
+				return ec.fieldContext_BlendPool_reserves(ctx, field)
+			case "admin":
+				return ec.fieldContext_BlendPool_admin(ctx, field)
+			case "inRewardZone":
+				return ec.fieldContext_BlendPool_inRewardZone(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type BlendPool", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_blendPool_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -12361,6 +20808,8 @@ func (ec *executionContext) fieldContext_SignerAddedChange_account(_ context.Con
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -12711,6 +21160,8 @@ func (ec *executionContext) fieldContext_SignerRemovedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -13061,6 +21512,8 @@ func (ec *executionContext) fieldContext_SignerUpdatedChange_account(_ context.C
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -16530,6 +24983,8 @@ func (ec *executionContext) fieldContext_ThresholdChange_account(_ context.Conte
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -17014,6 +25469,8 @@ func (ec *executionContext) fieldContext_Transaction_accounts(_ context.Context,
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -17249,6 +25706,8 @@ func (ec *executionContext) fieldContext_TrustlineAddedChange_account(_ context.
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -17976,6 +26435,8 @@ func (ec *executionContext) fieldContext_TrustlineRemovedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -18326,6 +26787,8 @@ func (ec *executionContext) fieldContext_TrustlineUpdatedChange_account(_ contex
 				return ec.fieldContext_Account_stateChanges(ctx, field)
 			case "sep41Allowances":
 				return ec.fieldContext_Account_sep41Allowances(ctx, field)
+			case "blendPositions":
+				return ec.fieldContext_Account_blendPositions(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Account", field.Name)
 		},
@@ -20343,6 +28806,62 @@ func (ec *executionContext) _BaseStateChange(ctx context.Context, sel ast.Select
 			return graphql.Null
 		}
 		return ec._DataEntryAddedChange(ctx, sel, obj)
+	case types.BlendSupplyChangeModel:
+		return ec._BlendSupplyChange(ctx, sel, &obj)
+	case *types.BlendSupplyChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendSupplyChange(ctx, sel, obj)
+	case types.BlendEmissionsClaimChangeModel:
+		return ec._BlendEmissionsClaimChange(ctx, sel, &obj)
+	case *types.BlendEmissionsClaimChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendEmissionsClaimChange(ctx, sel, obj)
+	case types.BlendDebtChangeModel:
+		return ec._BlendDebtChange(ctx, sel, &obj)
+	case *types.BlendDebtChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendDebtChange(ctx, sel, obj)
+	case types.BlendCollateralChangeModel:
+		return ec._BlendCollateralChange(ctx, sel, &obj)
+	case *types.BlendCollateralChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendCollateralChange(ctx, sel, obj)
+	case types.BlendBackstopQueueChangeModel:
+		return ec._BlendBackstopQueueChange(ctx, sel, &obj)
+	case *types.BlendBackstopQueueChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendBackstopQueueChange(ctx, sel, obj)
+	case types.BlendBackstopEmissionsClaimChangeModel:
+		return ec._BlendBackstopEmissionsClaimChange(ctx, sel, &obj)
+	case *types.BlendBackstopEmissionsClaimChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendBackstopEmissionsClaimChange(ctx, sel, obj)
+	case types.BlendBackstopChangeModel:
+		return ec._BlendBackstopChange(ctx, sel, &obj)
+	case *types.BlendBackstopChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendBackstopChange(ctx, sel, obj)
+	case types.BlendAuctionChangeModel:
+		return ec._BlendAuctionChange(ctx, sel, &obj)
+	case *types.BlendAuctionChangeModel:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._BlendAuctionChange(ctx, sel, obj)
 	case types.BalanceChangeModel:
 		return ec._BalanceChange(ctx, sel, &obj)
 	case *types.BalanceChangeModel:
@@ -20599,6 +29118,42 @@ func (ec *executionContext) _Account(ctx context.Context, sel ast.SelectionSet, 
 					}
 				}()
 				res = ec._Account_sep41Allowances(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "blendPositions":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Account_blendPositions(ctx, field, obj)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -22700,6 +31255,3369 @@ func (ec *executionContext) _BalanceEdge(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAccountPositionsImplementors = []string{"BlendAccountPositions"}
+
+func (ec *executionContext) _BlendAccountPositions(ctx context.Context, sel ast.SelectionSet, obj *BlendAccountPositions) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAccountPositionsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAccountPositions")
+		case "pools":
+			out.Values[i] = ec._BlendAccountPositions_pools(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backstop":
+			out.Values[i] = ec._BlendAccountPositions_backstop(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "backstopClaimed":
+			out.Values[i] = ec._BlendAccountPositions_backstopClaimed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "activeAuctions":
+			out.Values[i] = ec._BlendAccountPositions_activeAuctions(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAuctionImplementors = []string{"BlendAuction"}
+
+func (ec *executionContext) _BlendAuction(ctx context.Context, sel ast.SelectionSet, obj *BlendAuction) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAuctionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAuction")
+		case "poolAddress":
+			out.Values[i] = ec._BlendAuction_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendAuction_poolName(ctx, field, obj)
+		case "auctionType":
+			out.Values[i] = ec._BlendAuction_auctionType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "bid":
+			out.Values[i] = ec._BlendAuction_bid(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lot":
+			out.Values[i] = ec._BlendAuction_lot(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "startBlock":
+			out.Values[i] = ec._BlendAuction_startBlock(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAuctionAmountImplementors = []string{"BlendAuctionAmount"}
+
+func (ec *executionContext) _BlendAuctionAmount(ctx context.Context, sel ast.SelectionSet, obj *BlendAuctionAmount) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAuctionAmountImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAuctionAmount")
+		case "assetContractId":
+			out.Values[i] = ec._BlendAuctionAmount_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "amount":
+			out.Values[i] = ec._BlendAuctionAmount_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendAuctionChangeImplementors = []string{"BlendAuctionChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendAuctionChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendAuctionChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendAuctionChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendAuctionChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendAuctionChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendAuctionChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendAuctionChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "auctionType":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_auctionType(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "fillPercent":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_fillPercent(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "counterparty":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_counterparty(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "lot":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_lot(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "bid":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendAuctionChange_bid(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopChangeImplementors = []string{"BlendBackstopChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendBackstopChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendBackstopChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendBackstopChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendBackstopChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendBackstopChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopClaimedImplementors = []string{"BlendBackstopClaimed"}
+
+func (ec *executionContext) _BlendBackstopClaimed(ctx context.Context, sel ast.SelectionSet, obj *BlendBackstopClaimed) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopClaimedImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopClaimed")
+		case "version":
+			out.Values[i] = ec._BlendBackstopClaimed_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendBackstopClaimed_lpTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopEmissionsClaimChangeImplementors = []string{"BlendBackstopEmissionsClaimChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendBackstopEmissionsClaimChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendBackstopEmissionsClaimChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopEmissionsClaimChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopEmissionsClaimChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendBackstopEmissionsClaimChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendBackstopEmissionsClaimChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendBackstopEmissionsClaimChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopEmissionsClaimChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopPositionImplementors = []string{"BlendBackstopPosition"}
+
+func (ec *executionContext) _BlendBackstopPosition(ctx context.Context, sel ast.SelectionSet, obj *BlendBackstopPosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopPositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopPosition")
+		case "poolAddress":
+			out.Values[i] = ec._BlendBackstopPosition_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendBackstopPosition_poolName(ctx, field, obj)
+		case "version":
+			out.Values[i] = ec._BlendBackstopPosition_version(ctx, field, obj)
+		case "shares":
+			out.Values[i] = ec._BlendBackstopPosition_shares(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendBackstopPosition_lpTokens(ctx, field, obj)
+		case "usdValue":
+			out.Values[i] = ec._BlendBackstopPosition_usdValue(ctx, field, obj)
+		case "q4w":
+			out.Values[i] = ec._BlendBackstopPosition_q4w(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedBlnd":
+			out.Values[i] = ec._BlendBackstopPosition_emissionsEarnedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedUsd":
+			out.Values[i] = ec._BlendBackstopPosition_emissionsEarnedUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendBackstopQueueChangeImplementors = []string{"BlendBackstopQueueChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendBackstopQueueChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendBackstopQueueChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendBackstopQueueChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendBackstopQueueChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendBackstopQueueChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendBackstopQueueChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendBackstopQueueChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendBackstopQueueChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendCollateralChangeImplementors = []string{"BlendCollateralChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendCollateralChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendCollateralChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendCollateralChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendCollateralChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendCollateralChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendCollateralChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendCollateralChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_tokenId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendCollateralChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendDebtChangeImplementors = []string{"BlendDebtChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendDebtChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendDebtChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendDebtChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendDebtChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendDebtChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendDebtChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendDebtChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_tokenId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendDebtChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendEmissionsClaimChangeImplementors = []string{"BlendEmissionsClaimChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendEmissionsClaimChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendEmissionsClaimChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendEmissionsClaimChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendEmissionsClaimChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendEmissionsClaimChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendEmissionsClaimChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendEmissionsClaimChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_tokenId(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendEmissionsClaimChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolImplementors = []string{"BlendPool"}
+
+func (ec *executionContext) _BlendPool(ctx context.Context, sel ast.SelectionSet, obj *BlendPool) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPool")
+		case "address":
+			out.Values[i] = ec._BlendPool_address(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._BlendPool_name(ctx, field, obj)
+		case "version":
+			out.Values[i] = ec._BlendPool_version(ctx, field, obj)
+		case "status":
+			out.Values[i] = ec._BlendPool_status(ctx, field, obj)
+		case "oracleContractId":
+			out.Values[i] = ec._BlendPool_oracleContractId(ctx, field, obj)
+		case "backstopRate":
+			out.Values[i] = ec._BlendPool_backstopRate(ctx, field, obj)
+		case "maxPositions":
+			out.Values[i] = ec._BlendPool_maxPositions(ctx, field, obj)
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendPool_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendPool_borrowedUsd(ctx, field, obj)
+		case "backstopUsd":
+			out.Values[i] = ec._BlendPool_backstopUsd(ctx, field, obj)
+		case "interestApy":
+			out.Values[i] = ec._BlendPool_interestApy(ctx, field, obj)
+		case "netApy":
+			out.Values[i] = ec._BlendPool_netApy(ctx, field, obj)
+		case "reserves":
+			out.Values[i] = ec._BlendPool_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "admin":
+			out.Values[i] = ec._BlendPool_admin(ctx, field, obj)
+		case "inRewardZone":
+			out.Values[i] = ec._BlendPool_inRewardZone(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolConnectionImplementors = []string{"BlendPoolConnection"}
+
+func (ec *executionContext) _BlendPoolConnection(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolConnection")
+		case "edges":
+			out.Values[i] = ec._BlendPoolConnection_edges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pageInfo":
+			out.Values[i] = ec._BlendPoolConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolEdgeImplementors = []string{"BlendPoolEdge"}
+
+func (ec *executionContext) _BlendPoolEdge(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolEdge")
+		case "node":
+			out.Values[i] = ec._BlendPoolEdge_node(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cursor":
+			out.Values[i] = ec._BlendPoolEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendPoolPositionImplementors = []string{"BlendPoolPosition"}
+
+func (ec *executionContext) _BlendPoolPosition(ctx context.Context, sel ast.SelectionSet, obj *BlendPoolPosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendPoolPositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendPoolPosition")
+		case "poolAddress":
+			out.Values[i] = ec._BlendPoolPosition_poolAddress(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "poolName":
+			out.Values[i] = ec._BlendPoolPosition_poolName(ctx, field, obj)
+		case "usdValue":
+			out.Values[i] = ec._BlendPoolPosition_usdValue(ctx, field, obj)
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendPoolPosition_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendPoolPosition_borrowedUsd(ctx, field, obj)
+		case "netApy":
+			out.Values[i] = ec._BlendPoolPosition_netApy(ctx, field, obj)
+		case "claimedBlnd":
+			out.Values[i] = ec._BlendPoolPosition_claimedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reserves":
+			out.Values[i] = ec._BlendPoolPosition_reserves(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendQ4WImplementors = []string{"BlendQ4W"}
+
+func (ec *executionContext) _BlendQ4W(ctx context.Context, sel ast.SelectionSet, obj *BlendQ4w) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendQ4WImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendQ4W")
+		case "amount":
+			out.Values[i] = ec._BlendQ4W_amount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "expiration":
+			out.Values[i] = ec._BlendQ4W_expiration(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lpTokens":
+			out.Values[i] = ec._BlendQ4W_lpTokens(ctx, field, obj)
+		case "usdValue":
+			out.Values[i] = ec._BlendQ4W_usdValue(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendReserveImplementors = []string{"BlendReserve"}
+
+func (ec *executionContext) _BlendReserve(ctx context.Context, sel ast.SelectionSet, obj *BlendReserve) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendReserveImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendReserve")
+		case "assetContractId":
+			out.Values[i] = ec._BlendReserve_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenName":
+			out.Values[i] = ec._BlendReserve_tokenName(ctx, field, obj)
+		case "tokenSymbol":
+			out.Values[i] = ec._BlendReserve_tokenSymbol(ctx, field, obj)
+		case "tokenDecimals":
+			out.Values[i] = ec._BlendReserve_tokenDecimals(ctx, field, obj)
+		case "enabled":
+			out.Values[i] = ec._BlendReserve_enabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "utilization":
+			out.Values[i] = ec._BlendReserve_utilization(ctx, field, obj)
+		case "supplyApy":
+			out.Values[i] = ec._BlendReserve_supplyApy(ctx, field, obj)
+		case "borrowApy":
+			out.Values[i] = ec._BlendReserve_borrowApy(ctx, field, obj)
+		case "emissionsSupplyApr":
+			out.Values[i] = ec._BlendReserve_emissionsSupplyApr(ctx, field, obj)
+		case "emissionsBorrowApr":
+			out.Values[i] = ec._BlendReserve_emissionsBorrowApr(ctx, field, obj)
+		case "suppliedTokens":
+			out.Values[i] = ec._BlendReserve_suppliedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "borrowedTokens":
+			out.Values[i] = ec._BlendReserve_borrowedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendReserve_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendReserve_borrowedUsd(ctx, field, obj)
+		case "cFactor":
+			out.Values[i] = ec._BlendReserve_cFactor(ctx, field, obj)
+		case "lFactor":
+			out.Values[i] = ec._BlendReserve_lFactor(ctx, field, obj)
+		case "priceUsd":
+			out.Values[i] = ec._BlendReserve_priceUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendReservePositionImplementors = []string{"BlendReservePosition"}
+
+func (ec *executionContext) _BlendReservePosition(ctx context.Context, sel ast.SelectionSet, obj *BlendReservePosition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendReservePositionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendReservePosition")
+		case "assetContractId":
+			out.Values[i] = ec._BlendReservePosition_assetContractId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tokenName":
+			out.Values[i] = ec._BlendReservePosition_tokenName(ctx, field, obj)
+		case "tokenSymbol":
+			out.Values[i] = ec._BlendReservePosition_tokenSymbol(ctx, field, obj)
+		case "tokenDecimals":
+			out.Values[i] = ec._BlendReservePosition_tokenDecimals(ctx, field, obj)
+		case "suppliedTokens":
+			out.Values[i] = ec._BlendReservePosition_suppliedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "collateralTokens":
+			out.Values[i] = ec._BlendReservePosition_collateralTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "borrowedTokens":
+			out.Values[i] = ec._BlendReservePosition_borrowedTokens(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "suppliedUsd":
+			out.Values[i] = ec._BlendReservePosition_suppliedUsd(ctx, field, obj)
+		case "borrowedUsd":
+			out.Values[i] = ec._BlendReservePosition_borrowedUsd(ctx, field, obj)
+		case "supplyApy":
+			out.Values[i] = ec._BlendReservePosition_supplyApy(ctx, field, obj)
+		case "borrowApy":
+			out.Values[i] = ec._BlendReservePosition_borrowApy(ctx, field, obj)
+		case "emissionsSupplyApr":
+			out.Values[i] = ec._BlendReservePosition_emissionsSupplyApr(ctx, field, obj)
+		case "emissionsBorrowApr":
+			out.Values[i] = ec._BlendReservePosition_emissionsBorrowApr(ctx, field, obj)
+		case "interestEarned":
+			out.Values[i] = ec._BlendReservePosition_interestEarned(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "interestPaid":
+			out.Values[i] = ec._BlendReservePosition_interestPaid(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedBlnd":
+			out.Values[i] = ec._BlendReservePosition_emissionsEarnedBlnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "emissionsEarnedUsd":
+			out.Values[i] = ec._BlendReservePosition_emissionsEarnedUsd(ctx, field, obj)
+		case "priceUsd":
+			out.Values[i] = ec._BlendReservePosition_priceUsd(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var blendSupplyChangeImplementors = []string{"BlendSupplyChange", "BaseStateChange"}
+
+func (ec *executionContext) _BlendSupplyChange(ctx context.Context, sel ast.SelectionSet, obj *types.BlendSupplyChangeModel) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, blendSupplyChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("BlendSupplyChange")
+		case "category":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_category(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "reason":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_reason(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "ingestedAt":
+			out.Values[i] = ec._BlendSupplyChange_ingestedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerCreatedAt":
+			out.Values[i] = ec._BlendSupplyChange_ledgerCreatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ledgerNumber":
+			out.Values[i] = ec._BlendSupplyChange_ledgerNumber(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "account":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_account(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "operation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_operation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "transaction":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_transaction(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tokenId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_tokenId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "amount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_amount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "poolId":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._BlendSupplyChange_poolId(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -25086,6 +37004,47 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_operationById(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "blendPools":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_blendPools(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "blendPool":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_blendPool(ctx, field)
 				return res
 			}
 
@@ -29821,6 +41780,298 @@ func (ec *executionContext) marshalNBaseStateChange2ᚕgithubᚗcomᚋstellarᚋ
 	return ret
 }
 
+func (ec *executionContext) marshalNBlendAccountPositions2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions(ctx context.Context, sel ast.SelectionSet, v BlendAccountPositions) graphql.Marshaler {
+	return ec._BlendAccountPositions(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNBlendAccountPositions2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAccountPositions(ctx context.Context, sel ast.SelectionSet, v *BlendAccountPositions) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAccountPositions(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendAuction2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendAuction) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendAuction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuction(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendAuction2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuction(ctx context.Context, sel ast.SelectionSet, v *BlendAuction) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAuction(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendAuctionAmount2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmountᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendAuctionAmount) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendAuctionAmount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmount(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendAuctionAmount2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionAmount(ctx context.Context, sel ast.SelectionSet, v *BlendAuctionAmount) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendAuctionAmount(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType(ctx context.Context, v any) (BlendAuctionType, error) {
+	var res BlendAuctionType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBlendAuctionType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendAuctionType(ctx context.Context, sel ast.SelectionSet, v BlendAuctionType) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNBlendBackstopClaimed2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimedᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopClaimed) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendBackstopClaimed2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimed(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendBackstopClaimed2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopClaimed(ctx context.Context, sel ast.SelectionSet, v *BlendBackstopClaimed) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendBackstopClaimed(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendBackstopPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendBackstopPosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendBackstopPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendBackstopPosition(ctx context.Context, sel ast.SelectionSet, v *BlendBackstopPosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendBackstopPosition(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPool(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolConnection2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection(ctx context.Context, sel ast.SelectionSet, v BlendPoolConnection) graphql.Marshaler {
+	return ec._BlendPoolConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNBlendPoolConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolConnection(ctx context.Context, sel ast.SelectionSet, v *BlendPoolConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPoolConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolEdge2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPoolEdge) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendPoolEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdge(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendPoolEdge2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolEdge(ctx context.Context, sel ast.SelectionSet, v *BlendPoolEdge) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPoolEdge(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendPoolPosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendPoolPosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendPoolPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendPoolPosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolPosition(ctx context.Context, sel ast.SelectionSet, v *BlendPoolPosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendPoolPosition(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendQ4W2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4wᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendQ4w) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendQ4W2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4w(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendQ4W2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendQ4w(ctx context.Context, sel ast.SelectionSet, v *BlendQ4w) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendQ4W(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendReserve2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserveᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendReserve) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserve(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendReserve2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReserve(ctx context.Context, sel ast.SelectionSet, v *BlendReserve) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendReserve(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNBlendReservePosition2ᚕᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePositionᚄ(ctx context.Context, sel ast.SelectionSet, v []*BlendReservePosition) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNBlendReservePosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePosition(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNBlendReservePosition2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendReservePosition(ctx context.Context, sel ast.SelectionSet, v *BlendReservePosition) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._BlendReservePosition(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, v any) (BlendVersion, error) {
+	var res BlendVersion
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBlendVersion2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, sel ast.SelectionSet, v BlendVersion) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -30392,6 +42643,45 @@ func (ec *executionContext) unmarshalOAccountStateChangeFilterInput2ᚖgithubᚗ
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalOBlendPool2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPool(ctx context.Context, sel ast.SelectionSet, v *BlendPool) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._BlendPool(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus(ctx context.Context, v any) (*BlendPoolStatus, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(BlendPoolStatus)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBlendPoolStatus2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendPoolStatus(ctx context.Context, sel ast.SelectionSet, v *BlendPoolStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, v any) (*BlendVersion, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(BlendVersion)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBlendVersion2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐBlendVersion(ctx context.Context, sel ast.SelectionSet, v *BlendVersion) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
 func (ec *executionContext) unmarshalOBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -30420,6 +42710,23 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) unmarshalOInt2ᚖint32(ctx context.Context, v any) (*int32, error) {

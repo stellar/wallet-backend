@@ -30,6 +30,7 @@ func TestIngestionMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.StateChangeProcessingDuration)
 	require.NotNil(t, m.StateChangesTotal)
 	require.NotNil(t, m.WasmClassificationFailuresTotal)
+	require.NotNil(t, m.ProtocolDecodeFailuresTotal)
 }
 
 func TestIngestionMetrics_WasmClassificationFailures(t *testing.T) {
@@ -46,6 +47,28 @@ func TestIngestionMetrics_WasmClassificationFailures(t *testing.T) {
 	assert.Equal(t, 1.0, testutil.ToFloat64(
 		m.WasmClassificationFailuresTotal.WithLabelValues("sep41", "classify_error"),
 	))
+}
+
+func TestIngestionMetrics_ProtocolDecodeFailures(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := newIngestionMetrics(reg)
+
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event").Inc()
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event").Inc()
+	m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "entry").Inc()
+
+	assert.Equal(t, 2.0, testutil.ToFloat64(
+		m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "event"),
+	))
+	assert.Equal(t, 1.0, testutil.ToFloat64(
+		m.ProtocolDecodeFailuresTotal.WithLabelValues("BLEND", "entry"),
+	))
+
+	// Registered on the registry the collector was built with, under its
+	// documented name and both label series.
+	count, err := testutil.GatherAndCount(reg, "wallet_ingestion_protocol_decode_failures_total")
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
 }
 
 func TestIngestionMetrics_Gauges(t *testing.T) {
@@ -96,12 +119,15 @@ func TestIngestionMetrics_PhaseDuration_Buckets(t *testing.T) {
 
 	families, err := reg.Gather()
 	require.NoError(t, err)
+	var bounds []float64
 	for _, f := range families {
 		if f.GetName() == "wallet_ingestion_phase_duration_seconds" {
-			h := f.GetMetric()[0].GetHistogram()
-			assert.Len(t, h.GetBucket(), 11) // 11 custom boundaries
+			for _, b := range f.GetMetric()[0].GetHistogram().GetBucket() {
+				bounds = append(bounds, b.GetUpperBound())
+			}
 		}
 	}
+	assert.Equal(t, []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.6, 0.75, 1, 1.5, 2, 3, 5, 10, 30, 60}, bounds)
 }
 
 func TestIngestionMetrics_ParticipantsCount_Buckets(t *testing.T) {
@@ -213,6 +239,7 @@ func TestIngestionMetrics_Lint(t *testing.T) {
 		m.StateChangeProcessingDuration, m.StateChangesTotal,
 		m.WasmClassificationFailuresTotal,
 		m.ExternalRefContractsTotal,
+		m.ProtocolDecodeFailuresTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)

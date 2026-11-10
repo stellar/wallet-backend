@@ -1,0 +1,504 @@
+// Package blend implements the BLEND v2 lending protocol's on-chain
+// interface classification: matching candidate WASM signatures against the
+// Blend Pool and Backstop contract interfaces and, for pools, seeding
+// blend_pools with PoolConfig fetched via RPC at classification time.
+package blend
+
+import (
+	"context"
+	"encoding/hex"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/stellar/go-stellar-sdk/network"
+	"github.com/stellar/go-stellar-sdk/strkey"
+	"github.com/stellar/go-stellar-sdk/support/log"
+	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/data"
+	blenddata "github.com/stellar/wallet-backend/internal/data/blend"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/services"
+	"github.com/stellar/wallet-backend/internal/services/wasmspec"
+)
+
+// ProtocolID is the identifier stored in protocols.protocol_id and
+// protocol_wasms.protocol_id for every Blend v2 contract, whether it
+// implements the Pool or the Backstop interface. The two interfaces are
+// distinguished internally (see role below) but share one protocol_id
+// because downstream JOINs only need "is this a Blend contract".
+const ProtocolID = "BLEND"
+
+// role distinguishes which Blend v2 contract interface a wasm implements.
+// Deliberately 1-indexed so the zero value (an uninitialized role, e.g. from
+// a map miss handled incorrectly) never aliases a real role.
+type role int
+
+const (
+	rolePool role = iota + 1
+	roleBackstop
+)
+
+// blndTokenAddress returns the C-address of the BLND Stellar Asset Contract
+// for the given network passphrase. Blend v2 (pool, backstop, and the BLND
+// SAC) is deployed byte-identically on pubnet and testnet. On the standalone
+// network (passphrase "Standalone Network ; February 2017", used by the
+// integration test suite), BLND is the classic asset "BLND:<master
+// G-address>" issued by the network's master account (keypair.Root of the
+// passphrase), so its SAC address is a deterministic function of the
+// passphrase and is pinned here as a constant. Any other passphrase
+// (futurenet, a custom network, etc.) has no known BLND SAC, so callers get
+// the empty string and must degrade gracefully — mirrored on the
+// ContractMetadataService nil-degradation pattern used throughout this
+// package.
+func blndTokenAddress(networkPassphrase string) string {
+	switch networkPassphrase {
+	case network.PublicNetworkPassphrase:
+		return "CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY"
+	case network.TestNetworkPassphrase:
+		return "CB22KRA3YZVCNCQI64JQ5WE7UY2VAV7WFLK6A2JN3HEX56T2EDAFO7QF"
+	case "Standalone Network ; February 2017":
+		return "CDYLJJT2VBKY55ZK57MTMKAVRCRPQMYB4YJ7JFFARMSJZ73I5CMCITSU"
+	default:
+		return ""
+	}
+}
+
+// BackstopVersion names the Blend deployment a backstop contract belongs to.
+// Mirrors the GraphQL BlendVersion enum values.
+type BackstopVersion string
+
+const (
+	// BackstopVersionV2 is the original Blend v2 deployment.
+	BackstopVersionV2 BackstopVersion = "V2"
+	// BackstopVersionV2_1 is the 2026-09-30 redeploy that pairs the unchanged
+	// v2 backstop WASM with the patched Comet v1.1 LP token.
+	BackstopVersionV2_1 BackstopVersion = "V2_1"
+)
+
+// BackstopPin is one pinned Blend backstop contract on a network.
+type BackstopPin struct {
+	Address string
+	Version BackstopVersion
+}
+
+// BackstopPins returns the pinned Blend backstop contracts for the network
+// passphrase, newest deployment first. Blend v2 and v2.1 run side by side:
+// the v2.1 redeploy copied no state, v2 depositors keep their positions and
+// can still claim accrued emissions, and the emitter still drips to v2 until
+// its queued swap executes. Both backstops are therefore indexed.
+//
+// The backstop-derived tables (blend_backstop_positions, blend_backstop_pools,
+// the backstop-source rows of blend_emissions, blend_pools.in_reward_zone) key
+// their rows on pool and/or user; a pool belongs to exactly one backstop
+// (blend_pools.backstop_contract_id), which keeps the two deployments apart.
+// blend_backstop_claimed carries the backstop id in its key. Because Blend
+// contracts are classified by WASM-interface match, any contract deployed
+// from the backstop WASM would otherwise be tracked and could write
+// pool/user-keyed rows; folding backstop-shaped state only from pinned
+// addresses closes that hole.
+//
+// On the standalone network the integration suite deploys one backstop from
+// the master account (keypair.Root of the passphrase) with a fixed salt, so
+// its address is a deterministic function of the passphrase and is pinned
+// here as V2_1 (the suite deploys the Comet v1.1 LP token). Any other
+// passphrase (futurenet, a custom network) has no known backstop and returns
+// nil; on such networks all backstop-shaped state is dropped.
+//
+// A future emitter swap or redeploy adds a pin at the front of the list and
+// a BackstopVersion value; nothing else in the backend names a backstop.
+func BackstopPins(networkPassphrase string) []BackstopPin {
+	switch networkPassphrase {
+	case network.PublicNetworkPassphrase:
+		return []BackstopPin{
+			{Address: "CCS4AZ5ORM6VLLPJTJUFRNXWBMHOO3L5WHHRPL2ZMILE35ZDMQFHOQMJ", Version: BackstopVersionV2_1},
+			{Address: "CAQQR5SWBXKIGZKPBZDH3KM5GQ5GUTPKB7JAFCINLZBC5WXPJKRG3IM7", Version: BackstopVersionV2},
+		}
+	case network.TestNetworkPassphrase:
+		return []BackstopPin{
+			{Address: "CBGSFY6NR5TSCQJH5EGVMCFTHLZBCAO7YPIW426WSD46V3TESPA3U6DI", Version: BackstopVersionV2_1},
+			{Address: "CBDVWXT433PRVTUNM56C3JREF3HIZHRBA64NB2C3B2UNCKIS65ZYCLZA", Version: BackstopVersionV2},
+		}
+	case "Standalone Network ; February 2017":
+		return []BackstopPin{
+			{Address: "CARICDGXKY6NZVNAHW5UHWUTOUB4QP4RL2B6PUN4BTPQZ6LC4RGPARED", Version: BackstopVersionV2_1},
+		}
+	default:
+		return nil
+	}
+}
+
+// BackstopVersionOf returns the deployment version of a pinned backstop
+// address on the network, or ("", false) when the address is not pinned.
+func BackstopVersionOf(networkPassphrase, backstopAddress string) (BackstopVersion, bool) {
+	for _, pin := range BackstopPins(networkPassphrase) {
+		if pin.Address == backstopAddress {
+			return pin.Version, true
+		}
+	}
+	return "", false
+}
+
+// pinnedBackstopSet returns the pinned backstop addresses as a set, for the
+// processor's per-event and per-entry gating.
+func pinnedBackstopSet(networkPassphrase string) map[string]struct{} {
+	pins := BackstopPins(networkPassphrase)
+	out := make(map[string]struct{}, len(pins))
+	for _, pin := range pins {
+		out[pin.Address] = struct{}{}
+	}
+	return out
+}
+
+// poolRequiredFunctions defines the Blend v2 Pool contract's required
+// functions. A contract must implement all of these with the exact
+// signatures specified to be classified as a Blend pool.
+var poolRequiredFunctions = []wasmspec.FunctionSpec{
+	{
+		Name:            "get_config",
+		ExpectedInputs:  []wasmspec.InputSpec{},
+		ExpectedOutputs: []string{"UDT"}, // PoolConfig
+	},
+	{
+		Name:            "get_reserve",
+		ExpectedInputs:  []wasmspec.InputSpec{{Name: "asset", TypeName: "Address"}},
+		ExpectedOutputs: []string{"UDT"}, // Reserve
+	},
+	{
+		Name:            "get_positions",
+		ExpectedInputs:  []wasmspec.InputSpec{{Name: "address", TypeName: "Address"}},
+		ExpectedOutputs: []string{"UDT"}, // Positions
+	},
+	{
+		Name: "submit",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "spender", TypeName: "Address"},
+			{Name: "to", TypeName: "Address"},
+			{Name: "requests", TypeName: "Vec"}, // Vec<Request>
+		},
+		ExpectedOutputs: []string{"UDT"}, // Positions
+	},
+	{
+		Name: "flash_loan",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "flash_loan", TypeName: "UDT"}, // FlashLoan
+			{Name: "requests", TypeName: "Vec"},   // Vec<Request>
+		},
+		ExpectedOutputs: []string{"UDT"}, // Positions
+	},
+	{
+		Name:            "bad_debt",
+		ExpectedInputs:  []wasmspec.InputSpec{{Name: "user", TypeName: "Address"}},
+		ExpectedOutputs: []string{},
+	},
+}
+
+// backstopRequiredFunctions defines the Blend v2 Backstop contract's
+// required functions. A contract must implement all of these with the exact
+// signatures specified to be classified as the Blend backstop.
+var backstopRequiredFunctions = []wasmspec.FunctionSpec{
+	{
+		Name: "deposit",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{"i128"},
+	},
+	{
+		Name: "queue_withdrawal",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{"UDT"}, // Q4W
+	},
+	{
+		Name: "dequeue_withdrawal",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{},
+	},
+	{
+		Name: "withdraw",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{"i128"},
+	},
+	{
+		Name: "claim",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_addresses", TypeName: "Vec"}, // Vec<Address>
+			{Name: "min_lp_tokens_out", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{"i128"},
+	},
+	{
+		Name: "draw",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+			{Name: "to", TypeName: "Address"},
+		},
+		ExpectedOutputs: []string{},
+	},
+	{
+		Name: "donate",
+		ExpectedInputs: []wasmspec.InputSpec{
+			{Name: "from", TypeName: "Address"},
+			{Name: "pool_address", TypeName: "Address"},
+			{Name: "amount", TypeName: "i128"},
+		},
+		ExpectedOutputs: []string{},
+	},
+}
+
+// matchPoolSpec is the pure Blend Pool signature check. Suitable for unit
+// testing in isolation; production callers reach this via Validator.Validate.
+func matchPoolSpec(contractSpec []xdr.ScSpecEntry) bool {
+	return wasmspec.Match(contractSpec, poolRequiredFunctions)
+}
+
+// matchBackstopSpec is the pure Blend Backstop signature check. Suitable for
+// unit testing in isolation; production callers reach this via
+// Validator.Validate.
+func matchBackstopSpec(contractSpec []xdr.ScSpecEntry) bool {
+	return wasmspec.Match(contractSpec, backstopRequiredFunctions)
+}
+
+// Validator is Blend's implementation of services.ProtocolValidator. It
+// signature-checks candidate WASMs against both the Pool and Backstop
+// interfaces and, for any contract now (or already) classified as a Blend
+// pool, fetches PoolConfig via RPC and seeds blend_pools inside the supplied
+// dbTx. Backstop contracts get no such enrichment here — the backstop is a
+// per-network singleton with no equivalent "config" getter, and its stateful
+// tables are populated by the ledger-driven processor instead.
+type Validator struct {
+	// metadata is nil when no RPC is configured (e.g. the datastore-backed
+	// protocol-migrate path). Pool enrichment then becomes a no-op — pool
+	// signature matching is unaffected, and the processor backfills
+	// blend_pools from ledger events regardless.
+	metadata services.ContractMetadataService
+}
+
+var _ services.ProtocolValidator = (*Validator)(nil)
+
+// NewValidator constructs a Blend validator with no metadata service
+// configured. Suitable for tests that exercise only the signature-check path
+// or that want to wire a custom metadata service in later.
+func NewValidator() *Validator {
+	return &Validator{}
+}
+
+// newValidator constructs a Blend validator from generic ProtocolDeps.
+func newValidator(deps services.ProtocolDeps) *Validator {
+	return &Validator{metadata: deps.ContractMetadataService}
+}
+
+// ProtocolID returns the identifier this validator classifies contracts as.
+func (v *Validator) ProtocolID() string { return ProtocolID }
+
+// Match runs the Blend Pool and Backstop signature checks over each
+// candidate WASM. Pool-vs-backstop roles are re-derived from candidates in
+// Prefetch (the framework's uniform return type can't carry them). See the
+// services.ProtocolValidator godoc for the framework-level contract.
+func (v *Validator) Match(candidates []services.WasmCandidate) map[types.HashBytea]struct{} {
+	roles := v.matchCandidates(candidates)
+	out := make(map[types.HashBytea]struct{}, len(roles))
+	for h := range roles {
+		out[h] = struct{}{}
+	}
+	return out
+}
+
+// blendPlan is Prefetch's opaque payload to Apply: blend_pools rows seeded
+// from each candidate pool contract's get_config, fetched via RPC before any
+// database transaction opens.
+type blendPlan struct {
+	pools []blenddata.Pool
+}
+
+// Prefetch fetches PoolConfig via RPC for every contract whose wasm is newly
+// matched as a Blend pool (roles re-derived from candidates) or already
+// classified as Blend by a prior run. Best-effort: per-contract fetch/decode
+// failures are logged and skipped, never propagated — a backstop contract
+// routed here (see collectPoolContracts) simply fails get_config and is
+// excluded. With no metadata service configured the plan is empty:
+// blend_pools stays unenriched at classification time and the ledger-driven
+// processor fills PoolConfig fields from subsequent events.
+func (v *Validator) Prefetch(ctx context.Context, _ services.RPCService, candidates []services.WasmCandidate, _ map[types.HashBytea]struct{}, contracts []services.ContractCandidate) (any, error) {
+	if v.metadata == nil {
+		return blendPlan{}, nil
+	}
+
+	poolContracts := v.collectPoolContracts(contracts, v.matchCandidates(candidates))
+	if len(poolContracts) == 0 {
+		return blendPlan{}, nil
+	}
+
+	seen := make(map[string]struct{}, len(poolContracts))
+	rows := make([]blenddata.Pool, 0, len(poolContracts))
+	for _, ct := range poolContracts {
+		addr, ok := decodeContractAddr(ct.ContractID)
+		if !ok {
+			log.Ctx(ctx).Debugf("blend: skipping pool contract with undecodable id %q", ct.ContractID)
+			continue
+		}
+		if _, dup := seen[addr]; dup {
+			continue
+		}
+		seen[addr] = struct{}{}
+
+		row, err := v.fetchPoolConfig(ctx, addr)
+		if err != nil {
+			log.Ctx(ctx).Debugf("blend: get_config unavailable for %s, skipping pool enrichment: %v", addr, err)
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return blendPlan{pools: rows}, nil
+}
+
+// Apply upserts the blend_pools rows Prefetch already resolved. No RPC
+// happens here — see the services.ProtocolValidator contract.
+func (v *Validator) Apply(ctx context.Context, dbTx pgx.Tx, _ map[types.HashBytea]struct{}, _ []services.ContractCandidate, plan any, models *data.Models) error {
+	p, ok := plan.(blendPlan)
+	if !ok || len(p.pools) == 0 {
+		return nil
+	}
+	if models == nil || models.Blend.Pools == nil {
+		return nil
+	}
+	if err := models.Blend.Pools.BatchUpsert(ctx, dbTx, p.pools); err != nil {
+		return fmt.Errorf("upserting blend pools: %w", err)
+	}
+	log.Ctx(ctx).Debugf("blend validator: enriched %d blend_pools rows", len(p.pools))
+	return nil
+}
+
+// matchCandidates runs the Blend Pool and Backstop signature checks against
+// each candidate's pre-extracted spec entries, recording which interface (if
+// any) it matched.
+func (v *Validator) matchCandidates(candidates []services.WasmCandidate) map[types.HashBytea]role {
+	matched := map[types.HashBytea]role{}
+	for _, cand := range candidates {
+		if len(cand.SpecEntries) == 0 {
+			continue
+		}
+		switch {
+		case matchPoolSpec(cand.SpecEntries):
+			matched[cand.Hash] = rolePool
+		case matchBackstopSpec(cand.SpecEntries):
+			matched[cand.Hash] = roleBackstop
+		}
+	}
+	return matched
+}
+
+// collectPoolContracts returns the contracts that should be attempted for
+// pool enrichment: those whose wasm was matched as a pool in this batch, plus
+// those whose wasm was already classified as Blend by a prior run.
+//
+// The prior-run case exists because Blend pools are deployed via a factory
+// that reuses one canonical pool wasm across every pool instance — a new
+// pool's wasm hash is typically already classified by the time its contract
+// instance shows up here, so it never appears in this batch's Candidates.
+// The framework's classification table only records protocol_id ("BLEND"),
+// not pool-vs-backstop, so a prior-run contract's role can't be recovered
+// here; it is included optimistically and left to enrichPools/fetchPoolConfig
+// to discover that a backstop contract has no get_config and skip it.
+func (v *Validator) collectPoolContracts(contracts []services.ContractCandidate, matched map[types.HashBytea]role) []services.ContractCandidate {
+	out := make([]services.ContractCandidate, 0, len(contracts))
+	for _, ct := range contracts {
+		if r, ok := matched[ct.WasmHash]; ok {
+			if r == rolePool {
+				out = append(out, ct)
+			}
+			continue
+		}
+		if ct.KnownProtocolID == ProtocolID {
+			out = append(out, ct)
+		}
+	}
+	return out
+}
+
+// fetchPoolConfig calls get_config on the pool at poolAddr via RPC simulation
+// and decodes the returned PoolConfig map into a blend_pools row. Name is
+// left nil — there is no name()/get_name() getter on the pool interface; the
+// processor fills it in from instance storage. Individual fields that fail
+// to decode (unexpected shape, missing key) are left nil rather than failing
+// the whole row, consistent with BatchUpsert's COALESCE semantics.
+func (v *Validator) fetchPoolConfig(ctx context.Context, poolAddr string) (blenddata.Pool, error) {
+	val, err := v.metadata.FetchSingleField(ctx, poolAddr, "get_config")
+	if err != nil {
+		return blenddata.Pool{}, fmt.Errorf("fetching get_config: %w", err)
+	}
+	m, ok := val.GetMap()
+	if !ok || m == nil {
+		return blenddata.Pool{}, fmt.Errorf("get_config: expected map, got %v", val.Type)
+	}
+
+	// LastModifiedLedger is deliberately left at its zero value: this runs in
+	// the Prefetch path, which has no ledger sequence to attribute the config
+	// to. blend_pools upserts the column as GREATEST(existing, incoming), so a
+	// 0 from enrichment never regresses a real ledger number the ledger-driven
+	// processor wrote. The true value arrives with the processor's first
+	// ledger-driven update; this call is a best-effort initial seed only.
+	row := blenddata.Pool{PoolContractID: types.AddressBytea(poolAddr)}
+
+	if fv, ok := mapGet(m, "oracle"); ok {
+		if addr, ok := addrString(fv); ok {
+			row.OracleContractID = types.AddressBytea(addr)
+		}
+	}
+	if fv, ok := mapGet(m, "bstop_rate"); ok {
+		if u, ok := u32Val(fv); ok {
+			rate := int32(u)
+			row.BackstopRate = &rate
+		}
+	}
+	if fv, ok := mapGet(m, "status"); ok {
+		if u, ok := u32Val(fv); ok {
+			status := int32(u)
+			row.Status = &status
+		}
+	}
+	if fv, ok := mapGet(m, "max_positions"); ok {
+		if u, ok := u32Val(fv); ok {
+			maxPositions := int32(u)
+			row.MaxPositions = &maxPositions
+		}
+	}
+	if fv, ok := mapGet(m, "min_collateral"); ok {
+		if s, ok := i128String(fv); ok {
+			row.MinCollateral = &s
+		}
+	}
+	return row, nil
+}
+
+// decodeContractAddr converts a hex-encoded HashBytea (32 bytes) into the
+// strkey C-address representation. Returns false on any decode error.
+func decodeContractAddr(hash types.HashBytea) (string, bool) {
+	raw, err := hex.DecodeString(string(hash))
+	if err != nil {
+		return "", false
+	}
+	addr, err := strkey.Encode(strkey.VersionByteContract, raw)
+	if err != nil {
+		return "", false
+	}
+	return addr, true
+}

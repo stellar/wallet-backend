@@ -2,35 +2,45 @@
 package processors
 
 import (
-	"encoding/base64"
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/stellar/go-stellar-sdk/amount"
 	"github.com/stellar/go-stellar-sdk/ingest"
-	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
-// Claimant represents a claimant for a claimable balance
-type Claimant struct {
-	Destination string             `json:"destination"`
-	Predicate   xdr.ClaimPredicate `json:"predicate"`
-}
-
-// ErrLiquidityPoolChangeNotFound is returned when a liquidity pool change is not found
-var ErrLiquidityPoolChangeNotFound = errors.New("liquidity pool change not found")
-
 // TransactionOperationWrapper represents the data for a single operation within a transaction
 type TransactionOperationWrapper struct {
 	Index          uint32
-	Transaction    ingest.LedgerTransaction
+	Transaction    *ingest.LedgerTransaction
 	Operation      xdr.Operation
 	LedgerSequence uint32
-	Network        string
 	LedgerClosed   time.Time
+
+	// Memo backing Changes, valid only for Index.
+	changes    []ingest.Change
+	changesErr error
+	changesSet bool
+}
+
+// Changes returns the ledger entry changes the operation produced, decoding them on
+// the first call and serving the memo on every later one. All of an operation's
+// processors share a single wrapper, so the SDK accessor's decode, allocations and
+// sort happen once per operation.
+//
+// The wrapper is used from a single goroutine — the per-transaction worker walks its
+// operations sequentially — so the memo needs no synchronization.
+//
+// Callers must not mutate the returned slice or the entries it points at: sorting it,
+// filtering it in place, or writing through a change's Pre/Post would corrupt every
+// other processor's view of the operation.
+func (operation *TransactionOperationWrapper) Changes() ([]ingest.Change, error) {
+	if !operation.changesSet {
+		operation.changes, operation.changesErr = operation.Transaction.GetOperationChanges(operation.Index)
+		operation.changesSet = true
+	}
+	return operation.changes, operation.changesErr
 }
 
 // ID returns the ID for the operation.
@@ -42,25 +52,17 @@ func (operation *TransactionOperationWrapper) ID() int64 {
 	).ToInt64()
 }
 
-// Order returns the operation order.
-func (operation *TransactionOperationWrapper) Order() uint32 {
-	return operation.Index + 1
-}
-
 // TransactionID returns the id for the transaction related with this operation.
 func (operation *TransactionOperationWrapper) TransactionID() int64 {
 	return toid.New(int32(operation.LedgerSequence), int32(operation.Transaction.Index), 0).ToInt64()
 }
 
 // SourceAccount returns the operation's source account.
-func (operation *TransactionOperationWrapper) SourceAccount() *xdr.MuxedAccount {
-	sourceAccount := operation.Operation.SourceAccount
-	if sourceAccount != nil {
-		return sourceAccount
-	} else {
-		ret := operation.Transaction.Envelope.SourceAccount()
-		return &ret
+func (operation *TransactionOperationWrapper) SourceAccount() xdr.MuxedAccount {
+	if sourceAccount := operation.Operation.SourceAccount; sourceAccount != nil {
+		return *sourceAccount
 	}
+	return operation.Transaction.Envelope.SourceAccount()
 }
 
 // OperationType returns the operation type.
@@ -101,7 +103,7 @@ func (operation *TransactionOperationWrapper) getSignerSponsorInChange(signerKey
 }
 
 func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, error) {
-	changes, err := operation.Transaction.GetOperationChanges(operation.Index)
+	changes, err := operation.Changes()
 	if err != nil {
 		return nil, fmt.Errorf("getting operation changes: %w", err)
 	}
@@ -132,13 +134,6 @@ func (operation *TransactionOperationWrapper) getSponsor() (*xdr.AccountId, erro
 	return nil, nil
 }
 
-// OperationResult returns the operation's result record
-func (operation *TransactionOperationWrapper) OperationResult() *xdr.OperationResultTr {
-	results, _ := operation.Transaction.Result.OperationResults()
-	tr := results[operation.Index].MustTr()
-	return &tr
-}
-
 func (operation *TransactionOperationWrapper) findInitatingBeginSponsoringOp() *TransactionOperationWrapper {
 	if !operation.Transaction.Result.Successful() {
 		// Failed transactions may not have a compliant sandwich structure
@@ -154,339 +149,11 @@ func (operation *TransactionOperationWrapper) findInitatingBeginSponsoringOp() *
 			result := *operation
 			result.Index = uint32(i)
 			result.Operation = operations[i]
+			// The copy describes a different operation, so it starts with an empty
+			// change memo instead of inheriting one keyed to the source's index.
+			result.changes, result.changesErr, result.changesSet = nil, nil, false
 			return &result
 		}
-	}
-	return nil
-}
-
-// Details returns the operation details as a map which can be stored as JSON.
-func (operation *TransactionOperationWrapper) Details() (map[string]interface{}, error) {
-	details := map[string]interface{}{}
-	source := operation.SourceAccount()
-	switch operation.OperationType() {
-	case xdr.OperationTypeSetOptions:
-		op := operation.Operation.Body.MustSetOptionsOp()
-
-		if op.InflationDest != nil {
-			details["inflation_dest"] = op.InflationDest.Address()
-		}
-
-		if op.SetFlags != nil && *op.SetFlags > 0 {
-			addAuthFlagDetails(details, xdr.AccountFlags(*op.SetFlags), "set")
-		}
-
-		if op.ClearFlags != nil && *op.ClearFlags > 0 {
-			addAuthFlagDetails(details, xdr.AccountFlags(*op.ClearFlags), "clear")
-		}
-
-		if op.MasterWeight != nil {
-			details["master_key_weight"] = *op.MasterWeight
-		}
-
-		if op.LowThreshold != nil {
-			details["low_threshold"] = *op.LowThreshold
-		}
-
-		if op.MedThreshold != nil {
-			details["med_threshold"] = *op.MedThreshold
-		}
-
-		if op.HighThreshold != nil {
-			details["high_threshold"] = *op.HighThreshold
-		}
-
-		if op.HomeDomain != nil {
-			details["home_domain"] = *op.HomeDomain
-		}
-
-		if op.Signer != nil {
-			details["signer_key"] = op.Signer.Key.Address()
-			details["signer_weight"] = op.Signer.Weight
-		}
-	case xdr.OperationTypeChangeTrust:
-		op := operation.Operation.Body.MustChangeTrustOp()
-		if op.Line.Type == xdr.AssetTypeAssetTypePoolShare {
-			if err := AddLiquidityPoolAssetDetails(details, *op.Line.LiquidityPool); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := AddAssetDetails(details, op.Line.ToAsset(), ""); err != nil {
-				return nil, err
-			}
-			details["trustee"] = details["asset_issuer"]
-		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustor"); err != nil {
-			return nil, err
-		}
-		details["limit"] = amount.String(op.Limit)
-	case xdr.OperationTypeAllowTrust:
-		op := operation.Operation.Body.MustAllowTrustOp()
-		if err := AddAssetDetails(details, op.Asset.ToAsset(source.ToAccountId()), ""); err != nil {
-			return nil, err
-		}
-		if err := AddAccountAndMuxedAccountDetails(details, *source, "trustee"); err != nil {
-			return nil, err
-		}
-		details["trustor"] = op.Trustor.Address()
-		details["authorize"] = xdr.TrustLineFlags(op.Authorize).IsAuthorized()
-		authLiabilities := xdr.TrustLineFlags(op.Authorize).IsAuthorizedToMaintainLiabilitiesFlag()
-		if authLiabilities {
-			details["authorize_to_maintain_liabilities"] = authLiabilities
-		}
-		clawbackEnabled := xdr.TrustLineFlags(op.Authorize).IsClawbackEnabledFlag()
-		if clawbackEnabled {
-			details["clawback_enabled"] = clawbackEnabled
-		}
-	case xdr.OperationTypeManageData:
-		op := operation.Operation.Body.MustManageDataOp()
-		details["name"] = string(op.DataName)
-		if op.DataValue != nil {
-			details["value"] = base64.StdEncoding.EncodeToString(*op.DataValue)
-		} else {
-			details["value"] = nil
-		}
-	case xdr.OperationTypeBeginSponsoringFutureReserves:
-		op := operation.Operation.Body.MustBeginSponsoringFutureReservesOp()
-		details["sponsored_id"] = op.SponsoredId.Address()
-	case xdr.OperationTypeEndSponsoringFutureReserves:
-		beginSponsorshipOp := operation.findInitatingBeginSponsoringOp()
-		if beginSponsorshipOp != nil {
-			beginSponsorshipSource := beginSponsorshipOp.SourceAccount()
-			if err := AddAccountAndMuxedAccountDetails(details, *beginSponsorshipSource, "begin_sponsor"); err != nil {
-				return nil, err
-			}
-		}
-	case xdr.OperationTypeRevokeSponsorship:
-		op := operation.Operation.Body.MustRevokeSponsorshipOp()
-		switch op.Type {
-		case xdr.RevokeSponsorshipTypeRevokeSponsorshipLedgerEntry:
-			if err := addLedgerKeyDetails(details, *op.LedgerKey); err != nil {
-				return nil, err
-			}
-		case xdr.RevokeSponsorshipTypeRevokeSponsorshipSigner:
-			details["signer_account_id"] = op.Signer.AccountId.Address()
-			details["signer_key"] = op.Signer.SignerKey.Address()
-		}
-	case xdr.OperationTypeSetTrustLineFlags:
-		op := operation.Operation.Body.MustSetTrustLineFlagsOp()
-		details["trustor"] = op.Trustor.Address()
-		if err := AddAssetDetails(details, op.Asset, ""); err != nil {
-			return nil, err
-		}
-		if op.SetFlags > 0 {
-			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.SetFlags), "set")
-		}
-
-		if op.ClearFlags > 0 {
-			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.ClearFlags), "clear")
-		}
-	case xdr.OperationTypeInvokeHostFunction:
-		op := operation.Operation.Body.MustInvokeHostFunctionOp()
-		details["function"] = op.HostFunction.Type.String()
-
-		switch op.HostFunction.Type {
-		case xdr.HostFunctionTypeHostFunctionTypeInvokeContract:
-			invokeArgs := op.HostFunction.MustInvokeContract()
-			args := make([]xdr.ScVal, 0, len(invokeArgs.Args)+2)
-			args = append(args, xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &invokeArgs.ContractAddress})
-			args = append(args, xdr.ScVal{Type: xdr.ScValTypeScvSymbol, Sym: &invokeArgs.FunctionName})
-			args = append(args, invokeArgs.Args...)
-
-			details["type"] = "invoke_contract"
-
-			contractID, err := invokeArgs.ContractAddress.String()
-			if err != nil {
-				return nil, fmt.Errorf("converting contract address to string: %w", err)
-			}
-
-			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractID
-			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
-
-			details["parameters"], details["parameters_decoded"] = serializeParameters(args)
-
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContract:
-			args := op.HostFunction.MustCreateContract()
-			details["type"] = "create_contract"
-
-			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractIDFromTxEnvelope(transactionEnvelope)
-			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
-
-			preimageTypeMap := switchContractIDPreimageType(args.ContractIdPreimage)
-			for key, val := range preimageTypeMap {
-				if _, ok := preimageTypeMap[key]; ok {
-					details[key] = val
-				}
-			}
-		case xdr.HostFunctionTypeHostFunctionTypeUploadContractWasm:
-			details["type"] = "upload_wasm"
-			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
-		case xdr.HostFunctionTypeHostFunctionTypeCreateContractV2:
-			args := op.HostFunction.MustCreateContractV2()
-			details["type"] = "create_contract_v2"
-
-			transactionEnvelope := getTransactionV1Envelope(operation.Transaction.Envelope)
-			details["ledger_key_hash"] = ledgerKeyHashFromTxEnvelope(transactionEnvelope)
-			details["contract_id"] = contractIDFromTxEnvelope(transactionEnvelope)
-			details["contract_code_hash"] = contractCodeHashFromTxEnvelope(transactionEnvelope)
-
-			// ConstructorArgs is a list of ScVals
-			// This will initially be handled the same as InvokeContractParams until a different
-			// model is found necessary.
-			constructorArgs := args.ConstructorArgs
-			details["parameters"], details["parameters_decoded"] = serializeParameters(constructorArgs)
-
-			preimageTypeMap := switchContractIDPreimageType(args.ContractIdPreimage)
-			for key, val := range preimageTypeMap {
-				if _, ok := preimageTypeMap[key]; ok {
-					details[key] = val
-				}
-			}
-		default:
-			panic(fmt.Errorf("unknown host function type: %s", op.HostFunction.Type))
-		}
-	default:
-		panic(fmt.Errorf("unknown operation type: %s", operation.OperationType()))
-	}
-
-	sponsor, err := operation.getSponsor()
-	if err != nil {
-		return nil, err
-	}
-	if sponsor != nil {
-		details["sponsor"] = sponsor.Address()
-	}
-
-	return details, nil
-}
-
-func getTransactionV1Envelope(transactionEnvelope xdr.TransactionEnvelope) xdr.TransactionV1Envelope {
-	//exhaustive:ignore
-	switch transactionEnvelope.Type {
-	case xdr.EnvelopeTypeEnvelopeTypeTx:
-		return transactionEnvelope.MustV1()
-	case xdr.EnvelopeTypeEnvelopeTypeTxFeeBump:
-		return transactionEnvelope.MustFeeBump().Tx.InnerTx.MustV1()
-	}
-
-	return xdr.TransactionV1Envelope{}
-}
-
-func contractIDFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) string {
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		contractID := contractIDFromContractData(ledgerKey)
-		if contractID != "" {
-			return contractID
-		}
-	}
-
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		contractID := contractIDFromContractData(ledgerKey)
-		if contractID != "" {
-			return contractID
-		}
-	}
-
-	return ""
-}
-
-func contractIDFromContractData(ledgerKey xdr.LedgerKey) string {
-	contractData, ok := ledgerKey.GetContractData()
-	if !ok {
-		return ""
-	}
-	contractIDHash, ok := contractData.Contract.GetContractId()
-	if !ok {
-		return ""
-	}
-
-	contractIDByte, err := contractIDHash.MarshalBinary()
-	if err != nil {
-		return ""
-	}
-	contractID, err := strkey.Encode(strkey.VersionByteContract, contractIDByte)
-	if err != nil {
-		return ""
-	}
-	return contractID
-}
-
-func contractCodeHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) string {
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		contractCode := contractCodeFromContractData(ledgerKey)
-		if contractCode != "" {
-			return contractCode
-		}
-	}
-
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		contractCode := contractCodeFromContractData(ledgerKey)
-		if contractCode != "" {
-			return contractCode
-		}
-	}
-
-	return ""
-}
-
-func ledgerKeyHashFromTxEnvelope(transactionEnvelope xdr.TransactionV1Envelope) []string {
-	var ledgerKeyHash []string
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadOnly {
-		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
-		}
-	}
-
-	for _, ledgerKey := range transactionEnvelope.Tx.Ext.SorobanData.Resources.Footprint.ReadWrite {
-		if LedgerKeyToLedgerKeyHash(ledgerKey) != "" {
-			ledgerKeyHash = append(ledgerKeyHash, LedgerKeyToLedgerKeyHash(ledgerKey))
-		}
-	}
-
-	return ledgerKeyHash
-}
-
-func contractCodeFromContractData(ledgerKey xdr.LedgerKey) string {
-	contractCode, ok := ledgerKey.GetContractCode()
-	if !ok {
-		return ""
-	}
-
-	contractCodeHash := contractCode.Hash.HexString()
-	return contractCodeHash
-}
-
-func addLedgerKeyDetails(result map[string]interface{}, ledgerKey xdr.LedgerKey) error {
-	//exhaustive:ignore
-	switch ledgerKey.Type {
-	case xdr.LedgerEntryTypeAccount:
-		result["account_id"] = ledgerKey.Account.AccountId.Address()
-	case xdr.LedgerEntryTypeClaimableBalance:
-		marshalHex, err := xdr.MarshalHex(ledgerKey.ClaimableBalance.BalanceId)
-		if err != nil {
-			return errors.Wrapf(err, "in claimable balance")
-		}
-		result["claimable_balance_id"] = marshalHex
-	case xdr.LedgerEntryTypeData:
-		result["data_account_id"] = ledgerKey.Data.AccountId.Address()
-		result["data_name"] = ledgerKey.Data.DataName
-	case xdr.LedgerEntryTypeOffer:
-		result["offer_id"] = fmt.Sprintf("%d", ledgerKey.Offer.OfferId)
-	case xdr.LedgerEntryTypeTrustline:
-		result["trustline_account_id"] = ledgerKey.TrustLine.AccountId.Address()
-		if ledgerKey.TrustLine.Asset.Type == xdr.AssetTypeAssetTypePoolShare {
-			result["trustline_liquidity_pool_id"] = PoolIDToString(*ledgerKey.TrustLine.Asset.LiquidityPoolId)
-		} else {
-			result["trustline_asset"] = ledgerKey.TrustLine.Asset.ToAsset().StringCanonical()
-		}
-	case xdr.LedgerEntryTypeLiquidityPool:
-		result["liquidity_pool_id"] = PoolIDToString(ledgerKey.LiquidityPool.LiquidityPoolId)
 	}
 	return nil
 }
@@ -600,65 +267,26 @@ func (operation *TransactionOperationWrapper) Participants() ([]xdr.AccountId, e
 	return dedupeParticipants(participants), nil
 }
 
-// dedupeParticipants remove any duplicate ids from `in`
-func dedupeParticipants(in []xdr.AccountId) (out []xdr.AccountId) {
-	set := map[string]xdr.AccountId{}
-	for _, id := range in {
-		set[id.Address()] = id
+// dedupeParticipants removes duplicates from `in` in place by raw ed25519 key,
+// keeping first-seen order; an operation carries a handful of participants at most,
+// so the scan over the kept prefix stays linear. Callers hand over ownership of `in`.
+func dedupeParticipants(in []xdr.AccountId) []xdr.AccountId {
+	if len(in) <= 1 {
+		return in
 	}
 
-	for _, id := range set {
-		out = append(out, id)
-	}
-	return
-}
-
-func serializeParameters(args []xdr.ScVal) ([]map[string]string, []map[string]string) {
-	params := make([]map[string]string, 0, len(args))
-	paramsDecoded := make([]map[string]string, 0, len(args))
-
-	for _, param := range args {
-		serializedParam := map[string]string{}
-		serializedParam["value"] = "n/a"
-		serializedParam["type"] = "n/a"
-
-		serializedParamDecoded := map[string]string{}
-		serializedParamDecoded["value"] = "n/a"
-		serializedParamDecoded["type"] = "n/a"
-
-		if scValTypeName, ok := param.ArmForSwitch(int32(param.Type)); ok {
-			serializedParam["type"] = scValTypeName
-			serializedParamDecoded["type"] = scValTypeName
-			if raw, err := param.MarshalBinary(); err == nil {
-				serializedParam["value"] = base64.StdEncoding.EncodeToString(raw)
-				serializedParamDecoded["value"] = param.String()
+	out := in[:1]
+	for _, id := range in[1:] {
+		isDuplicate := false
+		for _, kept := range out {
+			if *kept.Ed25519 == *id.Ed25519 {
+				isDuplicate = true
+				break
 			}
 		}
-		params = append(params, serializedParam)
-		paramsDecoded = append(paramsDecoded, serializedParamDecoded)
-	}
-
-	return params, paramsDecoded
-}
-
-func switchContractIDPreimageType(contractIDPreimage xdr.ContractIdPreimage) map[string]interface{} {
-	details := map[string]interface{}{}
-
-	switch contractIDPreimage.Type {
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAddress:
-		fromAddress := contractIDPreimage.MustFromAddress()
-		address, err := fromAddress.Address.String()
-		if err != nil {
-			panic(fmt.Errorf("error obtaining address for: %s", contractIDPreimage.Type))
+		if !isDuplicate {
+			out = append(out, id)
 		}
-		details["from"] = "address"
-		details["address"] = address
-	case xdr.ContractIdPreimageTypeContractIdPreimageFromAsset:
-		details["from"] = "asset"
-		details["asset"] = contractIDPreimage.MustFromAsset().StringCanonical()
-	default:
-		panic(fmt.Errorf("unknown contract id type: %s", contractIDPreimage.Type))
 	}
-
-	return details
+	return out
 }
