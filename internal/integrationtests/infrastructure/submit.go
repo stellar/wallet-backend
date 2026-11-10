@@ -380,6 +380,7 @@ func buildSignAndSubmit(
 		SourceAccount:        &sourceAccount,
 		Operations:           requestedTx.Operations(),
 		BaseFee:              txnbuild.MinBaseFee,
+		Memo:                 uc.Memo,
 		Preconditions:        txnbuild.Preconditions{TimeBounds: txnbuild.NewInfiniteTimeout()},
 		IncrementSequenceNum: true,
 	})

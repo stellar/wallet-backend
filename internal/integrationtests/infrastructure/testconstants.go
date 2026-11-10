@@ -44,6 +44,11 @@ const (
 	TestHolderContractMuxedID            = uint64(4242)
 	TestBalanceAccount1MuxedID           = uint64(9393)
 
+	// Transaction memos attached to fixture use cases. The ID sits above the signed
+	// 64-bit maximum so a signed encode or decode anywhere on the path shows up.
+	PaymentOpMemoText                 = "itest payment memo"
+	SponsoredAccountCreationOpsMemoID = uint64(9223372036854775809)
+
 	// Timeouts and intervals
 	DefaultHTTPTimeout        = 30 * time.Second
 	TransactionConfirmTimeout = 10 * time.Second
