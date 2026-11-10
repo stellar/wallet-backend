@@ -88,8 +88,9 @@ type memoBackfillFixture struct {
 // across two chunk days, compresses the older day's chunk (the production shape: history
 // compressed before the memo columns existed), and wires an ingestService whose backend
 // factory serves the matching ledger metas.
-func newMemoBackfillFixture(t *testing.T, ctx context.Context, oldest, latest uint32) *memoBackfillFixture {
+func newMemoBackfillFixture(t *testing.T, ctx context.Context) *memoBackfillFixture {
 	t.Helper()
+	const oldest, latest uint32 = 100, 111
 	dbt := dbtest.Open(t)
 	t.Cleanup(func() { dbt.Close() })
 	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
@@ -213,7 +214,7 @@ func withMemoBackfillSizes(t *testing.T, slice, flush uint32) {
 func TestMemoBackfill_FillsHistoryNewestFirstAndRecompresses(t *testing.T) {
 	ctx := context.Background()
 	withMemoBackfillSizes(t, 3, 2) // several slices per chunk, several flushes per slice
-	f := newMemoBackfillFixture(t, ctx, 100, 111)
+	f := newMemoBackfillFixture(t, ctx)
 
 	require.NoError(t, f.svc.memoBackfillPass(ctx))
 
@@ -232,7 +233,7 @@ func TestMemoBackfill_FillsHistoryNewestFirstAndRecompresses(t *testing.T) {
 func TestMemoBackfill_ResumesFromCursor(t *testing.T) {
 	ctx := context.Background()
 	withMemoBackfillSizes(t, 4, 4)
-	f := newMemoBackfillFixture(t, ctx, 100, 111)
+	f := newMemoBackfillFixture(t, ctx)
 
 	// A previous run got down to ledger 108: rows at or above it are already filled.
 	setIngestStoreValue(t, ctx, f.pool, data.MemoBackfillCursorName, 108)
@@ -253,7 +254,7 @@ func TestMemoBackfill_ResumesFromCursor(t *testing.T) {
 func TestMemoBackfill_FailedSliceLeavesCursorAndRetries(t *testing.T) {
 	ctx := context.Background()
 	withMemoBackfillSizes(t, 4, 4)
-	f := newMemoBackfillFixture(t, ctx, 100, 111)
+	f := newMemoBackfillFixture(t, ctx)
 
 	// The backend cannot serve ledger 105 (as an RPC past its retention window would).
 	delete(f.ledgers, 105)
@@ -279,7 +280,7 @@ func TestMemoBackfill_FailedSliceLeavesCursorAndRetries(t *testing.T) {
 func TestMemoBackfill_StopsOnContextCancel(t *testing.T) {
 	ctx := context.Background()
 	withMemoBackfillSizes(t, 4, 4)
-	f := newMemoBackfillFixture(t, ctx, 100, 111)
+	f := newMemoBackfillFixture(t, ctx)
 	delete(f.ledgers, 110) // the backend blocks on a missing ledger until ctx is done
 
 	runCtx, cancel := context.WithCancel(ctx)

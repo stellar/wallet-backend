@@ -79,7 +79,7 @@ func (m *ingestService) memoBackfillPass(ctx context.Context) error {
 	// start. The live chunk is never compressed, so it is never in this list.
 	compressed, err := m.models.Transactions.ListCompressedChunks(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("listing compressed chunks: %w", err)
 	}
 	log.Ctx(ctx).Infof("memo backfill: filling ledgers [%d, %d] newest-first, %d compressed chunks to recompress", floor, cursor-1, len(compressed))
 
@@ -100,7 +100,7 @@ func (m *ingestService) memoBackfillPass(ctx context.Context) error {
 
 		for len(compressed) > 0 && !compressed[0].RangeStart.Before(loClosedAt) {
 			if err := m.models.Transactions.CompressChunk(ctx, compressed[0].Name); err != nil {
-				return err
+				return fmt.Errorf("recompressing chunk: %w", err)
 			}
 			compressed = compressed[1:]
 		}
@@ -116,7 +116,7 @@ func (m *ingestService) memoBackfillPass(ctx context.Context) error {
 	// it (and anything retention has not dropped yet) is recompressed here.
 	for _, c := range compressed {
 		if err := m.models.Transactions.CompressChunk(ctx, c.Name); err != nil {
-			return err
+			return fmt.Errorf("recompressing chunk: %w", err)
 		}
 	}
 	log.Ctx(ctx).Infof("memo backfill: complete down to ledger %d", cursor)
@@ -194,7 +194,7 @@ func (m *ingestService) flushMemos(ctx context.Context, rows []data.TransactionM
 	err := db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
 		n, err := m.models.Transactions.BatchUpdateMemo(ctx, dbTx, rows)
 		if err != nil {
-			return err
+			return fmt.Errorf("updating memos: %w", err)
 		}
 		updated = n
 		if last {
