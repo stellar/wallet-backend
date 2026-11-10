@@ -4,6 +4,8 @@ package processors
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -57,6 +59,59 @@ func AddAssetDetails(result map[string]interface{}, a xdr.Asset, prefix string) 
 	return nil
 }
 
+// assetContractIDMemoMaxEntries bounds an assetContractIDMemo at roughly 15 MiB
+// (about 300 bytes per entry, measured). On overflow the memo clears and the
+// assets still in use re-warm on their next lookup.
+const assetContractIDMemoMaxEntries = 50_000
+
+// assetContractIDMemo caches asset→contract-ID derivations (a SHA-256 over the
+// asset's contract-ID preimage plus a strkey encode) per processor. Entries never
+// invalidate because the processor's network passphrase is fixed at construction.
+// sync.Map because the indexer pool workers share one processor instance. Keys are
+// "<type>\x00<code>\x00<issuer>", the complete identity of an asset; neither a
+// trimmed alphanumeric code nor a base32 issuer can contain NUL, so no two assets
+// share a key, and both accessors normalize to the same three components. Callers
+// pass only assets backed by ledger state or by an event the SDK verified against
+// its SAC, never an asset read from an unverified contract event. The zero value
+// is ready to use.
+type assetContractIDMemo struct {
+	m       sync.Map // "<type>\x00<code>\x00<issuer>" → strkey-encoded contract ID
+	entries atomic.Int64
+}
+
+// fromDetails returns the contract ID of the asset described by the extracted
+// asset detail strings.
+func (memo *assetContractIDMemo) fromDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
+	key := assetType + "\x00" + assetCode + "\x00" + assetIssuer
+	if id, ok := memo.m.Load(key); ok {
+		return id.(string), nil
+	}
+	id, err := getContractIDFromAssetDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+	if err != nil {
+		return "", err
+	}
+	if _, loaded := memo.m.LoadOrStore(key, id); !loaded && memo.entries.Add(1) > assetContractIDMemoMaxEntries {
+		memo.m.Clear()
+		memo.entries.Store(0)
+	}
+	return id, nil
+}
+
+// fromCreditAsset returns the contract ID of an issued asset held as its code
+// and issuer, the shape token transfer events carry. The code length fixes the
+// asset type, the same way xdr.MustNewCreditAsset derives it from the code.
+func (memo *assetContractIDMemo) fromCreditAsset(networkPassphrase string, assetCode, assetIssuer string) (string, error) {
+	assetType := "credit_alphanum4"
+	if len(assetCode) > 4 {
+		assetType = "credit_alphanum12"
+	}
+	return memo.fromDetails(networkPassphrase, assetType, assetCode, assetIssuer)
+}
+
+// operationXDRBuffers recycles XDR encoding buffers across ConvertOperation
+// calls, which run on every indexer pool worker concurrently.
+var operationXDRBuffers = sync.Pool{New: func() any { return xdr.NewEncodingBuffer() }}
+
 func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCode, assetIssuer string) (string, error) {
 	var asset xdr.Asset
 
@@ -79,8 +134,22 @@ func getContractIDFromAssetDetails(networkPassphrase string, assetType, assetCod
 	return strkey.MustEncode(strkey.VersionByteContract, contractID[:]), nil
 }
 
+// Every strkey version byte is a multiple of 8, so its top five bits — which
+// are exactly what the first base32 character encodes — determine it. A strkey
+// that does not start with these characters cannot decode to the corresponding
+// version byte, which lets the checks below skip a base32 decode and a CRC
+// validation for the account and contract addresses that make up nearly every
+// transfer endpoint.
+const (
+	liquidityPoolStrkeyPrefix    = 'L' // strkey.VersionByteLiquidityPool
+	claimableBalanceStrkeyPrefix = 'B' // strkey.VersionByteClaimableBalance
+)
+
 // isLiquidityPool checks if the given account ID is a liquidity pool
 func isLiquidityPool(accountID string) bool {
+	if len(accountID) == 0 || accountID[0] != liquidityPoolStrkeyPrefix {
+		return false
+	}
 	// Try to decode the account ID as a strkey
 	versionByte, _, err := strkey.DecodeAny(accountID)
 	if err != nil {
@@ -92,6 +161,9 @@ func isLiquidityPool(accountID string) bool {
 
 // isClaimableBalance checks if the given ID is a claimable balance
 func isClaimableBalance(id string) bool {
+	if len(id) == 0 || id[0] != claimableBalanceStrkeyPrefix {
+		return false
+	}
 	versionByte, _, err := strkey.DecodeAny(id)
 	if err != nil {
 		return false
@@ -166,7 +238,11 @@ func ConvertOperation(
 	opIndex uint32,
 	opResults []xdr.OperationResult,
 ) (*types.Operation, error) {
-	xdrBytes, err := op.MarshalBinary()
+	// A pooled encoder reuses its scratch across calls and pool workers;
+	// MarshalBinary returns the owned, exact-size copy the row retains.
+	buf := operationXDRBuffers.Get().(*xdr.EncodingBuffer)
+	xdrBytes, err := buf.MarshalBinary(op)
+	operationXDRBuffers.Put(buf)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling operation %d: %w", opID, err)
 	}

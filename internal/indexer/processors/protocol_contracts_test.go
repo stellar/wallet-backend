@@ -263,10 +263,9 @@ func TestProtocolContractsProcessor_ProcessOperation(t *testing.T) {
 			tx := createTx(op, tc.changes, nil, false)
 			wrapper := &TransactionOperationWrapper{
 				Index:          0,
-				Transaction:    tx,
+				Transaction:    &tx,
 				Operation:      op,
 				LedgerSequence: 12345,
-				Network:        networkPassphrase,
 			}
 
 			contracts, err := processor.ProcessOperation(context.Background(), wrapper)
@@ -329,12 +328,12 @@ func TestProtocolContractsProcessor_ExternalRefIncrementsMetric(t *testing.T) {
 	changes := xdr.LedgerEntryChanges{
 		{Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated, Created: entry},
 	}
+	tx := createTx(op, changes, nil, false)
 	wrapper := &TransactionOperationWrapper{
 		Index:          0,
-		Transaction:    createTx(op, changes, nil, false),
+		Transaction:    &tx,
 		Operation:      op,
 		LedgerSequence: 12345,
-		Network:        networkPassphrase,
 	}
 
 	require.Zero(t, testutil.ToFloat64(ingestionMetrics.ExternalRefContractsTotal))

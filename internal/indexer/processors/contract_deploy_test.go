@@ -36,7 +36,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 
 	ctx := context.Background()
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -59,7 +59,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 				if withSubinvocations {
 					prefix = fmt.Sprintf("%s,withSubinvocations🔄", prefix)
 					subInvocationsStateChanges = []types.StateChange{
-						builder.Clone().
+						builder.
 							WithCreator(deployerAccountID).
 							WithAccount(deployedContractID).
 							Build(),
@@ -87,7 +87,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							return op
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
-							builder.Clone().
+							builder.
 								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
@@ -110,7 +110,7 @@ func Test_ContractDeployProcessor_Process_createContract(t *testing.T) {
 							return op
 						}(),
 						wantStateChanges: append(subInvocationsStateChanges,
-							builder.Clone().
+							builder.
 								WithCreator(fromSourceAccount).
 								WithAccount("CA7UGIYR2H63C2ETN2VE4WDQ6YX5XNEWNWC2DP7A64B2ZR7VJJWF3SBF").
 								Build(),
@@ -221,15 +221,15 @@ func Test_ContractDeployProcessor_Process_multipleContractsDeterministicOrder(t 
 	stateChanges, err := proc.ProcessOperation(ctx, op)
 	require.NoError(t, err)
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
 
 	wantOrder := []types.StateChange{
-		builder.Clone().WithCreator(rootDeployer).WithAccount(contractA).Build(),
-		builder.Clone().WithCreator(subDeployerB).WithAccount(contractB).Build(),
-		builder.Clone().WithCreator(subDeployerC).WithAccount(contractC).Build(),
+		builder.WithCreator(rootDeployer).WithAccount(contractA).Build(),
+		builder.WithCreator(subDeployerB).WithAccount(contractB).Build(),
+		builder.WithCreator(subDeployerC).WithAccount(contractC).Build(),
 	}
 
 	require.Len(t, stateChanges, len(wantOrder))
@@ -279,7 +279,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 		return op
 	}
 
-	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120, nil).
+	builder := NewStateChangeBuilder(12345, closeTime.Unix(), 53021371269120).
 		WithOperationID(53021371269121).
 		WithReason(types.StateChangeReasonCreate).
 		WithCategory(types.StateChangeCategoryAccount)
@@ -301,7 +301,7 @@ func Test_ContractDeployProcessor_Process_invokeContract(t *testing.T) {
 			if withSubinvocations {
 				prefix = "🔄WithSubinvocations🔄"
 				subInvocationsStateChanges = []types.StateChange{
-					builder.Clone().
+					builder.
 						WithCreator(deployerAccountID).
 						WithAccount(deployedContractID).
 						Build(),
@@ -482,7 +482,7 @@ func Test_ContractDeployProcessor_Process_unstorableDeployerAddressInAuthTree(t 
 
 	// The guard skips only the unstorable deployment; its sibling still lands.
 	wantStateChanges := []types.StateChange{
-		NewStateChangeBuilder(12345, closeTime.Unix(), op.TransactionID(), nil).
+		NewStateChangeBuilder(12345, closeTime.Unix(), op.TransactionID()).
 			WithOperationID(op.ID()).
 			WithReason(types.StateChangeReasonCreate).
 			WithCategory(types.StateChangeCategoryAccount).
