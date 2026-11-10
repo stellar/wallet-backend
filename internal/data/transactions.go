@@ -261,7 +261,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"},
+		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump", "memo_type", "memo"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			hashBytes, err := tx.Hash.Value()
@@ -276,6 +276,8 @@ func (m *TransactionModel) BatchCopy(
 				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
 				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
+				memoTypeValue(tx.MemoType),
+				tx.Memo,
 			}, nil
 		}),
 	)
@@ -302,6 +304,14 @@ func (m *TransactionModel) BatchCopy(
 	m.Metrics.QueriesTotal.WithLabelValues("BatchCopy", "transactions").Inc()
 
 	return len(txs), nil
+}
+
+// memoTypeValue renders the nullable memo_type column for COPY.
+func memoTypeValue(memoType *int16) pgtype.Int2 {
+	if memoType == nil {
+		return pgtype.Int2{}
+	}
+	return pgtype.Int2{Int16: *memoType, Valid: true}
 }
 
 // BatchCopyAccounts inserts the transactions_accounts links using pgx's binary
