@@ -668,16 +668,17 @@ func (m *ingestService) initMemoBackfillCursor(ctx context.Context, startAt uint
 	if err != nil {
 		return fmt.Errorf("reading memo backfill cursor: %w", err)
 	}
-	if cursor != 0 {
-		return nil
+	if cursor == 0 {
+		err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
+			return m.models.IngestStore.Update(ctx, dbTx, data.MemoBackfillCursorName, startAt)
+		})
+		if err != nil {
+			return fmt.Errorf("initializing memo backfill cursor to %d: %w", startAt, err)
+		}
+		cursor = startAt
+		log.Ctx(ctx).Infof("memo backfill cursor initialized to %d; history below it will be filled in the background", startAt)
 	}
-	err = db.RunInTransaction(ctx, m.models.DB, func(dbTx pgx.Tx) error {
-		return m.models.IngestStore.Update(ctx, dbTx, data.MemoBackfillCursorName, startAt)
-	})
-	if err != nil {
-		return fmt.Errorf("initializing memo backfill cursor to %d: %w", startAt, err)
-	}
-	log.Ctx(ctx).Infof("memo backfill cursor initialized to %d; history below it will be filled in the background", startAt)
+	m.appMetrics.Ingestion.MemoBackfillCursor.Set(float64(cursor))
 	return nil
 }
 
