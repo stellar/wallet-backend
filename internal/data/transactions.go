@@ -362,3 +362,99 @@ func (m *TransactionModel) BatchCopyAccounts(
 		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
 		stellarAddressesByToID)
 }
+
+// TransactionMemo is one row's memo for BatchUpdateMemo.
+type TransactionMemo struct {
+	ToID            int64
+	LedgerCreatedAt time.Time
+	MemoType        int16
+	Memo            []byte
+}
+
+// BatchUpdateMemo sets memo_type/memo on existing rows by to_id. The rows may live in
+// compressed chunks: TimescaleDB decompresses only the batches the UPDATE touches, and
+// the per-transaction decompression limit (100k tuples by default) is lifted on the
+// transaction because one call rewrites up to a thousand ledgers. The partition-column
+// bounds prune chunks whether compressed or not.
+func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, rows []TransactionMemo) (int64, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	toIDs := make([]int64, len(rows))
+	memoTypes := make([]int16, len(rows))
+	memos := make([][]byte, len(rows))
+	from, to := rows[0].LedgerCreatedAt, rows[0].LedgerCreatedAt
+	for i, r := range rows {
+		toIDs[i], memoTypes[i], memos[i] = r.ToID, r.MemoType, r.Memo
+		if r.LedgerCreatedAt.Before(from) {
+			from = r.LedgerCreatedAt
+		}
+		if r.LedgerCreatedAt.After(to) {
+			to = r.LedgerCreatedAt
+		}
+	}
+
+	const query = `
+		UPDATE transactions t SET memo_type = v.memo_type, memo = v.memo
+		FROM unnest($1::bigint[], $2::smallint[], $3::bytea[]) AS v(to_id, memo_type, memo)
+		WHERE t.to_id = v.to_id AND t.ledger_created_at BETWEEN $4 AND $5
+	`
+	start := time.Now()
+	var updated int64
+	err := func() error {
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
+			return fmt.Errorf("lifting the DML decompression limit: %w", execErr)
+		}
+		tag, execErr := dbTx.Exec(ctx, query, toIDs, memoTypes, memos, from, to)
+		if execErr != nil {
+			return fmt.Errorf("updating memos: %w", execErr)
+		}
+		updated = tag.RowsAffected()
+		return nil
+	}()
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateMemo", "transactions").Observe(time.Since(start).Seconds())
+	m.Metrics.BatchSize.WithLabelValues("BatchUpdateMemo", "transactions").Observe(float64(len(rows)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateMemo", "transactions").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpdateMemo", "transactions", utils.GetDBErrorType(err)).Inc()
+		return 0, err
+	}
+	return updated, nil
+}
+
+// Chunk is one chunk of the transactions hypertable.
+type Chunk struct {
+	Name       string    `db:"name"`
+	RangeStart time.Time `db:"range_start"`
+}
+
+// ListCompressedChunks returns the compressed chunks of the transactions hypertable,
+// newest first. A partially compressed chunk (one that received DML) is included.
+func (m *TransactionModel) ListCompressedChunks(ctx context.Context) ([]Chunk, error) {
+	const query = `
+		SELECT chunk_schema || '.' || chunk_name AS name, range_start
+		FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'transactions' AND is_compressed
+		ORDER BY range_start DESC
+	`
+	chunks, err := db.QueryMany[Chunk](ctx, m.DB, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing compressed transactions chunks: %w", err)
+	}
+	return chunks, nil
+}
+
+// CompressChunk (re)compresses one chunk. On a partially compressed chunk this folds the
+// rows DML left in the rowstore back into the columnstore; on a fully compressed chunk it
+// is a no-op.
+func (m *TransactionModel) CompressChunk(ctx context.Context, chunk string) error {
+	start := time.Now()
+	_, err := m.DB.Exec(ctx, `SELECT compress_chunk($1::regclass, if_not_compressed => true)`, chunk)
+	m.Metrics.QueryDuration.WithLabelValues("CompressChunk", "transactions").Observe(time.Since(start).Seconds())
+	m.Metrics.QueriesTotal.WithLabelValues("CompressChunk", "transactions").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("CompressChunk", "transactions", utils.GetDBErrorType(err)).Inc()
+		return fmt.Errorf("compressing chunk %s: %w", chunk, err)
+	}
+	return nil
+}
