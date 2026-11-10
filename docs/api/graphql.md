@@ -582,7 +582,7 @@ For an account's full history in one call, select `operations` and `stateChanges
 | Query complexity | 10000 | `GRAPHQL_COMPLEXITY_LIMIT` | HTTP 200, `COMPLEXITY_LIMIT_EXCEEDED`, `data: null` |
 | Query depth | 15 | Fixed (`MaxQueryDepth`) | HTTP 200, `QUERY_TOO_DEEP`, `data: null` |
 | Page size | 100 per connection | Fixed | HTTP 200, `BAD_USER_INPUT` |
-| Request time | 30 s | Fixed (`requestContextTimeout`) | Fields still waiting on the database fail with `INTERNAL_SERVER_ERROR` |
+| Request time | 30 s | Fixed (`requestContextTimeout`) | Fields still waiting on the database fail with `REQUEST_TIMEOUT` |
 | Body size, auth on | 102400 bytes | `CLIENT_AUTH_MAX_BODY_SIZE_BYTES` | HTTP 401: the server hashes only that many bytes, so the signature fails |
 
 Complexity: each selected field costs 1. A connection multiplies the cost of what you select inside it by `first` or `last`, or by 50 when neither is set. `Transaction.accounts` and `Operation.accounts` multiply by 50. The unpaginated lists on `AccountTransactionEdge` are not multiplied.

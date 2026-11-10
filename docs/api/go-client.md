@@ -253,14 +253,19 @@ A missing transaction or operation comes back as `null` with no error, so `GetTr
 
 ```go
 _, err := client.GetTransactionByHash(ctx, "<TX_HASH>")
+if errors.Is(err, wbclient.ErrTransactionNotFound) {
+    // Not indexed.
+}
 var gqlErrs wbclient.GraphQLErrors
 if errors.As(err, &gqlErrs) {
     for _, e := range gqlErrs {
         switch e.Extensions["code"] {
         case "INVALID_TRANSACTION_HASH":
             // The hash is not 64 hex characters.
+        case "REQUEST_TIMEOUT":
+            // The request ran past the server's 30 s deadline.
         case "INTERNAL_SERVER_ERROR":
-            // Not indexed, or a server-side failure. The server does not say which.
+            // A server-side failure.
         }
     }
 }
