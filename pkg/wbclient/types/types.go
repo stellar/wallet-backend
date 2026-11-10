@@ -287,6 +287,17 @@ type Transaction struct {
 	TransactionXdr string `json:"transactionXdr" validate:"required"`
 }
 
+// MemoType is a transaction memo type, matching the XDR MemoType names.
+type MemoType string
+
+const (
+	MemoTypeNone   MemoType = "NONE"
+	MemoTypeText   MemoType = "TEXT"
+	MemoTypeID     MemoType = "ID"
+	MemoTypeHash   MemoType = "HASH"
+	MemoTypeReturn MemoType = "RETURN"
+)
+
 // GraphQLTransaction represents a transaction from the GraphQL API
 type GraphQLTransaction struct {
 	Hash            string    `json:"hash"`
@@ -296,6 +307,12 @@ type GraphQLTransaction struct {
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt"`
 	IsFeeBump       bool      `json:"isFeeBump"`
 	IngestedAt      time.Time `json:"ingestedAt"`
+	// MemoType is nil while the server's memo backfill has not reached this
+	// transaction yet, and MemoTypeNone when the transaction has no memo.
+	MemoType *MemoType `json:"memoType"`
+	// Memo is the memo value: TEXT as UTF-8, ID as a decimal string, HASH and
+	// RETURN as 64 hex characters. It is nil for MemoTypeNone and while not backfilled.
+	Memo *string `json:"memo"`
 }
 
 // Operation represents a Stellar operation
