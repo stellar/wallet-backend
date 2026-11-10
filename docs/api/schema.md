@@ -70,7 +70,7 @@ Returns: [BlendPool](#blendpool)
 
 ### simulateStateChanges
 
-Simulate an unsubmitted transaction and return the state changes it would produce if submitted, in the same variant structure as the history API. Accepts contract (Soroban) transactions, whose changes come from RPC simulation, and classic transactions for the supported operation types (payment, createAccount, changeTrust, setOptions, manageData), whose changes are derived from current ledger state. A classic transaction may carry multiple supported operations, applied sequentially with all-or-nothing semantics. Other transactions are rejected as UNSUPPORTED_TRANSACTION; a transaction the network would reject (e.g. insufficient balance, or any operation of a multi-operation transaction failing) is rejected as SIMULATION_FAILED with the reason.
+Simulate an unsubmitted transaction and return the state changes it would produce if submitted, in the same variant structure as the history API. Accepts contract (Soroban) transactions, whose changes come from RPC simulation, and classic transactions, whose changes are derived from current ledger state. Supported classic operations are the non-DEX ones: payment, createAccount, accountMerge, changeTrust, setOptions, manageData, bumpSequence, setTrustLineFlags, allowTrust, clawback, and the claimable-balance operations; fee-bump envelopes are accepted on both paths. A classic transaction may carry multiple supported operations, applied sequentially with all-or-nothing semantics. DEX operations (offers, path payments, liquidity pools) and the remaining types are rejected as UNSUPPORTED_TRANSACTION; a transaction the network would reject (e.g. insufficient balance, or any operation of a multi-operation transaction failing) is rejected as SIMULATION_FAILED with the reason.
 
 Returns: [SimulatedStateChanges](#simulatedstatechanges)!
 
@@ -973,6 +973,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `creatorAddress` | `String`! | Account that would create this one: the funder or the contract deployer. |
 
 ### SimulatedAccountFlagsChange
@@ -986,6 +987,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `flags` | \[[AccountFlag](#accountflag)!\]! | Flags that would be set (reason SET) or cleared (reason CLEAR). |
 
 ### SimulatedAccountMergedChange
@@ -999,6 +1001,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `destinationAddress` | `String`! | Account that would receive the merged account's balance. |
 
 ### SimulatedAllowanceChange
@@ -1012,6 +1015,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String`! | Contract ID of the token the allowance applies to. |
 | `spender` | `String`! | Address authorized to spend from the holder's balance. |
 | `amount` | `String`! | Approved allowance, as a decimal string in the token's smallest unit. |
@@ -1028,6 +1032,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String` | Contract ID of the asset; null for liquidity-pool-share trustlines. |
 | `liquidityPoolId` | `String` | Liquidity pool ID for pool-share trustlines; null for asset trustlines. |
 | `flags` | \[[TrustlineFlag](#trustlineflag)!\] | Trustline flags that would change; null for SAC contract-holder authorization, which has no flags. |
@@ -1043,6 +1048,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String`! | Contract ID of the token whose balance would move. |
 | `amount` | `String`! | Amount moved, as a decimal string in the token's smallest unit. |
 | `toMuxedId` | `String` | CAP-67 destination memo carried by SEP-41 transfer/mint events (CREDIT and MINT only). |
@@ -1058,6 +1064,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `name` | `String`! | Name of the data entry. |
 | `value` | `String`! | Value of the new entry, base64-encoded. |
 
@@ -1072,6 +1079,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `name` | `String`! | Name of the data entry. |
 | `oldValue` | `String`! | Value the entry had when removed, base64-encoded. |
 
@@ -1086,6 +1094,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `name` | `String`! | Name of the data entry. |
 | `oldValue` | `String`! | Previous value, base64-encoded. |
 | `newValue` | `String`! | New value, base64-encoded. |
@@ -1101,6 +1110,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `oldHomeDomain` | `String`! | Home domain the account had when it would be removed. |
 
 ### SimulatedHomeDomainSetChange
@@ -1114,6 +1124,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `homeDomain` | `String`! | The newly set home domain. |
 
 ### SimulatedHomeDomainUpdatedChange
@@ -1127,6 +1138,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `oldHomeDomain` | `String`! | Previous home domain. |
 | `newHomeDomain` | `String`! | New home domain. |
 
@@ -1141,6 +1153,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `signerAddress` | `String`! | Address of the added signer. |
 | `newWeight` | `Int`! | Weight assigned to the new signer (0-255). |
 
@@ -1155,6 +1168,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `signerAddress` | `String`! | Address of the removed signer. |
 | `oldWeight` | `Int`! | Weight the signer had before removal (0-255). |
 
@@ -1169,6 +1183,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `signerAddress` | `String`! | Address of the updated signer. |
 | `oldWeight` | `Int`! | Previous weight (0-255). |
 | `newWeight` | `Int`! | New weight (0-255). |
@@ -1181,6 +1196,7 @@ Result of simulating an unsubmitted transaction: the state changes the indexer w
 |---|---|---|
 | `latestLedger` | [UInt32](#uint32)! | Latest ledger the simulation was evaluated against. |
 | `stateChanges` | \[[BaseSimulatedStateChange](#basesimulatedstatechange)!\]! | State changes the transaction would produce. |
+| `tokens` | \[[SimulatedTokenMetadata](#simulatedtokenmetadata)!\]! | Display metadata for the tokens the state changes reference, from the backend's token registry. A token that has never been indexed has no entry, so its display data is unavailable. |
 
 ### SimulatedThresholdChange
 
@@ -1193,9 +1209,23 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `threshold` | [ThresholdLevel](#thresholdlevel)! | Which signature threshold would change. |
 | `oldThreshold` | `Int`! | Previous threshold value (0-255). |
 | `newThreshold` | `Int`! | New threshold value (0-255). |
+
+### SimulatedTokenMetadata
+
+Display metadata for one token referenced by the simulated state changes. Stellar-asset-contract tokens carry the classic code and issuer; SEP-41 contract tokens carry whatever name/symbol/decimals their contract reports.
+
+| Field | Type | Description |
+|---|---|---|
+| `tokenId` | `String`! | Contract ID of the token (C...). |
+| `code` | `String` | Classic asset code; null for contract-native tokens. |
+| `issuer` | `String` | Classic asset issuer; null for contract-native tokens. |
+| `name` | `String` | Token name reported by the contract. |
+| `symbol` | `String` | Token symbol reported by the contract. |
+| `decimals` | [UInt32](#uint32)! | Number of decimal places in the token's smallest unit. |
 
 ### SimulatedTrustlineAddedChange
 
@@ -1208,6 +1238,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String` | Contract ID of the trusted asset; null for liquidity-pool-share trustlines. |
 | `liquidityPoolId` | `String` | Liquidity pool ID for pool-share trustlines; null for asset trustlines. |
 | `limit` | `String`! | Initial trustline limit, as a decimal string in stroops. |
@@ -1223,6 +1254,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String` | Contract ID of the trusted asset; null for liquidity-pool-share trustlines. |
 | `liquidityPoolId` | `String` | Liquidity pool ID for pool-share trustlines; null for asset trustlines. |
 
@@ -1237,6 +1269,7 @@ Implements: [BaseSimulatedStateChange](#basesimulatedstatechange)
 | `category` | [StateChangeCategory](#statechangecategory)! |  |
 | `reason` | [StateChangeReason](#statechangereason)! |  |
 | `accountAddress` | `String`! |  |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 | `tokenId` | `String` | Contract ID of the trusted asset; null for liquidity-pool-share trustlines. |
 | `liquidityPoolId` | `String` | Liquidity pool ID for pool-share trustlines; null for asset trustlines. |
 | `oldLimit` | `String`! | Previous trustline limit, as a decimal string in stroops. |
@@ -1412,7 +1445,7 @@ Implemented by: [LiquidityPoolBalance](#liquiditypoolbalance), [NativeBalance](#
 
 ### BaseSimulatedStateChange
 
-Common contract implemented by every simulated state change. Simulated variants mirror the history API's state-change types (same names with a `Simulated` prefix, same `(category, reason)` pairs and variant fields) but omit the fields that only exist after a transaction is included in a ledger: `ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and `transaction`. The affected account is exposed as a plain address rather than an `Account` entity, since the account may not be indexed yet.
+Common contract implemented by every simulated state change. Simulated variants mirror the history API's state-change types (same names with a `Simulated` prefix, same `(category, reason)` pairs and variant fields) but omit the fields that only exist after a transaction is included in a ledger: `ingestedAt`, `ledgerCreatedAt`, `ledgerNumber`, `operation`, and `transaction`. The affected account is exposed as a plain address rather than an `Account` entity, since the account may not be indexed yet. In place of `operation`, `operationIndex` says which operation of the simulated transaction would produce the change; the transaction-fee row is the one change with a null `operationIndex`.
 
 The set of concrete types grows with the transaction sources the simulation supports; today it covers the variants contract (Soroban) transactions and the supported classic operations can produce.
 
@@ -1423,6 +1456,7 @@ Implemented by: [SimulatedAccountCreatedChange](#simulatedaccountcreatedchange),
 | `category` | [StateChangeCategory](#statechangecategory)! | Category of account state this change affects. |
 | `reason` | [StateChangeReason](#statechangereason)! | Why the change occurred. Each concrete type documents its valid reasons. |
 | `accountAddress` | `String`! | Address of the account whose state would change. |
+| `operationIndex` | `Int` | Zero-based index of the operation that would produce this change; null for the transaction-fee row. |
 
 ### BaseStateChange
 
