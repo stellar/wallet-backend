@@ -184,6 +184,8 @@ Recorded on `ingest`. The lag gauge updates once per second in live mode only.
 | --- | --- | --- | --- |
 | `wallet_ingestion_latest_ledger` | gauge | none | Latest ledger ingested |
 | `wallet_ingestion_oldest_ledger` | gauge | none | Oldest ledger ingested |
+| `wallet_ingestion_memo_backfill_cursor` | gauge | none | Lowest ledger whose transactions carry a memo. The backfill is done when it is at or below `wallet_ingestion_oldest_ledger` |
+| `wallet_ingestion_memo_backfill_errors_total` | counter | none | Memo backfill slice failures. Each is retried after 30 seconds |
 | `wallet_ingestion_lag_ledgers` | gauge | none | Ledger backend tip minus the ingest position |
 | `wallet_ingestion_duration_seconds` | histogram | none | Time to process and persist one ledger. Excludes the fetch |
 | `wallet_ingestion_persist_batch_size` | histogram | none | Ledgers coalesced into one commit set. 1 while the pipeline keeps pace; larger means the persist stage is amortizing a backlog |

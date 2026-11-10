@@ -9,6 +9,7 @@ For operators tuning PostgreSQL and contributors writing queries or migrations. 
 - [Indexes](#indexes)
 - [Runtime policies](#runtime-policies)
 - [Cursors](#cursors)
+  - [Memo backfill](#memo-backfill)
 - [Writes](#writes)
 - [Connections](#connections)
 - [Requirements the migrations assume](#requirements-the-migrations-assume)
@@ -110,6 +111,21 @@ When retention is on, a `reconcile_oldest_cursor` job runs every hour and moves 
 | `oldest_ingest_ledger` | Oldest ledger present; backfill lowers it, retention raises it |
 | `protocol_<ID>_history_cursor` | Progress of a protocol history migration |
 | `protocol_<ID>_current_state_cursor` | Progress of a protocol current-state migration |
+| `memo_backfill_cursor` | Lowest ledger whose `transactions` rows carry `memo_type` and `memo` |
+
+### Memo backfill
+
+Rows ingested before the memo migration have `memo_type` and `memo` both `NULL`. The live ingester fills them in the background.
+
+| Step | Behavior |
+|---|---|
+| Start | The migration inserts `memo_backfill_cursor = '0'`. On the first live start after it, the ingester sets the cursor to `latest_ingest_ledger + 1`. Checkpoint bootstrap on an empty database sets it to the first ledger, so there is nothing to fill. |
+| Walk | Newest first, in 10,000-ledger slices, down to `oldest_ingest_ledger`. Each slice re-reads its ledgers through the ingester's ledger backend and runs an `UPDATE` every 1,000 ledgers. |
+| Compressed chunks | The `UPDATE` runs directly on compressed chunks. TimescaleDB decompresses only the touched batches. Each chunk that was compressed before the walk is recompressed once the walk has passed its start, so about one chunk's rows sit uncompressed at a time. |
+| Commit | The cursor commits with a slice's last `UPDATE`. A crash redoes at most one slice, and rewriting a row with the same memo changes nothing. |
+| Failure | A failed slice is retried every 30 seconds without end. It never stops live ingestion. |
+
+The backfill runs inside the live ingester under its advisory lock, so it is the only writer of old `transactions` rows. Live ingestion writes memos itself from its resume ledger onward and never meets the backfill. Operator steps are in [upgrading](../deploy/upgrading.md#transaction-memos).
 
 ## Writes
 
@@ -148,3 +164,4 @@ Migrations are forward-only in production. `migrate down` exists for development
 | `internal/db/utils.go` | Advisory lock helpers |
 | `internal/serve/serve.go` (`BuildPoolConfig`) | Exec query mode for PgBouncer |
 | `internal/data/ingest_store.go` | Cursor keys |
+| `internal/services/memo_backfill.go` | Memo backfill |

@@ -87,7 +87,7 @@ Legend:
 
 | Table | Partition column | Chunk interval (default) | segmentby | orderby | Sparse indexes | Purpose |
 | --- | --- | --- | --- | --- | --- | --- |
-| `transactions` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, to_id DESC` | `bloom(hash)` | One row per transaction: hash, fee charged, result code, ledger, fee-bump flag |
+| `transactions` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, to_id DESC` | `bloom(hash)` | One row per transaction: hash, fee charged, result code, ledger, fee-bump flag, memo |
 | `transactions_accounts` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, tx_to_id DESC` | None | Links each transaction to every account that took part in it |
 | `operations` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, id DESC` | `bloom(operation_type)` | One row per operation: type, XDR, result code, success flag |
 | `operations_accounts` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, operation_id DESC` | None | Links each operation to every account that took part in it |
@@ -116,6 +116,15 @@ Chunk skipping is on for these columns. It lets queries that filter on them skip
 | `operations` | `id` |
 | `operations_accounts` | `operation_id` |
 | `state_changes` | `to_id`, `operation_id` |
+
+`transactions` stores the memo in two nullable columns. For a fee bump they hold the inner transaction's memo.
+
+| Column | Type | Value |
+| --- | --- | --- |
+| `memo_type` | `SMALLINT` | XDR `MemoType` discriminant: 0 none, 1 text, 2 id, 3 hash, 4 return |
+| `memo` | `BYTEA` | Raw value bytes: text as-is, id as 8-byte big-endian, hash and return as 32 bytes. `NULL` for none. |
+
+Both columns `NULL` means the memo backfill has not reached the row yet. See [memo backfill](database.md#memo-backfill).
 
 Each migration drops the single-column `ledger_created_at` index TimescaleDB creates by default. No query filters these tables by `ledger_created_at` alone.
 
@@ -170,6 +179,7 @@ SEP-41 history goes into `state_changes`, written by `protocol-migrate history` 
 | `oldest_ingest_ledger` | Lowest ledger the history tables cover | Checkpoint bootstrap, backfill, `reconcile_oldest_cursor` job |
 | `protocol_<ID>_history_cursor` | Last ledger with protocol history written | `protocol-migrate history`, live ingester |
 | `protocol_<ID>_current_state_cursor` | Last ledger with protocol current state written | `protocol-migrate current-state`, live ingester |
+| `memo_backfill_cursor` | Lowest ledger whose `transactions` rows carry a memo. `0` until the first live start after the memo migration | Migration, checkpoint bootstrap, live ingester |
 
 Other bookkeeping objects:
 

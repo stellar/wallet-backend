@@ -99,6 +99,7 @@ Arguments of `transactions`:
 |---|---|---|---|
 | `since` | [Time](#time) |  | Only include items whose ledger close time is at or after this time. |
 | `until` | [Time](#time) |  | Only include items whose ledger close time is at or before this time. Must not be earlier than `since`. |
+| `memo` | [MemoFilter](#memofilter) |  | Only include transactions whose memo matches exactly. |
 | `first` | `Int` |  | Return up to this many edges from the start of the list, or after `after`. Default 50 when neither `first` nor `last` is set. Maximum 100. Cannot be combined with `last` or `before`. |
 | `after` | `String` |  | Cursor from a previous page. Returns the edges after it. Requires `first`; ignored without it. |
 | `last` | `Int` |  | Return up to this many edges from the end of the list, or before `before`. Maximum 100. Cannot be combined with `first` or `after`. |
@@ -1002,6 +1003,8 @@ A Stellar transaction.
 | `ledgerNumber` | [UInt32](#uint32)! | Sequence number of the ledger that included this transaction. |
 | `ledgerCreatedAt` | [Time](#time)! | Close time of the ledger that included this transaction. |
 | `isFeeBump` | `Boolean`! | Whether this transaction is a fee-bump transaction. |
+| `memoType` | [MemoType](#memotype) | Memo type. Null while the memo backfill has not reached this transaction yet; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo. |
+| `memo` | `String` | Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while not yet backfilled. |
 | `ingestedAt` | [Time](#time)! | When the indexer persisted this transaction. |
 | `operations` | [OperationConnection](#operationconnection)! | Operations contained in this transaction, in application order. |
 | `accounts` | \[[Account](#account)!\]! | Accounts and contracts that participated in this transaction. Each one has this transaction in its `transactions` history. |
@@ -1194,6 +1197,18 @@ BlendVersion is the Blend deployment a backstop belongs to. V2 is the original d
 | `V2` |  |
 | `V2_1` |  |
 
+### MemoType
+
+Transaction memo type, matching the XDR MemoType names.
+
+| Value | Description |
+|---|---|
+| `NONE` | The transaction has no memo. |
+| `TEXT` | A UTF-8 text memo of at most 28 bytes. |
+| `ID` | An unsigned 64-bit integer memo. |
+| `HASH` | A 32-byte hash memo. |
+| `RETURN` | A 32-byte hash of a transaction this transaction refunds or returns. |
+
 ### OperationType
 
 Stellar operation type, one value per operation defined by the Stellar protocol (matching the XDR OperationType names).
@@ -1321,6 +1336,19 @@ Filters for an account's state changes; all conditions are ANDed.
 | `operationId` | [Int64](#int64) | Only state changes from the operation with this ID (TOID). |
 | `category` | [StateChangeCategory](#statechangecategory) | Only state changes with this category. |
 | `reason` | [StateChangeReason](#statechangereason) | Only state changes with this reason. |
+
+### MemoFilter
+
+Exact-match filter on a transaction's memo. NONE is not a valid filter type.
+
+`value` encodings: TEXT is the memo text (at most 28 bytes), ID is a decimal unsigned 64-bit integer, HASH and RETURN are 64 hex characters.
+
+An account with a long history and few matching memos walks its whole history within the time range, so set `since`/`until` to bound it.
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | [MemoType](#memotype)! | Memo type to match. Must not be NONE. |
+| `value` | `String`! | Memo value to match, encoded as described on MemoFilter. |
 
 ## Scalars
 

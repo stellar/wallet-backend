@@ -15,6 +15,7 @@ For wallet developers who call wallet-backend over HTTP. After reading it you ca
   - [Example: incoming payments to an account](#example-incoming-payments-to-an-account)
 - [Transactions and operations](#transactions-and-operations)
   - [Example: a transaction with its operations and state changes](#example-a-transaction-with-its-operations-and-state-changes)
+  - [Example: filter an account's transactions by memo](#example-filter-an-accounts-transactions-by-memo)
 - [Limits](#limits)
 - [Errors](#errors)
 - [Persisted queries](#persisted-queries)
@@ -453,6 +454,8 @@ Fields to know on `Transaction`:
 | `feeCharged` | `Int64`, in stroops |
 | `resultCode` | XDR result code name, for example `TransactionResultCodeTxSuccess` |
 | `isFeeBump` | Whether the transaction is a fee bump |
+| `memoType` | `MemoType` enum: `NONE`, `TEXT`, `ID`, `HASH`, or `RETURN`. Null while the memo backfill has not reached the row. For a fee bump, the inner transaction's memo. |
+| `memo` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Null for `NONE` and while not yet backfilled. |
 | `ledgerNumber`, `ledgerCreatedAt` | Ledger sequence and close time |
 | `ingestedAt` | When wallet-backend stored the row |
 | `accounts` | Every account and contract that took part |
@@ -575,6 +578,73 @@ Response:
 
 For an account's full history in one call, select `operations` and `stateChanges` on each `Account.transactions` edge. Those two lists hold only what that account did in the transaction. `pkg/wbclient/queries.go` has a complete version of that query.
 
+### Example: filter an account's transactions by memo
+
+`Account.transactions` takes `memo: MemoFilter`, an exact match on type and value. `value` uses the same encoding as `Transaction.memo`.
+
+| `type` | `value` |
+|---|---|
+| `TEXT` | The memo text, at most 28 bytes |
+| `ID` | A decimal unsigned 64-bit integer |
+| `HASH`, `RETURN` | 64 hex characters |
+
+`NONE` and a malformed value return `BAD_USER_INPUT`. Rows the memo backfill has not reached yet never match.
+
+The filter does not use an index of its own. On an account with a long history and few matches, the query reads the whole history inside the time range to fill a page. Set `since` and `until` to bound it.
+
+Query:
+
+```graphql
+query ByMemo($address: String!, $memo: MemoFilter, $since: Time, $first: Int) {
+  accountByAddress(address: $address) {
+    transactions(memo: $memo, since: $since, first: $first) {
+      edges {
+        node {
+          hash
+          memoType
+          memo
+          ledgerCreatedAt
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+```
+
+Variables:
+
+```json
+{"address": "<G_ADDRESS>", "memo": {"type": "ID", "value": "12345"}, "since": "2026-09-01T00:00:00Z", "first": 20}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "accountByAddress": {
+      "transactions": {
+        "edges": [
+          {
+            "node": {
+              "hash": "<TX_HASH>",
+              "memoType": "ID",
+              "memo": "12345",
+              "ledgerCreatedAt": "2026-09-03T08:41:10Z"
+            }
+          }
+        ],
+        "pageInfo": {"endCursor": "...", "hasNextPage": false}
+      }
+    }
+  }
+}
+```
+
 ## Limits
 
 | Limit | Value | Set by | When exceeded |
@@ -631,7 +701,7 @@ Error codes:
 
 | Code | Cause |
 |---|---|
-| `BAD_USER_INPUT` | Bad pagination arguments, a bad cursor, or `until` before `since` |
+| `BAD_USER_INPUT` | Bad pagination arguments, a bad cursor, `until` before `since`, or a bad memo filter |
 | `INVALID_ADDRESS` | `accountByAddress` got something other than a `G...` or `C...` address. `extensions.address` echoes it. |
 | `INVALID_TRANSACTION_HASH` | Hash is not 64 hex characters. `extensions.hash` echoes it. |
 | `GRAPHQL_PARSE_FAILED` | Query text does not parse |
