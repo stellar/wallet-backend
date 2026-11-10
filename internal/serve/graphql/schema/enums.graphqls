@@ -207,3 +207,19 @@ enum BlendAuctionType {
   """Accrued pool interest, sold for backstop LP tokens."""
   INTEREST
 }
+
+"""
+Transaction memo type, matching the XDR MemoType names.
+"""
+enum MemoType {
+  """The transaction has no memo."""
+  NONE
+  """A UTF-8 text memo of at most 28 bytes."""
+  TEXT
+  """An unsigned 64-bit integer memo."""
+  ID
+  """A 32-byte hash memo."""
+  HASH
+  """A 32-byte hash of a transaction this transaction refunds or returns."""
+  RETURN
+}
