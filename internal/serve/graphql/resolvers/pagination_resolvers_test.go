@@ -156,7 +156,7 @@ func TestAccountTransactionEdge_NestedOperations_NoLedgerCreatedAtSelected(t *te
 
 	// Node selection omits ledgerCreatedAt; the partition pin must still come from the DB row.
 	txCtx := getTestCtx("transactions", []string{"hash"})
-	conn, err := acctResolver.Transactions(txCtx, parentAccount, nil, nil, nil, nil, nil, nil)
+	conn, err := acctResolver.Transactions(txCtx, parentAccount, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, conn.Edges, 1)
 	edge := conn.Edges[0]

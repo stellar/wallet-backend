@@ -14,11 +14,37 @@ import (
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
 	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // Hash is the resolver for the hash field.
 func (r *transactionResolver) Hash(ctx context.Context, obj *types.Transaction) (string, error) {
 	return obj.Hash.String(), nil
+}
+
+// MemoType is the resolver for the memoType field.
+func (r *transactionResolver) MemoType(ctx context.Context, obj *types.Transaction) (*graphql1.MemoType, error) {
+	if obj.MemoType == nil {
+		return nil, nil
+	}
+	name, _, err := utils.DecodeMemo(*obj.MemoType, obj.Memo)
+	if err != nil {
+		return nil, fmt.Errorf("decoding memo of transaction %s: %w", obj.Hash.String(), err)
+	}
+	memoType := graphql1.MemoType(name)
+	return &memoType, nil
+}
+
+// Memo is the resolver for the memo field.
+func (r *transactionResolver) Memo(ctx context.Context, obj *types.Transaction) (*string, error) {
+	if obj.MemoType == nil {
+		return nil, nil
+	}
+	_, value, err := utils.DecodeMemo(*obj.MemoType, obj.Memo)
+	if err != nil {
+		return nil, fmt.Errorf("decoding memo of transaction %s: %w", obj.Hash.String(), err)
+	}
+	return value, nil
 }
 
 // Operations is the resolver for the operations field.

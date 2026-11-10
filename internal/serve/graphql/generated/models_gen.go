@@ -370,6 +370,20 @@ type LiquidityPoolReserve struct {
 	Amount string `json:"amount"`
 }
 
+// Exact-match filter on a transaction's memo. NONE is not a valid filter type.
+//
+// `value` encodings: TEXT is the memo text (at most 28 bytes), ID is a decimal
+// unsigned 64-bit integer, HASH and RETURN are 64 hex characters.
+//
+// An account with a long history and few matching memos walks its whole history
+// within the time range, so set `since`/`until` to bound it.
+type MemoFilter struct {
+	// Memo type to match. Must not be NONE.
+	Type MemoType `json:"type"`
+	// Memo value to match, encoded as described on MemoFilter.
+	Value string `json:"value"`
+}
+
 // The account's native XLM balance.
 type NativeBalance struct {
 	// Balance amount as a decimal string. Native XLM, trustline, SAC, and liquidity-pool balances have 7 decimal places (for example "100.0000000"). SEP-41 balances are integers in the token's smallest unit; divide by 10^decimals.
@@ -825,6 +839,73 @@ func (e *BlendVersion) UnmarshalJSON(b []byte) error {
 }
 
 func (e BlendVersion) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Transaction memo type, matching the XDR MemoType names.
+type MemoType string
+
+const (
+	// The transaction has no memo.
+	MemoTypeNone MemoType = "NONE"
+	// A UTF-8 text memo of at most 28 bytes.
+	MemoTypeText MemoType = "TEXT"
+	// An unsigned 64-bit integer memo.
+	MemoTypeID MemoType = "ID"
+	// A 32-byte hash memo.
+	MemoTypeHash MemoType = "HASH"
+	// A 32-byte hash of a transaction this transaction refunds or returns.
+	MemoTypeReturn MemoType = "RETURN"
+)
+
+var AllMemoType = []MemoType{
+	MemoTypeNone,
+	MemoTypeText,
+	MemoTypeID,
+	MemoTypeHash,
+	MemoTypeReturn,
+}
+
+func (e MemoType) IsValid() bool {
+	switch e {
+	case MemoTypeNone, MemoTypeText, MemoTypeID, MemoTypeHash, MemoTypeReturn:
+		return true
+	}
+	return false
+}
+
+func (e MemoType) String() string {
+	return string(e)
+}
+
+func (e *MemoType) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MemoType(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MemoType", str)
+	}
+	return nil
+}
+
+func (e MemoType) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MemoType) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MemoType) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

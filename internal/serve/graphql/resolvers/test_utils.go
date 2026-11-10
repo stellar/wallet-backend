@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/toid"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vektah/gqlparser/v2/ast"
@@ -65,6 +66,12 @@ var (
 	testTxHash4 = "3476b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4873"
 )
 
+// Memos setupDB stores on testTxHash2 (TEXT) and testTxHash3 (ID).
+const (
+	sharedTestTextMemo = "hello"
+	sharedTestIDMemo   = 42
+)
+
 func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) {
 	testLedger := int32(1000)
 	// Whole seconds, like a real ledger close time: hash lookups match transactions rows on
@@ -84,6 +91,16 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 			LedgerNumber:    1,
 			LedgerCreatedAt: now,
 			IsFeeBump:       false,
+		}
+		// Transaction 2 carries a TEXT memo and transaction 3 an ID memo; 1 and 4 have
+		// no memo columns set, as if the memo backfill had not reached them yet.
+		switch i {
+		case 1:
+			memoType := int16(xdr.MemoTypeMemoText)
+			txn.MemoType, txn.Memo = &memoType, []byte(sharedTestTextMemo)
+		case 2:
+			memoType := int16(xdr.MemoTypeMemoId)
+			txn.MemoType, txn.Memo = &memoType, []byte{0, 0, 0, 0, 0, 0, 0, sharedTestIDMemo}
 		}
 		txns = append(txns, txn)
 
@@ -144,8 +161,8 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 	dbErr := db.RunInTransaction(context.Background(), dbConnectionPool, func(tx pgx.Tx) error {
 		for _, txn := range txns {
 			_, err := tx.Exec(ctx,
-				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				txn.Hash, txn.ToID, txn.FeeCharged, txn.ResultCode, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump)
+				`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump, memo_type, memo) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				txn.Hash, txn.ToID, txn.FeeCharged, txn.ResultCode, txn.LedgerNumber, txn.LedgerCreatedAt, txn.IsFeeBump, txn.MemoType, txn.Memo)
 			require.NoError(t, err)
 
 			bucket, prefix, err := txn.Hash.LookupKey()

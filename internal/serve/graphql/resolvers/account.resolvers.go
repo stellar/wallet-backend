@@ -32,7 +32,7 @@ func (r *accountResolver) Balances(ctx context.Context, obj *types.Account, firs
 // This is a field resolver - it resolves the "transactions" field on an Account object
 // gqlgen calls this when a GraphQL query requests the transactions field on an Account
 // Field resolvers receive the parent object (Account) and return the field value
-func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*graphql1.AccountTransactionConnection, error) {
+func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, memo *graphql1.MemoFilter, first *int32, after *string, last *int32, before *string) (*graphql1.AccountTransactionConnection, error) {
 	params, err := parseAccountPaginationParams(first, after, last, before, CursorTypeComposite)
 	if err != nil {
 		return nil, err
@@ -44,8 +44,13 @@ func (r *accountResolver) Transactions(ctx context.Context, obj *types.Account, 
 		return nil, err
 	}
 
+	memoFilter, err := encodeMemoFilter(memo)
+	if err != nil {
+		return nil, err
+	}
+
 	dbColumns := GetDBColumnsForFields(ctx, types.Transaction{})
-	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange, nil)
+	transactions, err := r.models.Transactions.BatchGetByAccountAddress(ctx, string(obj.StellarAddress), strings.Join(dbColumns, ", "), &queryLimit, params.CompositeCursor, params.SortOrder, timeRange, memoFilter)
 	if err != nil {
 		return nil, fmt.Errorf("getting transactions from db for account %s: %w", obj.StellarAddress, err)
 	}

@@ -75,7 +75,7 @@ type ComplexityRoot struct {
 		Operations      func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
 		Sep41Allowances func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		StateChanges    func(childComplexity int, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
-		Transactions    func(childComplexity int, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) int
+		Transactions    func(childComplexity int, since *time.Time, until *time.Time, memo *MemoFilter, first *int32, after *string, last *int32, before *string) int
 	}
 
 	AccountCreatedChange struct {
@@ -667,6 +667,8 @@ type ComplexityRoot struct {
 		IsFeeBump       func(childComplexity int) int
 		LedgerCreatedAt func(childComplexity int) int
 		LedgerNumber    func(childComplexity int) int
+		Memo            func(childComplexity int) int
+		MemoType        func(childComplexity int) int
 		Operations      func(childComplexity int, first *int32, after *string, last *int32, before *string) int
 		ResultCode      func(childComplexity int) int
 		StateChanges    func(childComplexity int, first *int32, after *string, last *int32, before *string) int
@@ -733,7 +735,7 @@ type ComplexityRoot struct {
 type AccountResolver interface {
 	Address(ctx context.Context, obj *types.Account) (string, error)
 	Balances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*BalanceConnection, error)
-	Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*AccountTransactionConnection, error)
+	Transactions(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, memo *MemoFilter, first *int32, after *string, last *int32, before *string) (*AccountTransactionConnection, error)
 	Operations(ctx context.Context, obj *types.Account, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	StateChanges(ctx context.Context, obj *types.Account, filter *AccountStateChangeFilterInput, since *time.Time, until *time.Time, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
 	Sep41Allowances(ctx context.Context, obj *types.Account, first *int32, after *string, last *int32, before *string) (*SEP41AllowanceConnection, error)
@@ -1009,6 +1011,9 @@ type ThresholdChangeResolver interface {
 type TransactionResolver interface {
 	Hash(ctx context.Context, obj *types.Transaction) (string, error)
 
+	MemoType(ctx context.Context, obj *types.Transaction) (*MemoType, error)
+	Memo(ctx context.Context, obj *types.Transaction) (*string, error)
+
 	Operations(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*OperationConnection, error)
 	Accounts(ctx context.Context, obj *types.Transaction) ([]*types.Account, error)
 	StateChanges(ctx context.Context, obj *types.Transaction, first *int32, after *string, last *int32, before *string) (*StateChangeConnection, error)
@@ -1127,7 +1132,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Account.Transactions(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
+		return e.ComplexityRoot.Account.Transactions(childComplexity, args["since"].(*time.Time), args["until"].(*time.Time), args["memo"].(*MemoFilter), args["first"].(*int32), args["after"].(*string), args["last"].(*int32), args["before"].(*string)), true
 
 	case "AccountCreatedChange.account":
 		if e.ComplexityRoot.AccountCreatedChange.Account == nil {
@@ -3753,6 +3758,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Transaction.LedgerNumber(childComplexity), true
+	case "Transaction.memo":
+		if e.ComplexityRoot.Transaction.Memo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Transaction.Memo(childComplexity), true
+	case "Transaction.memoType":
+		if e.ComplexityRoot.Transaction.MemoType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Transaction.MemoType(childComplexity), true
 	case "Transaction.operations":
 		if e.ComplexityRoot.Transaction.Operations == nil {
 			break
@@ -4065,6 +4082,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputAccountStateChangeFilterInput,
+		ec.unmarshalInputMemoFilter,
 	)
 	first := true
 
@@ -4156,6 +4174,8 @@ type Account {
     since: Time
     """Only include items whose ledger close time is at or before this time. Must not be earlier than ` + "`" + `since` + "`" + `."""
     until: Time
+    """Only include transactions whose memo matches exactly."""
+    memo: MemoFilter
     """Return up to this many edges from the start of the list, or after ` + "`" + `after` + "`" + `. Default 50 when neither ` + "`" + `first` + "`" + ` nor ` + "`" + `last` + "`" + ` is set. Maximum 100. Cannot be combined with ` + "`" + `last` + "`" + ` or ` + "`" + `before` + "`" + `."""
     first: Int
     """Cursor from a previous page. Returns the edges after it. Requires ` + "`" + `first` + "`" + `; ignored without it."""
@@ -4912,6 +4932,22 @@ enum BlendAuctionType {
   """Accrued pool interest, sold for backstop LP tokens."""
   INTEREST
 }
+
+"""
+Transaction memo type, matching the XDR MemoType names.
+"""
+enum MemoType {
+  """The transaction has no memo."""
+  NONE
+  """A UTF-8 text memo of at most 28 bytes."""
+  TEXT
+  """An unsigned 64-bit integer memo."""
+  ID
+  """A 32-byte hash memo."""
+  HASH
+  """A 32-byte hash of a transaction this transaction refunds or returns."""
+  RETURN
+}
 `, BuiltIn: false},
 	{Name: "../schema/filters.graphqls", Input: `"""Filters for an account's state changes; all conditions are ANDed."""
 input AccountStateChangeFilterInput {
@@ -4926,6 +4962,22 @@ input AccountStateChangeFilterInput {
 
   """Only state changes with this reason."""
   reason: StateChangeReason
+}
+
+"""
+Exact-match filter on a transaction's memo. NONE is not a valid filter type.
+
+` + "`" + `value` + "`" + ` encodings: TEXT is the memo text (at most 28 bytes), ID is a decimal
+unsigned 64-bit integer, HASH and RETURN are 64 hex characters.
+
+An account with a long history and few matching memos walks its whole history
+within the time range, so set ` + "`" + `since` + "`" + `/` + "`" + `until` + "`" + ` to bound it.
+"""
+input MemoFilter {
+  """Memo type to match. Must not be NONE."""
+  type: MemoType!
+  """Memo value to match, encoded as described on MemoFilter."""
+  value: String!
 }
 `, BuiltIn: false},
 	{Name: "../schema/operation.graphqls", Input: `"""One operation within a Stellar transaction."""
@@ -6026,6 +6078,10 @@ type Transaction {
   ledgerCreatedAt: Time!
   """Whether this transaction is a fee-bump transaction."""
   isFeeBump:       Boolean!
+  """Memo type. Null while the memo backfill has not reached this transaction yet; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo."""
+  memoType:        MemoType @goField(forceResolver: true)
+  """Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while not yet backfilled."""
+  memo:            String @goField(forceResolver: true)
   """When the indexer persisted this transaction."""
   ingestedAt:      Time!
 
@@ -6206,26 +6262,31 @@ func (ec *executionContext) field_Account_transactions_args(ctx context.Context,
 		return nil, err
 	}
 	args["until"] = arg1
-	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "memo", ec.unmarshalOMemoFilter2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoFilter)
 	if err != nil {
 		return nil, err
 	}
-	args["first"] = arg2
-	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
+	args["memo"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "first", ec.unmarshalOInt2ᚖint32)
 	if err != nil {
 		return nil, err
 	}
-	args["after"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
+	args["first"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "after", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["last"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	args["after"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "last", ec.unmarshalOInt2ᚖint32)
 	if err != nil {
 		return nil, err
 	}
-	args["before"] = arg5
+	args["last"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "before", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg6
 	return args, nil
 }
 
@@ -6524,7 +6585,7 @@ func (ec *executionContext) _Account_transactions(ctx context.Context, field gra
 		ec.fieldContext_Account_transactions,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Account().Transactions(ctx, obj, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
+			return ec.Resolvers.Account().Transactions(ctx, obj, fc.Args["since"].(*time.Time), fc.Args["until"].(*time.Time), fc.Args["memo"].(*MemoFilter), fc.Args["first"].(*int32), fc.Args["after"].(*string), fc.Args["last"].(*int32), fc.Args["before"].(*string))
 		},
 		nil,
 		ec.marshalNAccountTransactionConnection2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐAccountTransactionConnection,
@@ -7022,6 +7083,10 @@ func (ec *executionContext) fieldContext_AccountCreatedChange_transaction(_ cont
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -7345,6 +7410,10 @@ func (ec *executionContext) fieldContext_AccountFlagsChange_transaction(_ contex
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -7668,6 +7737,10 @@ func (ec *executionContext) fieldContext_AccountMergedChange_transaction(_ conte
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -7826,6 +7899,10 @@ func (ec *executionContext) fieldContext_AccountTransactionEdge_node(_ context.C
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -8231,6 +8308,10 @@ func (ec *executionContext) fieldContext_AllowanceChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -8641,6 +8722,10 @@ func (ec *executionContext) fieldContext_BalanceAuthorizationChange_transaction(
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -9022,6 +9107,10 @@ func (ec *executionContext) fieldContext_BalanceChange_transaction(_ context.Con
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -9953,6 +10042,10 @@ func (ec *executionContext) fieldContext_BlendAuctionChange_transaction(_ contex
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -10433,6 +10526,10 @@ func (ec *executionContext) fieldContext_BlendBackstopChange_transaction(_ conte
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -10843,6 +10940,10 @@ func (ec *executionContext) fieldContext_BlendBackstopEmissionsClaimChange_trans
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -11437,6 +11538,10 @@ func (ec *executionContext) fieldContext_BlendBackstopQueueChange_transaction(_ 
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -11789,6 +11894,10 @@ func (ec *executionContext) fieldContext_BlendCollateralChange_transaction(_ con
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -12170,6 +12279,10 @@ func (ec *executionContext) fieldContext_BlendDebtChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -12551,6 +12664,10 @@ func (ec *executionContext) fieldContext_BlendEmissionsClaimChange_transaction(_
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -14968,6 +15085,10 @@ func (ec *executionContext) fieldContext_BlendSupplyChange_transaction(_ context
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -15349,6 +15470,10 @@ func (ec *executionContext) fieldContext_DataEntryAddedChange_transaction(_ cont
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -15701,6 +15826,10 @@ func (ec *executionContext) fieldContext_DataEntryRemovedChange_transaction(_ co
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -16053,6 +16182,10 @@ func (ec *executionContext) fieldContext_DataEntryUpdatedChange_transaction(_ co
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -16434,6 +16567,10 @@ func (ec *executionContext) fieldContext_HomeDomainClearedChange_transaction(_ c
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -16757,6 +16894,10 @@ func (ec *executionContext) fieldContext_HomeDomainSetChange_transaction(_ conte
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -17080,6 +17221,10 @@ func (ec *executionContext) fieldContext_HomeDomainUpdatedChange_transaction(_ c
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -17862,6 +18007,10 @@ func (ec *executionContext) fieldContext_Operation_transaction(_ context.Context
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -18278,6 +18427,10 @@ func (ec *executionContext) fieldContext_Query_transactionByHash(ctx context.Con
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -19688,6 +19841,10 @@ func (ec *executionContext) fieldContext_SignerAddedChange_transaction(_ context
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -20040,6 +20197,10 @@ func (ec *executionContext) fieldContext_SignerRemovedChange_transaction(_ conte
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -20392,6 +20553,10 @@ func (ec *executionContext) fieldContext_SignerUpdatedChange_transaction(_ conte
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -20905,6 +21070,10 @@ func (ec *executionContext) fieldContext_ThresholdChange_transaction(_ context.C
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -21176,6 +21345,64 @@ func (ec *executionContext) fieldContext_Transaction_isFeeBump(_ context.Context
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Transaction_memoType(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Transaction_memoType,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Transaction().MemoType(ctx, obj)
+		},
+		nil,
+		ec.marshalOMemoType2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Transaction_memoType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Transaction",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type MemoType does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Transaction_memo(ctx context.Context, field graphql.CollectedField, obj *types.Transaction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Transaction_memo,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Transaction().Memo(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Transaction_memo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Transaction",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -21628,6 +21855,10 @@ func (ec *executionContext) fieldContext_TrustlineAddedChange_transaction(_ cont
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -22357,6 +22588,10 @@ func (ec *executionContext) fieldContext_TrustlineRemovedChange_transaction(_ co
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -22709,6 +22944,10 @@ func (ec *executionContext) fieldContext_TrustlineUpdatedChange_transaction(_ co
 				return ec.fieldContext_Transaction_ledgerCreatedAt(ctx, field)
 			case "isFeeBump":
 				return ec.fieldContext_Transaction_isFeeBump(ctx, field)
+			case "memoType":
+				return ec.fieldContext_Transaction_memoType(ctx, field)
+			case "memo":
+				return ec.fieldContext_Transaction_memo(ctx, field)
 			case "ingestedAt":
 				return ec.fieldContext_Transaction_ingestedAt(ctx, field)
 			case "operations":
@@ -24332,6 +24571,43 @@ func (ec *executionContext) unmarshalInputAccountStateChangeFilterInput(ctx cont
 				return it, err
 			}
 			it.Reason = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputMemoFilter(ctx context.Context, obj any) (MemoFilter, error) {
+	var it MemoFilter
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"type", "value"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "type":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("type"))
+			data, err := ec.unmarshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Type = data
+		case "value":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("value"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Value = data
 		}
 	}
 	return it, nil
@@ -34488,6 +34764,72 @@ func (ec *executionContext) _Transaction(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "memoType":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_memoType(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "memo":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Transaction_memo(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "ingestedAt":
 			out.Values[i] = ec._Transaction_ingestedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -36616,6 +36958,16 @@ func (ec *executionContext) marshalNLiquidityPoolReserve2ᚖgithubᚗcomᚋstell
 	return ec._LiquidityPoolReserve(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, v any) (MemoType, error) {
+	var res MemoType
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNMemoType2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, sel ast.SelectionSet, v MemoType) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) marshalNOperation2githubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx context.Context, sel ast.SelectionSet, v types.Operation) graphql.Marshaler {
 	return ec._Operation(ctx, sel, &v)
 }
@@ -37219,6 +37571,30 @@ func (ec *executionContext) marshalOInt642ᚖint64(ctx context.Context, sel ast.
 	_ = ctx
 	res := graphql.MarshalInt64(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOMemoFilter2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoFilter(ctx context.Context, v any) (*MemoFilter, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputMemoFilter(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOMemoType2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, v any) (*MemoType, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(MemoType)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOMemoType2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋserveᚋgraphqlᚋgeneratedᚐMemoType(ctx context.Context, sel ast.SelectionSet, v *MemoType) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOOperation2ᚖgithubᚗcomᚋstellarᚋwalletᚑbackendᚋinternalᚋindexerᚋtypesᚐOperation(ctx context.Context, sel ast.SelectionSet, v *types.Operation) graphql.Marshaler {

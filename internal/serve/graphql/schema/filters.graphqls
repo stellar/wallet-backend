@@ -12,3 +12,19 @@ input AccountStateChangeFilterInput {
   """Only state changes with this reason."""
   reason: StateChangeReason
 }
+
+"""
+Exact-match filter on a transaction's memo. NONE is not a valid filter type.
+
+`value` encodings: TEXT is the memo text (at most 28 bytes), ID is a decimal
+unsigned 64-bit integer, HASH and RETURN are 64 hex characters.
+
+An account with a long history and few matching memos walks its whole history
+within the time range, so set `since`/`until` to bound it.
+"""
+input MemoFilter {
+  """Memo type to match. Must not be NONE."""
+  type: MemoType!
+  """Memo value to match, encoded as described on MemoFilter."""
+  value: String!
+}
