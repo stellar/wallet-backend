@@ -64,35 +64,18 @@ func (s *transactionSimulationService) ledgerTransactionFromClassic(envelope xdr
 		keys = append(keys, opKeys...)
 	}
 	// A claim's credited asset lives inside the claimable-balance entry, so the
-	// claimant's trustline key is only knowable after the first fetch. Both
-	// rounds must observe the same ledger, or the working state would combine
-	// entries that never coexisted; when a ledger closes in between, refetch.
-	var working map[string]xdr.LedgerEntry
-	var latestLedger uint32
-	for attempt := 0; ; attempt++ {
-		var err error
-		working, latestLedger, err = s.fetchLedgerEntries(keys)
+	// claimant's trustline key is only knowable after the first fetch. A
+	// claimable balance never changes once created, so the asset read from the
+	// first fetch cannot go stale; refetching the full footprint in one call
+	// keeps the working state on a single ledger.
+	working, latestLedger, err := s.fetchLedgerEntries(keys)
+	if err != nil {
+		return ingest.LedgerTransaction{}, 0, err
+	}
+	if extraKeys := claimantTrustlineKeys(envelope, working); len(extraKeys) > 0 {
+		working, latestLedger, err = s.fetchLedgerEntries(append(keys, extraKeys...))
 		if err != nil {
 			return ingest.LedgerTransaction{}, 0, err
-		}
-		extraKeys := claimantTrustlineKeys(envelope, working)
-		if len(extraKeys) == 0 {
-			break
-		}
-		extra, extraLedger, err := s.fetchLedgerEntries(extraKeys)
-		if err != nil {
-			return ingest.LedgerTransaction{}, 0, err
-		}
-		if extraLedger == latestLedger {
-			for key, entry := range extra {
-				if _, dup := working[key]; !dup {
-					working[key] = entry
-				}
-			}
-			break
-		}
-		if attempt == 2 {
-			return ingest.LedgerTransaction{}, 0, fmt.Errorf("ledger kept advancing while fetching the footprint; retry the simulation")
 		}
 	}
 
