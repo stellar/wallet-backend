@@ -12,9 +12,9 @@ type Transaction {
   ledgerCreatedAt: Time!
   """Whether this transaction is a fee-bump transaction."""
   isFeeBump:       Boolean!
-  """Memo type. Null while the memo backfill has not reached this transaction yet; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo."""
+  """Memo type. Null on a transaction ingested before memos were stored, until the memo data migration reaches it; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo."""
   memoType:        MemoType @goField(forceResolver: true)
-  """Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while not yet backfilled."""
+  """Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while memoType is null."""
   memo:            String @goField(forceResolver: true)
   """When the indexer persisted this transaction."""
   ingestedAt:      Time!

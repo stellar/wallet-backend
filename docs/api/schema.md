@@ -1003,8 +1003,8 @@ A Stellar transaction.
 | `ledgerNumber` | [UInt32](#uint32)! | Sequence number of the ledger that included this transaction. |
 | `ledgerCreatedAt` | [Time](#time)! | Close time of the ledger that included this transaction. |
 | `isFeeBump` | `Boolean`! | Whether this transaction is a fee-bump transaction. |
-| `memoType` | [MemoType](#memotype) | Memo type. Null while the memo backfill has not reached this transaction yet; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo. |
-| `memo` | `String` | Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while not yet backfilled. |
+| `memoType` | [MemoType](#memotype) | Memo type. Null on a transaction ingested before memos were stored, until the memo data migration reaches it; NONE when the transaction has no memo. For a fee-bump transaction, the inner transaction's memo. |
+| `memo` | `String` | Memo value: TEXT as UTF-8 (invalid sequences replaced with U+FFFD), ID as a decimal string, HASH and RETURN as 64 hex characters. Null for NONE and while memoType is null. |
 | `ingestedAt` | [Time](#time)! | When the indexer persisted this transaction. |
 | `operations` | [OperationConnection](#operationconnection)! | Operations contained in this transaction, in application order. |
 | `accounts` | \[[Account](#account)!\]! | Accounts and contracts that participated in this transaction. Each one has this transaction in its `transactions` history. |

@@ -122,8 +122,8 @@ Parameter types:
 
 | Field | Type | Value |
 |---|---|---|
-| `MemoType` | `*types.MemoType` | `MemoTypeNone`, `MemoTypeText`, `MemoTypeID`, `MemoTypeHash`, or `MemoTypeReturn`. Nil while the server's memo backfill has not reached the transaction. |
-| `Memo` | `*string` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Nil for `MemoTypeNone` and while not yet backfilled. |
+| `MemoType` | `*types.MemoType` | `MemoTypeNone`, `MemoTypeText`, `MemoTypeID`, `MemoTypeHash`, or `MemoTypeReturn`. Nil on a transaction ingested before the server added memos, until the server's memo data migration reaches it. |
+| `Memo` | `*string` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Nil for `MemoTypeNone` and while `MemoType` is nil. |
 
 State-change nodes come back as `types.StateChangeNode`. Switch on the concrete type, such as `*types.BalanceChange`, to read type-specific fields.
 

@@ -454,8 +454,8 @@ Fields to know on `Transaction`:
 | `feeCharged` | `Int64`, in stroops |
 | `resultCode` | XDR result code name, for example `TransactionResultCodeTxSuccess` |
 | `isFeeBump` | Whether the transaction is a fee bump |
-| `memoType` | `MemoType` enum: `NONE`, `TEXT`, `ID`, `HASH`, or `RETURN`. Null while the memo backfill has not reached the row. For a fee bump, the inner transaction's memo. |
-| `memo` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Null for `NONE` and while not yet backfilled. |
+| `memoType` | `MemoType` enum: `NONE`, `TEXT`, `ID`, `HASH`, or `RETURN`. Null on a transaction ingested before the server added memos, until the server's memo data migration reaches it. For a fee bump, the inner transaction's memo. |
+| `memo` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Null for `NONE` and while `memoType` is null. |
 | `ledgerNumber`, `ledgerCreatedAt` | Ledger sequence and close time |
 | `ingestedAt` | When wallet-backend stored the row |
 | `accounts` | Every account and contract that took part |
@@ -588,7 +588,7 @@ For an account's full history in one call, select `operations` and `stateChanges
 | `ID` | A decimal unsigned 64-bit integer |
 | `HASH`, `RETURN` | 64 hex characters |
 
-`NONE` and a malformed value return `BAD_USER_INPUT`. Rows the memo backfill has not reached yet never match.
+`NONE` and a malformed value return `BAD_USER_INPUT`. A transaction whose `memoType` is null never matches.
 
 The filter does not use an index of its own. On an account with a long history and few matches, the query reads the whole history inside the time range to fill a page. Set `since` and `until` to bound it.
 

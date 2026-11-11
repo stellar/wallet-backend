@@ -2,7 +2,7 @@
 
 For a contributor adding support for a Soroban contract protocol, such as a token or lending interface. After following these steps the protocol's contracts are classified, their events become rows, and the rows can be served over GraphQL.
 
-SEP-41 is the reference implementation. Every code block below is trimmed from it. Replace `SEP41` and `sep41` with your protocol's ID and package name. Read [Protocols and data migrations](../architecture/protocols.md) first for how classification and processing fit together.
+SEP-41 is the reference implementation. Every code block below is trimmed from it. Replace `SEP41` and `sep41` with your protocol's ID and package name. Read [Protocols and protocol migrations](../architecture/protocols.md) first for how classification and processing fit together.
 
 ## Steps
 
@@ -275,7 +275,7 @@ SEP-41 is the reference implementation. Every code block below is trimmed from i
 
 9. **Backfill history for an existing deployment.**
 
-   Live ingestion produces the protocol's rows only after its migration cursors exist. Ledgers already ingested need `protocol-setup` and both `protocol-migrate` runs. Follow [Protocol data migrations](../deploy/protocols.md).
+   Live ingestion produces the protocol's rows only after its migration cursors exist. Ledgers already ingested need `protocol-setup` and both `protocol-migrate` runs. Follow [Protocols](../deploy/protocols.md).
 
 ## Checklist
 

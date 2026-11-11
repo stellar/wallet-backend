@@ -124,7 +124,7 @@ Chunk skipping is on for these columns. It lets queries that filter on them skip
 | `memo_type` | `SMALLINT` | XDR `MemoType` discriminant: 0 none, 1 text, 2 id, 3 hash, 4 return |
 | `memo` | `BYTEA` | Raw value bytes: text as-is, id as 8-byte big-endian, hash and return as 32 bytes. `NULL` for none. |
 
-Both columns `NULL` means the memo backfill has not reached the row yet. See [memo backfill](database.md#memo-backfill).
+Both columns `NULL` means the `transactions-memo` data migration has not reached the row yet. See [data migrations](database.md#data-migrations).
 
 Each migration drops the single-column `ledger_created_at` index TimescaleDB creates by default. No query filters these tables by `ledger_created_at` alone.
 
@@ -179,13 +179,13 @@ SEP-41 history goes into `state_changes`, written by `protocol-migrate history` 
 | `oldest_ingest_ledger` | Lowest ledger the history tables cover | Checkpoint bootstrap, backfill, `reconcile_oldest_cursor` job |
 | `protocol_<ID>_history_cursor` | Last ledger with protocol history written | `protocol-migrate history`, live ingester |
 | `protocol_<ID>_current_state_cursor` | Last ledger with protocol current state written | `protocol-migrate current-state`, live ingester |
-| `memo_backfill_cursor` | Lowest ledger whose `transactions` rows carry a memo. `0` until the first live start after the memo migration | Migration, checkpoint bootstrap, live ingester |
 
 Other bookkeeping objects:
 
 | Object | Kind | Created by | Role |
 | --- | --- | --- | --- |
 | `gorp_migrations` | Table | `migrate up` (sql-migrate) | One row per applied migration file |
+| `data_migrations` | Table | Migration | One row per data migration, keyed on `name`: status, boundary ledger, cursor, and last error. The live ingester inserts the row; `data-migrate run` advances it. See [database](database.md#data-migrations) |
 | `refresh_updated_at_column` | Function | Migration | Trigger function that sets `updated_at` |
 | `contract_tokens_set_updated_at` | Trigger | Migration | Runs `refresh_updated_at_column` on every `contract_tokens` update |
 | `reconcile_oldest_cursor` | Function and TimescaleDB job | Live ingester, only when `RETENTION_PERIOD` is set | Raises `oldest_ingest_ledger` after retention drops chunks |
@@ -320,3 +320,4 @@ Eight recompression sessions ran for 10 minutes under inserts, lookups and chunk
 | `internal/data/protocols.go`, `protocol_wasms.go`, `protocol_contracts.go` | Protocol table reads and writes |
 | `internal/data/sep41/` | `sep41_balances` and `sep41_allowances` |
 | `internal/data/ingest_store.go` | Cursor reads and writes |
+| `internal/data/data_migrations.go` | `data_migrations` reads and writes |

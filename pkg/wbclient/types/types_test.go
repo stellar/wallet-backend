@@ -327,7 +327,7 @@ func Test_TransactionEdge_UnmarshalJSON(t *testing.T) {
 			wantMemoType *MemoType
 			wantMemo     *string
 		}{
-			{"not backfilled", `"memoType": null, "memo": null`, nil, nil},
+			{"not migrated", `"memoType": null, "memo": null`, nil, nil},
 			{"no memo", `"memoType": "NONE", "memo": null`, ptr(MemoTypeNone), nil},
 			{"text memo", `"memoType": "TEXT", "memo": "hello"`, ptr(MemoTypeText), ptr("hello")},
 			{"id memo", `"memoType": "ID", "memo": "18446744073709551615"`, ptr(MemoTypeID), ptr("18446744073709551615")},
