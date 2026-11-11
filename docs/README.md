@@ -22,6 +22,7 @@ For operators, in order on a fresh install. The [deploy guide](deploy/README.md)
 | [4. Serve](deploy/serve.md) | Start the API, turn on authentication |
 | [5. Backfill](deploy/backfill.md) | Optional. Load older history |
 | [Upgrading](deploy/upgrading.md) | Move between releases |
+| [Data migrations](deploy/data-migrations.md) | Rewrite history rows after a release that changes them |
 | [Runbook](deploy/runbook.md) | Size hardware, set alerts, handle failures |
 | [Hiding tokens](deploy/hiding-tokens.md) | Stop the API from returning a token contract |
 | [Observability](deploy/observability.md) | Metrics, health endpoints, logs |
@@ -48,7 +49,7 @@ How it works, for anyone debugging or changing it.
 | [Ingestion](architecture/ingestion.md) | Live pipeline, backfill, ledger sources, cursors |
 | [Token and balance tracking](architecture/token-tracking.md) | What balances exist and how they stay current |
 | [State changes](architecture/state-changes.md) | Categories, reasons, processors |
-| [Protocols](architecture/protocols.md) | Classification, processing, data migrations |
+| [Protocols](architecture/protocols.md) | Classification, processing, protocol migrations |
 | [GraphQL serving](architecture/graphql-serving.md) | Request path, limits, dataloaders |
 | [Database](architecture/database.md) | Hypertables, policies, connections |
 | [Data model](architecture/data-model.md) | Tables, keys, indexes, cursors |
@@ -58,5 +59,6 @@ How it works, for anyone debugging or changing it.
 | Page | You will |
 | --- | --- |
 | [Adding a protocol](contributing/adding-a-protocol.md) | Implement a new contract protocol |
+| [Adding a data migration](contributing/adding-a-data-migration.md) | Rewrite history rows an earlier release wrote |
 | [Integration tests](contributing/integration-tests.md) | Run the end-to-end suite |
 | [Releasing](contributing/releasing.md) | Cut, soak and promote a release (maintainers) |

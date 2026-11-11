@@ -16,6 +16,7 @@ For operators and developers who run `wallet-backend`. Lists every flag and envi
 - [migrate](#migrate)
 - [protocol-setup](#protocol-setup)
 - [protocol-migrate](#protocol-migrate)
+- [data-migrate](#data-migrate)
 - [version](#version)
 - [Validation rules](#validation-rules)
 - [Network presets](#network-presets)
@@ -180,6 +181,21 @@ Builds protocol data from ledgers. `protocol-migrate history` fills protocol his
 | `--rebuild` | no env var | `false` | no | Delete the protocol's rows and rebuild them. Destructive: queries return partial data until the rebuild reaches the live tip |
 | `--start-ledger` | no env var | `0` | yes, `current-state` only | First ledger for `current-state`. `history` does not take it |
 
+## data-migrate
+
+Rewrites history rows ingested before a release changed them. See [data migrations](data-migrations.md).
+
+`data-migrate run <name>` takes `--database-url`, `--log-level`, and `--network-passphrase` from the shared options, and every `--datastore-*` option from [Ledger source](#ledger-source) with the same env vars and defaults. It takes exactly one migration name.
+
+| Flag | Env var | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `--rpc-url` | `RPC_URL` | (none) | when `rpc` | Stellar RPC URL |
+| `--ledger-backend-type` | `LEDGER_BACKEND_TYPE` | `rpc` | no | `rpc` or `datastore`. Use `datastore` for history older than the RPC retention window |
+| `--get-ledgers-limit` | `GET_LEDGERS_LIMIT` | `10` | no | Ledgers per RPC request. Ignored for `datastore` |
+| `--metrics-port` | no env var | `0` | no | Port for Prometheus `/metrics`. `0` disables it |
+
+`data-migrate status` takes only `--database-url`.
+
 ## version
 
 Prints the version, build commit, and Go version. Takes no options.
@@ -206,6 +222,8 @@ Each command checks these at startup and exits with the quoted error.
 - **Datastore without bucket in protocol-migrate.** `protocol-migrate` fails with `--datastore-bucket-path is required when --ledger-backend-type=datastore`.
 - **Unknown backend in protocol-migrate.** `protocol-migrate` fails with `invalid --ledger-backend-type "<value>", must be 'rpc' or 'datastore'`.
 - **Missing start ledger.** `protocol-migrate current-state` fails with `--start-ledger is required and must be > 0`.
+- **Backend checks in data-migrate.** `data-migrate run` fails with the same three backend errors as `protocol-migrate`: `--rpc-url is required when --ledger-backend-type=rpc`, `--datastore-bucket-path is required when --ledger-backend-type=datastore`, and `invalid --ledger-backend-type "<value>", must be 'rpc' or 'datastore'`.
+- **Unknown data migration.** `data-migrate run` fails with `unknown data migration "<name>", known: <names>`.
 - **Bad duration.** The `--db-max-conn-*` and `--datastore-retry-wait` options fail with `<name> cannot be empty` or `couldn't parse duration in <name>: <cause>`.
 - **Bad log level.** `--log-level` fails with `couldn't parse log level in log-level: <cause>`.
 - **Bad auth key.** `serve` rejects an invalid Stellar address in `--client-auth-public-keys` with `validating public key "<key>" in client-auth-public-keys: <cause>`.
@@ -231,6 +249,7 @@ Each command checks these at startup and exits with the quoted error.
 | `cmd/migrate.go` | `migrate up` and `migrate down` |
 | `cmd/protocol_setup.go` | `protocol-setup` options and the protocol ID check |
 | `cmd/protocol_migrate.go` | `protocol-migrate` options and backend checks |
+| `cmd/data_migrate.go` | `data-migrate` options and backend checks |
 | `cmd/version.go` | `version` output |
 | `cmd/utils/custom_set_value.go` | Parsing for log level, durations, and auth keys |
 | `internal/ingest/timescaledb.go` | How live ingest applies the TimescaleDB policy options |

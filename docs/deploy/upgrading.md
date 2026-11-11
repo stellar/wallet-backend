@@ -57,7 +57,7 @@ Releases follow semantic versioning from v1.0.0.
 
    `version` prints `wallet-backend <VERSION> (commit <SHA>, <GO_VERSION>)`. A promoted image reports the release candidate it was built as, for example `v1.2.0-rc.2`. Every service also logs `wallet-backend <VERSION> (commit <SHA>)` at startup. Both `/health` calls return `"status":"ok"` once ingest is within 50 ledgers of the RPC.
 
-If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](protocols.md).
+If the release adds a protocol, run its protocol migrations after step 5. See [protocols](protocols.md). If the release ships a data migration, run it after step 5. See [data migrations](data-migrations.md).
 
 ## Filling `transaction_hashes` for history ingested before it existed
 
@@ -143,35 +143,17 @@ Changes that affect the upgrade itself, newest first.
 
 ### Transaction memos
 
-The release adds `Transaction.memoType` and `Transaction.memo` to the API. Follow the normal [procedure](#procedure). No extra step is needed.
+The release adds `Transaction.memoType` and `Transaction.memo` to the API and ships the `transactions-memo` [data migration](data-migrations.md). Follow the normal [procedure](#procedure), then run the data migration.
 
 | Stage | What happens |
 | --- | --- |
-| `migrate up` | Adds nullable `memo_type` and `memo` columns to `transactions` and a `memo_backfill_cursor` row to `ingest_store`. The column change is metadata-only, so it is fast on any history size. |
-| First `ingest` start | Live ingestion writes memos from its resume ledger onward. A background memo backfill starts beside it and fills older rows newest-first in 10,000-ledger slices, down to `oldest_ingest_ledger`. |
-| Later restarts | The backfill resumes from its saved cursor. It stops for good once it reaches the oldest ingested ledger. |
+| `migrate up` | Adds nullable `memo_type` and `memo` columns to `transactions` and creates the `data_migrations` table. The column change is metadata-only, so it is fast on any history size |
+| First `ingest` start | Live ingestion writes memos from its resume ledger onward. The ingester records `transactions-memo` as `pending`, with that ledger as its boundary |
+| `data-migrate run transactions-memo` | Rewrites older rows newest-first, down to `oldest_ingest_ledger`. Run it as a one-off process after the ingester has started. See [data migrations](data-migrations.md#order-of-operations) |
 
-Until the backfill reaches a transaction, its `memoType` and `memo` are `null`, and a memo filter does not match it. After the backfill, `memoType` is `NONE` for a transaction without a memo.
+Until the data migration reaches a transaction, its `memoType` and `memo` are `null`, and a memo filter does not match it. After it, `memoType` is `NONE` for a transaction without a memo.
 
-The backfill re-reads ledgers through the ingester's ledger backend. If your retained history is older than the RPC retention window, run `ingest` with `--ledger-backend-type=datastore` and `DATASTORE_BUCKET_PATH` set. See [ingest](ingest.md). Otherwise the backfill retries the failing slice every 30 seconds without end, and live ingestion is not affected.
-
-Watch progress with these metrics, described in [observability](observability.md):
-
-| Metric | Meaning |
-| --- | --- |
-| `wallet_ingestion_memo_backfill_cursor` | Lowest ledger whose rows carry a memo. It falls toward `wallet_ingestion_oldest_ledger`, and the backfill is done when the cursor is at or below it. |
-| `wallet_ingestion_memo_backfill_errors_total` | Failed slices. Each is retried. A steady rise usually means the backend cannot serve that history. |
-
-The ingester logs these lines:
-
-```text
-memo backfill: filling ledgers [<OLDEST>, <START>] newest-first, <N> compressed chunks to recompress
-memo backfill: ledgers [<LO>, <HI>] done, <ROWS> rows in <DURATION>
-memo backfill: complete down to ledger <OLDEST>
-memo backfill: <ERROR>; retrying in 30s (history older than the RPC retention window needs --ledger-backend-type=datastore)
-```
-
-The backfill decompresses and recompresses `transactions` chunks as it passes them, so expect extra disk I/O and some temporary extra disk use while it runs.
+If your retained history is older than the RPC retention window, run the data migration with `LEDGER_BACKEND_TYPE=datastore` and `DATASTORE_BUCKET_PATH` set. Otherwise it refuses to start.
 
 ## Rolling back
 
@@ -188,4 +170,4 @@ Lower the risk by running a new release against a copy of your data, or in a non
 | `cmd/root.go` | Startup version log line |
 | `internal/ingest/ingest.go` | Clean shutdown on SIGTERM |
 | `internal/db/migrations/` | Migration files, applied in name order |
-| `internal/services/memo_backfill.go` | Memo backfill run by the live ingester |
+| `cmd/data_migrate.go` | `data-migrate run` and `data-migrate status` |

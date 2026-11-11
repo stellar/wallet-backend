@@ -132,7 +132,7 @@ func TestGetAccountTransactions(t *testing.T) {
 		assert.Equal(t, types.MemoTypeNone, *conn.Edges[1].Node.MemoType)
 		assert.Nil(t, conn.Edges[1].Node.Memo)
 
-		assert.Nil(t, conn.Edges[2].Node.MemoType, "a not-yet-backfilled transaction has a nil memoType")
+		assert.Nil(t, conn.Edges[2].Node.MemoType, "a not-yet-migrated transaction has a nil memoType")
 		assert.Nil(t, conn.Edges[2].Node.Memo)
 
 		assert.Contains(t, received.Query, "memoType")

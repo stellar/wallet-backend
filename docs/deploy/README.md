@@ -15,6 +15,7 @@ For an operator running wallet-backend outside the [Compose quickstart](../getti
 | Page | Use it to |
 | --- | --- |
 | [Upgrading](upgrading.md) | Move between releases, including releases that add a protocol |
+| [Data migrations](data-migrations.md) | Rewrite history rows after a release that changes them |
 | [Runbook](runbook.md) | Size hardware, set alerts, handle failures |
 | [Hiding tokens](hiding-tokens.md) | Stop the API from returning a token contract |
 | [Observability](observability.md) | Look up a metric, the health endpoints, the logs |

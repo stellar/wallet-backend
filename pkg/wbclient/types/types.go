@@ -307,11 +307,11 @@ type GraphQLTransaction struct {
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt"`
 	IsFeeBump       bool      `json:"isFeeBump"`
 	IngestedAt      time.Time `json:"ingestedAt"`
-	// MemoType is nil while the server's memo backfill has not reached this
+	// MemoType is nil while the server's memo data migration has not reached this
 	// transaction yet, and MemoTypeNone when the transaction has no memo.
 	MemoType *MemoType `json:"memoType"`
 	// Memo is the memo value: TEXT as UTF-8, ID as a decimal string, HASH and
-	// RETURN as 64 hex characters. It is nil for MemoTypeNone and while not backfilled.
+	// RETURN as 64 hex characters. It is nil for MemoTypeNone and while MemoType is nil.
 	Memo *string `json:"memo"`
 }
 
