@@ -316,6 +316,34 @@ func TestSnapshotOnce_NonePriceSkipped(t *testing.T) {
 	assert.Equal(t, 0.0, testutil.ToFloat64(bpm.PricesTracked))
 }
 
+// TestSnapshotOnce_DecimalsAboveCapRejected covers an oracle whose
+// decimals() is above MaxDecimals: no lastprice call is made and no row is
+// written.
+func TestSnapshotOnce_DecimalsAboveCapRejected(t *testing.T) {
+	ctx, pool, oraclePrices, cleanup := newPriceSnapshotFixture(t)
+	defer cleanup()
+
+	oracle := randomContractAddr(t)
+	poolA := randomContractAddr(t)
+	asset := randomContractAddr(t)
+	insertBlendPool(t, ctx, pool, poolA, oracle)
+	insertBlendReserve(t, ctx, pool, poolA, asset, 0)
+
+	meta := services.NewContractMetadataServiceMock(t)
+	meta.On("FetchSingleField", mock.Anything, oracle, "decimals", []xdr.ScVal(nil)).
+		Return(u32ScVal(MaxDecimals+1), nil).Once()
+
+	bpm := metrics.NewMetrics(prometheus.NewRegistry()).BlendPrices
+	svc := newTestSnapshotService(t, oraclePrices, meta, "", nil, bpm)
+
+	err := svc.SnapshotOnce(ctx)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "exceeds cap")
+
+	assert.Equal(t, 0, countOraclePriceRows(t, ctx, pool))
+	assert.Equal(t, 1.0, testutil.ToFloat64(bpm.FetchesTotal.WithLabelValues("error")))
+}
+
 // TestSnapshotOnce_StalePriceSkipped covers the staleness guard: a price
 // whose oracle-reported timestamp is older than MaxPriceAge is not persisted
 // (the pool contract would reject it anyway), counted as a "stale" fetch

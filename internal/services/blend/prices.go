@@ -235,6 +235,10 @@ func (s *PriceSnapshotService) snapshotOracle(ctx context.Context, oracle string
 		s.metrics.FetchesTotal.WithLabelValues("error").Inc()
 		return nil, 0, fmt.Errorf("decimals: expected u32, got %v", decimalsVal.Type)
 	}
+	if decimals > MaxDecimals {
+		s.metrics.FetchesTotal.WithLabelValues("error").Inc()
+		return nil, 0, fmt.Errorf("decimals %d exceeds cap of %d", decimals, MaxDecimals)
+	}
 
 	rows := make([]blenddata.OraclePrice, 0, len(targets))
 	var errs []error
