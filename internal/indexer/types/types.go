@@ -567,7 +567,7 @@ type Transaction struct {
 	IsFeeBump       bool      `json:"isFeeBump,omitempty" db:"is_fee_bump"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
 	// MemoType is the XDR MemoType discriminant and Memo the raw memo value bytes (see
-	// utils.EncodeMemo). Both nil on a row the memo backfill has not reached yet.
+	// utils.EncodeMemo). Both nil on a row the transactions-memo data migration has not reached yet.
 	MemoType *int16 `json:"memoType,omitempty" db:"memo_type"`
 	Memo     []byte `json:"memo,omitempty" db:"memo"`
 	// Relationships:
