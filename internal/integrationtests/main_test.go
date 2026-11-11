@@ -86,10 +86,10 @@ func TestIntegrationTests(t *testing.T) {
 		})
 	})
 
-	// Clear every stored memo and restart ingest; the memo backfill must restore them.
+	// Clear every stored memo; `data-migrate run transactions-memo` must restore them.
 	// Runs after DataValidationTestSuite has checked the live-ingested memos.
-	t.Run("MemoBackfillTestSuite", func(t *testing.T) {
-		suite.Run(t, &MemoBackfillTestSuite{testEnv: testEnv})
+	t.Run("MemoMigrationTestSuite", func(t *testing.T) {
+		suite.Run(t, &MemoMigrationTestSuite{testEnv: testEnv})
 	})
 
 	// Phase 3: Validate balances after live ingestion processes fixture transactions
