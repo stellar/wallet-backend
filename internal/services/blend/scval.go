@@ -14,6 +14,8 @@ package blend
 import (
 	"fmt"
 	"math/big"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -96,14 +98,24 @@ func boolVal(v xdr.ScVal) (bool, bool) {
 	return v.GetB()
 }
 
+// maxStringLength is the longest contract-supplied string, in bytes, that
+// stringVal accepts.
+const maxStringLength = 128
+
 // stringVal decodes an ScVal holding a Soroban String (distinct from a
-// Symbol) into a Go string.
+// Symbol) into a Go string. The contract controls the bytes, so a string
+// that is too long or that a Postgres TEXT column cannot store (invalid
+// UTF-8 or a NUL byte) reports ok=false.
 func stringVal(v xdr.ScVal) (string, bool) {
 	s, ok := v.GetStr()
 	if !ok {
 		return "", false
 	}
-	return string(s), true
+	out := string(s)
+	if len(out) > maxStringLength || !utf8.ValidString(out) || strings.IndexByte(out, 0) >= 0 {
+		return "", false
+	}
+	return out, true
 }
 
 // vecVal decodes an ScVal holding a Vec into its element slice.

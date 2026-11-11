@@ -68,7 +68,7 @@ const (
 // PoolInstanceData is the decoded payload for KindPoolInstance: the pool's
 // instance-storage Config (a PoolConfig UDT) plus its Name, Admin, and
 // Backstop. Name is nil if the instance storage has no "Name" key or it isn't
-// a String; Admin and Backstop are nil if their key is missing or isn't an
+// a storable String (see stringVal); Admin and Backstop are nil if their key is missing or isn't an
 // Address.
 type PoolInstanceData struct {
 	Name          *string

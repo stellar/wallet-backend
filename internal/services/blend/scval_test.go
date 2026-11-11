@@ -3,6 +3,7 @@ package blend
 import (
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
@@ -143,6 +144,32 @@ func TestU32Val(t *testing.T) {
 		_, ok := u32Val(i128ScVal(1))
 		assert.False(t, ok)
 	})
+}
+
+func TestStringVal(t *testing.T) {
+	t.Run("decodes a string value", func(t *testing.T) {
+		s, ok := stringVal(stringScVal("Fixed Pool v2"))
+		require.True(t, ok)
+		assert.Equal(t, "Fixed Pool v2", s)
+	})
+
+	t.Run("accepts a string at the length cap", func(t *testing.T) {
+		s, ok := stringVal(stringScVal(strings.Repeat("a", maxStringLength)))
+		require.True(t, ok)
+		assert.Len(t, s, maxStringLength)
+	})
+
+	for name, in := range map[string]xdr.ScVal{
+		"a non-string value":           u32ScVal(1),
+		"a NUL byte":                   stringScVal("Fixed\x00Pool"),
+		"invalid UTF-8":                stringScVal("Fixed\xffPool"),
+		"a string over the length cap": stringScVal(strings.Repeat("a", maxStringLength+1)),
+	} {
+		t.Run("returns false for "+name, func(t *testing.T) {
+			_, ok := stringVal(in)
+			assert.False(t, ok)
+		})
+	}
 }
 
 // TestBuildSep40StellarAsset verification note ----------------------------
