@@ -419,7 +419,7 @@ func startMigrationMetricsServer(port int, reg *prometheus.Registry) *http.Serve
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.Infof("Starting protocol-migrate metrics server on port %d at /metrics", port)
+		log.Infof("Starting migration metrics server on port %d at /metrics", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("metrics server on %s stopped: %v", server.Addr, err)
 		}
