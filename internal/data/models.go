@@ -24,6 +24,7 @@ type Models struct {
 	Protocols            ProtocolsModelInterface
 	ProtocolContracts    ProtocolContractsModelInterface
 	IngestStore          *IngestStoreModel
+	DataMigrations       *DataMigrationModel
 	Operations           *OperationModel
 	Transactions         *TransactionModel
 	StateChanges         *StateChangeModel
@@ -50,6 +51,7 @@ func NewModels(pool *pgxpool.Pool, dbMetrics *metrics.DBMetrics) (*Models, error
 		Protocols:            &ProtocolsModel{DB: pool, Metrics: dbMetrics},
 		ProtocolContracts:    &ProtocolContractsModel{DB: pool, Metrics: dbMetrics},
 		IngestStore:          &IngestStoreModel{DB: pool, Metrics: dbMetrics},
+		DataMigrations:       &DataMigrationModel{DB: pool},
 		Operations:           &OperationModel{DB: pool, Metrics: dbMetrics},
 		Transactions:         &TransactionModel{DB: pool, Metrics: dbMetrics},
 		StateChanges:         &StateChangeModel{DB: pool, Metrics: dbMetrics},

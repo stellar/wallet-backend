@@ -21,9 +21,6 @@ import (
 const (
 	LatestLedgerCursorName = "latest_ingest_ledger"
 	OldestLedgerCursorName = "oldest_ingest_ledger"
-	// MemoBackfillCursorName is the lowest ledger whose transactions rows already carry a
-	// memo (see services.runMemoBackfill). Inserted at 0 by the memo migration.
-	MemoBackfillCursorName = "memo_backfill_cursor"
 )
 
 // ErrCASCursorMissing is returned by CompareAndSwap when the cursor row does

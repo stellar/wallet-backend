@@ -47,13 +47,6 @@ type IngestionMetrics struct {
 	// LagLedgers tracks how far behind ingestion is from the backend tip.
 	// PromQL: wallet_ingestion_lag_ledgers > 100
 	LagLedgers prometheus.Gauge
-	// MemoBackfillCursor is the lowest ledger whose transactions carry a memo; it
-	// walks down to wallet_ingestion_oldest_ledger while the memo backfill runs.
-	// PromQL: wallet_ingestion_memo_backfill_cursor - wallet_ingestion_oldest_ledger
-	MemoBackfillCursor prometheus.Gauge
-	// MemoBackfillErrorsTotal counts memo backfill slice failures (each is retried).
-	// PromQL: increase(wallet_ingestion_memo_backfill_errors_total[1h]) > 0
-	MemoBackfillErrorsTotal prometheus.Counter
 	// LedgerFetchDuration observes time to fetch a ledger from the backend, including retry
 	// overhead AND tip-wait: at the live tip, the backend blocks GetLedger until the next ledger
 	// closes, so this metric's steady-state floor tracks ledger close cadence (~5-6s) rather than
@@ -155,14 +148,6 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 			Name: "wallet_ingestion_lag_ledgers",
 			Help: "Ledger backend tip minus current ingestion position.",
 		}),
-		MemoBackfillCursor: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "wallet_ingestion_memo_backfill_cursor",
-			Help: "Lowest ledger whose transactions carry a memo; walks down to the oldest ingested ledger while the memo backfill runs.",
-		}),
-		MemoBackfillErrorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "wallet_ingestion_memo_backfill_errors_total",
-			Help: "Memo backfill slice failures; each is retried after a fixed wait.",
-		}),
 		LedgerFetchDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "wallet_ingestion_ledger_fetch_duration_seconds",
 			Help:    "Time to fetch a ledger from the backend, including retry overhead and tip-wait. At the live tip, this tracks ledger close cadence rather than pure fetch latency — that is the intended semantics.",
@@ -218,8 +203,6 @@ func newIngestionMetrics(reg prometheus.Registerer) *IngestionMetrics {
 		m.OperationsTotal,
 		m.ParticipantsCount,
 		m.LagLedgers,
-		m.MemoBackfillCursor,
-		m.MemoBackfillErrorsTotal,
 		m.LedgerFetchDuration,
 		m.RetriesTotal,
 		m.RetryExhaustionsTotal,
