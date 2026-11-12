@@ -1,6 +1,7 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -61,6 +62,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 
+	memoText := int16(1)
 	txCopy1 := types.Transaction{
 		Hash:            "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
 		ToID:            1,
@@ -69,7 +71,10 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
+		MemoType:        &memoText,
+		Memo:            []byte("hello"),
 	}
+	// txCopy2 leaves MemoType/Memo nil: the row must land with NULL memo columns.
 	txCopy2 := types.Transaction{
 		Hash:            "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763",
 		ToID:            2,
@@ -172,6 +177,21 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
 
+			// Memo columns round-trip, including NULLs for a transaction without one.
+			type memoRow struct {
+				ToID     int64  `db:"to_id"`
+				MemoType *int16 `db:"memo_type"`
+				Memo     []byte `db:"memo"`
+			}
+			memoRows, err := db.QueryMany[memoRow](ctx, dbConnectionPool, "SELECT to_id, memo_type, memo FROM transactions ORDER BY to_id")
+			require.NoError(t, err)
+			require.Len(t, memoRows, tc.wantCount)
+			for i, tx := range tc.txs {
+				assert.Equal(t, tx.ToID, memoRows[i].ToID)
+				assert.Equal(t, tx.MemoType, memoRows[i].MemoType)
+				assert.Equal(t, tx.Memo, memoRows[i].Memo)
+			}
+
 			// Verify account links if expected
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
 				type txAccountLink struct {
@@ -226,13 +246,18 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash4 := types.HashBytea("7076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash5 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	hashMemo := bytes.Repeat([]byte{0xab}, 32)
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump, memo_type, memo)
 		VALUES
-			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
-			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
-			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
-	`, accTestHash1, accTestHash2, accTestHash3, now)
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false, 1, 'order-1'::bytea),
+			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true, 0, NULL),
+			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false, 1, 'order-1'::bytea),
+			($5, 4, 400, 'TransactionResultCodeTxSuccess', 4, $4, false, 1, 'order-1'::bytea),
+			($6, 5, 500, 'TransactionResultCodeTxSuccess', 5, $4, false, 3, $7)
+	`, accTestHash1, accTestHash2, accTestHash3, now, accTestHash4, accTestHash5, hashMemo)
 	require.NoError(t, err)
 
 	// Create test transactions_accounts links (account_id is BYTEA)
@@ -241,17 +266,72 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 		VALUES
 			($3, 1, $1),
 			($3, 2, $1),
-			($3, 3, $2)
+			($3, 3, $2),
+			($3, 4, $1),
+			($3, 5, $1)
 	`, types.AddressBytea(address1), types.AddressBytea(address2), now)
 	require.NoError(t, err)
 
-	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil)
-	require.NoError(t, err)
-	assert.Len(t, transactions, 2)
+	t.Run("unfiltered", func(t *testing.T) {
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, transactions, 4)
+		assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+		assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
+		assert.Equal(t, int64(4), transactions[2].CompositeCursor.ID)
+		assert.Equal(t, int64(5), transactions[3].CompositeCursor.ID)
+	})
 
-	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
-	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
+	textMemo := &MemoFilter{Type: 1, Value: []byte("order-1")}
+
+	t.Run("memo_filter_fills_the_page_past_non_matching_rows", func(t *testing.T) {
+		// to_id 2 (no memo) sits between the two matches; a LIMIT applied before the memo
+		// predicate would return a one-row page here.
+		limit := int32(2)
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, nil, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 2)
+		assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+		assert.Equal(t, int64(4), transactions[1].CompositeCursor.ID)
+		assert.Equal(t, []byte("order-1"), transactions[1].Memo)
+	})
+
+	t.Run("memo_filter_paginates_from_cursor", func(t *testing.T) {
+		limit := int32(2)
+		cursor := &types.CompositeCursor{LedgerCreatedAt: now, ID: 1}
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, cursor, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(4), transactions[0].CompositeCursor.ID)
+	})
+
+	t.Run("memo_filter_descending_with_limit", func(t *testing.T) {
+		limit := int32(1)
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, nil, DESC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(4), transactions[0].CompositeCursor.ID)
+	})
+
+	t.Run("memo_filter_matches_type_and_bytes", func(t *testing.T) {
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, &MemoFilter{Type: 3, Value: hashMemo})
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(5), transactions[0].CompositeCursor.ID)
+
+		// Same bytes under another type match nothing.
+		transactions, err = m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, &MemoFilter{Type: 4, Value: hashMemo})
+		require.NoError(t, err)
+		assert.Empty(t, transactions)
+	})
+
+	t.Run("memo_filter_is_account_scoped", func(t *testing.T) {
+		// to_id 3 carries the memo but belongs to address2.
+		transactions, err := m.BatchGetByAccountAddress(ctx, address2, "", nil, nil, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(3), transactions[0].CompositeCursor.ID)
+	})
 }
 
 func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
@@ -579,7 +659,7 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("the account list hides a ledger past the cursor", func(t *testing.T) {
-		transactions, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil)
+		transactions, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil, nil)
 		require.NoError(t, qErr)
 		require.Len(t, transactions, 1)
 		assert.Equal(t, atCursor, transactions[0].ToID)

@@ -95,8 +95,8 @@ All methods take a `context.Context` first.
 | `GetTransactionByHash(ctx, hash, opts...)` | `*types.GraphQLTransaction` | `QueryOptions.TransactionFields` |
 | `GetAccountByAddress(ctx, address, opts...)` | `*types.Account` | `QueryOptions.AccountFields` |
 | `GetOperationByID(ctx, id, opts...)` | `*types.Operation` | `QueryOptions.OperationFields` |
-| `GetAccountTransactions(ctx, address, timeRange, page, opts...)` | `*types.TransactionConnection` | `*TimeRange`, `*Page`, `TransactionFields` |
-| `GetAccountTransactionsWithOpsAndStateChanges(ctx, address, timeRange, page)` | `*types.AccountTransactionConnection` | `*TimeRange`, `*Page`. Each edge carries the account's operations and state changes in that transaction. |
+| `GetAccountTransactions(ctx, address, memo, timeRange, page, opts...)` | `*types.TransactionConnection` | `*MemoFilter`, `*TimeRange`, `*Page`, `TransactionFields` |
+| `GetAccountTransactionsWithOpsAndStateChanges(ctx, address, memo, timeRange, page)` | `*types.AccountTransactionConnection` | `*MemoFilter`, `*TimeRange`, `*Page`. Each edge carries the account's operations and state changes in that transaction. |
 | `GetAccountOperations(ctx, address, timeRange, page, opts...)` | `*types.OperationConnection` | `*TimeRange`, `*Page`, `OperationFields` |
 | `GetAccountStateChanges(ctx, address, filter, timeRange, page)` | `*types.StateChangeConnection` | `*StateChangeFilter`, `*TimeRange`, `*Page` |
 | `GetTransactionOperations(ctx, hash, page, opts...)` | `*types.OperationConnection` | `*Page`, `OperationFields` |
@@ -105,7 +105,7 @@ All methods take a `context.Context` first.
 | `GetAccountBalances(ctx, address, page)` | `*types.BalanceConnection` | `*Page` |
 | `GetAllAccountBalances(ctx, address)` | `[]types.Balance` | Walks every page, 100 balances per request |
 
-A nil `*Page`, `*TimeRange`, or `*StateChangeFilter` sends no arguments for it. The server then returns its default page of 50, with no time bounds and no filter.
+A nil `*Page`, `*TimeRange`, `*MemoFilter`, or `*StateChangeFilter` sends no arguments for it. The server then returns its default page of 50, with no time bounds and no filter.
 
 The client has no method for `Account.sep41Allowances`. Query it over HTTP as shown in the [GraphQL API guide](graphql.md#balances).
 
@@ -116,6 +116,14 @@ Parameter types:
 | `wbclient.Page` | `First`, `After`, `Last`, `Before`, all pointers | Same as the server: `First` with `After`, or `Last` with `Before`. Values from 1 to 100. |
 | `wbclient.TimeRange` | `Since`, `Until`, `*time.Time` | Ledger close time, both inclusive. A nil bound is open. |
 | `wbclient.StateChangeFilter` | `TransactionHash`, `OperationID`, `Category`, `Reason` | Nil fields are skipped. Set fields must all match. |
+| `wbclient.MemoFilter` | `Type types.MemoType`, `Value string` | Exact match. `Value` uses the encoding of `GraphQLTransaction.Memo`. The server rejects `types.MemoTypeNone`. |
+
+`types.GraphQLTransaction` carries the memo in two fields:
+
+| Field | Type | Value |
+|---|---|---|
+| `MemoType` | `*types.MemoType` | `MemoTypeNone`, `MemoTypeText`, `MemoTypeID`, `MemoTypeHash`, or `MemoTypeReturn`. Nil on a transaction ingested before the server added memos, until the server's memo data migration reaches it. |
+| `Memo` | `*string` | `TEXT` as UTF-8, `ID` as a decimal string, `HASH` and `RETURN` as 64 hex characters. Nil for `MemoTypeNone` and while `MemoType` is nil. |
 
 State-change nodes come back as `types.StateChangeNode`. Switch on the concrete type, such as `*types.BalanceChange`, to read type-specific fields.
 
@@ -127,7 +135,7 @@ Forward through an account's transactions, oldest first:
 first := int32(100)
 var after *string
 for {
-    conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, &wbclient.Page{First: &first, After: after})
+    conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, &wbclient.Page{First: &first, After: after})
     if err != nil {
         return err
     }
@@ -173,6 +181,23 @@ for _, edge := range conn.Edges {
 }
 ```
 
+An account's transactions with memo ID 12345 in September 2026:
+
+```go
+since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+until := time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)
+memo := &wbclient.MemoFilter{Type: types.MemoTypeID, Value: "12345"}
+conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", memo, &wbclient.TimeRange{Since: &since, Until: &until}, nil)
+if err != nil {
+    return err
+}
+for _, edge := range conn.Edges {
+    fmt.Println(edge.Node.Hash, *edge.Node.Memo)
+}
+```
+
+On a long history with few matches, the server reads every transaction inside the time range to fill a page, so set a `TimeRange`.
+
 Every balance an account holds, across all pages:
 
 ```go
@@ -217,7 +242,7 @@ for _, b := range conn.Balances() {
 
 ```go
 opts := &wbclient.QueryOptions{TransactionFields: []string{"hash", "ledgerCreatedAt"}}
-conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, opts)
+conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, nil, opts)
 if err != nil {
     return err
 }
@@ -228,7 +253,7 @@ for _, edge := range conn.Edges {
 
 | Option | Default fields |
 |---|---|
-| `TransactionFields` | `hash`, `resultCode`, `feeCharged`, `ledgerNumber`, `ledgerCreatedAt`, `isFeeBump`, `ingestedAt` |
+| `TransactionFields` | `hash`, `resultCode`, `feeCharged`, `ledgerNumber`, `ledgerCreatedAt`, `isFeeBump`, `ingestedAt`, `memoType`, `memo` |
 | `OperationFields` | `id`, `type`, `operationXdr`, `resultCode`, `successful`, `ledgerNumber`, `ledgerCreatedAt`, `ingestedAt` |
 | `AccountFields` | `address` |
 
@@ -278,7 +303,7 @@ if errors.As(err, &gqlErrs) {
 | Path | Role |
 |---|---|
 | `pkg/wbclient/client.go` | `Client`, `NewClient`, every method, error handling |
-| `pkg/wbclient/options.go` | `Page`, `TimeRange`, `StateChangeFilter`, client-side pagination checks |
+| `pkg/wbclient/options.go` | `Page`, `TimeRange`, `StateChangeFilter`, `MemoFilter`, client-side pagination checks |
 | `pkg/wbclient/queries.go` | Query strings and default field sets |
 | `pkg/wbclient/types/types.go` | Result structs, balance types, connections |
 | `pkg/wbclient/types/statechange.go` | State-change node types and their decoding |

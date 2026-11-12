@@ -57,10 +57,24 @@ func (m *TransactionModel) GetByHash(ctx context.Context, hash string, columns s
 	return nil, nil
 }
 
+// MemoFilter selects transactions whose stored memo equals exactly (Type, Value); see
+// utils.EncodeMemo for the storage form.
+type MemoFilter struct {
+	Type  int16
+	Value []byte
+}
+
 // BatchGetByAccountAddress gets the transactions that are associated with a single account address.
 // Uses a MATERIALIZED CTE + LATERAL join pattern to allow TimescaleDB ChunkAppend optimization
 // on the transactions_accounts hypertable by ordering on ledger_created_at first.
-func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange) ([]*types.TransactionWithCursor, error) {
+//
+// With a memo filter the shape changes: the memo lives on transactions, which the CTE never
+// reads, so a LIMIT inside the CTE would under-fill pages. The CTE is then NOT MATERIALIZED and
+// unlimited, the memo predicates sit in the LATERAL probe, and the LIMIT moves to the outer
+// query, so the planner streams the account's history in order and stops at a full page. An
+// account with a long history and few matching memos walks the whole history inside the time
+// range; there is no memo index, and since/until is the bound.
+func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange, memo *MemoFilter) ([]*types.TransactionWithCursor, error) {
 	// ledger_created_at is always selected even when unrequested: it is the hypertable partition
 	// column, and the AccountTransactionEdge operations/stateChanges resolvers read it from the
 	// transaction node to pin the partition for chunk exclusion. Without it the node carries a zero
@@ -73,11 +87,15 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 
 	// MATERIALIZED CTE scans transactions_accounts with ledger_created_at leading the ORDER BY,
 	// enabling TimescaleDB ChunkAppend on the hypertable.
-	queryBuilder.WriteString(`
-		WITH account_txns AS MATERIALIZED (
+	materialization := "MATERIALIZED"
+	if memo != nil {
+		materialization = "NOT MATERIALIZED"
+	}
+	fmt.Fprintf(&queryBuilder, `
+		WITH account_txns AS %s (
 			SELECT tx_to_id, ledger_created_at
 			FROM transactions_accounts
-			WHERE account_id = $1`)
+			WHERE account_id = $1`, materialization)
 
 	// Hide rows above the committed cursor. Applied inside the CTE so the bound reaches
 	// the transactions_accounts scan, where it prunes chunks, rather than filtering after
@@ -107,9 +125,17 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 			ORDER BY ledger_created_at ASC, tx_to_id ASC`)
 	}
 
-	if limit != nil {
+	if limit != nil && memo == nil {
 		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
 		args = append(args, *limit)
+		argIndex++
+	}
+
+	memoPredicate := ""
+	if memo != nil {
+		memoPredicate = fmt.Sprintf(` AND t.memo_type = $%d AND t.memo = $%d`, argIndex, argIndex+1)
+		args = append(args, memo.Type, memo.Value)
+		argIndex += 2
 	}
 
 	// Close CTE and LATERAL join to fetch full transaction rows. The LIMIT 1 in the lateral
@@ -122,8 +148,8 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		)
 		SELECT %s, t.ledger_created_at as cursor_ledger_created_at, t.to_id as cursor_id
 		FROM account_txns ta
-		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at LIMIT 1) t ON true
-		WHERE t.to_id IS NOT NULL`, columns)
+		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at%s LIMIT 1) t ON true
+		WHERE t.to_id IS NOT NULL`, columns, memoPredicate)
 
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
@@ -131,6 +157,11 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 	} else {
 		queryBuilder.WriteString(`
 		ORDER BY t.ledger_created_at ASC, t.to_id ASC`)
+	}
+
+	if limit != nil && memo != nil {
+		fmt.Fprintf(&queryBuilder, ` LIMIT $%d`, argIndex)
+		args = append(args, *limit)
 	}
 
 	query := queryBuilder.String()
@@ -261,7 +292,7 @@ func (m *TransactionModel) BatchCopy(
 	copyCount, err := pgxTx.CopyFrom(
 		ctx,
 		pgx.Identifier{"transactions"},
-		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump"},
+		[]string{"hash", "to_id", "fee_charged", "result_code", "ledger_number", "ledger_created_at", "is_fee_bump", "memo_type", "memo"},
 		pgx.CopyFromSlice(len(txs), func(i int) ([]any, error) {
 			tx := txs[i]
 			hashBytes, err := tx.Hash.Value()
@@ -276,6 +307,8 @@ func (m *TransactionModel) BatchCopy(
 				pgtype.Int4{Int32: int32(tx.LedgerNumber), Valid: true},
 				pgtype.Timestamptz{Time: tx.LedgerCreatedAt, Valid: true},
 				pgtype.Bool{Bool: tx.IsFeeBump, Valid: true},
+				memoTypeValue(tx.MemoType),
+				tx.Memo,
 			}, nil
 		}),
 	)
@@ -304,6 +337,14 @@ func (m *TransactionModel) BatchCopy(
 	return len(txs), nil
 }
 
+// memoTypeValue renders the nullable memo_type column for COPY.
+func memoTypeValue(memoType *int16) pgtype.Int2 {
+	if memoType == nil {
+		return pgtype.Int2{}
+	}
+	return pgtype.Int2{Int16: *memoType, Valid: true}
+}
+
 // BatchCopyAccounts inserts the transactions_accounts links using pgx's binary
 // COPY protocol. txs supplies each transaction's ledger_created_at, the link
 // table's partition column; the two arguments come from the same buffer and
@@ -320,4 +361,63 @@ func (m *TransactionModel) BatchCopyAccounts(
 	return batchCopyAccounts(ctx, pgxTx, m.Metrics, "transactions_accounts", "tx_to_id", txs,
 		func(tx *types.Transaction) (int64, time.Time) { return tx.ToID, tx.LedgerCreatedAt },
 		stellarAddressesByToID)
+}
+
+// TransactionMemo is one row's memo for BatchUpdateMemo.
+type TransactionMemo struct {
+	ToID            int64
+	LedgerCreatedAt time.Time
+	MemoType        int16
+	Memo            []byte
+}
+
+// BatchUpdateMemo sets memo_type/memo on existing rows by to_id. The rows may live in
+// compressed chunks: TimescaleDB decompresses only the batches the UPDATE touches, and
+// the per-transaction decompression limit (100k tuples by default) is lifted on the
+// transaction because one call rewrites up to a thousand ledgers. The partition-column
+// bounds prune chunks whether compressed or not.
+func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, rows []TransactionMemo) (int64, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	toIDs := make([]int64, len(rows))
+	memoTypes := make([]int16, len(rows))
+	memos := make([][]byte, len(rows))
+	from, to := rows[0].LedgerCreatedAt, rows[0].LedgerCreatedAt
+	for i, r := range rows {
+		toIDs[i], memoTypes[i], memos[i] = r.ToID, r.MemoType, r.Memo
+		if r.LedgerCreatedAt.Before(from) {
+			from = r.LedgerCreatedAt
+		}
+		if r.LedgerCreatedAt.After(to) {
+			to = r.LedgerCreatedAt
+		}
+	}
+
+	const query = `
+		UPDATE transactions t SET memo_type = v.memo_type, memo = v.memo
+		FROM unnest($1::bigint[], $2::smallint[], $3::bytea[]) AS v(to_id, memo_type, memo)
+		WHERE t.to_id = v.to_id AND t.ledger_created_at BETWEEN $4 AND $5
+	`
+	start := time.Now()
+	var updated int64
+	err := func() error {
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
+			return fmt.Errorf("lifting the DML decompression limit: %w", execErr)
+		}
+		tag, execErr := dbTx.Exec(ctx, query, toIDs, memoTypes, memos, from, to)
+		if execErr != nil {
+			return fmt.Errorf("updating memos: %w", execErr)
+		}
+		updated = tag.RowsAffected()
+		return nil
+	}()
+	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateMemo", "transactions").Observe(time.Since(start).Seconds())
+	m.Metrics.BatchSize.WithLabelValues("BatchUpdateMemo", "transactions").Observe(float64(len(rows)))
+	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateMemo", "transactions").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchUpdateMemo", "transactions", utils.GetDBErrorType(err)).Inc()
+		return 0, err
+	}
+	return updated, nil
 }

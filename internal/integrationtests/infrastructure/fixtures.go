@@ -1246,6 +1246,8 @@ type UseCase struct {
 	RequestedTransaction  types.Transaction
 	SendTransactionResult entities.RPCSendTransactionResult
 	GetTransactionResult  entities.RPCGetTransactionResult
+	// Memo is attached to the transaction at submission; nil submits MEMO_NONE.
+	Memo txnbuild.Memo
 }
 
 func (u *UseCase) Name() string {
@@ -1341,6 +1343,7 @@ func (f *Fixtures) appendClassicUseCases(ctx context.Context, useCases []*UseCas
 	if err != nil {
 		return nil, err
 	}
+	useCase.Memo = txnbuild.MemoText(PaymentOpMemoText)
 	useCases = append(useCases, useCase)
 
 	// SponsoredAccountCreationOps
@@ -1352,6 +1355,7 @@ func (f *Fixtures) appendClassicUseCases(ctx context.Context, useCases []*UseCas
 	if err != nil {
 		return nil, err
 	}
+	useCase.Memo = txnbuild.MemoID(SponsoredAccountCreationOpsMemoID)
 	useCases = append(useCases, useCase)
 
 	// CustomAssetsOps

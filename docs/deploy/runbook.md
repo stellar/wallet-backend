@@ -76,7 +76,7 @@ Scrape `/ingest-metrics` on the ingest port (default 8002) and `/api-metrics` on
 |---|---|
 | `latest_ingest_ledger` | Last ledger committed by live ingest. Live mode resumes at this plus one. |
 | `oldest_ingest_ledger` | Oldest ledger present. Backfill moves it down; retention moves it up through the reconcile job. |
-| `protocol_<ID>_history_cursor`, `protocol_<ID>_current_state_cursor` | Progress of protocol data migrations. |
+| `protocol_<ID>_history_cursor`, `protocol_<ID>_current_state_cursor` | Progress of protocol migrations. |
 
 A batch of ledgers (one by default) is written by a set of transactions whose cursor commit is strictly last. A SIGTERM before that commit rolls the batch back and the next start re-ingests it; a crash between the commits leaves only bulk rows above the cursor, which the next start deletes. Stopping and starting ingest is safe at any point.
 

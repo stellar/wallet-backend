@@ -26,6 +26,8 @@ commands=(
   "protocol-setup"
   "protocol-migrate history"
   "protocol-migrate current-state"
+  "data-migrate run"
+  "data-migrate status"
 )
 
 for cmd in "${commands[@]}"; do

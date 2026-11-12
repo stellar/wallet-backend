@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -11,11 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/go-stellar-sdk/toid"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/serve/graphql/dataloaders"
+	graphql1 "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 	"github.com/stellar/wallet-backend/internal/serve/middleware"
 )
 
@@ -461,5 +464,54 @@ func TestTransactionResolver_StateChanges(t *testing.T) {
 		assert.Empty(t, stateChanges.Edges)
 		assert.False(t, stateChanges.PageInfo.HasNextPage)
 		assert.False(t, stateChanges.PageInfo.HasPreviousPage)
+	})
+}
+
+func ptrTo[T any](v T) *T { return &v }
+
+func TestTransactionResolver_Memo(t *testing.T) {
+	resolver := &transactionResolver{&Resolver{}}
+	memoTypePtr := func(v xdr.MemoType) *int16 {
+		i := int16(v)
+		return &i
+	}
+	hash := make([]byte, 32)
+	for i := range hash {
+		hash[i] = byte(i)
+	}
+	hashHex := hex.EncodeToString(hash)
+
+	cases := []struct {
+		name     string
+		tx       types.Transaction
+		wantType *graphql1.MemoType
+		wantMemo *string
+	}{
+		{"not yet backfilled", types.Transaction{}, nil, nil},
+		{"none", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoNone)}, ptrTo(graphql1.MemoTypeNone), nil},
+		{"text", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoText), Memo: []byte("hello")}, ptrTo(graphql1.MemoTypeText), ptrTo("hello")},
+		{"text with invalid utf-8", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoText), Memo: []byte{'a', 0xff, 'b'}}, ptrTo(graphql1.MemoTypeText), ptrTo("a\uFFFDb")},
+		{"id", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoId), Memo: []byte{0, 0, 0, 0, 0, 0, 1, 2}}, ptrTo(graphql1.MemoTypeID), ptrTo("258")},
+		{"hash", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoHash), Memo: hash}, ptrTo(graphql1.MemoTypeHash), ptrTo(hashHex)},
+		{"return", types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoReturn), Memo: hash}, ptrTo(graphql1.MemoTypeReturn), ptrTo(hashHex)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotType, err := resolver.MemoType(context.Background(), &tc.tx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantType, gotType)
+
+			gotMemo, err := resolver.Memo(context.Background(), &tc.tx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMemo, gotMemo)
+		})
+	}
+
+	t.Run("malformed stored bytes return an error", func(t *testing.T) {
+		tx := &types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoId), Memo: []byte{1, 2, 3}}
+		_, err := resolver.MemoType(context.Background(), tx)
+		require.ErrorContains(t, err, "decoding memo")
+		_, err = resolver.Memo(context.Background(), tx)
+		require.ErrorContains(t, err, "decoding memo")
 	})
 }
