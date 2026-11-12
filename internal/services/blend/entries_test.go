@@ -3,6 +3,7 @@ package blend
 import (
 	"crypto/rand"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -155,6 +156,37 @@ func TestDecodeEntry_PoolInstance(t *testing.T) {
 	assert.Equal(t, uint32(0), got.PoolInstance.Status)
 	assert.Equal(t, uint32(4), got.PoolInstance.MaxPositions)
 	assert.Equal(t, "1000000", got.PoolInstance.MinCollateral)
+}
+
+// A name that cannot be stored is dropped; the rest of the pool still decodes.
+func TestDecodeEntry_PoolInstance_UnstorableName(t *testing.T) {
+	for name, poolName := range map[string]string{
+		"NUL byte":      "Fixed\x00Pool",
+		"invalid UTF-8": "Fixed\xffPool",
+		"too long":      strings.Repeat("a", maxStringLength+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			oracleAddr := randomContractAddr(t)
+			storage := mapScVal(
+				symEntry("Name", stringScVal(poolName)),
+				symEntry("Config", mapValScVal(mapScVal(
+					symEntry("oracle", contractAddrScVal(t, oracleAddr)),
+					symEntry("bstop_rate", u32ScVal(2500)),
+					symEntry("status", u32ScVal(0)),
+					symEntry("max_positions", u32ScVal(4)),
+					symEntry("min_collateral", i128ScVal(1_000_000)),
+				))),
+			)
+
+			got, err := DecodeEntry(createdChange(instanceKeyScVal(), instanceValScVal(storage)))
+			require.NoError(t, err)
+
+			assert.Equal(t, KindPoolInstance, got.Kind)
+			require.NotNil(t, got.PoolInstance)
+			assert.Nil(t, got.PoolInstance.Name)
+			assert.Equal(t, oracleAddr, got.PoolInstance.Oracle)
+		})
+	}
 }
 
 func TestDecodeEntry_BackstopInstance(t *testing.T) {
