@@ -396,6 +396,17 @@ func BackstopLPTokens(shares, poolShares, poolTokens *big.Int) *big.Int {
 	return product.Quo(product, poolShares)
 }
 
+// MaxDecimals is the largest token or price decimals value Blend accepts.
+// Real assets use 18 or fewer. Anyone can deploy a pool or oracle, and
+// decimals become a power of 10, so a larger value is rejected instead of
+// computed.
+const MaxDecimals = 70
+
+// ValidDecimals reports whether n is between 0 and MaxDecimals.
+func ValidDecimals(n int32) bool {
+	return n >= 0 && n <= MaxDecimals
+}
+
 // USDValue is amount/10^tokenDecimals * price/10^priceDecimals — a token
 // amount's USD value given a price already scaled to priceDecimals (the
 // same raw-price convention blend_oracle_prices.Price and this package's

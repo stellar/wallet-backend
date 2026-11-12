@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
@@ -357,6 +358,10 @@ func (r *Resolver) buildBlendPoolCatalog(ctx context.Context, pools []blenddata.
 	assetIDSet := map[string]struct{}{}
 	for _, res := range reserves {
 		poolAddr := string(res.PoolContractID)
+		if !blendrates.ValidDecimals(res.Decimals) {
+			log.Ctx(ctx).Warnf("blend: skipping reserve %d of pool %s: decimals %d out of range", res.ReserveIndex, poolAddr, res.Decimals)
+			continue
+		}
 		reservesByPool[poolAddr] = append(reservesByPool[poolAddr], res)
 		assetIDSet[string(res.AssetContractID)] = struct{}{}
 	}

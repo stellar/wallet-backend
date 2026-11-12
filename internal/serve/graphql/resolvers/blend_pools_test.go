@@ -744,6 +744,60 @@ func TestQueryResolver_BlendPools(t *testing.T) {
 	})
 }
 
+// TestQueryResolver_BlendPool_DecimalsOutOfRange covers rows whose decimals
+// are above blendrates.MaxDecimals: the reserve is left out of the pool and
+// the price is treated as missing, so neither is used as an exponent.
+func TestQueryResolver_BlendPool_DecimalsOutOfRange(t *testing.T) {
+	poolAddr := randomContractAddress(t)
+	oracle := randomContractAddress(t)
+	goodAsset := randomContractAddress(t)
+	badAsset := randomContractAddress(t)
+	badDecimals := blendrates.MaxDecimals + 1
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models := &data.Models{
+		Contract: &data.ContractModel{DB: testDBConnectionPool, Metrics: m.DB},
+		Blend:    blenddata.NewModels(testDBConnectionPool, m.DB),
+	}
+	resolver := &queryResolver{&Resolver{models: models, rpcService: passphraseRPC(t, "")}}
+
+	execTestDB(t, `
+		INSERT INTO blend_pools (pool_contract_id, name, oracle_contract_id, backstop_rate, status, max_positions, in_reward_zone, last_modified_ledger)
+		VALUES ($1, 'Poisoned', $2, 1000000, 0, 4, false, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(oracle))
+	execTestDB(t, `
+		INSERT INTO blend_reserves (
+			pool_contract_id, reserve_index, asset_contract_id,
+			b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+			decimals, c_factor, l_factor, util, max_util,
+			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled, last_modified_ledger
+		) VALUES
+		($1, 0, $2, '1000000000000', '1000000000000', '100000000', '40000000', '10000000', '0', 4102444800,
+			7, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100),
+		($1, 1, $3, '1000000000000', '1000000000000', '100000000', '40000000', '10000000', '0', 4102444800,
+			$4, 9500000, 9500000, 8000000, 9500000, 100000, 200000, 5000000, 15000000, 0, '0', true, 100)`,
+		types.AddressBytea(poolAddr), types.AddressBytea(goodAsset), types.AddressBytea(badAsset), badDecimals)
+	execTestDB(t, `
+		INSERT INTO blend_oracle_prices (oracle_contract_id, asset_contract_id, price, price_decimals, price_timestamp)
+		VALUES ($1, $2, '25000000', $3, EXTRACT(EPOCH FROM NOW())::bigint)`,
+		types.AddressBytea(oracle), types.AddressBytea(goodAsset), badDecimals)
+
+	t.Cleanup(func() {
+		execTestDB(t, `DELETE FROM blend_reserves WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_pools WHERE pool_contract_id = $1`, types.AddressBytea(poolAddr))
+		execTestDB(t, `DELETE FROM blend_oracle_prices WHERE oracle_contract_id = $1`, types.AddressBytea(oracle))
+	})
+
+	got, err := resolver.BlendPool(testCtx, poolAddr)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Len(t, got.Reserves, 1, "the reserve with out-of-range decimals is left out")
+	r := got.Reserves[0]
+	assert.Equal(t, goodAsset, r.AssetContractID)
+	assert.Nil(t, r.PriceUsd, "a price with out-of-range decimals is treated as missing")
+	assert.Nil(t, r.SuppliedUsd)
+}
+
 func TestQueryResolver_BlendPools_Empty(t *testing.T) {
 	// This test asserts on the catalog behavior when there happen to be no
 	// Blend v2 pools at all. It does not seed or clean up any rows, so it

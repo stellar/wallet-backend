@@ -152,12 +152,19 @@ func isFreshPrice(op blenddata.OraclePrice, now int64) bool {
 	return op.PriceTimestamp >= now-int64(blendrates.MaxPriceAge/time.Second)
 }
 
-// freshPriceMap indexes price rows by "oracle|asset", dropping stale rows
-// per isFreshPrice.
+// isUsablePrice reports whether a stored price is fresh and has decimals in
+// range. A row with out-of-range decimals is treated as missing, since
+// pricing it would compute a huge power of 10.
+func isUsablePrice(op blenddata.OraclePrice, now int64) bool {
+	return isFreshPrice(op, now) && blendrates.ValidDecimals(op.PriceDecimals)
+}
+
+// freshPriceMap indexes price rows by "oracle|asset", dropping rows that
+// fail isUsablePrice.
 func freshPriceMap(rows []blenddata.OraclePrice, now int64) map[string]blenddata.OraclePrice {
 	m := make(map[string]blenddata.OraclePrice, len(rows))
 	for _, op := range rows {
-		if !isFreshPrice(op, now) {
+		if !isUsablePrice(op, now) {
 			continue
 		}
 		m[string(op.OracleContractID)+"|"+string(op.AssetContractID)] = op
@@ -165,11 +172,11 @@ func freshPriceMap(rows []blenddata.OraclePrice, now int64) map[string]blenddata
 	return m
 }
 
-// freshPrices filters price rows to the fresh ones per isFreshPrice.
+// freshPrices filters price rows to the ones that pass isUsablePrice.
 func freshPrices(rows []blenddata.OraclePrice, now int64) []blenddata.OraclePrice {
 	out := make([]blenddata.OraclePrice, 0, len(rows))
 	for _, op := range rows {
-		if isFreshPrice(op, now) {
+		if isUsablePrice(op, now) {
 			out = append(out, op)
 		}
 	}
@@ -971,6 +978,12 @@ func (r *Resolver) getBlendPositions(ctx context.Context, address string) (*grap
 	reserveByPoolIndex := make(map[string]blenddata.Reserve, len(reserves))
 	assetIDSet := map[string]struct{}{}
 	for _, res := range reserves {
+		// Positions on a skipped reserve resolve as unknown, like a reserve
+		// that hasn't been indexed yet.
+		if !blendrates.ValidDecimals(res.Decimals) {
+			log.Ctx(ctx).Warnf("blend: skipping reserve %d of pool %s: decimals %d out of range", res.ReserveIndex, res.PoolContractID, res.Decimals)
+			continue
+		}
 		reserveByPoolIndex[poolTokenKey(string(res.PoolContractID), res.ReserveIndex)] = res
 		assetIDSet[string(res.AssetContractID)] = struct{}{}
 	}

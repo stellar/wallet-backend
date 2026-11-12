@@ -591,6 +591,9 @@ func decodeResConfig(cd xdr.ContractDataEntry, elems []xdr.ScVal, removed bool) 
 	if r.err != nil {
 		return DecodedEntry{}, r.err
 	}
+	if cfg.Decimals > MaxDecimals {
+		return DecodedEntry{}, fmt.Errorf("blend: %s(%s): decimals %d exceeds cap of %d", kind, asset, cfg.Decimals, MaxDecimals)
+	}
 
 	out.ResConfig = cfg
 	return out, nil

@@ -765,6 +765,28 @@ func TestDecodeEntry_Malformed(t *testing.T) {
 		assert.Contains(t, err.Error(), "c_factor")
 	})
 
+	t.Run("ResConfig decimals above the cap", func(t *testing.T) {
+		key := vecScVal(symScVal("ResConfig"), contractAddrScVal(t, randomContractAddr(t)))
+		val := mapValScVal(mapScVal(
+			symEntry("c_factor", u32ScVal(9000)),
+			symEntry("decimals", u32ScVal(MaxDecimals+1)),
+			symEntry("enabled", boolScVal(true)),
+			symEntry("index", u32ScVal(0)),
+			symEntry("l_factor", u32ScVal(9500)),
+			symEntry("max_util", u32ScVal(9500)),
+			symEntry("r_base", u32ScVal(100)),
+			symEntry("r_one", u32ScVal(200)),
+			symEntry("r_three", u32ScVal(400)),
+			symEntry("r_two", u32ScVal(300)),
+			symEntry("reactivity", u32ScVal(1000)),
+			symEntry("supply_cap", i128ScVal(0)),
+			symEntry("util", u32ScVal(8000)),
+		))
+		_, err := DecodeEntry(createdChange(key, val))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds cap")
+	})
+
 	t.Run("ResConfig key arg is not an address", func(t *testing.T) {
 		key := vecScVal(symScVal("ResConfig"), u32ScVal(1))
 		_, err := DecodeEntry(createdChange(key, mapValScVal(mapScVal())))
