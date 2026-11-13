@@ -306,9 +306,24 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		MetricsService:            m.Ingestion,
 	})
 
-	// Create a factory function for parallel backfill (each batch needs its own backend)
+	// Create a factory function for parallel backfill (each batch needs its own backend).
+	// The batches run concurrently, one per backfill worker, so the workers share the
+	// configured datastore buffer, download workers and ledgers buffered before a database
+	// flush instead of each taking the full amount.
+	backfillWorkers := services.BackfillWorkerCount(cfg.BackfillWorkers)
+	perWorkerCfg := cfg
+	perWorkerCfg.Datastore = cfg.Datastore.splitAcross(backfillWorkers)
+	perWorkerCfg.BackfillDBInsertBatchSize = max(1, cfg.BackfillDBInsertBatchSize/backfillWorkers)
+	if cfg.IngestionMode == services.IngestionModeBackfill {
+		log.Ctx(ctx).Infof("backfill: %d workers, each with a datastore buffer of %d files, %d download workers and a database flush every %d ledgers",
+			backfillWorkers, perWorkerCfg.Datastore.BufferSize, perWorkerCfg.Datastore.NumWorkers, perWorkerCfg.BackfillDBInsertBatchSize)
+		if cfg.Datastore.BufferSize > 0 && uint32(backfillWorkers) > cfg.Datastore.BufferSize {
+			log.Ctx(ctx).Warnf("backfill: %d workers exceed DATASTORE_BUFFER_SIZE=%d, so each worker buffers one file and memory grows with the worker count; lower BACKFILL_WORKERS or raise DATASTORE_BUFFER_SIZE",
+				backfillWorkers, cfg.Datastore.BufferSize)
+		}
+	}
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-		return NewLedgerBackend(ctx, cfg)
+		return NewLedgerBackend(ctx, perWorkerCfg)
 	}
 
 	// Resolve protocol processors and validators from the registries.
@@ -347,7 +362,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		Archive:                   archive,
 		BackfillWorkers:           cfg.BackfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		BackfillDBInsertBatchSize: perWorkerCfg.BackfillDBInsertBatchSize,
 		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,

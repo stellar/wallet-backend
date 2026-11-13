@@ -86,6 +86,22 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 	return ledgerBackend, nil
 }
 
+// splitAcross returns the config for one of n backends that run at the same time and together
+// stay within this config's buffer size and download workers. Defaults are resolved before
+// dividing, and each backend keeps at least one of each.
+func (dc DatastoreConfig) splitAcross(n int) DatastoreConfig {
+	bufferSize, numWorkers := dc.BufferSize, dc.NumWorkers
+	if bufferSize == 0 {
+		bufferSize = defaultBufferSize
+	}
+	if numWorkers == 0 {
+		numWorkers = defaultNumWorkers
+	}
+	dc.BufferSize = max(1, bufferSize/uint32(n))
+	dc.NumWorkers = max(1, numWorkers/uint32(n))
+	return dc
+}
+
 func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
 		RPCServerURL: cfg.RPCURL,

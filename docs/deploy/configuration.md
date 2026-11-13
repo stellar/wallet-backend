@@ -95,8 +95,8 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 | `--datastore-bucket-path` | `DATASTORE_BUCKET_PATH` | (none) | when `datastore` | Bucket and path that hold the exported ledgers |
 | `--datastore-region` | `DATASTORE_REGION` | `us-east-2` | no | AWS region of the bucket. Empty uses the AWS default chain |
 | `--datastore-endpoint-url` | `DATASTORE_ENDPOINT_URL` | (none) | no | Custom S3 endpoint. Empty uses the AWS endpoint |
-| `--datastore-buffer-size` | `DATASTORE_BUFFER_SIZE` | `100` | no | Ledger files to prefetch |
-| `--datastore-num-workers` | `DATASTORE_NUM_WORKERS` | `10` | no | Concurrent file download workers |
+| `--datastore-buffer-size` | `DATASTORE_BUFFER_SIZE` | `100` | no | Ledger files to prefetch. In backfill mode, the total shared across the backfill workers |
+| `--datastore-num-workers` | `DATASTORE_NUM_WORKERS` | `10` | no | Concurrent file download workers. In backfill mode, the total shared across the backfill workers |
 | `--datastore-retry-limit` | `DATASTORE_RETRY_LIMIT` | `3` | no | Retries for a failed file download |
 | `--datastore-retry-wait` | `DATASTORE_RETRY_WAIT` | `5s` | no | Wait between download retries, as a Go duration |
 | `--datastore-ledgers-per-file` | `DATASTORE_LEDGERS_PER_FILE` | `0` | no | Ledgers per file. `0` reads it from the datastore manifest |
@@ -123,7 +123,7 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 | --- | --- | --- | --- | --- |
 | `--backfill-workers` | `BACKFILL_WORKERS` | `0` | no | Concurrent backfill workers. `0` uses one per CPU. Lower values use less RAM |
 | `--backfill-batch-size` | `BACKFILL_BATCH_SIZE` | `250` | no | Ledgers per backfill batch. Lower values use less RAM |
-| `--backfill-db-insert-batch-size` | `BACKFILL_DB_INSERT_BATCH_SIZE` | `100` | no | Ledgers buffered before each database flush. Lower values use less RAM |
+| `--backfill-db-insert-batch-size` | `BACKFILL_DB_INSERT_BATCH_SIZE` | `100` | no | Ledgers buffered before a database flush, as a total shared across the backfill workers. Lower values use less RAM |
 
 ### TimescaleDB policies
 
