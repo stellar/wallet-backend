@@ -86,19 +86,24 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 	return ledgerBackend, nil
 }
 
+// withDefaults fills in the buffer size and download workers when they are unset.
+func (dc DatastoreConfig) withDefaults() DatastoreConfig {
+	if dc.BufferSize == 0 {
+		dc.BufferSize = defaultBufferSize
+	}
+	if dc.NumWorkers == 0 {
+		dc.NumWorkers = defaultNumWorkers
+	}
+	return dc
+}
+
 // splitAcross returns the config for one of n backends that run at the same time and together
 // stay within this config's buffer size and download workers. Defaults are resolved before
 // dividing, and each backend keeps at least one of each.
 func (dc DatastoreConfig) splitAcross(n int) DatastoreConfig {
-	bufferSize, numWorkers := dc.BufferSize, dc.NumWorkers
-	if bufferSize == 0 {
-		bufferSize = defaultBufferSize
-	}
-	if numWorkers == 0 {
-		numWorkers = defaultNumWorkers
-	}
-	dc.BufferSize = max(1, bufferSize/uint32(n))
-	dc.NumWorkers = max(1, numWorkers/uint32(n))
+	dc = dc.withDefaults()
+	dc.BufferSize = max(1, dc.BufferSize/uint32(n))
+	dc.NumWorkers = max(1, dc.NumWorkers/uint32(n))
 	return dc
 }
 

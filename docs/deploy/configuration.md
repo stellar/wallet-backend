@@ -121,7 +121,7 @@ Reads ledgers and writes transactions, operations, state changes, and balances t
 
 | Flag | Env var | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `--backfill-workers` | `BACKFILL_WORKERS` | `0` | no | Concurrent backfill workers. `0` uses one per CPU. Lower values use less RAM |
+| `--backfill-workers` | `BACKFILL_WORKERS` | `0` | no | Concurrent backfill workers. `0` uses one per CPU. Never more than the smallest of `DATASTORE_BUFFER_SIZE`, `DATASTORE_NUM_WORKERS` and `BACKFILL_DB_INSERT_BATCH_SIZE`. Lower values use less RAM |
 | `--backfill-batch-size` | `BACKFILL_BATCH_SIZE` | `250` | no | Ledgers per backfill batch. Lower values use less RAM |
 | `--backfill-db-insert-batch-size` | `BACKFILL_DB_INSERT_BATCH_SIZE` | `100` | no | Ledgers buffered before a database flush, as a total shared across the backfill workers. Lower values use less RAM |
 

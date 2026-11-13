@@ -42,7 +42,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "backfill-workers",
-			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Lower values reduce RAM usage at cost of throughput.",
+			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Never more than the smallest of datastore-buffer-size, datastore-num-workers and backfill-db-insert-batch-size, which the workers share. Lower values reduce RAM usage at cost of throughput.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillWorkers,
 			FlagDefault: 0,
