@@ -42,7 +42,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "backfill-workers",
-			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Lower values reduce RAM usage at cost of throughput.",
+			Usage:       "Maximum concurrent workers for backfill processing. Defaults to number of CPUs. Never more than the smallest of datastore-buffer-size, datastore-num-workers and backfill-db-insert-batch-size, which the workers share. Lower values reduce RAM usage at cost of throughput.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillWorkers,
 			FlagDefault: 0,
@@ -58,7 +58,7 @@ func (c *ingestCmd) Command() *cobra.Command {
 		},
 		{
 			Name:        "backfill-db-insert-batch-size",
-			Usage:       "Number of ledgers to process before flushing buffer to DB during backfill. Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.",
+			Usage:       "Number of ledgers buffered before flushing to DB during backfill. This is the total, shared across the backfill workers. Defaults to 100. Lower values reduce RAM usage at cost of more DB transactions.",
 			OptType:     types.Int,
 			ConfigKey:   &cfg.BackfillDBInsertBatchSize,
 			FlagDefault: 100,

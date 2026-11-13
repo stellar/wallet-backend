@@ -184,6 +184,18 @@ func isCleanShutdown(ctx context.Context, err error, ingestionMode string) bool 
 	return errors.Is(err, context.Canceled)
 }
 
+// backfillWorkerCount returns how many backfill workers run: the configured count (one per CPU
+// by default), lowered so that every worker gets at least one of each setting the workers
+// share. Memory then follows those settings and not the CPU count.
+func backfillWorkerCount(cfg Configs) int {
+	workers := min(services.BackfillWorkerCount(cfg.BackfillWorkers), max(1, cfg.BackfillDBInsertBatchSize))
+	if cfg.LedgerBackendType == LedgerBackendTypeDatastore {
+		ds := cfg.Datastore.withDefaults()
+		workers = min(workers, int(ds.BufferSize), int(ds.NumWorkers))
+	}
+	return workers
+}
+
 // setupDeps builds the ingest service and its dependencies. The returned
 // cleanup func releases resources owned at this layer (ledger backend, wasm
 // spec extractor, DB pool) and must be called by the caller after Run
@@ -306,9 +318,24 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		MetricsService:            m.Ingestion,
 	})
 
-	// Create a factory function for parallel backfill (each batch needs its own backend)
+	// Create a factory function for parallel backfill (each batch needs its own backend).
+	// The batches run concurrently, one per backfill worker, so the workers share the
+	// configured datastore buffer, download workers and ledgers buffered before a database
+	// flush instead of each taking the full amount.
+	backfillWorkers := backfillWorkerCount(cfg)
+	perWorkerCfg := cfg
+	perWorkerCfg.Datastore = cfg.Datastore.splitAcross(backfillWorkers)
+	perWorkerCfg.BackfillDBInsertBatchSize = cfg.BackfillDBInsertBatchSize / backfillWorkers
+	if cfg.IngestionMode == services.IngestionModeBackfill {
+		if requested := services.BackfillWorkerCount(cfg.BackfillWorkers); backfillWorkers < requested {
+			log.Ctx(ctx).Infof("backfill: running %d workers instead of %d so that each gets a share of DATASTORE_BUFFER_SIZE, DATASTORE_NUM_WORKERS and BACKFILL_DB_INSERT_BATCH_SIZE; raise those to run more workers",
+				backfillWorkers, requested)
+		}
+		log.Ctx(ctx).Infof("backfill: %d workers, each with a datastore buffer of %d files, %d download workers and a database flush every %d ledgers",
+			backfillWorkers, perWorkerCfg.Datastore.BufferSize, perWorkerCfg.Datastore.NumWorkers, perWorkerCfg.BackfillDBInsertBatchSize)
+	}
 	ledgerBackendFactory := func(ctx context.Context) (ledgerbackend.LedgerBackend, error) {
-		return NewLedgerBackend(ctx, cfg)
+		return NewLedgerBackend(ctx, perWorkerCfg)
 	}
 
 	// Resolve protocol processors and validators from the registries.
@@ -345,9 +372,9 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 		Metrics:                   m,
 		NetworkPassphrase:         cfg.NetworkPassphrase,
 		Archive:                   archive,
-		BackfillWorkers:           cfg.BackfillWorkers,
+		BackfillWorkers:           backfillWorkers,
 		BackfillBatchSize:         cfg.BackfillBatchSize,
-		BackfillDBInsertBatchSize: cfg.BackfillDBInsertBatchSize,
+		BackfillDBInsertBatchSize: perWorkerCfg.BackfillDBInsertBatchSize,
 		LivePersistMaxBatchSize:   cfg.LivePersistMaxBatchSize,
 		ProtocolProcessors:        protocolProcessors,
 		ProtocolValidators:        protocolValidators,

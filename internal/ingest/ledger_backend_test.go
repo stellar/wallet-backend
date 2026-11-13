@@ -116,3 +116,26 @@ func TestDatastoreConfig_dataStoreConfig(t *testing.T) {
 		require.NotContains(t, got.Params, "endpoint_url")
 	})
 }
+
+func TestDatastoreConfig_splitAcross(t *testing.T) {
+	testCases := []struct {
+		name           string
+		cfg            DatastoreConfig
+		n              int
+		wantBufferSize uint32
+		wantNumWorkers uint32
+	}{
+		{name: "defaults resolved before dividing", cfg: DatastoreConfig{}, n: 12, wantBufferSize: 8, wantNumWorkers: 1},
+		{name: "one backend keeps the full amount", cfg: DatastoreConfig{}, n: 1, wantBufferSize: defaultBufferSize, wantNumWorkers: defaultNumWorkers},
+		{name: "explicit values divided", cfg: DatastoreConfig{BufferSize: 40, NumWorkers: 8}, n: 4, wantBufferSize: 10, wantNumWorkers: 2},
+		{name: "at least one of each", cfg: DatastoreConfig{BufferSize: 4, NumWorkers: 2}, n: 16, wantBufferSize: 1, wantNumWorkers: 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.cfg.splitAcross(tc.n)
+			assert.Equal(t, tc.wantBufferSize, got.BufferSize)
+			assert.Equal(t, tc.wantNumWorkers, got.NumWorkers)
+			assert.LessOrEqual(t, got.NumWorkers, got.BufferSize, "newDatastoreBackend requires NumWorkers <= BufferSize")
+		})
+	}
+}
