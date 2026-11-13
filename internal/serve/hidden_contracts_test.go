@@ -106,6 +106,7 @@ func TestHiddenContractsForms(t *testing.T) {
 
 	require.Equal(t, []string{addr}, c.ContractAddresses("SEP41"))
 	require.Empty(t, c.ContractAddresses("OTHER"))
+	require.Equal(t, map[string][]string{"SEP41": {addr}}, c.ByProtocol())
 	require.Equal(t, []string{addr + " (SEP41)"}, c.Labels())
 }
 

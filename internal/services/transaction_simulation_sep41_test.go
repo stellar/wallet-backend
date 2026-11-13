@@ -162,6 +162,36 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 		rpcMock.AssertExpectations(t)
 	})
 
+	t.Run("hidden contract emits no rows", func(t *testing.T) {
+		visibleID := randomContractID(t)
+		classifyAsSEP41(t, ctx, pool, models, visibleID)
+		visibleTransfer := sep41Event(visibleID,
+			[]xdr.ScVal{scSymbol("transfer"), scAccountVal(holder), scAccountVal(receiver)},
+			scI128(3_000_000),
+		)
+
+		hiddenTxXDR := invokeContractTxXDR(t, contractID)
+		rpcMock := &services.RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", hiddenTxXDR, entities.RPCResourceConfig{}).
+			Return(entities.RPCSimulateTransactionResult{
+				LatestLedger:   2900152,
+				MinResourceFee: "100",
+				Events:         []string{diagnosticB64(t, transferEvent), diagnosticB64(t, visibleTransfer)},
+			}, nil).Once()
+
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase,
+			services.WithHiddenContracts(map[string][]string{"SEP41": {tokenStrkey}}))
+		require.NoError(t, err)
+
+		result, err := svc.SimulateStateChanges(ctx, hiddenTxXDR)
+		require.NoError(t, err)
+		assert.Empty(t, changesForToken(result.StateChanges, tokenStrkey),
+			"a contract hidden for SEP41 must produce no SEP-41 rows")
+		assert.Len(t, changesForToken(result.StateChanges, contractIDStrkey(t, visibleID)), 2,
+			"a token that is not hidden must still emit debit + credit")
+		rpcMock.AssertExpectations(t)
+	})
+
 	t.Run("unclassified contract is silently skipped", func(t *testing.T) {
 		unknownID := randomContractID(t)
 		unknownEvent := sep41Event(unknownID,

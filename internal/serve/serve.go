@@ -205,7 +205,7 @@ func initHandlerDeps(ctx context.Context, cfg Configs) (handlerDeps, error) {
 	log.Ctx(ctx).Infof("Hiding %d contracts: %v", len(hiddenContracts.Labels()), hiddenContracts.Labels())
 	applyHiddenContracts(models, dbConnectionPool, m.DB, hiddenContracts)
 
-	simulationService, err := services.NewTransactionSimulationService(rpcService, models, cfg.NetworkPassphrase)
+	simulationService, err := services.NewTransactionSimulationService(rpcService, models, cfg.NetworkPassphrase, services.WithHiddenContracts(hiddenContracts.ByProtocol()))
 	if err != nil {
 		return handlerDeps{}, fmt.Errorf("instantiating transaction simulation service: %w", err)
 	}
