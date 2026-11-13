@@ -325,7 +325,7 @@ func setupDeps(ctx context.Context, cfg Configs) (services.IngestService, func()
 	backfillWorkers := backfillWorkerCount(cfg)
 	perWorkerCfg := cfg
 	perWorkerCfg.Datastore = cfg.Datastore.splitAcross(backfillWorkers)
-	perWorkerCfg.BackfillDBInsertBatchSize = max(1, cfg.BackfillDBInsertBatchSize/backfillWorkers)
+	perWorkerCfg.BackfillDBInsertBatchSize = cfg.BackfillDBInsertBatchSize / backfillWorkers
 	if cfg.IngestionMode == services.IngestionModeBackfill {
 		if requested := services.BackfillWorkerCount(cfg.BackfillWorkers); backfillWorkers < requested {
 			log.Ctx(ctx).Infof("backfill: running %d workers instead of %d so that each gets a share of DATASTORE_BUFFER_SIZE, DATASTORE_NUM_WORKERS and BACKFILL_DB_INSERT_BATCH_SIZE; raise those to run more workers",
