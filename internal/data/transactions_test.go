@@ -677,3 +677,48 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 		assert.Nil(t, tx, "a transaction past the committed cursor reads as not found")
 	})
 }
+
+// A data migration runs BatchUpdateMemo once per flush, for days, on pooled connections
+// that cache the prepared statement. From its sixth execution PostgreSQL may switch a
+// cached statement to a generic plan, which has no values to exclude chunks with and so
+// targets every chunk of the hypertable. Every execution must be planned with its values.
+func TestTransactionModel_BatchUpdateMemo_PlansEveryExecutionWithItsValues(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	m := &TransactionModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	// One connection, so every execution reuses the same cached statement.
+	conn, err := dbConnectionPool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	closedAt := time.Now().UTC().Truncate(time.Second)
+	_, err = conn.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		VALUES ('\x01', 1, 100, 'TransactionResultCodeTxSuccess', 1, $1)`, closedAt)
+	require.NoError(t, err)
+	rows := []TransactionMemo{{ToID: 1, LedgerCreatedAt: closedAt, MemoType: 1, Memo: []byte("hello")}}
+
+	const executions = 8
+	for range executions {
+		dbTx, beginErr := conn.Begin(ctx)
+		require.NoError(t, beginErr)
+		updated, updateErr := m.BatchUpdateMemo(ctx, dbTx, rows)
+		require.NoError(t, updateErr)
+		require.EqualValues(t, 1, updated)
+		require.NoError(t, dbTx.Commit(ctx))
+	}
+
+	var genericPlans, customPlans int64
+	err = conn.QueryRow(ctx, `
+		SELECT COALESCE(SUM(generic_plans), 0), COALESCE(SUM(custom_plans), 0)
+		FROM pg_prepared_statements
+		WHERE statement LIKE $1`, "%UPDATE transactions t SET memo_type%").Scan(&genericPlans, &customPlans)
+	require.NoError(t, err)
+	assert.Zero(t, genericPlans, "the memo update ran with a generic plan")
+	assert.EqualValues(t, executions, customPlans)
+}
