@@ -118,7 +118,7 @@ A participant is an address that a transaction or operation is listed under. The
 | Transaction source account | always | every operation of a failed transaction |
 | Fee-bump fee account | always | every operation of a failed transaction |
 | Accounts whose entry changes in the fee phase | always | no |
-| Accounts whose entry changes in a successful operation's meta | yes | no |
+| Accounts whose entry a successful operation changes, for example the sponsor of a claimable balance that is claimed | yes | successful transactions |
 | Operation source account | yes | successful transactions |
 | Accounts named in the operation body, for example payment destinations, claimants, trustors, and clawback holders | yes | successful transactions |
 | Sponsor of an entry or signer the operation creates | yes | successful transactions |
@@ -127,7 +127,9 @@ A participant is an address that a transaction or operation is listed under. The
 
 Every operation participant is also recorded as a participant of its transaction.
 
-A Soroban operation's participants are its source account and the addresses that authorised it. The host writes a nonce entry only after a signature or a custom account's `__check_auth` passes, so each nonce owner is a verified authoriser. The declared authorization tree is not read. Its addresses are submitter input and can be forged.
+An account entry counts as changed only when the operation created it, removed it, or changed its data. stellar-core also lists entries an operation only loaded for write, including every account key in a Soroban transaction's read-write footprint. The submitter chooses that footprint, so an entry whose data did not change adds no participant.
+
+A Soroban operation's participants are its source account, the addresses that authorised it, and the accounts whose entry it changed. The host writes a nonce entry only after a signature or a custom account's `__check_auth` passes, so each nonce owner is a verified authoriser. The declared authorization tree is not read. Its addresses are submitter input and can be forged.
 
 For a failed transaction, operations list only the source account and the fee-bump account. Destinations, signer keys, and auth entries of a failed transaction are unverified input.
 

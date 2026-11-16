@@ -46,6 +46,35 @@ func participantsForChanges(changes xdr.LedgerEntryChanges) ([]xdr.AccountId, er
 	return participants, nil
 }
 
+// addChangedAccounts adds to participants every account whose entry was created,
+// removed, or updated with different data. stellar-core also emits an entry it
+// only loaded for write (every Soroban read-write footprint key, for example) as
+// an update with identical data, and a submitter chooses the footprint, so an
+// update counts only when the entry's data differs. LastModifiedLedgerSeq is
+// outside the compared data because it changes on every write.
+func addChangedAccounts(changes []ingest.Change, participants set.Set[string]) error {
+	for _, c := range changes {
+		if c.Type != xdr.LedgerEntryTypeAccount {
+			continue
+		}
+		switch {
+		case c.Pre == nil && c.Post != nil:
+			participants.Add(c.Post.Data.MustAccount().AccountId.Address())
+		case c.Pre != nil && c.Post == nil:
+			participants.Add(c.Pre.Data.MustAccount().AccountId.Address())
+		case c.Pre != nil && c.Post != nil:
+			same, err := xdr.Equals(c.Pre.Data, c.Post.Data)
+			if err != nil {
+				return fmt.Errorf("comparing account entry data: %w", err)
+			}
+			if !same {
+				participants.Add(c.Post.Data.MustAccount().AccountId.Address())
+			}
+		}
+	}
+	return nil
+}
+
 func participantsForLedgerEntry(le xdr.LedgerEntry) *xdr.AccountId {
 	if le.Data.Type != xdr.LedgerEntryTypeAccount {
 		return nil
@@ -60,26 +89,6 @@ func participantsForLedgerKey(lk xdr.LedgerKey) *xdr.AccountId {
 	}
 	aid := lk.MustAccount().AccountId
 	return &aid
-}
-
-// participantsForMeta identifies the participants involved in a transaction meta by looping through the operations' changes.
-func participantsForMeta(meta xdr.TransactionMeta) ([]xdr.AccountId, error) {
-	var participants []xdr.AccountId
-	if meta.Operations == nil {
-		return participants, nil
-	}
-
-	for _, op := range *meta.Operations {
-		var accounts []xdr.AccountId
-		accounts, err := participantsForChanges(op.Changes)
-		if err != nil {
-			return nil, fmt.Errorf("identifying participants for changes: %w", err)
-		}
-
-		participants = append(participants, accounts...)
-	}
-
-	return participants, nil
 }
 
 func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.LedgerTransaction) (set.Set[string], error) {
@@ -97,14 +106,9 @@ func (p *ParticipantsProcessor) GetTransactionParticipants(transaction ingest.Le
 	}
 	participants = append(participants, feeParticipants...)
 
-	// 1.1. Get participants involved in the transaction meta (if successful)
-	if transaction.Result.Successful() {
-		metaParticipants, metaErr := participantsForMeta(transaction.UnsafeMeta)
-		if metaErr != nil {
-			return nil, fmt.Errorf("identifying participants for meta: %w", metaErr)
-		}
-		participants = append(participants, metaParticipants...)
-	}
+	// Accounts whose entry an operation changed are operation participants
+	// (GetOperationParticipants); the indexer buffer records every operation
+	// participant on the transaction as well.
 
 	// 2. Push transaction and participants to data bundle
 	participantsSet := set.NewThreadUnsafeSet[string]()
@@ -186,11 +190,20 @@ func (p *ParticipantsProcessor) GetOperationParticipants(op *TransactionOperatio
 		participants.Add(accountID.Address())
 	}
 
+	// 2. Accounts whose entry the operation changed, read from the executed meta.
+	changes, err := op.Changes()
+	if err != nil {
+		return nil, fmt.Errorf("reading operation %d changes: %w", op.ID(), err)
+	}
+	if err := addChangedAccounts(changes, participants); err != nil {
+		return nil, fmt.Errorf("getting operation %d changed accounts: %w", op.ID(), err)
+	}
+
 	if !op.Transaction.IsSorobanTx() {
 		return participants, nil
 	}
 
-	// 2. Soroban participants, from the operation body and the executed meta.
+	// 3. Soroban participants, from the operation body and the executed meta.
 	if err := participantsForSorobanOp(op, participants); err != nil {
 		return nil, fmt.Errorf("getting soroban participants: %w", err)
 	}

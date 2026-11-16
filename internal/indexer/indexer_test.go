@@ -2080,3 +2080,36 @@ func TestIndexer_ProcessTransaction_EmitsChangesInOpOrder(t *testing.T) {
 	}
 	assert.True(t, sharedRemoveSeen, "shared-key REMOVE must persist as a delete")
 }
+
+// TestProcessLedger_EndedSponsorshipSponsorIsParticipant is a regression test for
+// issue 677 on a real pubnet ledger. Op 1 of the transaction claims a sponsored
+// claimable balance. The claim releases the sponsor's reserve, so the sponsor's
+// account entry changes (numSponsoring 5952 -> 5950), but the sponsor is not named
+// in the operation and gets no state change. The meta is the only evidence, and the
+// sponsor must be a participant of both the operation and its transaction.
+func TestProcessLedger_EndedSponsorshipSponsorIsParticipant(t *testing.T) {
+	const (
+		txHash  = "9164138758a381ec7a9e931f47f8f44da561ae216a0c25b5d5fa4640805d3651"
+		sponsor = "GAX5UKDWRNK6EM4YII4DDTLTNRHVZWUQXZHXRYXEF72NUBIWVVIX6G6G"
+		opIndex = 1
+	)
+	ctx := context.Background()
+	lcm := loadLedgerFixture(t, "testdata/ledger-63092988.xdr.gz")
+
+	idx, err := NewIndexer(network.PublicNetworkPassphrase, testPool(), nil, false)
+	require.NoError(t, err)
+	buffer := NewIndexerBuffer()
+	_, err = ProcessLedger(ctx, network.PublicNetworkPassphrase, lcm, idx, buffer)
+	require.NoError(t, err)
+
+	var tx *types.Transaction
+	for _, candidate := range buffer.GetTransactions() {
+		if candidate.Hash.String() == txHash {
+			tx = candidate
+		}
+	}
+	require.NotNil(t, tx, "fixture transaction not found")
+
+	assert.Contains(t, buffer.GetTransactionsParticipants()[tx.ToID], sponsor)
+	assert.Contains(t, buffer.GetOperationsParticipants()[tx.ToID+opIndex+1], sponsor)
+}

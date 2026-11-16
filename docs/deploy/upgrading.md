@@ -7,6 +7,7 @@ For an operator moving a running deployment to a later wallet-backend release. A
 - [Compatibility promise](#compatibility-promise)
 - [Procedure](#procedure)
 - [Filling `transaction_hashes` for history ingested before it existed](#filling-transaction_hashes-for-history-ingested-before-it-existed)
+- [Sponsors missing from history ingested before operation-meta participants](#sponsors-missing-from-history-ingested-before-operation-meta-participants)
 - [Version skew](#version-skew)
 - [Rolling back](#rolling-back)
 - [Where in the code](#where-in-the-code)
@@ -126,6 +127,12 @@ $$;
 CALL populate_transaction_hashes();
 DROP PROCEDURE populate_transaction_hashes(BIGINT);
 ```
+
+## Sponsors missing from history ingested before operation-meta participants
+
+Releases before this fix never recorded an account whose entry a successful operation changed when nothing else named that account. In practice that is a sponsor whose sponsorship ended: the sponsor of a claimable balance that is claimed or clawed back, of a signer that is removed, or of an account that is merged. On a sample of pubnet ledgers this was about 1 transaction in 1,000. For history ingested by those releases, the transaction is missing from the sponsor's `Account.transactions`, the operation from its `Account.operations`, and the sponsor from `Transaction.accounts` and `Operation.accounts`. Ledgers ingested by this release are complete.
+
+No script can fill the gap, because ledger meta is not stored. The only fix is to re-ingest the affected range: drop that history, then backfill it with this release. Backfill skips ledgers already in the database, so it does not rewrite them. See [backfill](backfill.md). Most deployments can leave the gap.
 
 ## Version skew
 
