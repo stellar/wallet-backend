@@ -164,3 +164,54 @@ func Test_ListCompressedChunksAndCompressChunk(t *testing.T) {
 		require.NoError(t, CompressChunk(ctx, pool, "_timescaledb_internal._hyper_1_999_chunk"))
 	})
 }
+
+// Rows updated in a compressed chunk pass through its rowstore and grow the chunk's own
+// indexes. Recompression empties the rowstore but leaves the index files at their grown
+// size; ReindexChunk gives that space back.
+func Test_ReindexChunk_ReclaimsIndexesLeftByRecompression(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	day := time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		SELECT decode(md5(i::text), 'hex'), i, 100, 'TransactionResultCodeTxSuccess', 100, $1, false
+		FROM generate_series(1, 20000) AS i`, day)
+	require.NoError(t, err)
+	var chunk string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT c::text FROM show_chunks('transactions') c`).Scan(&chunk))
+	require.NoError(t, CompressChunk(ctx, pool, chunk))
+
+	// Update every row in the compressed chunk, then recompress, as a data migration does.
+	require.NoError(t, db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
+			return execErr
+		}
+		_, execErr := dbTx.Exec(ctx, `UPDATE transactions SET memo_type = 0`)
+		return execErr
+	}))
+	require.NoError(t, CompressChunk(ctx, pool, chunk))
+
+	indexBytes := func() int64 {
+		var size int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT pg_indexes_size($1::regclass)`, chunk).Scan(&size))
+		return size
+	}
+	before := indexBytes()
+	require.Greater(t, before, int64(256*1024), "recompression left the chunk's indexes grown")
+
+	require.NoError(t, ReindexChunk(ctx, pool, chunk))
+	assert.Less(t, indexBytes(), before/4)
+
+	var withMemo int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions WHERE memo_type = 0`).Scan(&withMemo))
+	assert.Equal(t, 20000, withMemo, "the rows read back after the rebuild")
+
+	t.Run("missing_chunk_is_a_no_op", func(t *testing.T) {
+		require.NoError(t, ReindexChunk(ctx, pool, "_timescaledb_internal._hyper_1_999_chunk"))
+	})
+}
