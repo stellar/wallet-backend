@@ -146,3 +146,33 @@ func CompressChunk(ctx context.Context, q db.Querier, chunk string) error {
 	}
 	return nil
 }
+
+// ReindexChunk rebuilds the chunk's own indexes. Rows updated in a compressed chunk pass
+// through its rowstore and grow those indexes; recompression empties the rowstore but
+// leaves the index files at their grown size. Rebuilding them over the empty rowstore
+// gives the space back. The rebuild briefly locks the chunk's indexes, so it gives up
+// after a short wait rather than queue behind a long reader. A chunk that no longer
+// exists is a no-op.
+func ReindexChunk(ctx context.Context, pool *pgxpool.Pool, chunk string) error {
+	err := db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
+		// The regclass renders as a quoted, schema-qualified name.
+		var relation *string
+		if err := dbTx.QueryRow(ctx, `SELECT to_regclass($1)::text`, chunk).Scan(&relation); err != nil {
+			return fmt.Errorf("resolving the chunk: %w", err)
+		}
+		if relation == nil {
+			return nil
+		}
+		if _, err := dbTx.Exec(ctx, "SET LOCAL lock_timeout = '5s'"); err != nil {
+			return fmt.Errorf("setting the lock timeout: %w", err)
+		}
+		if _, err := dbTx.Exec(ctx, "REINDEX TABLE "+*relation); err != nil {
+			return fmt.Errorf("rebuilding indexes: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reindexing chunk %s: %w", chunk, err)
+	}
+	return nil
+}
