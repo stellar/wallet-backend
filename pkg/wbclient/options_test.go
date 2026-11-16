@@ -125,3 +125,16 @@ func TestBuildStateChangeFilterVars(t *testing.T) {
 		assert.Equal(t, map[string]any{"transactionHash": txHash, "category": category}, filter)
 	})
 }
+
+func TestBuildMemoFilterVars(t *testing.T) {
+	t.Run("nil filter yields no variables", func(t *testing.T) {
+		assert.Empty(t, buildMemoFilterVars(nil))
+	})
+
+	t.Run("filter builds the $memo object", func(t *testing.T) {
+		vars := buildMemoFilterVars(&MemoFilter{Type: types.MemoTypeID, Value: "42"})
+		assert.Equal(t, map[string]any{
+			"memo": map[string]any{"type": types.MemoTypeID, "value": "42"},
+		}, vars)
+	})
+}

@@ -1,6 +1,8 @@
 package resolvers
 
 import (
+	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/99designs/gqlgen/graphql"
@@ -9,7 +11,11 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
+	"github.com/stellar/go-stellar-sdk/xdr"
+
+	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
 )
 
 // collectedFields wraps GraphQL field names into the CollectedField shape getDBColumns consumes.
@@ -78,6 +84,14 @@ func TestGetDBColumns(t *testing.T) {
 	t.Run("preserves order across distinct columns", func(t *testing.T) {
 		got := getDBColumns(types.StateChange{}, collectedFields("category", "tokenId", "category", "amount"))
 		assert.Equal(t, []string{"state_change_category", "token_id", "amount"}, got)
+	})
+
+	t.Run("memo also selects memo_type", func(t *testing.T) {
+		// Decoding the memo value needs its type, so memo pulls both columns; memoType alone
+		// maps through its json tag.
+		assert.Equal(t, []string{"memo", "memo_type"}, getDBColumns(types.Transaction{}, collectedFields("memo")))
+		assert.Equal(t, []string{"memo_type"}, getDBColumns(types.Transaction{}, collectedFields("memoType")))
+		assert.Equal(t, []string{"memo_type", "memo"}, getDBColumns(types.Transaction{}, collectedFields("memoType", "memo")))
 	})
 
 	t.Run("unknown fields are skipped", func(t *testing.T) {
@@ -240,4 +254,61 @@ func TestParsePaginationParamsMalformedCursorIsBadUserInput(t *testing.T) {
 
 	_, err = parsePaginationParams(&first, &bad, nil, nil, CursorTypeInt64)
 	requireBadUserInput(t, err)
+}
+
+func TestEncodeMemoFilter(t *testing.T) {
+	hash := strings.Repeat("ab", 32)
+	hashBytes, err := hex.DecodeString(hash)
+	require.NoError(t, err)
+
+	t.Run("nil filter", func(t *testing.T) {
+		got, err := encodeMemoFilter(nil)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	valid := []struct {
+		name   string
+		filter generated.MemoFilter
+		want   data.MemoFilter
+	}{
+		{"text", generated.MemoFilter{Type: generated.MemoTypeText, Value: "hello"}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoText), Value: []byte("hello")}},
+		{"text at the 28-byte limit", generated.MemoFilter{Type: generated.MemoTypeText, Value: strings.Repeat("a", 28)}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoText), Value: []byte(strings.Repeat("a", 28))}},
+		{"id", generated.MemoFilter{Type: generated.MemoTypeID, Value: "258"}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoId), Value: []byte{0, 0, 0, 0, 0, 0, 1, 2}}},
+		{"id max uint64", generated.MemoFilter{Type: generated.MemoTypeID, Value: "18446744073709551615"}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoId), Value: []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}},
+		{"hash", generated.MemoFilter{Type: generated.MemoTypeHash, Value: hash}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoHash), Value: hashBytes}},
+		{"return", generated.MemoFilter{Type: generated.MemoTypeReturn, Value: hash}, data.MemoFilter{Type: int16(xdr.MemoTypeMemoReturn), Value: hashBytes}},
+	}
+	for _, tc := range valid {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := encodeMemoFilter(&tc.filter)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.want, *got)
+		})
+	}
+
+	invalid := []struct {
+		name   string
+		filter generated.MemoFilter
+	}{
+		{"text over 28 bytes", generated.MemoFilter{Type: generated.MemoTypeText, Value: strings.Repeat("a", 29)}},
+		{"id not a number", generated.MemoFilter{Type: generated.MemoTypeID, Value: "abc"}},
+		{"id negative", generated.MemoFilter{Type: generated.MemoTypeID, Value: "-1"}},
+		{"id overflows uint64", generated.MemoFilter{Type: generated.MemoTypeID, Value: "18446744073709551616"}},
+		{"hash too short", generated.MemoFilter{Type: generated.MemoTypeHash, Value: "abcd"}},
+		{"hash not hex", generated.MemoFilter{Type: generated.MemoTypeHash, Value: strings.Repeat("zz", 32)}},
+		{"return too long", generated.MemoFilter{Type: generated.MemoTypeReturn, Value: hash + "00"}},
+		{"none", generated.MemoFilter{Type: generated.MemoTypeNone, Value: ""}},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := encodeMemoFilter(&tc.filter)
+			require.Error(t, err)
+			assert.Nil(t, got)
+			var gqlErr *gqlerror.Error
+			require.ErrorAs(t, err, &gqlErr)
+			assert.Equal(t, "BAD_USER_INPUT", gqlErr.Extensions["code"])
+		})
+	}
 }

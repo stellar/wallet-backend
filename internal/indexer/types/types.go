@@ -566,6 +566,10 @@ type Transaction struct {
 	LedgerCreatedAt time.Time `json:"ledgerCreatedAt,omitempty" db:"ledger_created_at"`
 	IsFeeBump       bool      `json:"isFeeBump,omitempty" db:"is_fee_bump"`
 	IngestedAt      time.Time `json:"ingestedAt,omitempty" db:"ingested_at"`
+	// MemoType is the XDR MemoType discriminant and Memo the raw memo value bytes (see
+	// utils.EncodeMemo). Both nil on a row the transactions-memo data migration has not reached yet.
+	MemoType *int16 `json:"memoType,omitempty" db:"memo_type"`
+	Memo     []byte `json:"memo,omitempty" db:"memo"`
 	// Relationships:
 	Operations   []Operation   `json:"operations,omitempty"`
 	Accounts     []Account     `json:"accounts,omitempty"`

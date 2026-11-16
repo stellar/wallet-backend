@@ -14,6 +14,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // PoolIDToString converts a pool ID to its string representation
@@ -218,6 +219,7 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transacti
 
 	ledgerSequence := transaction.Ledger.LedgerSequence()
 	transactionID := toid.New(int32(ledgerSequence), int32(transaction.Index), 0).ToInt64()
+	memoType, memo := utils.EncodeMemo(transaction.Envelope.Memo())
 
 	return &types.Transaction{
 		ToID:                 transactionID,
@@ -227,6 +229,8 @@ func ConvertTransaction(transaction *ingest.LedgerTransaction) (*types.Transacti
 		ResultCode:           transaction.ResultCode(),
 		LedgerNumber:         ledgerSequence,
 		IsFeeBump:            transaction.Envelope.IsFeeBump(),
+		MemoType:             &memoType,
+		Memo:                 memo,
 		InnerTransactionHash: innerTxHash,
 	}, nil
 }

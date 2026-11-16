@@ -1,4 +1,4 @@
-# Protocols and data migrations
+# Protocols and protocol migrations
 
 For contributors adding a protocol and operators running a protocol migration. After reading it you can tell how wallet-backend recognizes a protocol's contracts, how it turns their activity into rows, and how a migration fills in history for a protocol added after ingestion started.
 
@@ -10,7 +10,7 @@ For contributors adding a protocol and operators running a protocol migration. A
 - [Processing](#processing)
   - [Processor contract](#processor-contract)
   - [ProtocolDeps](#protocoldeps)
-- [Data migrations](#data-migrations)
+- [Protocol migrations](#protocol-migrations)
   - [How a run proceeds](#how-a-run-proceeds)
   - [Handoff with live ingestion](#handoff-with-live-ingestion)
   - [Rebuild](#rebuild)
@@ -133,9 +133,9 @@ Factories receive one `ProtocolDeps` value. Adding a protocol needs no extra wir
 | `ContractMetadataService` | Runs read-only contract calls through RPC simulation. Nil in `protocol-migrate` when no `--rpc-url` is set. |
 | `MetricsService` | The Prometheus metrics. |
 
-## Data migrations
+## Protocol migrations
 
-A protocol added after ingestion started has no rows for the ledgers already ingested. A data migration replays those ledgers through the protocol's processor. Two migrations exist, one per cursor:
+A protocol added after ingestion started has no rows for the ledgers already ingested. A protocol migration replays those ledgers through the protocol's processor. Two migrations exist, one per cursor:
 
 | Command | Builds | Starts at | Cursor |
 | --- | --- | --- | --- |
@@ -143,6 +143,8 @@ A protocol added after ingestion started has no rows for the ledgers already ing
 | `protocol-migrate current-state` | The protocol's current-state tables, such as balances | `--start-ledger`, required | `protocol_<id>_current_state_cursor` |
 
 Current state is a running total of deltas. A current-state migration must start at or before the first ledger that touched any of the protocol's contracts, or the totals are wrong.
+
+A fix to history rows that are not protocol state goes through `data-migrate` instead. See [data migrations](../deploy/data-migrations.md).
 
 Order of operations:
 
