@@ -565,7 +565,6 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			// Backfill-specific configuration
 			"INGESTION_MODE":          "backfill",
 			"START_LEDGER":            fmt.Sprintf("%d", startLedger),
-			"END_LEDGER":              fmt.Sprintf("%d", endLedger),
 			"CLIENT_AUTH_PUBLIC_KEYS": s.clientAuthKeyPair.Address(),
 		},
 		Networks: []string{s.TestNetwork.Name},

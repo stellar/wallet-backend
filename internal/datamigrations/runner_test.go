@@ -3,11 +3,13 @@ package datamigrations
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -22,6 +24,7 @@ import (
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
+	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
 	"github.com/stellar/wallet-backend/internal/utils"
 )
@@ -206,7 +209,7 @@ func (f *runnerFixture) chunkCompressed(t *testing.T, ctx context.Context, close
 	err := f.pool.QueryRow(ctx, `
 		SELECT i.is_compressed, (c.status & 8) <> 0
 		FROM timescaledb_information.chunks i
-		JOIN _timescaledb_catalog.chunk c ON c.schema_name = i.chunk_schema AND c.table_name = i.chunk_name
+		JOIN _timescaledb_catalog.chunk c ON c.relid = format('%I.%I', i.chunk_schema, i.chunk_name)::regclass
 		WHERE i.hypertable_name = 'transactions' AND i.range_start <= $1 AND i.range_end > $1`, closedAt).Scan(&compressed, &partial)
 	require.NoError(t, err)
 	return compressed && !partial
@@ -269,6 +272,96 @@ func TestRunner_FillsHistoryNewestFirstAndRecompresses(t *testing.T) {
 	assert.Equal(t, 5, f.factoryCalls, "one preflight read, then 12 ledgers in slices of 3")
 	assert.Equal(t, float64(f.oldest), testutil.ToFloat64(f.metrics.Cursor.WithLabelValues(memoMigration)))
 	assert.True(t, f.chunkCompressed(t, ctx, f.day1), "the rewritten compressed chunk is compressed again")
+	assert.False(t, f.chunkCompressed(t, ctx, f.day2), "the live chunk is left uncompressed")
+}
+
+// TestRunner_RewritesAttachedBackfillChunks extends the fixture with an older day built the
+// way backfill builds history: rows without memos copied into a staging table in the
+// backfill schema, attached as a transactions chunk, then compressed. The walk crosses
+// from the fixture's ordinary chunks into the attached one.
+func TestRunner_RewritesAttachedBackfillChunks(t *testing.T) {
+	ctx := context.Background()
+	withRunnerSizes(t, 3, 2)
+	f := newRunnerFixture(t, ctx)
+
+	const attachedOldest, attachedLatest uint32 = 90, 99
+	dayStart := time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC)
+	dayEnd := dayStart.Add(24 * time.Hour)
+	var hash xdr.Hash
+	for i := range hash {
+		hash[i] = byte(255 - i)
+	}
+	memosByLedger := func(seq uint32) []xdr.Memo {
+		switch seq % 5 {
+		case 0:
+			return []xdr.Memo{xdr.MemoText(fmt.Sprintf("attached %d", seq)), {Type: xdr.MemoTypeMemoNone}}
+		case 1:
+			return []xdr.Memo{xdr.MemoID(uint64(seq) << 40)}
+		case 2:
+			return []xdr.Memo{xdr.MemoHash(hash), xdr.MemoRetHash(hash)}
+		case 3:
+			return []xdr.Memo{{Type: xdr.MemoTypeMemoNone}}
+		default:
+			return nil // an empty ledger
+		}
+	}
+
+	var txs []*types.Transaction
+	for seq := attachedOldest; seq <= attachedLatest; seq++ {
+		closedAt := dayStart.Add(12*time.Hour + time.Duration(seq-attachedOldest)*time.Minute)
+		memos := memosByLedger(seq)
+		f.ledgers[seq] = memoLedger(t, seq, closedAt, memos...)
+		for i, memo := range memos {
+			toID := toid.New(int32(seq), int32(i+1), 0).ToInt64()
+			var h [32]byte
+			_, err := rand.Read(h[:])
+			require.NoError(t, err)
+			txs = append(txs, &types.Transaction{
+				Hash: types.HashBytea(hex.EncodeToString(h[:])), ToID: toID, FeeCharged: 100,
+				ResultCode: "TransactionResultCodeTxSuccess", LedgerNumber: seq, LedgerCreatedAt: closedAt,
+			})
+			mt, mv := utils.EncodeMemo(memo)
+			f.want[toID] = data.TransactionMemo{ToID: toID, LedgerCreatedAt: closedAt, MemoType: mt, Memo: mv}
+		}
+	}
+
+	// Stage, fill and attach the day as backfill does, then compress it as the backfill
+	// compressor does.
+	require.NoError(t, f.models.IngestStore.CreateStagingTables(ctx, dayStart))
+	copyRows, err := data.BuildTransactionCopyRows(txs)
+	require.NoError(t, err)
+	relation := data.StagingRelation("transactions", dayStart)
+	require.NoError(t, pgx.BeginFunc(ctx, f.pool, func(tx pgx.Tx) error {
+		_, copyErr := f.models.Transactions.CopyRowsInto(ctx, tx, relation, copyRows)
+		return copyErr
+	}))
+	require.NoError(t, pgx.BeginFunc(ctx, f.pool, func(tx pgx.Tx) error {
+		return data.AttachChunk(ctx, tx, "transactions", dayStart, dayEnd)
+	}))
+	require.NoError(t, data.CompressChunk(ctx, f.pool, relation.Sanitize()))
+	require.True(t, f.chunkCompressed(t, ctx, dayStart), "the attached chunk should start compressed")
+	_, err = f.pool.Exec(ctx, `UPDATE ingest_store SET value = $2 WHERE key = $1`, data.OldestLedgerCursorName, fmt.Sprint(attachedOldest))
+	require.NoError(t, err)
+	for toID, got := range f.memos(t, ctx) {
+		require.Equal(t, int16(-1), got.MemoType, "row %d starts without a memo", toID)
+	}
+
+	require.NoError(t, f.runner.Run(ctx, memoMigration))
+
+	assert.Equal(t, f.want, f.memos(t, ctx), "every row in every chunk carries the memo its ledger says")
+	row := f.row(t, ctx)
+	assert.Equal(t, data.DataMigrationDone, row.Status)
+	assert.Equal(t, attachedOldest, row.CursorLedger)
+	assert.Nil(t, row.LastError)
+
+	var chunkSchema, chunkName string
+	require.NoError(t, f.pool.QueryRow(ctx, `
+		SELECT chunk_schema, chunk_name FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'transactions' AND range_start = $1 AND range_end = $2`, dayStart, dayEnd).Scan(&chunkSchema, &chunkName))
+	assert.Equal(t, data.BackfillStagingSchema, chunkSchema, "the attached chunk stays in the backfill schema")
+	assert.Equal(t, data.StagingTableName("transactions", dayStart), chunkName)
+	assert.True(t, f.chunkCompressed(t, ctx, dayStart), "the attached chunk is compressed again with the partial bit clear")
+	assert.True(t, f.chunkCompressed(t, ctx, f.day1), "the ordinary compressed chunk is compressed again")
 	assert.False(t, f.chunkCompressed(t, ctx, f.day2), "the live chunk is left uncompressed")
 }
 
