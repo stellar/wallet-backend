@@ -23,6 +23,8 @@ var (
 	flushLedgers  uint32 = 1_000
 	sliceAttempts        = 3
 	retryWait            = 10 * time.Second
+	// reindexWait is how long the last recompressed chunks wait for their index rebuild.
+	reindexWait = 30 * time.Second
 )
 
 // ErrNotRecorded means the live ingester has not recorded the migration yet, so its
@@ -127,6 +129,12 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	}
 	log.Ctx(ctx).Infof("data migration %s: rewriting ledgers [%d, %d] newest-first, %d compressed chunks to recompress", name, floor, cursor-1, len(compressed))
 
+	// Chunks recompressed after the previous slice. Their indexes are rebuilt one slice
+	// later: a rebuild still indexes rows deleted after the oldest snapshot anyone holds,
+	// and a standby reports its snapshot only every few seconds, so a rebuild straight
+	// after recompression keeps most of what it should drop.
+	var toReindex []string
+
 	for cursor > floor {
 		hi := cursor - 1
 		lo := floor
@@ -142,10 +150,13 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 		r.Metrics.Cursor.WithLabelValues(name).Set(float64(lo))
 		log.Ctx(ctx).Infof("data migration %s: ledgers [%d, %d] done in %s", name, lo, hi, time.Since(start).Round(time.Millisecond))
 
+		r.reindex(ctx, toReindex)
+		toReindex = toReindex[:0]
 		for len(compressed) > 0 && !compressed[0].RangeStart.Before(loClosedAt) {
-			if err := r.recompress(ctx, compressed[0].Name); err != nil {
+			if err := data.CompressChunk(ctx, r.Models.DB, compressed[0].Name); err != nil {
 				return fmt.Errorf("recompressing a chunk the walk has passed: %w", err)
 			}
+			toReindex = append(toReindex, compressed[0].Name)
 			compressed = compressed[1:]
 		}
 
@@ -160,9 +171,18 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	// The chunk holding the oldest ledger starts before any slice's lowest close time, so
 	// it is recompressed here.
 	for _, c := range compressed {
-		if err := r.recompress(ctx, c.Name); err != nil {
+		if err := data.CompressChunk(ctx, r.Models.DB, c.Name); err != nil {
 			return fmt.Errorf("recompressing the remaining chunks: %w", err)
 		}
+		toReindex = append(toReindex, c.Name)
+	}
+	if len(toReindex) > 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("data migration %s interrupted before its last index rebuilds: %w", name, ctx.Err())
+		case <-time.After(reindexWait):
+		}
+		r.reindex(ctx, toReindex)
 	}
 	if err := r.Models.DataMigrations.MarkDone(ctx, name); err != nil {
 		return fmt.Errorf("recording completion: %w", err)
@@ -171,21 +191,15 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	return nil
 }
 
-// recompress folds the rows the walk left in a chunk's rowstore back into the columnstore,
-// then rebuilds the chunk's indexes, which the rewritten rows grew and recompression does
-// not shrink. A rebuild that cannot take its lock is logged and skipped: it only costs
-// disk, and the walk goes on.
-func (r *Runner) recompress(ctx context.Context, chunk string) error {
-	if err := data.CompressChunk(ctx, r.Models.DB, chunk); err != nil {
-		return fmt.Errorf("compressing: %w", err)
-	}
-	if err := data.ReindexChunk(ctx, r.Models.DB, chunk); err != nil {
-		if ctx.Err() != nil {
-			return fmt.Errorf("reindexing: %w", err)
+// reindex rebuilds the indexes of chunks the walk rewrote and recompressed. The rewritten
+// rows grew them and recompression does not shrink them. A rebuild that fails, for
+// example because it cannot take its lock, is logged and skipped: it only costs disk.
+func (r *Runner) reindex(ctx context.Context, chunks []string) {
+	for _, chunk := range chunks {
+		if err := data.ReindexChunk(ctx, r.Models.DB, chunk); err != nil {
+			log.Ctx(ctx).Warnf("data migration: %v; its indexes keep their grown size", err)
 		}
-		log.Ctx(ctx).Warnf("data migration: %v; its indexes keep their grown size", err)
 	}
-	return nil
 }
 
 // runSlice rewrites ledgers [lo, hi] and moves the cursor to lo, trying up to
