@@ -418,7 +418,8 @@ type TransactionMemo struct {
 // compressed chunks: TimescaleDB decompresses only the batches the UPDATE touches, and
 // the per-transaction decompression limit (100k tuples by default) is lifted on the
 // transaction because one call rewrites up to a thousand ledgers. The partition-column
-// bounds prune chunks whether compressed or not.
+// bounds prune chunks whether compressed or not, which needs a plan built from their
+// values, so the transaction also rules out a cached generic plan.
 func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, rows []TransactionMemo) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
@@ -447,6 +448,12 @@ func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, row
 	err := func() error {
 		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
 			return fmt.Errorf("lifting the DML decompression limit: %w", execErr)
+		}
+		// The connection caches this statement, and from its sixth execution PostgreSQL
+		// may run a cached statement with a generic plan. A generic plan has no values
+		// to exclude chunks with, so it targets every chunk of the hypertable.
+		if _, execErr := dbTx.Exec(ctx, "SET LOCAL plan_cache_mode = force_custom_plan"); execErr != nil {
+			return fmt.Errorf("requiring a plan built from the values: %w", execErr)
 		}
 		tag, execErr := dbTx.Exec(ctx, query, toIDs, memoTypes, memos, from, to)
 		if execErr != nil {
