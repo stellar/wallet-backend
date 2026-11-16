@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/log"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/db"
@@ -40,10 +41,11 @@ func lockID() int {
 //
 // The walk is newest-first in slices, so recent history is rewritten first. Each slice
 // reads one bounded range through a fresh backend (the SDK backends accept a single
-// PrepareRange), applies its rows every flushLedgers ledgers to bound memory, and moves
-// the cursor in the transaction of the slice's last apply. An interrupted run therefore
-// redoes at most one slice. A compressed chunk is recompressed once the walk has passed
-// it, so at most about one chunk per table holds decompressed rows at a time.
+// PrepareRange), applies its rows every flushLedgers ledgers to bound memory, reading the
+// next batch while one is written, and moves the cursor in the transaction of the slice's
+// last apply. An interrupted run therefore redoes at most one slice. A compressed chunk
+// is recompressed once the walk has passed it, so at most about one chunk per table holds
+// decompressed rows at a time.
 //
 // Live ingestion only writes ledgers from the boundary on and the walk only writes
 // ledgers below it, so the two need no coordination.
@@ -214,6 +216,11 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 // readLedgers reads ledgers [lo, hi] through a fresh bounded backend and hands the
 // extracted rows to flush every flushLedgers ledgers; last is true on the final call. A
 // nil flush only checks that the range can be read. It returns lo's close time.
+//
+// Reading and writing overlap: while flush writes one batch, the next is read and
+// extracted. flush calls never overlap each other, so the database still sees one
+// writer. At most three batches are in memory: one being written, one waiting, one
+// being read.
 func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi uint32, flush func(rows []any, last bool) error) (time.Time, error) {
 	backend, err := r.BackendFactory(ctx)
 	if err != nil {
@@ -224,40 +231,66 @@ func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi ui
 		return time.Time{}, fmt.Errorf("preparing ledger range: %w", err)
 	}
 
-	var (
-		loClosedAt time.Time
-		rows       []any
-		flushFrom  = lo
-	)
-	// seq stops at hi by an explicit break: seq <= hi never ends when hi is MaxUint32.
-	for seq := lo; ; seq++ {
-		meta, err := backend.GetLedger(ctx, seq)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("fetching ledger %d: %w", seq, err)
-		}
-		if seq == lo {
-			loClosedAt = meta.ClosedAt()
-		}
-		if flush == nil {
-			break
-		}
-		extracted, err := migration.Extract(ctx, r.Deps, meta)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("extracting ledger %d: %w", seq, err)
-		}
-		rows = append(rows, extracted...)
+	type batch struct {
+		rows     []any
+		from, to uint32
+		last     bool
+	}
+	batches := make(chan batch, 1)
+	group, groupCtx := errgroup.WithContext(ctx)
 
-		last := seq == hi
-		if last || seq-flushFrom+1 >= flushLedgers {
-			if err := flush(rows, last); err != nil {
-				return time.Time{}, fmt.Errorf("writing ledgers [%d, %d]: %w", flushFrom, seq, err)
+	var loClosedAt time.Time
+	group.Go(func() error {
+		defer close(batches)
+		var rows []any
+		flushFrom := lo
+		// seq stops at hi by an explicit return: seq <= hi never ends when hi is MaxUint32.
+		for seq := lo; ; seq++ {
+			meta, err := backend.GetLedger(groupCtx, seq)
+			if err != nil {
+				return fmt.Errorf("fetching ledger %d: %w", seq, err)
 			}
-			rows = rows[:0]
-			flushFrom = seq + 1
+			if seq == lo {
+				loClosedAt = meta.ClosedAt()
+			}
+			if flush == nil {
+				return nil
+			}
+			extracted, err := migration.Extract(groupCtx, r.Deps, meta)
+			if err != nil {
+				return fmt.Errorf("extracting ledger %d: %w", seq, err)
+			}
+			rows = append(rows, extracted...)
+
+			last := seq == hi
+			if last || seq-flushFrom+1 >= flushLedgers {
+				select {
+				case batches <- batch{rows: rows, from: flushFrom, to: seq, last: last}:
+				case <-groupCtx.Done():
+					return groupCtx.Err()
+				}
+				rows = nil
+				flushFrom = seq + 1
+			}
+			if last {
+				return nil
+			}
 		}
-		if last {
-			break
+	})
+	group.Go(func() error {
+		for b := range batches {
+			// A failed read ends the slice; nothing more of it is written.
+			if groupCtx.Err() != nil {
+				return groupCtx.Err()
+			}
+			if err := flush(b.rows, b.last); err != nil {
+				return fmt.Errorf("writing ledgers [%d, %d]: %w", b.from, b.to, err)
+			}
 		}
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		return time.Time{}, fmt.Errorf("reading and writing ledgers [%d, %d]: %w", lo, hi, err)
 	}
 	return loClosedAt, nil
 }
