@@ -799,6 +799,7 @@ func TestBuildAccountLinkCopyRows(t *testing.T) {
 		_, err := BuildTransactionAccountCopyRows(txs, map[int64]map[string]struct{}{7: {"not-a-strkey": {}}})
 		require.ErrorContains(t, err, "converting address not-a-strkey to bytes")
 	})
+}
 
 // A data migration runs BatchUpdateMemo once per flush, for days, on pooled connections
 // that cache the prepared statement. From its sixth execution PostgreSQL may switch a
