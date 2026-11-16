@@ -204,8 +204,12 @@ func Test_ReindexChunk_ReclaimsIndexesLeftByRecompression(t *testing.T) {
 	before := indexBytes()
 	require.Greater(t, before, int64(256*1024), "recompression left the chunk's indexes grown")
 
-	require.NoError(t, ReindexChunk(ctx, pool, chunk))
-	assert.Less(t, indexBytes(), before/4)
+	// A rebuild still indexes rows deleted after the oldest open snapshot began, so one
+	// that overlaps a background transaction reclaims less; the next one reclaims the rest.
+	require.Eventually(t, func() bool {
+		require.NoError(t, ReindexChunk(ctx, pool, chunk))
+		return indexBytes() < before/4
+	}, 30*time.Second, 200*time.Millisecond)
 
 	var withMemo int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM transactions WHERE memo_type = 0`).Scan(&withMemo))
