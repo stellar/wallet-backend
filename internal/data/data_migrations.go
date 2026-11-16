@@ -150,9 +150,10 @@ func CompressChunk(ctx context.Context, q db.Querier, chunk string) error {
 // ReindexChunk rebuilds the chunk's own indexes. Rows updated in a compressed chunk pass
 // through its rowstore and grow those indexes; recompression empties the rowstore but
 // leaves the index files at their grown size. Rebuilding them over the empty rowstore
-// gives the space back. The rebuild briefly locks the chunk's indexes, so it gives up
-// after a short wait rather than queue behind a long reader. A chunk that no longer
-// exists is a no-op.
+// gives the space back, except for rows deleted after the oldest open transaction began,
+// which a rebuild still indexes. The rebuild briefly locks the chunk's indexes, so it
+// gives up after a short wait rather than queue behind a long reader. A chunk that no
+// longer exists is a no-op.
 func ReindexChunk(ctx context.Context, pool *pgxpool.Pool, chunk string) error {
 	err := db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
 		// The regclass renders as a quoted, schema-qualified name.
