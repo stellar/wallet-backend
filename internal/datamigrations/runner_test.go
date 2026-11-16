@@ -249,9 +249,11 @@ func (f *runnerFixture) row(t *testing.T, ctx context.Context) *data.DataMigrati
 
 func withRunnerSizes(t *testing.T, slice, flush uint32) {
 	t.Helper()
-	prevSlice, prevFlush, prevWait := sliceLedgers, flushLedgers, retryWait
-	sliceLedgers, flushLedgers, retryWait = slice, flush, 10*time.Millisecond
-	t.Cleanup(func() { sliceLedgers, flushLedgers, retryWait = prevSlice, prevFlush, prevWait })
+	prevSlice, prevFlush, prevWait, prevReindexWait := sliceLedgers, flushLedgers, retryWait, reindexWait
+	sliceLedgers, flushLedgers, retryWait, reindexWait = slice, flush, 10*time.Millisecond, 0
+	t.Cleanup(func() {
+		sliceLedgers, flushLedgers, retryWait, reindexWait = prevSlice, prevFlush, prevWait, prevReindexWait
+	})
 }
 
 func TestRunner_FillsHistoryNewestFirstAndRecompresses(t *testing.T) {
