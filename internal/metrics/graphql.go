@@ -44,6 +44,17 @@ type GraphQLMetrics struct {
 	// Produces zero series until deprecated fields exist — no cardinality overhead until then.
 	// Labels: operation_name, field_name.
 	DeprecatedFieldsTotal *prometheus.CounterVec
+
+	// FieldUsageTotal counts the fields each operation selects, at every depth.
+	// A field path counts once per operation, however many items a list returns.
+	// Labels: field_path (dotted schema field names, e.g. "accountByAddress.transactions.edges.node.hash").
+	FieldUsageTotal *prometheus.CounterVec
+
+	// ArgumentUsageTotal counts the arguments each operation supplies, once per operation.
+	// Input object sub-fields use a dotted name (e.g. "filter.category"). The value label
+	// holds an enum value, a page-size or time-range bucket, or "set"; never a raw value.
+	// Labels: field_path, argument, value.
+	ArgumentUsageTotal *prometheus.CounterVec
 }
 
 // NewGraphQLMetrics creates and registers all GraphQL Prometheus collectors.
@@ -80,10 +91,19 @@ func NewGraphQLMetrics(reg prometheus.Registerer) *GraphQLMetrics {
 			Name: "wallet_graphql_deprecated_fields_total",
 			Help: "Total number of deprecated GraphQL field accesses.",
 		}, []string{"operation_name", "field_name"}),
+		FieldUsageTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_graphql_field_usage_total",
+			Help: "Total number of GraphQL operations that selected each field path.",
+		}, []string{"field_path"}),
+		ArgumentUsageTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "wallet_graphql_argument_usage_total",
+			Help: "Total number of GraphQL operations that supplied each argument.",
+		}, []string{"field_path", "argument", "value"}),
 	}
 	reg.MustRegister(
 		m.OperationDuration, m.OperationsTotal, m.InFlightOperations,
 		m.ResponseSize, m.Complexity, m.ErrorsTotal, m.DeprecatedFieldsTotal,
+		m.FieldUsageTotal, m.ArgumentUsageTotal,
 	)
 	return m
 }

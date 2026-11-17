@@ -300,6 +300,10 @@ func handler(deps handlerDeps) http.Handler {
 			srv.SetErrorPresenter(graphqlutils.CustomErrorPresenter)
 			srv.Use(graphqlutils.DepthLimit{MaxDepth: graphqlutils.MaxQueryDepth})
 			srv.Use(extension.FixedComplexityLimit(deps.GraphQLComplexityLimit))
+			// Field and argument usage counters. Registered after the depth and complexity
+			// limits: gqlgen runs these hooks in order and stops at the first error, so
+			// operations those limits reject are not counted.
+			srv.Use(middleware.NewGraphQLUsageMetrics(deps.Metrics.GraphQL))
 
 			// Add complexity logging - reports all queries with their complexity values
 			reporter := middleware.NewComplexityLogger(deps.Metrics.GraphQL)
