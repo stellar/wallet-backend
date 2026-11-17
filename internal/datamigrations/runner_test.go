@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,7 +108,9 @@ type runnerFixture struct {
 	ledgers map[uint32]xdr.LedgerCloseMeta
 	// want maps to_id to the expected (memo_type, memo) after the migration.
 	want map[int64]data.TransactionMemo
-	// factoryCalls counts backends created: one for the preflight read, one per slice attempt.
+	// factoryCalls counts backends created: one for the preflight read, one per lane of
+	// each slice attempt. factoryMu guards it: lanes create their backends concurrently.
+	factoryMu    sync.Mutex
 	factoryCalls int
 	// onFactory, when set, runs on every backend creation with the call count.
 	onFactory func(calls int)
@@ -191,6 +194,8 @@ func newRunnerFixture(t *testing.T, ctx context.Context) *runnerFixture {
 		Deps:    Deps{Models: models, NetworkPassphrase: network.TestNetworkPassphrase, Pool: workers},
 		Metrics: m.DataMigration,
 		BackendFactory: func(context.Context) (ledgerbackend.LedgerBackend, error) {
+			f.factoryMu.Lock()
+			defer f.factoryMu.Unlock()
 			f.factoryCalls++
 			if f.onFactory != nil {
 				f.onFactory(f.factoryCalls)
@@ -539,4 +544,24 @@ func TestRunner_DoesNotRun(t *testing.T) {
 			assert.Nil(t, row.StartedAt)
 		})
 	}
+}
+
+// Lanes of one slice rewrite the same compressed chunk at the same time.
+func TestRunner_WorkersRewriteASliceInLanes(t *testing.T) {
+	ctx := context.Background()
+	withRunnerSizes(t, 2, 1) // with three workers: slices of six ledgers, three lanes of two
+	f := newRunnerFixture(t, ctx)
+	f.runner.Workers = 3
+
+	require.NoError(t, f.runner.Run(ctx, memoMigration))
+
+	assert.Equal(t, f.want, f.memos(t, ctx), "every row carries the memo its ledger says")
+	row, err := f.models.DataMigrations.Get(ctx, memoMigration)
+	require.NoError(t, err)
+	assert.Equal(t, data.DataMigrationDone, row.Status)
+	assert.Equal(t, f.oldest, row.CursorLedger)
+	assert.Nil(t, row.LastError)
+	// Twelve ledgers in two slices of six, three lanes each, after the preflight read.
+	assert.Equal(t, 7, f.factoryCalls)
+	assert.True(t, f.chunkCompressed(t, ctx, f.day1), "the compressed chunk is fully recompressed")
 }

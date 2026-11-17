@@ -41,13 +41,13 @@ func lockID() int {
 
 // Runner walks one migration over the ledgers below its boundary.
 //
-// The walk is newest-first in slices, so recent history is rewritten first. Each slice
-// reads one bounded range through a fresh backend (the SDK backends accept a single
-// PrepareRange), applies its rows every flushLedgers ledgers to bound memory, reading the
-// next batch while one is written, and moves the cursor in the transaction of the slice's
-// last apply. An interrupted run therefore redoes at most one slice. A compressed chunk
-// is recompressed once the walk has passed it, so at most about one chunk per table holds
-// decompressed rows at a time.
+// The walk is newest-first in slices, so recent history is rewritten first. A slice is
+// split into Workers lanes, each rewritten on its own. A lane reads one bounded range
+// through a fresh backend (the SDK backends accept a single PrepareRange) and applies its
+// rows every flushLedgers ledgers to bound memory, reading the next batch while one is
+// written. The cursor moves once the whole slice has committed, so an interrupted run
+// redoes at most one slice. A compressed chunk is recompressed once the walk has passed
+// it, so only the chunks of about one slice hold decompressed rows at a time.
 //
 // Live ingestion only writes ledgers from the boundary on and the walk only writes
 // ledgers below it, so the two need no coordination.
@@ -56,6 +56,10 @@ type Runner struct {
 	// BackendFactory returns a new ledger backend for one bounded range.
 	BackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
 	Metrics        *metrics.DataMigrationMetrics
+	// Workers is how many lanes rewrite a slice at once; below 1 means 1. Each lane
+	// reads and writes its own part of the slice, so the load on the ledger source and
+	// on the database grows with it.
+	Workers int
 }
 
 // Run walks the named migration to completion. It returns nil when the migration is done
@@ -138,8 +142,9 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	for cursor > floor {
 		hi := cursor - 1
 		lo := floor
-		if cursor-floor > sliceLedgers {
-			lo = cursor - sliceLedgers
+		// A slice gives every lane sliceLedgers ledgers.
+		if span := sliceLedgers * uint32(r.lanes()); cursor-floor > span {
+			lo = cursor - span
 		}
 
 		start := time.Now()
@@ -202,6 +207,11 @@ func (r *Runner) reindex(ctx context.Context, chunks []string) {
 	}
 }
 
+// lanes is the number of lanes a slice is split into.
+func (r *Runner) lanes() int {
+	return max(r.Workers, 1)
+}
+
 // runSlice rewrites ledgers [lo, hi] and moves the cursor to lo, trying up to
 // sliceAttempts times. After the last failure it records the error on the migration's
 // row. It returns lo's close time, the lowest ledger_created_at written.
@@ -210,17 +220,7 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 	var err error
 	for attempt := 1; attempt <= sliceAttempts; attempt++ {
 		var loClosedAt time.Time
-		loClosedAt, err = r.readLedgers(ctx, migration, lo, hi, func(rows []any, last bool) error {
-			return db.RunInTransaction(ctx, r.Models.DB, func(dbTx pgx.Tx) error {
-				if applyErr := migration.Apply(ctx, r.Deps, dbTx, rows); applyErr != nil {
-					return fmt.Errorf("applying rows: %w", applyErr)
-				}
-				if !last {
-					return nil
-				}
-				return r.Models.DataMigrations.Advance(ctx, dbTx, name, lo)
-			})
-		})
+		loClosedAt, err = r.rewriteSlice(ctx, migration, lo, hi)
 		if err == nil {
 			return loClosedAt, nil
 		}
@@ -242,6 +242,50 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 		log.Ctx(ctx).Errorf("%v", setErr)
 	}
 	return time.Time{}, err
+}
+
+// rewriteSlice splits ledgers [lo, hi] into contiguous lanes, rewrites the lanes at the
+// same time, and moves the cursor to lo once every lane has committed. A lane that fails
+// stops the others; the cursor stays, so the next attempt redoes the whole slice. It
+// returns lo's close time.
+func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi uint32) (time.Time, error) {
+	apply := func(rows []any, _ bool) error {
+		return db.RunInTransaction(ctx, r.Models.DB, func(dbTx pgx.Tx) error {
+			if err := migration.Apply(ctx, r.Deps, dbTx, rows); err != nil {
+				return fmt.Errorf("applying rows: %w", err)
+			}
+			return nil
+		})
+	}
+
+	// uint64: hi-lo+1 overflows uint32 when the slice is the whole ledger range.
+	ledgers := uint64(hi-lo) + 1
+	lanes := min(uint64(r.lanes()), ledgers)
+	perLane := (ledgers + lanes - 1) / lanes
+
+	var loClosedAt time.Time
+	group, groupCtx := errgroup.WithContext(ctx)
+	for laneLo := uint64(lo); laneLo <= uint64(hi); laneLo += perLane {
+		from, to := uint32(laneLo), uint32(min(laneLo+perLane-1, uint64(hi)))
+		group.Go(func() error {
+			closedAt, err := r.readLedgers(groupCtx, migration, from, to, apply)
+			if from == lo {
+				loClosedAt = closedAt
+			}
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return time.Time{}, err //nolint:wrapcheck // readLedgers names the lane's range
+	}
+
+	err := db.RunInTransaction(ctx, r.Models.DB, func(dbTx pgx.Tx) error {
+		return r.Models.DataMigrations.Advance(ctx, dbTx, migration.Name(), lo)
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("moving the cursor: %w", err)
+	}
+	return loClosedAt, nil
 }
 
 // readLedgers reads ledgers [lo, hi] through a fresh bounded backend and hands the

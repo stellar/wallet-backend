@@ -195,6 +195,7 @@ Rewrites history rows ingested before a release changed them. See [data migratio
 | `--ledger-backend-type` | `LEDGER_BACKEND_TYPE` | `rpc` | no | `rpc` or `datastore`. Use `datastore` for history older than the RPC retention window |
 | `--get-ledgers-limit` | `GET_LEDGERS_LIMIT` | `10` | no | Ledgers per RPC request. Ignored for `datastore` |
 | `--metrics-port` | no env var | `0` | no | Port for Prometheus `/metrics`. `0` disables it |
+| `--workers` | no env var | `1` | no | Lanes that rewrite history at the same time. Each lane adds one reader on the ledger source and one writer on the database. Must be at least 1 |
 
 `data-migrate status` takes only `--database-url`.
 
