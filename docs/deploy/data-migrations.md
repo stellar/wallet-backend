@@ -8,6 +8,7 @@ For an operator upgrading to a release that changes what wallet-backend writes f
 - [Which command fixes which data](#which-command-fixes-which-data)
 - [Order of operations](#order-of-operations)
 - [data-migrate run](#data-migrate-run)
+- [Protecting live ingestion](#protecting-live-ingestion)
 - [data-migrate status](#data-migrate-status)
 - [Monitoring](#monitoring)
 - [Resuming and failures](#resuming-and-failures)
@@ -103,6 +104,64 @@ data migration <NAME>: ledgers [<LO>, <HI>] done in <DURATION>
 data migration <NAME>: done down to ledger <OLDEST>
 ```
 
+## Protecting live ingestion
+
+The walk writes heavily for its whole run. Scheduled TimescaleDB jobs add a short burst of writes of their own. When a burst meets the walk and autovacuum, the disk can stall and live ingestion slows for several minutes. On a test run on a mainnet-sized database, ingestion slowed for about 11 minutes, with a p99 of 4.4 to 9.8 s per ledger against a 245 ms baseline.
+
+Pause these jobs for the length of the run:
+
+| Job | `proc_name` | Schedule | While paused |
+| --- | --- | --- | --- |
+| Hash table maintenance | `transaction_hashes_maintenance` | `--tx-hash-maintenance-interval`, default `1 day`. One job per `--tx-hash-maintenance-workers` | The lookup table's cleanup and recompression wait |
+| Compression policy on the migrated table | `policy_compression` | TimescaleDB's own schedule, or `--compression-schedule-interval` | The newest closed chunk stays uncompressed |
+
+| When | Do |
+| --- | --- |
+| Before the run | Run the statement below |
+| After any ingester restart during the run | Run it again. The live ingester sets `transaction_hashes_maintenance` back to scheduled when it starts. It leaves the compression policy as it is |
+| After the run | Run it with `scheduled => true` |
+
+```sql
+SELECT alter_job(job_id, scheduled => false)
+FROM timescaledb_information.jobs
+WHERE proc_name = 'transaction_hashes_maintenance'
+   OR (proc_name = 'policy_compression' AND hypertable_name = 'transactions');
+```
+
+`hypertable_name` is the table the migration writes. `transactions-memo` writes `transactions`. This advice follows from the timeline of one observed slowdown. It was not tested in a second run.
+
+### Workers
+
+Live ingestion duration per ledger (`wallet_ingestion_duration_seconds`), measured on a mainnet-sized database with 1-day chunks:
+
+| `--workers` | Median | p99 |
+| --- | --- | --- |
+| No migration | 94 ms | 245 ms |
+| 1 | about 113 ms | about 355 ms |
+| 2 | about 160 ms | about 500 ms |
+
+Start at 1. Raise it one step at a time.
+
+### When to stop
+
+| Metric on the live ingester | Stop when |
+| --- | --- |
+| `wallet_ingestion_lag_ledgers` | It keeps growing |
+| `wallet_ingestion_duration_seconds` | Its p99 stays far above the baseline |
+
+Stop the `data-migrate run` process. A later run continues from the cursor. See [Resuming and failures](#resuming-and-failures).
+
+### Chunk interval
+
+The ingester's `--chunk-interval` (default `1 day`) applies to future chunks only, so one database can hold chunks of different sizes. The run handles any size. The measurements above and these fixed limits of the run come from 1-day chunks:
+
+| Limit | Value |
+| --- | --- |
+| Recompression backlog | 4 × `--workers` chunks. A full backlog holds the walk until a chunk is recompressed |
+| Lock wait for an index rebuild | 5 s |
+
+With a larger interval, expect longer recompression bursts and more temporary disk use. Start with `--workers 1`. Other intervals were not tested.
+
 ## data-migrate status
 
 Prints one line per data migration the binary knows. It takes only `DATABASE_URL`.
@@ -159,6 +218,18 @@ To resume, fix the cause and run the same command again. The run starts from the
 | `ledgers [<LO>, <HI>] failed 3 times: <ERROR>` | `<ERROR>` names the cause, often the ledger source | Fix the cause and run again |
 | `interrupted at ledgers [<LO>, <HI>]` | The process got SIGTERM or an interrupt | Run again |
 | `--rpc-url is required when --ledger-backend-type=rpc` | `RPC_URL` is not set | Set it, or use the `datastore` backend |
+| `data migration: reindexing chunk <CHUNK>: rebuilding indexes: <ERROR>; its indexes keep their grown size`, or no message | The index rebuild after recompression lost its 5 s lock wait, or overlapped an older open snapshot. Either leaves the chunk's indexes large. Only the lock case is logged | Find the chunks with the query below and run `REINDEX TABLE <CHUNK>` on each. It briefly blocks queries on that chunk |
+
+A chunk whose index size is far above the others is one to rebuild. On a test run on a mainnet-sized database, 4 of 1,001 chunks were left at 145 to 216 MB each.
+
+```sql
+SELECT format('%I.%I', chunk_schema, chunk_name) AS chunk,
+       pg_size_pretty(pg_indexes_size(format('%I.%I', chunk_schema, chunk_name)::regclass)) AS index_size
+FROM timescaledb_information.chunks
+WHERE hypertable_name = 'transactions' AND is_compressed
+ORDER BY pg_indexes_size(format('%I.%I', chunk_schema, chunk_name)::regclass) DESC
+LIMIT 20;
+```
 
 ## Where in the code
 

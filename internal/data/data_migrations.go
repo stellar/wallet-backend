@@ -84,8 +84,9 @@ func (m *DataMigrationModel) Start(ctx context.Context, name string) error {
 	return nil
 }
 
-// Advance lowers the cursor inside the transaction that rewrote the rows above it. The
-// cursor never moves up, so a stale writer cannot undo recorded progress.
+// Advance lowers the cursor. The runner calls it in its own transaction once every lane
+// of a slice has committed. The cursor never moves up, so a stale writer cannot undo
+// recorded progress.
 func (m *DataMigrationModel) Advance(ctx context.Context, dbTx pgx.Tx, name string, cursor uint32) error {
 	const query = `UPDATE data_migrations SET cursor_ledger = LEAST(cursor_ledger, $2) WHERE name = $1`
 	if _, err := dbTx.Exec(ctx, query, name, int64(cursor)); err != nil {
