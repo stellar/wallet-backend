@@ -58,6 +58,7 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		getLedgersLimit   int
 		datastore         ingest.DatastoreConfig
 		metricsPort       int
+		workers           int
 	)
 
 	cfgOpts := config.ConfigOptions{
@@ -114,6 +115,9 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if workers < 1 {
+				return fmt.Errorf("--workers must be at least 1, got %d", workers)
+			}
 			name := args[0]
 			if _, ok := datamigrations.Find(name); !ok {
 				names := make([]string, 0, len(datamigrations.All))
@@ -172,6 +176,7 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 					return backend, nil
 				},
 				Metrics: m.DataMigration,
+				Workers: workers,
 			}
 			if err := runner.Run(ctx, name); err != nil {
 				return fmt.Errorf("running data migration %s: %w", name, err)
@@ -184,6 +189,7 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	cmd.Flags().IntVar(&metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
+	cmd.Flags().IntVar(&workers, "workers", 1, "Lanes that rewrite history at the same time. Each adds one reader on the ledger source and one writer on the database.")
 
 	return cmd
 }
