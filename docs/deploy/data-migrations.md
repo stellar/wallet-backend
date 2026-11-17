@@ -69,7 +69,7 @@ Ingestion and the API keep running through all three steps. Rows the walk has no
 
 ## data-migrate run
 
-Rewrites one named migration for every ledger below its boundary. Pass exactly one name. The command takes no tuning flags.
+Rewrites one named migration for every ledger below its boundary. Pass exactly one name. `--workers` is the only tuning flag.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
@@ -79,6 +79,7 @@ Rewrites one named migration for every ledger below its boundary. Pass exactly o
 | `DATASTORE_*` | | Same as `ingest`. `DATASTORE_BUCKET_PATH` is required with `datastore`. See [ledger source](configuration.md#ledger-source) |
 | `GET_LEDGERS_LIMIT` | `10` | RPC backend only |
 | `--metrics-port` | `0` | Port for `/metrics`. `0` turns it off. No environment variable |
+| `--workers` | `1` | Lanes that rewrite history at the same time. Each lane adds one reader on the ledger source and one writer on the database. Raise it one step at a time and watch live ingestion. No environment variable |
 
 A run goes through these steps:
 
@@ -87,9 +88,9 @@ A run goes through these steps:
 | Lock | Takes an advisory lock shared by all data migrations. Only one data migration runs at a time per database. A second `run`, of any name, exits at once with `another data migration is running` |
 | Done check | A migration with status `done` logs `data migration <NAME> is already done` and exits with status 0 |
 | Source check | Reads `oldest_ingest_ledger` from the ledger source before it writes anything. If the source cannot serve it, the run exits. See [Troubleshooting](#troubleshooting) |
-| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
-| Commit | Each slice moves the cursor in the same transaction as its last write |
-| Compressed chunks | Rows in compressed chunks are updated in place. Each chunk compressed before the run is compressed again once the walk has passed it. Expect extra disk I/O and some temporary extra disk use while it runs |
+| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice into lanes and rewrite them at the same time. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
+| Commit | The cursor moves once every lane of the slice has committed, so a stopped run does at most one slice again |
+| Compressed chunks | Rows in compressed chunks are updated in place. Each chunk compressed before the run is compressed again once the walk has passed it, and its indexes are rebuilt one slice later. Expect extra disk I/O and some temporary extra disk use while it runs |
 | Finish | Sets the status to `done` |
 
 Live ingestion writes only ledgers from the boundary on, and the walk writes only ledgers below it. The two never write the same rows.
