@@ -28,6 +28,11 @@ var (
 	reindexWait = 30 * time.Second
 )
 
+// ConnsBesidesLanes is how many pool connections a run holds at once besides one writer
+// per lane: the advisory-lock session, held for the whole run, and the recompressor. The
+// cursor and oldest-ledger reads run between slices, while no lane writes.
+const ConnsBesidesLanes = 2
+
 // errNotRecorded means the live ingester has not recorded the migration yet, so its
 // boundary ledger is unknown.
 var errNotRecorded = errors.New("data migration is not recorded yet: start the upgraded ingester first, then run it again")

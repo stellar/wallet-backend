@@ -80,7 +80,7 @@ Rewrites one named migration for every ledger below its boundary. Pass exactly o
 | `DATASTORE_*` | | Same as `ingest`. `DATASTORE_BUCKET_PATH` is required with `datastore`. See [ledger source](configuration.md#ledger-source) |
 | `GET_LEDGERS_LIMIT` | `10` | RPC backend only |
 | `--metrics-port` | `0` | Port for `/metrics`. `0` turns it off. No environment variable |
-| `--workers` | `1` | Lanes that rewrite history at the same time. Each lane adds one reader on the ledger source and one writer on the database. Raise it one step at a time and watch live ingestion. No environment variable |
+| `--workers` | `1` | Lanes that rewrite history at the same time, from 1 to 10. Each lane adds one reader on the ledger source and one writer on the database. The run's database pool has 12 connections: one per lane, one for the lock, and one for recompression. Raise it one step at a time and watch live ingestion. No environment variable |
 
 A run goes through these steps:
 

@@ -115,8 +115,8 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if workers < 1 {
-				return fmt.Errorf("--workers must be at least 1, got %d", workers)
+			if err := validateDataMigrateWorkers(workers); err != nil {
+				return err
 			}
 			name := args[0]
 			if _, ok := datamigrations.Find(name); !ok {
@@ -189,7 +189,8 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	cmd.Flags().IntVar(&metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
-	cmd.Flags().IntVar(&workers, "workers", 1, "Lanes that rewrite history at the same time. Each adds one reader on the ledger source and one writer on the database.")
+	cmd.Flags().IntVar(&workers, "workers", 1, fmt.Sprintf("Lanes that rewrite history at the same time, from 1 to %d. Each adds one reader on the ledger source and one writer on the database.",
+		int(db.DefaultMaxConns)-datamigrations.ConnsBesidesLanes))
 
 	return cmd
 }
@@ -275,6 +276,21 @@ func (c *dataMigrateCmd) statusCommand() *cobra.Command {
 	}
 
 	return cmd
+}
+
+// validateDataMigrateWorkers checks --workers against the run's database pool, which has
+// db.DefaultMaxConns connections: one writer per lane plus the connections the run holds
+// besides its lanes. A lane beyond that waits for a connection and only adds a reader on
+// the ledger source.
+func validateDataMigrateWorkers(workers int) error {
+	if workers < 1 {
+		return fmt.Errorf("--workers must be at least 1, got %d", workers)
+	}
+	if maxWorkers := int(db.DefaultMaxConns) - datamigrations.ConnsBesidesLanes; workers > maxWorkers {
+		return fmt.Errorf("--workers must be at most %d: the run's database pool has %d connections, one per lane plus %d the run holds, got %d",
+			maxWorkers, db.DefaultMaxConns, datamigrations.ConnsBesidesLanes, workers)
+	}
+	return nil
 }
 
 // formatOptionalTime renders t in RFC 3339, or "-" when it is unset.
