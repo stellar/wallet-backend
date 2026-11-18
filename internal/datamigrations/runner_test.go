@@ -105,8 +105,8 @@ type runnerFixture struct {
 	ledgers map[uint32]xdr.LedgerCloseMeta
 	// want maps to_id to the expected (memo_type, memo) after the migration.
 	want map[int64]data.TransactionMemo
-	// factoryCalls counts backends created: one for the preflight read, one per lane of
-	// each slice attempt. factoryMu guards it: lanes create their backends concurrently.
+	// factoryCalls counts backends created: one for the preflight read, one per worker of
+	// each slice attempt. factoryMu guards it: workers create their backends concurrently.
 	factoryMu    sync.Mutex
 	factoryCalls int
 	// onFactory, when set, runs on every backend creation with the call count.
@@ -473,10 +473,10 @@ func TestRunner_DoesNotRun(t *testing.T) {
 	}
 }
 
-// Lanes of one slice rewrite the same compressed chunk at the same time.
-func TestRunner_WorkersRewriteASliceInLanes(t *testing.T) {
+// Workers of one slice rewrite the same compressed chunk at the same time.
+func TestRunner_WorkersRewriteASliceAtTheSameTime(t *testing.T) {
 	ctx := context.Background()
-	withRunnerSizes(t, 2, 1) // with three workers: slices of six ledgers, three lanes of two
+	withRunnerSizes(t, 2, 1) // with three workers: slices of six ledgers, three ranges of two
 	f := newRunnerFixture(t, ctx)
 	f.runner.Workers = 3
 
@@ -488,7 +488,7 @@ func TestRunner_WorkersRewriteASliceInLanes(t *testing.T) {
 	assert.Equal(t, data.DataMigrationDone, row.Status)
 	assert.Equal(t, f.oldest, row.CursorLedger)
 	assert.Nil(t, row.LastError)
-	// Twelve ledgers in two slices of six, three lanes each, after the preflight read.
+	// Twelve ledgers in two slices of six, three workers each, after the preflight read.
 	assert.Equal(t, 7, f.factoryCalls)
 	assert.True(t, f.chunkCompressed(t, ctx, f.day1), "the compressed chunk is fully recompressed")
 }

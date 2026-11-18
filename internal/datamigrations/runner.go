@@ -28,10 +28,10 @@ var (
 	reindexWait = 30 * time.Second
 )
 
-// ConnsBesidesLanes is how many pool connections a run holds at once besides one writer
-// per lane: the advisory-lock session, held for the whole run, and the recompressor. The
-// cursor and oldest-ledger reads run between slices, while no lane writes.
-const ConnsBesidesLanes = 2
+// ConnsBesidesWorkers is how many pool connections a run holds at once besides one writer
+// per worker: the advisory-lock session, held for the whole run, and the recompressor. The
+// cursor and oldest-ledger reads run between slices, while no worker writes.
+const ConnsBesidesWorkers = 2
 
 // errNotRecorded means the live ingester has not recorded the migration yet, so its
 // boundary ledger is unknown.
@@ -48,7 +48,7 @@ func lockID() int {
 // Runner walks one migration over the ledgers below its boundary.
 //
 // The walk is newest-first in slices, so recent history is rewritten first. A slice is
-// split into Workers lanes, each rewritten on its own. A lane reads one bounded range
+// split between the workers, each rewriting its own ledger range. A worker reads its range
 // through a fresh backend (the SDK backends accept a single PrepareRange) and applies its
 // rows every flushLedgers ledgers to bound memory, reading the next batch while one is
 // written. The cursor moves once the whole slice has committed, so an interrupted run
@@ -63,7 +63,7 @@ type Runner struct {
 	// BackendFactory returns a new ledger backend for one bounded range.
 	BackendFactory func(ctx context.Context) (ledgerbackend.LedgerBackend, error)
 	Metrics        *metrics.DataMigrationMetrics
-	// Workers is how many lanes rewrite a slice at once; below 1 means 1. Each lane
+	// Workers is how many workers rewrite a slice at once; below 1 means 1. Each worker
 	// reads and writes its own part of the slice, so the load on the ledger source and
 	// on the database grows with it.
 	Workers int
@@ -161,8 +161,8 @@ func (r *Runner) walk(ctx context.Context, migration Migration, cursor uint32) e
 	for cursor > floor {
 		hi := cursor - 1
 		lo := floor
-		// A slice gives every lane sliceLedgers ledgers.
-		if span := sliceLedgers * uint32(r.lanes()); cursor-floor > span {
+		// A slice gives every worker sliceLedgers ledgers.
+		if span := sliceLedgers * uint32(r.workers()); cursor-floor > span {
 			lo = cursor - span
 		}
 
@@ -208,7 +208,7 @@ func (r *Runner) walk(ctx context.Context, migration Migration, cursor uint32) e
 
 // recompressor recompresses the chunks the walk has passed, one at a time, while the walk
 // goes on. A chunk is only handed to it once the cursor is below the whole chunk, so no
-// lane writes to it again.
+// worker writes to it again.
 //
 // A chunk is recompressed only when it is partially compressed, which a write to a
 // compressed chunk makes it, and its indexes are rebuilt only when this run recompressed
@@ -227,7 +227,7 @@ type recompressor struct {
 
 func (r *Runner) startRecompressor(ctx context.Context) *recompressor {
 	ctx, cancel := context.WithCancel(ctx)
-	rc := &recompressor{chunks: make(chan string, 4*r.lanes()), cancel: cancel, done: make(chan struct{})}
+	rc := &recompressor{chunks: make(chan string, 4*r.workers()), cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(rc.done)
 		// A chunk's indexes are rebuilt after the next chunk is recompressed: a rebuild
@@ -307,8 +307,8 @@ func (r *Runner) reindex(ctx context.Context, chunk string) {
 	}
 }
 
-// lanes is the number of lanes a slice is split into.
-func (r *Runner) lanes() int {
+// workers is the number of workers a slice is split between.
+func (r *Runner) workers() int {
 	return max(r.Workers, 1)
 }
 
@@ -339,9 +339,9 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 	return time.Time{}, fmt.Errorf("data migration %s: ledgers [%d, %d] failed %d times: %w", name, lo, hi, sliceAttempts, err)
 }
 
-// rewriteSlice splits ledgers [lo, hi] into contiguous lanes, rewrites the lanes at the
-// same time, and moves the cursor to lo once every lane has committed. A lane that fails
-// stops the others; the cursor stays, so the next attempt redoes the whole slice. It
+// rewriteSlice splits ledgers [lo, hi] into one contiguous range per worker, rewrites the
+// ranges at the same time, and moves the cursor to lo once every worker has committed. A
+// worker that fails stops the others; the cursor stays, so the next attempt redoes the whole slice. It
 // returns lo's close time.
 func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi uint32) (time.Time, error) {
 	apply := func(rows []any) error {
@@ -356,13 +356,13 @@ func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi u
 	// cursor_ledger is an INTEGER column, so ledger numbers here stay below 2^31 and
 	// this arithmetic cannot overflow uint32.
 	ledgers := hi - lo + 1
-	lanes := min(uint32(r.lanes()), ledgers)
-	perLane := (ledgers + lanes - 1) / lanes
+	workers := min(uint32(r.workers()), ledgers)
+	perWorker := (ledgers + workers - 1) / workers
 
 	var loClosedAt time.Time
 	group, groupCtx := errgroup.WithContext(ctx)
-	for laneLo := lo; laneLo <= hi; laneLo += perLane {
-		from, to := laneLo, min(laneLo+perLane-1, hi)
+	for rangeLo := lo; rangeLo <= hi; rangeLo += perWorker {
+		from, to := rangeLo, min(rangeLo+perWorker-1, hi)
 		group.Go(func() error {
 			closedAt, err := r.readLedgers(groupCtx, migration, from, to, apply)
 			if from == lo {
@@ -372,7 +372,7 @@ func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi u
 		})
 	}
 	if err := group.Wait(); err != nil {
-		return time.Time{}, err //nolint:wrapcheck // readLedgers names the lane's range
+		return time.Time{}, err //nolint:wrapcheck // readLedgers names the worker's range
 	}
 
 	if err := r.Models.DataMigrations.Advance(ctx, migration.Name(), lo); err != nil {

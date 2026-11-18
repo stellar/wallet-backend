@@ -66,8 +66,8 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
    | --- | --- | --- |
    | `Name` | the name in `data_migrations` and on the command line | Lower-case, hyphenated. Permanent once released |
    | `Tables` | the hypertables `Apply` writes | The runner lists their compressed chunks before the walk, compresses again each one the walk wrote to, and rebuilds its indexes. A table left out keeps its written chunks partly decompressed |
-   | `Extract` | the rows to write for one ledger, as `[]any` | Pure: reads only the ledger and `Deps`. No database access. Runs concurrently across lanes |
-   | `Apply` | error | Writes the rows `Extract` returned for one batch of up to 1,000 consecutive ledgers, inside `dbTx`, which commits after it. Called once per batch per lane, concurrently across lanes on different ledger ranges. Idempotent |
+   | `Extract` | the rows to write for one ledger, as `[]any` | Pure: reads only the ledger and `Deps`. No database access. Runs concurrently across workers |
+   | `Apply` | error | Writes the rows `Extract` returned for one batch of up to 1,000 consecutive ledgers, inside `dbTx`, which commits after it. Called once per batch per worker, concurrently across workers on different ledger ranges. Idempotent |
 
    `Deps` carries `Models`, `NetworkPassphrase`, and `Pool`, a worker pool for per-ledger CPU work such as transaction hashing.
 
@@ -129,7 +129,7 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
 
    | Kind | Where `transactions-memo`'s live | Covers |
    | --- | --- | --- |
-   | Runner tests | `internal/datamigrations/runner_test.go`, `runner_failure_test.go`, `runner_overlap_test.go` | Walk order, lanes, recompression, resume from the cursor, a failing slice that records `last_error` and then resumes, cancellation, index rebuilds, and the cases that do not run |
+   | Runner tests | `internal/datamigrations/runner_test.go`, `runner_failure_test.go`, `runner_overlap_test.go` | Walk order, workers, recompression, resume from the cursor, a failing slice that records `last_error` and then resumes, cancellation, index rebuilds, and the cases that do not run |
    | Integration | `internal/integrationtests/memo_migration_test.go` | Clears memos on a real database, runs `data-migrate run`, and checks every row |
 
    For a new migration, check at least:
@@ -153,12 +153,12 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
 
 | Rule | Why |
 | --- | --- |
-| `Extract` is a pure function of one ledger | The runner reads ledgers in slices, newest first, through a fresh backend per lane. Nothing carries over from one ledger to the next |
+| `Extract` is a pure function of one ledger | The runner reads ledgers in slices, newest first, through a fresh backend per worker. Nothing carries over from one ledger to the next |
 | `Apply` is idempotent | An interrupted run redoes up to one slice. A ledger written twice must end the same as written once |
-| `Apply` is safe to call concurrently | With `--workers` above 1, lanes call it at the same time on different ledger ranges, each in its own transaction. It must not depend on rows another call writes |
+| `Apply` is safe to call concurrently | With `--data-migration-workers` above 1, workers call it at the same time on different ledger ranges, each in its own transaction. It must not depend on rows another call writes |
 | The name is permanent | `done` is final. A later fix to the same data is a migration with a new name, so deployments that finished the first one run the fix too |
 | `Apply` writes only the rows of the ledgers it is given | The runner gives it only ledgers below the boundary. The live ingester writes every ledger from the boundary on, and the two never coordinate |
-| No tuning knobs | Slice size per lane, flush size, and retries are constants in `runner.go`. `--workers` is the only flag, and operators run every migration the same way |
+| No tuning knobs | Slice size per worker, flush size, and retries are constants in `runner.go`. `--data-migration-workers` is the only tuning option, and operators run every migration the same way |
 
 ## Changing the set of rows
 

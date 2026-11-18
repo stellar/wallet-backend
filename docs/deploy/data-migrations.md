@@ -74,7 +74,7 @@ Live ingestion and the API keep running through all four steps. Rows the walk ha
 
 ## data-migrate run
 
-Rewrites one named migration for every ledger below its boundary. Pass exactly one name. `--workers` is the only tuning flag.
+Rewrites one named migration for every ledger below its boundary. Pass exactly one name. `--data-migration-workers` is the only tuning option.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ Rewrites one named migration for every ledger below its boundary. Pass exactly o
 | `DATASTORE_*` | | Same as `ingest`. `DATASTORE_BUCKET_PATH` is required with `datastore`. See [ledger source](configuration.md#ledger-source) |
 | `GET_LEDGERS_LIMIT` | `10` | RPC backend only |
 | `--metrics-port` | `0` | Port for `/metrics`. `0` turns it off. No environment variable |
-| `--workers` | `1` | Lanes that rewrite history at the same time, from 1 to 10. Each lane adds one reader on the ledger source and one writer on the database. The run's database pool has 12 connections: one per lane, one for the lock, and one for recompression. Raise it one step at a time and watch live ingestion. No environment variable |
+| `DATA_MIGRATION_WORKERS` | `1` | Workers that rewrite history at the same time, from 1 to 10. Each worker adds one reader on the ledger source and one writer on the database. The run's database pool has 12 connections: one per worker, one for the lock, and one for recompression. Raise it one step at a time and watch live ingestion. Flag: `--data-migration-workers` |
 
 A run goes through these steps:
 
@@ -93,8 +93,8 @@ A run goes through these steps:
 | Lock | Takes an advisory lock shared by all data migrations. Only one data migration runs at a time per database. A second `run`, of any name, exits at once with `another data migration is running` |
 | Done check | A migration with status `done` logs `data migration <NAME> is already done` and exits with status 0 |
 | Source check | Reads `oldest_ingest_ledger` from the ledger source before it writes anything. If the source cannot serve it, the run exits. See [Troubleshooting](#troubleshooting) |
-| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice into lanes and rewrite them at the same time. Each lane opens its own ledger source, reads the next 1,000-ledger batch while it writes one, and writes each batch in its own transaction. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
-| Commit | The cursor moves once every lane of the slice has committed, so a stopped run does at most one slice again |
+| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice between them and rewrite their ledger ranges at the same time. Each worker opens its own ledger source, reads the next 1,000-ledger batch while it writes one, and writes each batch in its own transaction. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
+| Commit | The cursor moves once every worker of the slice has committed, so a stopped run does at most one slice again |
 | Compressed chunks | Rows in compressed chunks are updated in place. A background task takes each compressed chunk once the walk has passed it, one at a time, while the walk goes on. It compresses the chunk again only if the walk wrote to it. It rebuilds that chunk's indexes after the next chunk is compressed, and the last chunk's 30 s later. A compressed chunk the walk did not write to is left as it is: one above the boundary, one below `oldest_ingest_ledger`, or one an earlier run already compressed again. Expect extra disk I/O and some temporary extra disk use while it runs |
 | Finish | Sets the status to `done` |
 
@@ -138,7 +138,7 @@ WHERE proc_name = 'transaction_hashes_maintenance'
 
 Live ingestion duration per ledger (`wallet_ingestion_duration_seconds`), measured on a mainnet-sized database with 1-day chunks:
 
-| `--workers` | Median | p99 |
+| `--data-migration-workers` | Median | p99 |
 | --- | --- | --- |
 | No migration | 94 ms | 245 ms |
 | 1 | about 113 ms | about 355 ms |
@@ -161,10 +161,10 @@ The ingester's `--chunk-interval` (default `1 day`) applies to future chunks onl
 
 | Limit | Value |
 | --- | --- |
-| Recompression backlog | 4 × `--workers` chunks. A full backlog holds the walk until a chunk is recompressed |
+| Recompression backlog | 4 × `--data-migration-workers` chunks. A full backlog holds the walk until a chunk is recompressed |
 | Lock wait for an index rebuild | 5 s |
 
-With a larger interval, expect longer recompression bursts and more temporary disk use. Start with `--workers 1`. Other intervals were not tested.
+With a larger interval, expect longer recompression bursts and more temporary disk use. Start with `--data-migration-workers 1`. Other intervals were not tested.
 
 ## data-migrate status
 

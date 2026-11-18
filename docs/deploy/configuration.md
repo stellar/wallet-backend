@@ -193,7 +193,7 @@ Rewrites history rows ingested before a release changed them. See [data migratio
 | `--ledger-backend-type` | `LEDGER_BACKEND_TYPE` | `rpc` | no | `rpc` or `datastore`. Use `datastore` for history older than the RPC retention window |
 | `--get-ledgers-limit` | `GET_LEDGERS_LIMIT` | `10` | no | Ledgers per RPC request. Ignored for `datastore` |
 | `--metrics-port` | no env var | `0` | no | Port for Prometheus `/metrics`. `0` disables it |
-| `--workers` | no env var | `1` | no | Lanes that rewrite history at the same time. Each lane adds one reader on the ledger source and one writer on the database. From 1 to 10: the run's database pool has 12 connections, one per lane plus two the run holds |
+| `--data-migration-workers` | `DATA_MIGRATION_WORKERS` | `1` | no | Workers that rewrite history at the same time. Each worker adds one reader on the ledger source and one writer on the database. From 1 to 10: the run's database pool has 12 connections, one per worker plus two the run holds |
 
 `data-migrate status` takes only `--database-url`.
 
@@ -224,7 +224,7 @@ Each command checks these at startup and exits with the quoted error.
 - **Unknown backend in protocol-migrate.** `protocol-migrate` fails with `invalid --ledger-backend-type "<value>", must be 'rpc' or 'datastore'`.
 - **Missing start ledger.** `protocol-migrate current-state` fails with `--start-ledger is required and must be > 0`.
 - **Backend checks in data-migrate.** `data-migrate run` fails with the same three backend errors as `protocol-migrate`: `--rpc-url is required when --ledger-backend-type=rpc`, `--datastore-bucket-path is required when --ledger-backend-type=datastore`, and `invalid --ledger-backend-type "<value>", must be 'rpc' or 'datastore'`.
-- **Workers out of range.** `data-migrate run` fails with `--workers must be at least 1, got <value>` or `--workers must be at most 10: the run's database pool has 12 connections, one per lane plus 2 the run holds, got <value>`.
+- **Workers out of range.** `data-migrate run` fails with `--data-migration-workers must be at least 1, got <value>` or `--data-migration-workers must be at most 10: the run's database pool has 12 connections, one per worker plus 2 the run holds, got <value>`.
 - **Unknown data migration.** `data-migrate run` fails with `unknown data migration "<name>", known: <names>`.
 - **Bad duration.** The `--db-max-conn-*` and `--datastore-retry-wait` options fail with `<name> cannot be empty` or `couldn't parse duration in <name>: <cause>`.
 - **Bad log level.** `--log-level` fails with `couldn't parse log level in log-level: <cause>`.

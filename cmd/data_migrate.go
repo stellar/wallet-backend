@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"go/types"
 	"os"
 	"os/signal"
 	"runtime"
@@ -64,6 +65,15 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		utils.DatabaseURLOption(&databaseURL),
 		utils.NetworkPassphraseOption(&networkPassphrase),
 		utils.LogLevelOption(&logLevel),
+		{
+			Name: "data-migration-workers",
+			Usage: fmt.Sprintf("Workers that rewrite history at the same time, from 1 to %d. Each adds one reader on the ledger source and one writer on the database.",
+				int(db.DefaultMaxConns)-datamigrations.ConnsBesidesWorkers),
+			OptType:     types.Int,
+			ConfigKey:   &workers,
+			FlagDefault: 1,
+			Required:    false,
+		},
 	}
 	cfgOpts = append(cfgOpts, utils.HistoryLedgerBackendOptions(&rpcURL, &ledgerBackendType)...)
 	cfgOpts = append(cfgOpts, utils.GetLedgersLimitOption(&getLedgersLimit))
@@ -161,8 +171,6 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		log.Fatalf("Error initializing a config option: %s", err.Error())
 	}
 	cmd.Flags().IntVar(&metricsPort, "metrics-port", 0, "Port to expose Prometheus /metrics on. 0 disables (default).")
-	cmd.Flags().IntVar(&workers, "workers", 1, fmt.Sprintf("Lanes that rewrite history at the same time, from 1 to %d. Each adds one reader on the ledger source and one writer on the database.",
-		int(db.DefaultMaxConns)-datamigrations.ConnsBesidesLanes))
 
 	return cmd
 }
@@ -250,17 +258,17 @@ func (c *dataMigrateCmd) statusCommand() *cobra.Command {
 	return cmd
 }
 
-// validateDataMigrateWorkers checks --workers against the run's database pool, which has
-// db.DefaultMaxConns connections: one writer per lane plus the connections the run holds
-// besides its lanes. A lane beyond that waits for a connection and only adds a reader on
-// the ledger source.
+// validateDataMigrateWorkers checks --data-migration-workers against the run's database
+// pool, which has db.DefaultMaxConns connections: one writer per worker plus the
+// connections the run holds besides its workers. A worker beyond that waits for a
+// connection and only adds a reader on the ledger source.
 func validateDataMigrateWorkers(workers int) error {
 	if workers < 1 {
-		return fmt.Errorf("--workers must be at least 1, got %d", workers)
+		return fmt.Errorf("--data-migration-workers must be at least 1, got %d", workers)
 	}
-	if maxWorkers := int(db.DefaultMaxConns) - datamigrations.ConnsBesidesLanes; workers > maxWorkers {
-		return fmt.Errorf("--workers must be at most %d: the run's database pool has %d connections, one per lane plus %d the run holds, got %d",
-			maxWorkers, db.DefaultMaxConns, datamigrations.ConnsBesidesLanes, workers)
+	if maxWorkers := int(db.DefaultMaxConns) - datamigrations.ConnsBesidesWorkers; workers > maxWorkers {
+		return fmt.Errorf("--data-migration-workers must be at most %d: the run's database pool has %d connections, one per worker plus %d the run holds, got %d",
+			maxWorkers, db.DefaultMaxConns, datamigrations.ConnsBesidesWorkers, workers)
 	}
 	return nil
 }
