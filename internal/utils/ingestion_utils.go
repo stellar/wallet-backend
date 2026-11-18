@@ -41,6 +41,25 @@ func EncodeMemo(memo xdr.Memo) (int16, []byte) {
 	}
 }
 
+// MemoTypeName maps a stored memo_type discriminant to its MemoType enum name without
+// reading the memo value.
+func MemoTypeName(memoType int16) (string, error) {
+	switch xdr.MemoType(memoType) {
+	case xdr.MemoTypeMemoNone:
+		return MemoTypeNone, nil
+	case xdr.MemoTypeMemoText:
+		return MemoTypeText, nil
+	case xdr.MemoTypeMemoId:
+		return MemoTypeID, nil
+	case xdr.MemoTypeMemoHash:
+		return MemoTypeHash, nil
+	case xdr.MemoTypeMemoReturn:
+		return MemoTypeReturn, nil
+	default:
+		return "", fmt.Errorf("unknown memo type %d", memoType)
+	}
+}
+
 // DecodeMemo maps the storage form back to the API form: the MemoType enum name and the
 // value rendered as text (TEXT as UTF-8 with invalid sequences replaced, ID as a decimal
 // string, HASH/RETURN as hex), nil for NONE.

@@ -71,6 +71,10 @@ func TestEncodeDecodeMemo(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantName, gotName)
 			assert.Equal(t, tc.wantValue, gotValue)
+
+			gotTypeName, err := MemoTypeName(gotType)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantName, gotTypeName)
 		})
 	}
 }
@@ -81,6 +85,8 @@ func TestDecodeMemo_malformed(t *testing.T) {
 	_, _, err = DecodeMemo(3, []byte(strings.Repeat("x", 31)))
 	require.ErrorContains(t, err, "memo hash value has 31 bytes")
 	_, _, err = DecodeMemo(9, nil)
+	require.ErrorContains(t, err, "unknown memo type 9")
+	_, err = MemoTypeName(9)
 	require.ErrorContains(t, err, "unknown memo type 9")
 }
 

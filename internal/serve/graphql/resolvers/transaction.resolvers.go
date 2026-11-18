@@ -27,9 +27,9 @@ func (r *transactionResolver) MemoType(ctx context.Context, obj *types.Transacti
 	if obj.MemoType == nil {
 		return nil, nil
 	}
-	name, _, err := utils.DecodeMemo(*obj.MemoType, obj.Memo)
+	name, err := utils.MemoTypeName(*obj.MemoType)
 	if err != nil {
-		return nil, fmt.Errorf("decoding memo of transaction %s: %w", obj.Hash.String(), err)
+		return nil, fmt.Errorf("decoding memo type of transaction %s: %w", obj.Hash.String(), err)
 	}
 	memoType := graphql1.MemoType(name)
 	return &memoType, nil

@@ -507,11 +507,39 @@ func TestTransactionResolver_Memo(t *testing.T) {
 		})
 	}
 
-	t.Run("malformed stored bytes return an error", func(t *testing.T) {
-		tx := &types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoId), Memo: []byte{1, 2, 3}}
+	// A query that asks for memoType without memo selects only the memo_type column, so the
+	// loaded transaction carries no memo bytes.
+	memoTypeAlone := []struct {
+		name     string
+		memoType xdr.MemoType
+		want     graphql1.MemoType
+	}{
+		{"none", xdr.MemoTypeMemoNone, graphql1.MemoTypeNone},
+		{"text", xdr.MemoTypeMemoText, graphql1.MemoTypeText},
+		{"id", xdr.MemoTypeMemoId, graphql1.MemoTypeID},
+		{"hash", xdr.MemoTypeMemoHash, graphql1.MemoTypeHash},
+		{"return", xdr.MemoTypeMemoReturn, graphql1.MemoTypeReturn},
+	}
+	for _, tc := range memoTypeAlone {
+		t.Run("memoType without memo selected/"+tc.name, func(t *testing.T) {
+			tx := &types.Transaction{MemoType: memoTypePtr(tc.memoType)}
+			got, err := resolver.MemoType(context.Background(), tx)
+			require.NoError(t, err)
+			assert.Equal(t, &tc.want, got)
+		})
+	}
+
+	t.Run("unknown stored memo type returns an error", func(t *testing.T) {
+		tx := &types.Transaction{MemoType: ptrTo(int16(9))}
 		_, err := resolver.MemoType(context.Background(), tx)
-		require.ErrorContains(t, err, "decoding memo")
+		require.ErrorContains(t, err, "decoding memo type")
 		_, err = resolver.Memo(context.Background(), tx)
+		require.ErrorContains(t, err, "decoding memo")
+	})
+
+	t.Run("malformed stored bytes return an error from memo", func(t *testing.T) {
+		tx := &types.Transaction{MemoType: memoTypePtr(xdr.MemoTypeMemoId), Memo: []byte{1, 2, 3}}
+		_, err := resolver.Memo(context.Background(), tx)
 		require.ErrorContains(t, err, "decoding memo")
 	})
 }
