@@ -52,11 +52,15 @@ A data migration rewrites each ledger from that ledger alone. Data that depends 
    DATABASE_URL=<DATABASE_URL> wallet-backend migrate up
    ```
 
-2. Restart the live ingester on the release binary. On start it records each data migration it knows, with the boundary set to `latest_ingest_ledger + 1`.
+2. Stop every backfill process (`wallet-backend ingest --ingestion-mode=backfill`) that runs an earlier release, or restart it on the release binary.
+
+   The boundary assumes that only the upgraded live ingester writes history rows. A backfill on an earlier release writes rows without the migrated values below the boundary. The walk never rewrites such rows when they land on ledgers it has already passed, or after the status is `done`, because `done` is final.
+
+3. Restart the live ingester on the release binary. On start it records each data migration it knows, with the boundary set to `latest_ingest_ledger + 1`.
 
    Verify: `data-migrate status` shows the migration as `pending` with a `BOUNDARY`.
 
-3. Run the data migration as a one-off process.
+4. Run the data migration as a one-off process.
 
    ```bash
    DATABASE_URL=<DATABASE_URL> NETWORK_PASSPHRASE=<NETWORK_PASSPHRASE> \
@@ -66,7 +70,7 @@ A data migration rewrites each ledger from that ledger alone. Data that depends 
 
    Verify: the process exits with status 0 and `data-migrate status` shows `done`.
 
-Ingestion and the API keep running through all three steps. Rows the walk has not reached yet keep their old values. Running step 3 before step 2 fails with `data migration is not recorded yet: start the upgraded ingester first, then run it again`.
+Live ingestion and the API keep running through all four steps. Rows the walk has not reached yet keep their old values. Running step 4 before step 3 fails with `data migration is not recorded yet: start the upgraded ingester first, then run it again`.
 
 ## data-migrate run
 
