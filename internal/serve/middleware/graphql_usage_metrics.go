@@ -170,8 +170,17 @@ func (u *GraphQLUsageMetrics) collectArguments(field *ast.Field, path string, va
 	case since != nil:
 		usage.args[argUsage{path, "since", u.timeRangeBucket(since, until)}] = struct{}{}
 	case until != nil:
-		usage.args[argUsage{path, "until", argValueOpenStart}] = struct{}{}
+		usage.args[argUsage{path, "until", openStartBucket(until)}] = struct{}{}
 	}
+}
+
+// openStartBucket returns the label for a range that sets only until: open_start when until
+// parses as a time, and invalid when it does not.
+func openStartBucket(until any) string {
+	if _, err := graphql.UnmarshalTime(until); err != nil {
+		return argValueInvalid
+	}
+	return argValueOpenStart
 }
 
 // recordValue records one argument, or each set sub-field of an input object.

@@ -223,6 +223,7 @@ func TestGraphQLUsageMetrics_TimeRangeBuckets(t *testing.T) {
 		{"until before since", map[string]any{"since": ts(day), "until": ts(2 * day)}, "since", "<=1d"},
 		{"until only", map[string]any{"until": ts(day)}, "until", argValueOpenStart},
 		{"unparseable", map[string]any{"since": "yesterday"}, "since", argValueInvalid},
+		{"until only, unparseable", map[string]any{"until": "yesterday"}, "until", argValueInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			exec, m := newUsageTestExecutor(t)
