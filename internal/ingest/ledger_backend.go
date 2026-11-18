@@ -86,6 +86,33 @@ func newDatastoreLedgerBackend(ctx context.Context, dc DatastoreConfig, networkP
 	return ledgerBackend, nil
 }
 
+// withDefaults fills in the buffer size and download workers when they are unset.
+func (dc DatastoreConfig) withDefaults() DatastoreConfig {
+	if dc.BufferSize == 0 {
+		dc.BufferSize = defaultBufferSize
+	}
+	if dc.NumWorkers == 0 {
+		dc.NumWorkers = defaultNumWorkers
+	}
+	return dc
+}
+
+// minDownloadersPerWorker keeps more than one download in flight for each backfill worker, so
+// the worker does not wait on the bucket between files.
+const minDownloadersPerWorker uint32 = 2
+
+// splitAcross returns the config for one of n backends that run at the same time and share
+// this config's buffer size and download workers. Defaults are resolved before dividing. Each
+// backend keeps a buffer of at least one file and at least minDownloadersPerWorker download
+// workers, but never more download workers than its buffer share (newDatastoreBackend requires
+// NumWorkers <= BufferSize).
+func (dc DatastoreConfig) splitAcross(n int) DatastoreConfig {
+	dc = dc.withDefaults()
+	dc.BufferSize = max(1, dc.BufferSize/uint32(n))
+	dc.NumWorkers = min(dc.BufferSize, max(minDownloadersPerWorker, dc.NumWorkers/uint32(n)))
+	return dc
+}
+
 func newRPCLedgerBackend(cfg Configs) (ledgerbackend.LedgerBackend, error) {
 	backend := ledgerbackend.NewRPCLedgerBackend(ledgerbackend.RPCLedgerBackendOptions{
 		RPCServerURL: cfg.RPCURL,

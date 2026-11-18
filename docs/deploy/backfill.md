@@ -33,7 +33,7 @@ Live ingestion starts at the checkpoint ledger it bootstrapped from. To serve ol
 
    Use the datastore source for any range outside the RPC's retention window. Give the backfill its own `INGEST_SERVER_PORT` when it shares a host with the live ingester. Backfill only fills gaps: ledgers already in the database are skipped. It leaves retention and compression policies to the live ingester.
 
-   Tuning lives in [backfill tuning](configuration.md#backfill-tuning). `BACKFILL_WORKERS` defaults to one per CPU. Lower it, or the batch sizes, to cut memory use.
+   Tuning lives in [backfill tuning](configuration.md#backfill-tuning). `BACKFILL_WORKERS` defaults to one per CPU, up to the smallest of the shared totals. To cut memory use, lower `DATASTORE_BUFFER_SIZE` or `BACKFILL_DB_INSERT_BATCH_SIZE`. Memory follows those totals, not the worker count.
 
 3. Verify. Each batch logs `Batch <I>/<N> [<START> - <END>] completed`, and the run ends with `Backfilling completed in <DURATION>: <N> batches`. `wallet_ingestion_oldest_ledger` on the live ingester's `/ingest-metrics` drops toward `START_LEDGER`.
 

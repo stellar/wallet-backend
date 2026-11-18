@@ -99,3 +99,45 @@ func TestValidateIngestPoolConfig(t *testing.T) {
 func TestValidateIngestPoolConfig_UnsetFlagUsesDefault(t *testing.T) {
 	require.NoError(t, validateIngestPoolConfig(Configs{}.BuildPoolConfig()))
 }
+
+func TestBackfillWorkerCount(t *testing.T) {
+	testCases := []struct {
+		name string
+		cfg  Configs
+		want int
+	}{
+		{
+			name: "configured count kept when every shared setting covers it",
+			cfg:  Configs{LedgerBackendType: LedgerBackendTypeDatastore, BackfillWorkers: 4, BackfillDBInsertBatchSize: 100},
+			want: 4,
+		},
+		{
+			name: "lowered to the datastore download workers",
+			cfg:  Configs{LedgerBackendType: LedgerBackendTypeDatastore, BackfillWorkers: 48, BackfillDBInsertBatchSize: 100},
+			want: int(defaultNumWorkers),
+		},
+		{
+			name: "lowered to the datastore buffer size",
+			cfg: Configs{
+				LedgerBackendType: LedgerBackendTypeDatastore, BackfillWorkers: 48, BackfillDBInsertBatchSize: 100,
+				Datastore: DatastoreConfig{BufferSize: 6, NumWorkers: 6},
+			},
+			want: 6,
+		},
+		{
+			name: "lowered to the database insert batch size",
+			cfg:  Configs{LedgerBackendType: LedgerBackendTypeDatastore, BackfillWorkers: 8, BackfillDBInsertBatchSize: 3},
+			want: 3,
+		},
+		{
+			name: "datastore settings ignored for the RPC backend",
+			cfg:  Configs{LedgerBackendType: LedgerBackendTypeRPC, BackfillWorkers: 48, BackfillDBInsertBatchSize: 100},
+			want: 48,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, backfillWorkerCount(tc.cfg))
+		})
+	}
+}

@@ -143,6 +143,15 @@ type ingestService struct {
 	protocolCursors *protocolCursorSnapshot
 }
 
+// BackfillWorkerCount resolves the configured backfill worker count: 0 or less means one per
+// CPU the Go runtime may use (GOMAXPROCS, which follows the container CPU limit).
+func BackfillWorkerCount(configured int) int {
+	if configured > 0 {
+		return configured
+	}
+	return runtime.GOMAXPROCS(0)
+}
+
 func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	// Create worker pool for the ledger indexer (parallel transaction processing within a
 	// ledger). This is CPU-bound XDR decode/processing work, not RPC-bound, so it's sized off
@@ -153,11 +162,7 @@ func NewIngestService(cfg IngestServiceConfig) (*ingestService, error) {
 	cfg.Metrics.RegisterPoolMetrics("ledger_indexer", ledgerIndexerPool)
 
 	// Create backfill pool with bounded size to control memory usage.
-	// Default to GOMAXPROCS if not specified, for the same reason as above.
-	backfillWorkers := cfg.BackfillWorkers
-	if backfillWorkers <= 0 {
-		backfillWorkers = runtime.GOMAXPROCS(0)
-	}
+	backfillWorkers := BackfillWorkerCount(cfg.BackfillWorkers)
 
 	// A batch cap below 1 cannot hold even a single ledger; clamp so the
 	// zero value means unbatched persists.
