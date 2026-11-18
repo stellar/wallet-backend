@@ -468,6 +468,7 @@ func TestRunner_DoesNotRun(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, row.Status)
 			assert.Equal(t, f.latest+1, row.CursorLedger)
 			assert.Nil(t, row.StartedAt)
+			assert.Nil(t, row.LastError, "a run that does not own the row does not write its error")
 		})
 	}
 }

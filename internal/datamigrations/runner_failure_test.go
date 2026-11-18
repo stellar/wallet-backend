@@ -318,8 +318,8 @@ func TestRunner_RecompressionFailureStopsTheRun(t *testing.T) {
 	row := f.row(t, ctx)
 	assert.Equal(t, data.DataMigrationInProgress, row.Status)
 	assert.Equal(t, f.oldest, row.CursorLedger, "the walk finishes before the failure is seen")
-	// A recompression failure is returned but not recorded on the row.
-	assert.Nil(t, row.LastError)
+	require.NotNil(t, row.LastError)
+	assert.Equal(t, err.Error(), *row.LastError)
 	assert.False(t, f.chunkCompressed(t, ctx, f.day2), "the chunk is left partly decompressed")
 
 	release()
@@ -327,6 +327,64 @@ func TestRunner_RecompressionFailureStopsTheRun(t *testing.T) {
 	assert.Equal(t, data.DataMigrationDone, f.row(t, ctx).Status)
 	assert.True(t, f.chunkCompressed(t, ctx, f.day2))
 	assert.True(t, f.chunkCompressed(t, ctx, f.day1))
+}
+
+// Every failure after the migration's row is loaded is recorded as the row's last error.
+func TestRunner_RecordsWhyARunStopped(t *testing.T) {
+	ctx := context.Background()
+	testCases := []struct {
+		name string
+		// setup makes the run fail after it has started.
+		setup   func(t *testing.T, f *runnerFixture)
+		wantErr string
+		// wantCursor is where the cursor stops.
+		wantCursor func(f *runnerFixture) uint32
+	}{
+		{
+			name: "oldest_ledger_cannot_be_read_again",
+			setup: func(t *testing.T, f *runnerFixture) {
+				// The oldest ledger becomes unreadable while the first slice [108, 111] is
+				// read (factory call 2, after the preflight read).
+				f.onFactory = func(calls int) {
+					if calls == 2 {
+						_, err := f.pool.Exec(ctx, `UPDATE ingest_store SET value = 'not a ledger' WHERE key = $1`, data.OldestLedgerCursorName)
+						assert.NoError(t, err)
+					}
+				}
+			},
+			wantErr:    "reading oldest ingested ledger",
+			wantCursor: func(*runnerFixture) uint32 { return 108 },
+		},
+		{
+			name: "completion_cannot_be_recorded",
+			setup: func(t *testing.T, f *runnerFixture) {
+				_, err := f.pool.Exec(ctx, `
+					CREATE FUNCTION refuse_done() RETURNS trigger LANGUAGE plpgsql AS $$
+					BEGIN RAISE EXCEPTION 'refusing done'; END $$;
+					CREATE TRIGGER refuse_done BEFORE UPDATE ON data_migrations
+					FOR EACH ROW WHEN (NEW.status = 'done') EXECUTE FUNCTION refuse_done();`)
+				require.NoError(t, err)
+			},
+			wantErr:    "recording completion",
+			wantCursor: func(f *runnerFixture) uint32 { return f.oldest },
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			withRunnerSizes(t, 4, 4)
+			f := newRunnerFixture(t, ctx)
+			tc.setup(t, f)
+
+			err := f.runner.Run(ctx, memoMigration)
+			require.ErrorContains(t, err, tc.wantErr)
+
+			row := f.row(t, ctx)
+			assert.Equal(t, data.DataMigrationInProgress, row.Status)
+			assert.Equal(t, tc.wantCursor(f), row.CursorLedger)
+			require.NotNil(t, row.LastError)
+			assert.Equal(t, err.Error(), *row.LastError)
+		})
+	}
 }
 
 func TestRunner_FailedIndexRebuildIsSkipped(t *testing.T) {

@@ -184,7 +184,7 @@ transactions-memo  in_progress  <BOUNDARY>  <CURSOR>  <FLOOR>   <YYYY-MM-DDTHH:M
 | `FLOOR` | Current `oldest_ingest_ledger`, where the walk ends |
 | `STARTED` | When the first `run` started, in UTC. A resumed run keeps it |
 | `FINISHED` | When the status became `done`, in UTC |
-| `LAST ERROR` | Why the last run stopped. A new run clears it |
+| `LAST ERROR` | Why the last run failed. A run stopped by SIGTERM or an interrupt does not set it. A new run clears it |
 
 `-` marks an empty value. The status is for operators only. Nothing else in wallet-backend reads it, and the API serves rows whatever it says.
 
@@ -201,7 +201,7 @@ Without metrics, follow the log or run `data-migrate status`.
 
 ## Resuming and failures
 
-Each slice is tried 3 times, 10 seconds apart. Each failed attempt logs `data migration <NAME>: ledgers [<LO>, <HI>], attempt <N> of 3: <ERROR>`. After the third failure the run stores the error in `last_error` and exits with a non-zero status. The status stays `in_progress`.
+Each slice is tried 3 times, 10 seconds apart. Each failed attempt logs `data migration <NAME>: ledgers [<LO>, <HI>], attempt <N> of 3: <ERROR>`. After the third failure the run stores the error in `last_error` and exits with a non-zero status. The status stays `in_progress`. Any other error that stops a run, such as a failed recompression, is stored the same way.
 
 To resume, fix the cause and run the same command again. The run starts from the cursor. A run stopped by SIGTERM or a crash resumes the same way and redoes at most one slice. Rewriting a ledger twice gives the same rows.
 

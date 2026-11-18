@@ -65,8 +65,9 @@ type Runner struct {
 }
 
 // Run walks the named migration to completion. It returns nil when the migration is done
-// (including when it already was) and an error when a slice kept failing or ctx was
-// cancelled; in both error cases the next Run resumes from the recorded cursor.
+// (including when it already was) and an error otherwise; the next Run resumes from the
+// recorded cursor. Once it holds the lock and the migration's row is not done, it records
+// any error it returns as the row's last error, unless ctx was cancelled.
 func (r *Runner) Run(ctx context.Context, name string) error {
 	migration, ok := Find(name)
 	if !ok {
@@ -106,20 +107,31 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 		return nil
 	}
 
+	if err = r.walk(ctx, migration, row.CursorLedger); err != nil {
+		// A cancelled run (SIGTERM) did not fail: the next run resumes.
+		if ctx.Err() == nil {
+			if setErr := r.Models.DataMigrations.SetError(ctx, name, err.Error()); setErr != nil {
+				log.Ctx(ctx).Errorf("%v", setErr)
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// walk rewrites the ledgers from cursor down to the oldest ingested ledger, recompresses
+// the chunks it wrote, and marks the migration done.
+func (r *Runner) walk(ctx context.Context, migration Migration, cursor uint32) error {
+	name := migration.Name()
 	floor, err := r.Models.IngestStore.Get(ctx, data.OldestLedgerCursorName)
 	if err != nil {
 		return fmt.Errorf("reading oldest ingested ledger: %w", err)
 	}
-	cursor := row.CursorLedger
 	if cursor > floor {
 		// The oldest ledger is the hardest for the source to serve; without it the walk
 		// could not finish.
 		if err = r.checkSource(ctx, floor); err != nil {
-			err = fmt.Errorf("the ledger backend cannot serve the oldest ingested ledger %d (history older than the RPC retention window needs --ledger-backend-type=datastore): %w", floor, err)
-			if setErr := r.Models.DataMigrations.SetError(ctx, name, err.Error()); setErr != nil {
-				log.Ctx(ctx).Errorf("%v", setErr)
-			}
-			return err
+			return fmt.Errorf("the ledger backend cannot serve the oldest ingested ledger %d (history older than the RPC retention window needs --ledger-backend-type=datastore): %w", floor, err)
 		}
 	}
 	if err = r.Models.DataMigrations.Start(ctx, name); err != nil {
@@ -296,8 +308,7 @@ func (r *Runner) lanes() int {
 }
 
 // runSlice rewrites ledgers [lo, hi] and moves the cursor to lo, trying up to
-// sliceAttempts times. After the last failure it records the error on the migration's
-// row. It returns lo's close time, the lowest ledger_created_at written.
+// sliceAttempts times. It returns lo's close time, the lowest ledger_created_at written.
 func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint32) (time.Time, error) {
 	name := migration.Name()
 	var err error
@@ -320,11 +331,7 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 			}
 		}
 	}
-	err = fmt.Errorf("data migration %s: ledgers [%d, %d] failed %d times: %w", name, lo, hi, sliceAttempts, err)
-	if setErr := r.Models.DataMigrations.SetError(ctx, name, err.Error()); setErr != nil {
-		log.Ctx(ctx).Errorf("%v", setErr)
-	}
-	return time.Time{}, err
+	return time.Time{}, fmt.Errorf("data migration %s: ledgers [%d, %d] failed %d times: %w", name, lo, hi, sliceAttempts, err)
 }
 
 // rewriteSlice splits ledgers [lo, hi] into contiguous lanes, rewrites the lanes at the
