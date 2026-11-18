@@ -97,13 +97,19 @@ func (dc DatastoreConfig) withDefaults() DatastoreConfig {
 	return dc
 }
 
-// splitAcross returns the config for one of n backends that run at the same time and together
-// stay within this config's buffer size and download workers. Defaults are resolved before
-// dividing, and each backend keeps at least one of each.
+// minDownloadersPerWorker keeps more than one download in flight for each backfill worker, so
+// the worker does not wait on the bucket between files.
+const minDownloadersPerWorker uint32 = 2
+
+// splitAcross returns the config for one of n backends that run at the same time and share
+// this config's buffer size and download workers. Defaults are resolved before dividing. Each
+// backend keeps a buffer of at least one file and at least minDownloadersPerWorker download
+// workers, but never more download workers than its buffer share (newDatastoreBackend requires
+// NumWorkers <= BufferSize).
 func (dc DatastoreConfig) splitAcross(n int) DatastoreConfig {
 	dc = dc.withDefaults()
 	dc.BufferSize = max(1, dc.BufferSize/uint32(n))
-	dc.NumWorkers = max(1, dc.NumWorkers/uint32(n))
+	dc.NumWorkers = min(dc.BufferSize, max(minDownloadersPerWorker, dc.NumWorkers/uint32(n)))
 	return dc
 }
 

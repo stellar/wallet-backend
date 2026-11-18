@@ -253,7 +253,7 @@ func DatastoreOptions(cfg *ingest.DatastoreConfig) config.ConfigOptions {
 		},
 		{
 			Name:        "datastore-num-workers",
-			Usage:       "Number of concurrent workers downloading ledger files from the datastore. In backfill mode this is the total, shared across the backfill workers.",
+			Usage:       "Number of concurrent workers downloading ledger files from the datastore. In backfill mode this is shared across the backfill workers, with at least 2 per worker.",
 			OptType:     types.Uint32,
 			ConfigKey:   &cfg.NumWorkers,
 			FlagDefault: uint32(10),

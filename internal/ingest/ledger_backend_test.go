@@ -125,10 +125,11 @@ func TestDatastoreConfig_splitAcross(t *testing.T) {
 		wantBufferSize uint32
 		wantNumWorkers uint32
 	}{
-		{name: "defaults resolved before dividing", cfg: DatastoreConfig{}, n: 12, wantBufferSize: 8, wantNumWorkers: 1},
+		{name: "defaults resolved before dividing", cfg: DatastoreConfig{}, n: 12, wantBufferSize: 8, wantNumWorkers: minDownloadersPerWorker},
 		{name: "one backend keeps the full amount", cfg: DatastoreConfig{}, n: 1, wantBufferSize: defaultBufferSize, wantNumWorkers: defaultNumWorkers},
 		{name: "explicit values divided", cfg: DatastoreConfig{BufferSize: 40, NumWorkers: 8}, n: 4, wantBufferSize: 10, wantNumWorkers: 2},
-		{name: "at least one of each", cfg: DatastoreConfig{BufferSize: 4, NumWorkers: 2}, n: 16, wantBufferSize: 1, wantNumWorkers: 1},
+		{name: "download workers above the minimum keep their share", cfg: DatastoreConfig{BufferSize: 100, NumWorkers: 40}, n: 10, wantBufferSize: 10, wantNumWorkers: 4},
+		{name: "download workers never exceed the buffer share", cfg: DatastoreConfig{BufferSize: 4, NumWorkers: 2}, n: 16, wantBufferSize: 1, wantNumWorkers: 1},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
