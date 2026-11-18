@@ -346,7 +346,7 @@ func (suite *DataValidationTestSuite) TestTransactionMemoFilter() {
 	source := suite.testEnv.TxSourceAccountKP.Address()
 	first := int32(50)
 
-	all, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, nil, nil, &wbclient.Page{First: &first})
+	all, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, nil, &wbclient.Page{First: &first})
 	suite.Require().NoError(err, "failed to get unfiltered account transactions")
 	suite.Require().Greater(len(all.Edges), 2, "source account should have several transactions for the filter to narrow")
 
@@ -372,7 +372,7 @@ func (suite *DataValidationTestSuite) TestTransactionMemoFilter() {
 	}
 	for _, tc := range testCases {
 		suite.Run(tc.name, func() {
-			got, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, &tc.filter, nil, &wbclient.Page{First: &first})
+			got, err := suite.testEnv.WBClient.GetAccountTransactions(ctx, source, nil, &wbclient.Page{First: &first}, &wbclient.QueryOptions{Memo: &tc.filter})
 			suite.Require().NoError(err, "failed to get account transactions filtered by memo")
 
 			if tc.wantUseCase == "" {

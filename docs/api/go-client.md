@@ -95,8 +95,8 @@ All methods take a `context.Context` first.
 | `GetTransactionByHash(ctx, hash, opts...)` | `*types.GraphQLTransaction` | `QueryOptions.TransactionFields` |
 | `GetAccountByAddress(ctx, address, opts...)` | `*types.Account` | `QueryOptions.AccountFields` |
 | `GetOperationByID(ctx, id, opts...)` | `*types.Operation` | `QueryOptions.OperationFields` |
-| `GetAccountTransactions(ctx, address, memo, timeRange, page, opts...)` | `*types.TransactionConnection` | `*MemoFilter`, `*TimeRange`, `*Page`, `TransactionFields` |
-| `GetAccountTransactionsWithOpsAndStateChanges(ctx, address, memo, timeRange, page)` | `*types.AccountTransactionConnection` | `*MemoFilter`, `*TimeRange`, `*Page`. Each edge carries the account's operations and state changes in that transaction. |
+| `GetAccountTransactions(ctx, address, timeRange, page, opts...)` | `*types.TransactionConnection` | `*TimeRange`, `*Page`, `TransactionFields`, `Memo` |
+| `GetAccountTransactionsWithOpsAndStateChanges(ctx, address, timeRange, page, opts...)` | `*types.AccountTransactionConnection` | `*TimeRange`, `*Page`, `Memo`. Each edge carries the account's operations and state changes in that transaction. |
 | `GetAccountOperations(ctx, address, timeRange, page, opts...)` | `*types.OperationConnection` | `*TimeRange`, `*Page`, `OperationFields` |
 | `GetAccountStateChanges(ctx, address, filter, timeRange, page)` | `*types.StateChangeConnection` | `*StateChangeFilter`, `*TimeRange`, `*Page` |
 | `GetTransactionOperations(ctx, hash, page, opts...)` | `*types.OperationConnection` | `*Page`, `OperationFields` |
@@ -116,7 +116,7 @@ Parameter types:
 | `wbclient.Page` | `First`, `After`, `Last`, `Before`, all pointers | Same as the server: `First` with `After`, or `Last` with `Before`. Values from 1 to 100. |
 | `wbclient.TimeRange` | `Since`, `Until`, `*time.Time` | Ledger close time, both inclusive. A nil bound is open. |
 | `wbclient.StateChangeFilter` | `TransactionHash`, `OperationID`, `Category`, `Reason` | Nil fields are skipped. Set fields must all match. |
-| `wbclient.MemoFilter` | `Type types.MemoType`, `Value string` | Exact match. `Value` uses the encoding of `GraphQLTransaction.Memo`. The server rejects `types.MemoTypeNone`. |
+| `wbclient.MemoFilter` | `Type types.MemoType`, `Value string` | Passed as `QueryOptions.Memo`. Exact match. `Value` uses the encoding of `GraphQLTransaction.Memo`. The server rejects `types.MemoTypeNone`. |
 
 `types.GraphQLTransaction` carries the memo in two fields:
 
@@ -135,7 +135,7 @@ Forward through an account's transactions, oldest first:
 first := int32(100)
 var after *string
 for {
-    conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, &wbclient.Page{First: &first, After: after})
+    conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, &wbclient.Page{First: &first, After: after})
     if err != nil {
         return err
     }
@@ -186,8 +186,8 @@ An account's transactions with memo ID 12345 in September 2026:
 ```go
 since := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 until := time.Date(2026, 9, 30, 23, 59, 59, 0, time.UTC)
-memo := &wbclient.MemoFilter{Type: types.MemoTypeID, Value: "12345"}
-conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", memo, &wbclient.TimeRange{Since: &since, Until: &until}, nil)
+opts := &wbclient.QueryOptions{Memo: &wbclient.MemoFilter{Type: types.MemoTypeID, Value: "12345"}}
+conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", &wbclient.TimeRange{Since: &since, Until: &until}, nil, opts)
 if err != nil {
     return err
 }
@@ -238,11 +238,11 @@ for _, b := range conn.Balances() {
 
 ## Query options
 
-`QueryOptions` replaces the default field list for transactions, operations, or accounts. Pass the GraphQL field names you want. Fields you leave out stay at their zero value in the result struct.
+`QueryOptions` replaces the default field list for transactions, operations, or accounts. Pass the GraphQL field names you want. Fields you leave out stay at their zero value in the result struct. Its `Memo` field filters an account's transactions by memo, as in the example under [Paginate](#paginate).
 
 ```go
 opts := &wbclient.QueryOptions{TransactionFields: []string{"hash", "ledgerCreatedAt"}}
-conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, nil, opts)
+conn, err := client.GetAccountTransactions(ctx, "<G_ADDRESS>", nil, nil, opts)
 if err != nil {
     return err
 }

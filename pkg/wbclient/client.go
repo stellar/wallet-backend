@@ -173,7 +173,8 @@ type AccountBlendPositionsData struct {
 	} `json:"accountByAddress"`
 }
 
-// QueryOptions allows clients to specify which fields to fetch for each entity type.
+// QueryOptions allows clients to specify which fields to fetch for each entity type,
+// and the memo filter for an account's transactions.
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch.
 	// If nil or empty, all default fields are fetched.
@@ -186,6 +187,11 @@ type QueryOptions struct {
 	// AccountFields specifies which account fields to fetch.
 	// If nil or empty, all default fields are fetched.
 	AccountFields []string
+
+	// Memo restricts GetAccountTransactions and
+	// GetAccountTransactionsWithOpsAndStateChanges to transactions whose memo
+	// matches. Nil applies no memo filter. Other methods ignore it.
+	Memo *MemoFilter
 }
 
 // Client is a GraphQL client for the wallet-backend API. It signs each request
@@ -343,14 +349,15 @@ func (c *Client) GetOperationByID(ctx context.Context, id int64, opts ...*QueryO
 }
 
 // GetAccountTransactions fetches a page of an account's transactions. A nil
-// memo applies no memo filter, a nil timeRange applies no time bounds and a nil
-// page requests the server's default page. Pass a *QueryOptions to restrict the
-// transaction fields fetched. Returns ErrAccountNotFound if the account does
-// not exist.
-func (c *Client) GetAccountTransactions(ctx context.Context, address string, memo *MemoFilter, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.TransactionConnection, error) {
+// timeRange applies no time bounds and a nil page requests the server's default
+// page. Pass a *QueryOptions to restrict the transaction fields fetched or to
+// filter by memo. Returns ErrAccountNotFound if the account does not exist.
+func (c *Client) GetAccountTransactions(ctx context.Context, address string, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.TransactionConnection, error) {
 	var fields []string
+	var memo *MemoFilter
 	if len(opts) > 0 && opts[0] != nil {
 		fields = opts[0].TransactionFields
+		memo = opts[0].Memo
 	}
 
 	paginationVars, err := buildPaginationVars(page)
@@ -382,10 +389,16 @@ func (c *Client) GetAccountTransactions(ctx context.Context, address string, mem
 
 // GetAccountTransactionsWithOpsAndStateChanges fetches a page of an account's
 // transactions with that account's operations and state changes embedded per
-// transaction, in a single GraphQL call. A nil memo applies no memo filter, a
-// nil timeRange applies no time bounds and a nil page requests the server's
-// default page. Returns ErrAccountNotFound if the account does not exist.
-func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, memo *MemoFilter, timeRange *TimeRange, page *Page) (*types.AccountTransactionConnection, error) {
+// transaction, in a single GraphQL call. A nil timeRange applies no time bounds
+// and a nil page requests the server's default page. Pass a *QueryOptions to
+// filter by memo; its field lists are ignored. Returns ErrAccountNotFound if
+// the account does not exist.
+func (c *Client) GetAccountTransactionsWithOpsAndStateChanges(ctx context.Context, address string, timeRange *TimeRange, page *Page, opts ...*QueryOptions) (*types.AccountTransactionConnection, error) {
+	var memo *MemoFilter
+	if len(opts) > 0 && opts[0] != nil {
+		memo = opts[0].Memo
+	}
+
 	paginationVars, err := buildPaginationVars(page)
 	if err != nil {
 		return nil, fmt.Errorf("building pagination variables: %w", err)
