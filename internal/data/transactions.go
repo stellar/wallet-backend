@@ -71,10 +71,29 @@ type MemoFilter struct {
 // With a memo filter the shape changes: the memo lives on transactions, which the CTE never
 // reads, so a LIMIT inside the CTE would under-fill pages. The CTE is then NOT MATERIALIZED and
 // unlimited, the memo predicates sit in the LATERAL probe, and the LIMIT moves to the outer
-// query, so the planner streams the account's history in order and stops at a full page. An
-// account with a long history and few matching memos walks the whole history inside the time
-// range; there is no memo index, and since/until is the bound.
+// query. The outer query orders by the CTE's own columns, so no Sort sits between the join
+// and the LIMIT: the probes run in the CTE's order and stop at a full page. Without a page
+// cursor the CTE reads the account's history in order from the primary key; with one, the
+// planner may instead collect the account's rows past the cursor and sort them before the
+// first probe. An account with a long history and few matching memos walks the whole history
+// inside the time range; there is no memo index, and since/until is the bound.
 func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange, memo *MemoFilter) ([]*types.TransactionWithCursor, error) {
+	query, args := buildAccountTransactionsQuery(accountAddress, columns, limit, cursor, orderBy, timeRange, memo)
+
+	start := time.Now()
+	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
+	duration := time.Since(start).Seconds()
+	m.Metrics.QueryDuration.WithLabelValues("BatchGetByAccountAddress", "transactions").Observe(duration)
+	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByAccountAddress", "transactions").Inc()
+	if err != nil {
+		m.Metrics.QueryErrors.WithLabelValues("BatchGetByAccountAddress", "transactions", utils.GetDBErrorType(err)).Inc()
+		return nil, fmt.Errorf("getting transactions by account address: %w", err)
+	}
+	return transactions, nil
+}
+
+// buildAccountTransactionsQuery returns the SQL and arguments BatchGetByAccountAddress runs.
+func buildAccountTransactionsQuery(accountAddress string, columns string, limit *int32, cursor *types.CompositeCursor, orderBy SortOrder, timeRange *TimeRange, memo *MemoFilter) (string, []interface{}) {
 	// ledger_created_at is always selected even when unrequested: it is the hypertable partition
 	// column, and the AccountTransactionEdge operations/stateChanges resolvers read it from the
 	// transaction node to pin the partition for chunk exclusion. Without it the node carries a zero
@@ -151,12 +170,15 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		LEFT JOIN LATERAL (SELECT * FROM transactions t WHERE t.to_id = ta.tx_to_id AND t.ledger_created_at = ta.ledger_created_at%s LIMIT 1) t ON true
 		WHERE t.to_id IS NOT NULL`, columns, memoPredicate)
 
+	// Order by the driving rows' keys, which equal the joined row's. The CTE scan already
+	// yields them in this order, so the planner needs no Sort above the join and a LIMIT
+	// here stops the walk at a full page.
 	if orderBy == DESC {
 		queryBuilder.WriteString(`
-		ORDER BY t.ledger_created_at DESC, t.to_id DESC`)
+		ORDER BY ta.ledger_created_at DESC, ta.tx_to_id DESC`)
 	} else {
 		queryBuilder.WriteString(`
-		ORDER BY t.ledger_created_at ASC, t.to_id ASC`)
+		ORDER BY ta.ledger_created_at ASC, ta.tx_to_id ASC`)
 	}
 
 	if limit != nil && memo != nil {
@@ -171,16 +193,7 @@ func (m *TransactionModel) BatchGetByAccountAddress(ctx context.Context, account
 		query = fmt.Sprintf(`SELECT * FROM (%s) AS transactions ORDER BY transactions.cursor_ledger_created_at ASC, transactions.cursor_id ASC`, query)
 	}
 
-	start := time.Now()
-	transactions, err := db.QueryManyPtrs[types.TransactionWithCursor](ctx, m.DB, query, args...)
-	duration := time.Since(start).Seconds()
-	m.Metrics.QueryDuration.WithLabelValues("BatchGetByAccountAddress", "transactions").Observe(duration)
-	m.Metrics.QueriesTotal.WithLabelValues("BatchGetByAccountAddress", "transactions").Inc()
-	if err != nil {
-		m.Metrics.QueryErrors.WithLabelValues("BatchGetByAccountAddress", "transactions", utils.GetDBErrorType(err)).Inc()
-		return nil, fmt.Errorf("getting transactions by account address: %w", err)
-	}
-	return transactions, nil
+	return query, args
 }
 
 // BatchGetByOperationIDs gets the transactions that are associated with the given operation IDs.

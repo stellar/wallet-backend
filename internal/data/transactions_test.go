@@ -720,3 +720,105 @@ func TestTransactionModel_BatchUpdateMemo_PlansEveryExecutionWithItsValues(t *te
 	assert.Zero(t, genericPlans, "the memo update ran with a generic plan")
 	assert.EqualValues(t, executions, customPlans)
 }
+
+// A memo-filtered page must stream the account's history in order and stop once the page
+// is full. That holds only while no Sort sits under the outer LIMIT: a Sort reads every
+// matching row before the first one comes out.
+func TestTransactionModel_BatchGetByAccountAddress_MemoFilterPlanStopsAtFullPage(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	address := keypair.MustRandom().Address()
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// 3 days of history, 500 transactions a day, every 10th carrying the filtered memo.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, memo_type, memo)
+		SELECT sha256(int8send(i)), i << 12, 100, 'TransactionResultCodeTxSuccess', i::int, $1::timestamptz + (i * interval '172 seconds'),
+			1, CASE WHEN i % 10 = 0 THEN 'order-1'::bytea ELSE 'other'::bytea END
+		FROM generate_series(1, 1500) i`, start)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		SELECT ledger_created_at, to_id, $1 FROM transactions`, types.AddressBytea(address))
+	require.NoError(t, err)
+	// Other accounts on the same transactions, so account_id is selective as in production.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		SELECT ledger_created_at, to_id, sha256(int8send(a)) FROM transactions, generate_series(1, 30) a`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `ANALYZE transactions; ANALYZE transactions_accounts`)
+	require.NoError(t, err)
+
+	limit := int32(10)
+	memo := &MemoFilter{Type: 1, Value: []byte("order-1")}
+	cursor := &types.CompositeCursor{LedgerCreatedAt: start.Add(36 * time.Hour), ID: 750 << 12}
+	cases := []struct {
+		name    string
+		orderBy SortOrder
+		cursor  *types.CompositeCursor
+	}{
+		{"ascending", ASC, nil},
+		{"ascending from cursor", ASC, cursor},
+		{"descending", DESC, nil},
+		{"descending from cursor", DESC, cursor},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			query, args := buildAccountTransactionsQuery(address, "", &limit, tc.cursor, tc.orderBy, nil, memo)
+			var plan []map[string]any
+			require.NoError(t, pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+query, args...).Scan(&plan))
+			require.Len(t, plan, 1)
+
+			// Find the page LIMIT (the outermost Limit) and count the Sorts beneath it.
+			var pageLimit map[string]any
+			var sortsUnder func(node map[string]any) int
+			var find func(node map[string]any)
+			sortsUnder = func(node map[string]any) int {
+				n := 0
+				if node["Node Type"] == "Sort" || node["Node Type"] == "Incremental Sort" {
+					n++
+				}
+				children, _ := node["Plans"].([]any)
+				for _, c := range children {
+					n += sortsUnder(c.(map[string]any))
+				}
+				return n
+			}
+			find = func(node map[string]any) {
+				if node["Node Type"] == "Limit" {
+					pageLimit = node
+					return
+				}
+				children, _ := node["Plans"].([]any)
+				for _, c := range children {
+					if pageLimit == nil {
+						find(c.(map[string]any))
+					}
+				}
+			}
+			find(plan[0]["Plan"].(map[string]any))
+			require.NotNil(t, pageLimit)
+			// No Sort over the joined rows: the page LIMIT sits on the join, which emits rows
+			// in the order the account's history is read.
+			limitChild := pageLimit["Plans"].([]any)[0].(map[string]any)
+			assert.Equal(t, "Nested Loop", limitChild["Node Type"], "the page LIMIT reads straight from the join:\n%v", plan)
+			if tc.cursor == nil {
+				// Without a cursor the history is read in order from the primary key, so the
+				// whole plan streams.
+				assert.Zero(t, sortsUnder(pageLimit), "a Sort under the page LIMIT reads every match first:\n%v", plan)
+			}
+
+			transactions, err := (&TransactionModel{DB: pool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}).
+				BatchGetByAccountAddress(ctx, address, "", &limit, tc.cursor, tc.orderBy, nil, memo)
+			require.NoError(t, err)
+			require.Len(t, transactions, int(limit))
+			for i := 1; i < len(transactions); i++ {
+				assert.Less(t, transactions[i-1].CompositeCursor.ID, transactions[i].CompositeCursor.ID)
+			}
+		})
+	}
+}
