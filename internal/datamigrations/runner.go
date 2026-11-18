@@ -47,9 +47,9 @@ func lockID() int {
 // through a fresh backend (the SDK backends accept a single PrepareRange) and applies its
 // rows every flushLedgers ledgers to bound memory, reading the next batch while one is
 // written. The cursor moves once the whole slice has committed, so an interrupted run
-// redoes at most one slice. A compressed chunk is recompressed once the walk has passed
-// it, while the walk goes on, so only the chunks of a few slices hold decompressed rows
-// at a time.
+// redoes at most one slice. A compressed chunk the walk wrote to is recompressed once the
+// walk has passed it, while the walk goes on, so only the chunks of a few slices hold
+// decompressed rows at a time.
 //
 // Live ingestion only writes ledgers from the boundary on and the walk only writes
 // ledgers below it, so the two need no coordination.
@@ -127,13 +127,14 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	}
 	r.Metrics.Cursor.WithLabelValues(name).Set(float64(cursor))
 
-	// Chunks compressed before the walk; each is recompressed once the walk has passed its
-	// start. The live chunk is never compressed, so it is never in this list.
+	// Chunks compressed before the walk; each is handed to the recompressor once the walk
+	// has passed its start, and recompressed if the walk wrote to it. The live chunk is
+	// never compressed, so it is never in this list.
 	compressed, err := data.ListCompressedChunks(ctx, r.Models.DB, migration.Tables())
 	if err != nil {
 		return fmt.Errorf("listing chunks to recompress: %w", err)
 	}
-	log.Ctx(ctx).Infof("data migration %s: rewriting ledgers [%d, %d] newest-first, %d compressed chunks to recompress", name, floor, cursor-1, len(compressed))
+	log.Ctx(ctx).Infof("data migration %s: rewriting ledgers [%d, %d] newest-first, %d compressed chunks to check", name, floor, cursor-1, len(compressed))
 
 	// Chunks the walk has passed are recompressed off the walk, so the next slice does
 	// not wait for them.
@@ -191,6 +192,13 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 // recompressor recompresses the chunks the walk has passed, one at a time, while the walk
 // goes on. A chunk is only handed to it once the cursor is below the whole chunk, so no
 // lane writes to it again.
+//
+// A chunk is recompressed only when it is partially compressed, which a write to a
+// compressed chunk makes it, and its indexes are rebuilt only when this run recompressed
+// it. A chunk the walk did not write to (above the boundary, below the floor, or finished
+// by an earlier run) costs one status check. So a run that stops after recompressing a
+// chunk but before its delayed index rebuild leaves that chunk with its grown indexes: the
+// next run finds it fully compressed and skips it.
 type recompressor struct {
 	// chunks is the backlog. Its capacity bounds how many passed chunks hold decompressed
 	// rows: a full backlog holds the walk until a chunk is recompressed.
@@ -221,9 +229,13 @@ func (r *Runner) startRecompressor(ctx context.Context) *recompressor {
 			if !open {
 				break
 			}
-			if err := data.CompressChunk(ctx, r.Models.DB, chunk); err != nil {
+			recompressed, err := data.RecompressChunk(ctx, r.Models.DB, chunk)
+			if err != nil {
 				rc.err = err
 				return
+			}
+			if !recompressed {
+				continue
 			}
 			if previous != "" {
 				r.reindex(ctx, previous)
@@ -262,8 +274,8 @@ func (rc *recompressor) finish() error {
 }
 
 // stop abandons the backlog: a recompression in flight is cancelled. The chunks left
-// partly decompressed are recompressed by the next run, which starts with every chunk
-// above its cursor.
+// partly decompressed are recompressed by the next run, which checks every chunk above its
+// cursor.
 func (rc *recompressor) stop() {
 	rc.cancel()
 	<-rc.done

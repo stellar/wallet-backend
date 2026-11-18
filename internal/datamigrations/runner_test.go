@@ -209,12 +209,31 @@ func (f *runnerFixture) chunkCompressed(t *testing.T, ctx context.Context, close
 	t.Helper()
 	var compressed, partial bool
 	err := f.pool.QueryRow(ctx, `
-		SELECT i.is_compressed, (c.status & 8) <> 0
-		FROM timescaledb_information.chunks i
-		JOIN _timescaledb_catalog.chunk c ON c.schema_name = i.chunk_schema AND c.table_name = i.chunk_name
-		WHERE i.hypertable_name = 'transactions' AND i.range_start <= $1 AND i.range_end > $1`, closedAt).Scan(&compressed, &partial)
+		SELECT is_compressed, (_timescaledb_functions.chunk_status(format('%I.%I', chunk_schema, chunk_name)::regclass) & 8) <> 0
+		FROM timescaledb_information.chunks
+		WHERE hypertable_name = 'transactions' AND range_start <= $1 AND range_end > $1`, closedAt).Scan(&compressed, &partial)
 	require.NoError(t, err)
 	return compressed && !partial
+}
+
+// indexFiles returns the file numbers of the indexes of the chunk holding closedAt. A
+// REINDEX gives every index a new file, so an unchanged result means no rebuild ran.
+func (f *runnerFixture) indexFiles(t *testing.T, ctx context.Context, closedAt time.Time) []int64 {
+	t.Helper()
+	files, err := f.queryIndexFiles(ctx, f.chunkName(t, ctx, closedAt))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	return files
+}
+
+// queryIndexFiles is indexFiles for a chunk name. It is safe to call off the test goroutine.
+func (f *runnerFixture) queryIndexFiles(ctx context.Context, chunk string) ([]int64, error) {
+	var files []int64
+	err := f.pool.QueryRow(ctx, `
+		SELECT array_agg(c.relfilenode::bigint ORDER BY c.relname)
+		FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+		WHERE i.indrelid = $1::regclass`, chunk).Scan(&files)
+	return files, err
 }
 
 // memos reads every row's memo columns keyed by to_id.

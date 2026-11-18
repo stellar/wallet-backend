@@ -91,7 +91,7 @@ A run goes through these steps:
 | Source check | Reads `oldest_ingest_ledger` from the ledger source before it writes anything. If the source cannot serve it, the run exits. See [Troubleshooting](#troubleshooting) |
 | Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice into lanes and rewrite them at the same time. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
 | Commit | The cursor moves once every lane of the slice has committed, so a stopped run does at most one slice again |
-| Compressed chunks | Rows in compressed chunks are updated in place. Each chunk compressed before the run is compressed again once the walk has passed it, and its indexes are rebuilt one slice later. Expect extra disk I/O and some temporary extra disk use while it runs |
+| Compressed chunks | Rows in compressed chunks are updated in place. Once the walk has passed a compressed chunk it wrote to, the run compresses that chunk again and rebuilds its indexes after the next chunk is compressed. A compressed chunk the walk did not write to is left as it is: one above the boundary, one below `oldest_ingest_ledger`, or one an earlier run already compressed again. Expect extra disk I/O and some temporary extra disk use while it runs |
 | Finish | Sets the status to `done` |
 
 Live ingestion writes only ledgers from the boundary on, and the walk writes only ledgers below it. The two never write the same rows.
@@ -99,7 +99,7 @@ Live ingestion writes only ledgers from the boundary on, and the walk writes onl
 The run logs:
 
 ```text
-data migration <NAME>: rewriting ledgers [<OLDEST>, <HIGH>] newest-first, <N> compressed chunks to recompress
+data migration <NAME>: rewriting ledgers [<OLDEST>, <HIGH>] newest-first, <N> compressed chunks to check
 data migration <NAME>: ledgers [<LO>, <HI>] done in <DURATION>
 data migration <NAME>: done down to ledger <OLDEST>
 ```
@@ -218,7 +218,7 @@ To resume, fix the cause and run the same command again. The run starts from the
 | `ledgers [<LO>, <HI>] failed 3 times: <ERROR>` | `<ERROR>` names the cause, often the ledger source | Fix the cause and run again |
 | `interrupted at ledgers [<LO>, <HI>]` | The process got SIGTERM or an interrupt | Run again |
 | `--rpc-url is required when --ledger-backend-type=rpc` | `RPC_URL` is not set | Set it, or use the `datastore` backend |
-| `data migration: reindexing chunk <CHUNK>: rebuilding indexes: <ERROR>; its indexes keep their grown size`, or no message | The index rebuild after recompression lost its 5 s lock wait, or overlapped an older open snapshot. Either leaves the chunk's indexes large. Only the lock case is logged | Find the chunks with the query below and run `REINDEX TABLE <CHUNK>` on each. It briefly blocks queries on that chunk |
+| `data migration: reindexing chunk <CHUNK>: rebuilding indexes: <ERROR>; its indexes keep their grown size`, or no message | The index rebuild after recompression lost its 5 s lock wait, or overlapped an older open snapshot, or the run stopped after it compressed the chunk again but before the rebuild. A later run does not rebuild that chunk. Each leaves the chunk's indexes large. Only the lock case is logged | Find the chunks with the query below and run `REINDEX TABLE <CHUNK>` on each. It briefly blocks queries on that chunk |
 
 A chunk whose index size is far above the others is one to rebuild. On a test run on a mainnet-sized database, 4 of 1,001 chunks were left at 145 to 216 MB each.
 

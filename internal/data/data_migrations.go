@@ -132,19 +132,22 @@ func ListCompressedChunks(ctx context.Context, q db.Querier, hypertables []strin
 	return chunks, nil
 }
 
-// CompressChunk (re)compresses one chunk. On a partially compressed chunk this folds the
-// rows DML left in the rowstore back into the columnstore; on a fully compressed chunk it
-// is a no-op, as it is for a chunk that no longer exists (dropped by retention).
-func CompressChunk(ctx context.Context, q db.Querier, chunk string) error {
+// RecompressChunk recompresses one partially compressed chunk (TimescaleDB chunk status
+// bit 8, set by DML on a compressed chunk), folding the rows DML left in the rowstore back
+// into the columnstore. It reports whether it did. A fully compressed chunk, an
+// uncompressed chunk, and a chunk that no longer exists (dropped by retention) are left
+// alone.
+func RecompressChunk(ctx context.Context, q db.Querier, chunk string) (bool, error) {
 	const query = `
 		SELECT compress_chunk(c, if_not_compressed => true)
 		FROM (SELECT to_regclass($1) AS c) AS s
-		WHERE c IS NOT NULL
+		WHERE c IS NOT NULL AND (_timescaledb_functions.chunk_status(c) & 8) <> 0
 	`
-	if _, err := q.Exec(ctx, query, chunk); err != nil {
-		return fmt.Errorf("compressing chunk %s: %w", chunk, err)
+	tag, err := q.Exec(ctx, query, chunk)
+	if err != nil {
+		return false, fmt.Errorf("compressing chunk %s: %w", chunk, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // ReindexChunk rebuilds the chunk's own indexes. Rows updated in a compressed chunk pass

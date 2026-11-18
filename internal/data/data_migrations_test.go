@@ -115,7 +115,7 @@ func Test_DataMigrationModel(t *testing.T) {
 	})
 }
 
-func Test_ListCompressedChunksAndCompressChunk(t *testing.T) {
+func Test_ListCompressedChunksAndRecompressChunk(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
 	ctx := context.Background()
@@ -144,22 +144,46 @@ func Test_ListCompressedChunksAndCompressChunk(t *testing.T) {
 	assert.False(t, chunks[0].RangeStart.After(day1.Add(24*time.Hour)))
 	assert.False(t, chunks[1].RangeStart.After(day1))
 
-	t.Run("compresses_an_uncompressed_chunk", func(t *testing.T) {
+	status := func(t *testing.T, chunk string) int {
+		t.Helper()
+		var s int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT _timescaledb_functions.chunk_status($1::regclass)`, chunk).Scan(&s))
+		return s
+	}
+
+	t.Run("recompresses_a_partially_compressed_chunk", func(t *testing.T) {
+		_, err := pool.Exec(ctx, `UPDATE transactions SET memo_type = 0 WHERE ledger_created_at = $1`, day1)
+		require.NoError(t, err)
+		require.NotZero(t, status(t, chunks[1].Name)&8, "the update leaves the chunk partially compressed")
+
+		recompressed, err := RecompressChunk(ctx, pool, chunks[1].Name)
+		require.NoError(t, err)
+		assert.True(t, recompressed)
+		assert.Zero(t, status(t, chunks[1].Name)&8, "the chunk is fully compressed")
+	})
+
+	t.Run("fully_compressed_chunk_is_skipped", func(t *testing.T) {
+		recompressed, err := RecompressChunk(ctx, pool, chunks[0].Name)
+		require.NoError(t, err)
+		assert.False(t, recompressed)
+	})
+
+	t.Run("uncompressed_chunk_is_skipped", func(t *testing.T) {
 		var day3 string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT c::text FROM show_chunks('transactions', newer_than => $1::timestamptz) c`, day1.Add(24*time.Hour)).Scan(&day3))
-		require.NoError(t, CompressChunk(ctx, pool, day3))
+		recompressed, err := RecompressChunk(ctx, pool, day3)
+		require.NoError(t, err)
+		assert.False(t, recompressed)
 
 		chunks, err := ListCompressedChunks(ctx, pool, []string{"transactions"})
 		require.NoError(t, err)
-		assert.Len(t, chunks, 3)
+		assert.Len(t, chunks, 2, "the uncompressed chunk stays uncompressed")
 	})
 
-	t.Run("compressed_chunk_is_a_no_op", func(t *testing.T) {
-		require.NoError(t, CompressChunk(ctx, pool, chunks[0].Name))
-	})
-
-	t.Run("missing_chunk_is_a_no_op", func(t *testing.T) {
-		require.NoError(t, CompressChunk(ctx, pool, "_timescaledb_internal._hyper_1_999_chunk"))
+	t.Run("missing_chunk_is_skipped", func(t *testing.T) {
+		recompressed, err := RecompressChunk(ctx, pool, "_timescaledb_internal._hyper_1_999_chunk")
+		require.NoError(t, err)
+		assert.False(t, recompressed)
 	})
 }
 
@@ -182,7 +206,8 @@ func Test_ReindexChunk_ReclaimsIndexesLeftByRecompression(t *testing.T) {
 	require.NoError(t, err)
 	var chunk string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT c::text FROM show_chunks('transactions') c`).Scan(&chunk))
-	require.NoError(t, CompressChunk(ctx, pool, chunk))
+	_, err = pool.Exec(ctx, `SELECT compress_chunk($1::regclass)`, chunk)
+	require.NoError(t, err)
 
 	// Update every row in the compressed chunk, then recompress, as a data migration does.
 	require.NoError(t, db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
@@ -192,7 +217,9 @@ func Test_ReindexChunk_ReclaimsIndexesLeftByRecompression(t *testing.T) {
 		_, execErr := dbTx.Exec(ctx, `UPDATE transactions SET memo_type = 0`)
 		return execErr
 	}))
-	require.NoError(t, CompressChunk(ctx, pool, chunk))
+	recompressed, err := RecompressChunk(ctx, pool, chunk)
+	require.NoError(t, err)
+	require.True(t, recompressed)
 
 	indexBytes := func() int64 {
 		var size int64

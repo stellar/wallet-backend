@@ -196,6 +196,107 @@ func TestRunner_ResumeRecompressesChunksACancelledRunPassed(t *testing.T) {
 	assert.True(t, f.chunkCompressed(t, ctx, f.day1), "the oldest chunk is recompressed")
 }
 
+// A compressed chunk the walk passes without writing to it stays fully compressed, so it
+// is neither recompressed nor reindexed.
+func TestRunner_SkipsChunksTheWalkDidNotWrite(t *testing.T) {
+	ctx := context.Background()
+	testCases := []struct {
+		name string
+		// setup makes the walk write only one of the two compressed chunks.
+		setup func(t *testing.T, f *runnerFixture)
+		// written and untouched are the close times of the chunk the walk writes and the
+		// chunk it does not.
+		written, untouched func(f *runnerFixture) time.Time
+	}{
+		{
+			name: "chunk_at_or_above_the_boundary",
+			setup: func(t *testing.T, f *runnerFixture) {
+				// The day-2 chunk holds ledgers [106, 111], all at or above the boundary.
+				_, err := f.pool.Exec(ctx, `UPDATE data_migrations SET boundary_ledger = 106, cursor_ledger = 106 WHERE name = $1`, memoMigration)
+				require.NoError(t, err)
+			},
+			written:   func(f *runnerFixture) time.Time { return f.day1 },
+			untouched: func(f *runnerFixture) time.Time { return f.day2 },
+		},
+		{
+			name: "chunk_below_the_floor",
+			setup: func(t *testing.T, f *runnerFixture) {
+				// The day-1 chunk holds ledgers [100, 105], all below the floor.
+				_, err := f.pool.Exec(ctx, `UPDATE ingest_store SET value = '106' WHERE key = $1`, data.OldestLedgerCursorName)
+				require.NoError(t, err)
+			},
+			written:   func(f *runnerFixture) time.Time { return f.day2 },
+			untouched: func(f *runnerFixture) time.Time { return f.day1 },
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			withRunnerSizes(t, 4, 4)
+			f := newRunnerFixture(t, ctx)
+			f.compressDay2(t, ctx)
+			tc.setup(t, f)
+			writtenBefore := f.indexFiles(t, ctx, tc.written(f))
+			untouchedBefore := f.indexFiles(t, ctx, tc.untouched(f))
+
+			require.NoError(t, f.runner.Run(ctx, memoMigration))
+
+			assert.Equal(t, data.DataMigrationDone, f.row(t, ctx).Status)
+			assert.True(t, f.chunkCompressed(t, ctx, tc.written(f)), "the written chunk is recompressed")
+			assert.NotEqual(t, writtenBefore, f.indexFiles(t, ctx, tc.written(f)), "the written chunk's indexes are rebuilt")
+			assert.True(t, f.chunkCompressed(t, ctx, tc.untouched(f)))
+			assert.Equal(t, untouchedBefore, f.indexFiles(t, ctx, tc.untouched(f)), "the untouched chunk's indexes are not rebuilt")
+		})
+	}
+}
+
+// A run that stops after it rebuilt a chunk's indexes leaves that chunk fully compressed,
+// so the next run does not rebuild them again. The chunk whose rebuild was still waiting
+// keeps its grown indexes.
+func TestRunner_ResumeDoesNotRebuildIndexesAgain(t *testing.T) {
+	ctx := context.Background()
+	withRunnerSizes(t, 4, 4)
+	reindexWait = time.Hour
+	f := newRunnerFixture(t, ctx)
+	f.compressDay2(t, ctx)
+	day1, day2 := f.chunkName(t, ctx, f.day1), f.chunkName(t, ctx, f.day2)
+	day2Before := f.indexFiles(t, ctx, f.day2)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- f.runner.Run(runCtx, memoMigration) }()
+
+	// The day-2 chunk is recompressed mid-walk and its indexes are rebuilt once the day-1
+	// chunk is recompressed. The day-1 rebuild then waits.
+	require.Eventually(t, func() bool {
+		files, err := f.queryIndexFiles(ctx, day2)
+		if err != nil || assert.ObjectsAreEqual(day2Before, files) {
+			return false
+		}
+		var recompressed bool
+		err = f.pool.QueryRow(ctx, `SELECT (s & 1) <> 0 AND (s & 8) = 0 FROM _timescaledb_functions.chunk_status($1::regclass) s`, day1).Scan(&recompressed)
+		return err == nil && recompressed
+	}, 10*time.Second, 5*time.Millisecond, "the day-2 indexes are rebuilt and the day-1 chunk is recompressed")
+	cancel()
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "Run did not return after cancel")
+	}
+	require.Equal(t, data.DataMigrationInProgress, f.row(t, ctx).Status)
+	day1Files, day2Files := f.indexFiles(t, ctx, f.day1), f.indexFiles(t, ctx, f.day2)
+
+	reindexWait = 0
+	require.NoError(t, f.runner.Run(ctx, memoMigration))
+	assert.Equal(t, data.DataMigrationDone, f.row(t, ctx).Status)
+	assert.Equal(t, f.want, f.memos(t, ctx))
+	assert.Equal(t, day2Files, f.indexFiles(t, ctx, f.day2), "the rebuilt day-2 indexes are not rebuilt again")
+	assert.Equal(t, day1Files, f.indexFiles(t, ctx, f.day1), "the day-1 chunk is not recompressed again, so its indexes are not rebuilt")
+	assert.True(t, f.chunkCompressed(t, ctx, f.day1))
+	assert.True(t, f.chunkCompressed(t, ctx, f.day2))
+}
+
 func TestRunner_RecompressionFailureStopsTheRun(t *testing.T) {
 	ctx := context.Background()
 	withRunnerSizes(t, 4, 4)
@@ -268,9 +369,9 @@ func TestRunner_CancelWhileWaitingToRebuildIndexesIsNotDone(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var recompressed bool
 		err := f.pool.QueryRow(ctx, `
-			SELECT m.cursor_ledger = $2 AND (c.status & 8) = 0 AND c.compressed_chunk_id IS NOT NULL
-			FROM data_migrations m, _timescaledb_catalog.chunk c
-			WHERE m.name = $3 AND format('%I.%I', c.schema_name, c.table_name) = $1`, day1, int64(f.oldest), memoMigration).Scan(&recompressed)
+			SELECT m.cursor_ledger = $2 AND (s.status & 1) <> 0 AND (s.status & 8) = 0
+			FROM data_migrations m, (SELECT _timescaledb_functions.chunk_status($1::regclass) AS status) s
+			WHERE m.name = $3`, day1, int64(f.oldest), memoMigration).Scan(&recompressed)
 		return err == nil && recompressed
 	}, 10*time.Second, 5*time.Millisecond, "the walk finishes and the last chunk is recompressed")
 	cancel()
