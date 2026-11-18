@@ -28,7 +28,7 @@ func classicFixture(t *testing.T, entries ...entities.LedgerEntryResult) *transa
 	rpcMock := &RPCServiceMock{}
 	rpcMock.On("GetLedgerEntries", mock.Anything).
 		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 5_000_000, Entries: entries}, nil).Maybe()
-	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
 	require.NoError(t, err)
 	return svc
 }
@@ -57,7 +57,7 @@ func classicStrictFixture(t *testing.T, entries ...entities.LedgerEntryResult) *
 	for _, e := range entries {
 		m.entries[e.KeyXDR] = e
 	}
-	svc, err := NewTransactionSimulationService(m, nil, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(m, nil, network.TestNetworkPassphrase, nil)
 	require.NoError(t, err)
 	return svc
 }
@@ -1532,7 +1532,7 @@ func TestFetchLedgerEntries_batches(t *testing.T) {
 	rpcMock.On("GetLedgerEntries", mock.MatchedBy(func(keys []string) bool {
 		return len(keys) > 0 && len(keys) <= rpcLedgerEntryBatchSize
 	})).Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 5_000_000}, nil)
-	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
 	require.NoError(t, err)
 
 	keys := make([]xdr.LedgerKey, 0, rpcLedgerEntryBatchSize+50)
@@ -1558,7 +1558,7 @@ func TestFetchLedgerEntries_retriesOnLedgerClose(t *testing.T) {
 	// Second attempt: both batches agree.
 	rpcMock.On("GetLedgerEntries", mock.Anything).
 		Return(entities.RPCGetLedgerEntriesResult{LatestLedger: 101}, nil).Twice()
-	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase)
+	svc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
 	require.NoError(t, err)
 
 	keys := make([]xdr.LedgerKey, 0, rpcLedgerEntryBatchSize+50)

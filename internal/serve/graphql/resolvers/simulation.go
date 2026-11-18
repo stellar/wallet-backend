@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 
 	"github.com/stellar/go-stellar-sdk/toid"
 
@@ -379,12 +378,6 @@ func (r *Resolver) convertToSimulatedStateChange(sc types.StateChange) (graphql1
 		sc.StateChangeCategory, sc.StateChangeReason)
 }
 
-// keyValueUint32 reads a uint32 from a KeyValue payload. The value can arrive in
-// two representations: a real uint32 when the state change is built in memory
-// (the simulation path, e.g. sep41.Processor writes live_until_ledger directly),
-// or a float64 when it has been round-tripped through JSONB from the database.
-// Absent, wrong-typed, and out-of-range values each get their own error so a
-// present-but-malformed value is not misreported as missing.
 // resolveSimulatedTokens looks up registry metadata for every token the
 // simulated state changes reference, in one batched contract_tokens query.
 // Tokens that have never been indexed are simply absent from the result, so
@@ -408,12 +401,11 @@ func (r *Resolver) resolveSimulatedTokens(ctx context.Context, stateChanges []ty
 	if len(ids) == 0 {
 		return tokens, nil
 	}
-	sort.Strings(ids)
-	contracts, err := r.models.Contract.GetByContractIDs(ctx, ids)
+	contracts, err := r.models.Contract.GetTokenMetadataByContractIDs(ctx, ids)
 	if err != nil {
 		return nil, fmt.Errorf("looking up token metadata: %w", err)
 	}
-	byID := make(map[string]*data.Contract, len(contracts))
+	byID := make(map[string]data.Contract, len(contracts))
 	for _, c := range contracts {
 		byID[c.ContractID] = c
 	}
@@ -446,6 +438,12 @@ func simulatedOperationIndex(operationID int64) *int32 {
 	return &index
 }
 
+// keyValueUint32 reads a uint32 from a KeyValue payload. The value can arrive in
+// two representations: a real uint32 when the state change is built in memory
+// (the simulation path, e.g. sep41.Processor writes live_until_ledger directly),
+// or a float64 when it has been round-tripped through JSONB from the database.
+// Absent, wrong-typed, and out-of-range values each get their own error so a
+// present-but-malformed value is not misreported as missing.
 func keyValueUint32(kv types.NullableJSONB, key string) (uint32, error) {
 	raw, ok := kv[key]
 	if !ok {

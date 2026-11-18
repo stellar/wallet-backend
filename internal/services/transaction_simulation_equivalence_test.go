@@ -86,7 +86,7 @@ func TestClassicSimulationEquivalence(t *testing.T) {
 			require.NoError(t, xdr.SafeUnmarshalBase64(fixture.ResultMetaXDR, &meta))
 
 			// Real side: the transaction as the network recorded it.
-			realService, err := NewTransactionSimulationService(&RPCServiceMock{}, nil, network.TestNetworkPassphrase)
+			realService, err := NewTransactionSimulationService(&RPCServiceMock{}, nil, network.TestNetworkPassphrase, nil)
 			require.NoError(t, err)
 			realTx := ingest.LedgerTransaction{
 				Index:      1,
@@ -113,7 +113,7 @@ func TestClassicSimulationEquivalence(t *testing.T) {
 				}
 			}
 			stub := &snapshotRPCStub{snapshot: snapshot, ledger: uint32(fixture.Ledger)}
-			derivedService, err := NewTransactionSimulationService(stub, nil, network.TestNetworkPassphrase)
+			derivedService, err := NewTransactionSimulationService(stub, nil, network.TestNetworkPassphrase, nil)
 			require.NoError(t, err)
 			derived, err := derivedService.SimulateStateChanges(context.Background(), fixture.EnvelopeXDR)
 			require.NoError(t, err)

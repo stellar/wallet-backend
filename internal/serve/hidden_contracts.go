@@ -141,11 +141,14 @@ func (c *HiddenContracts) ContractAddresses(protocolID string) []string {
 	return addrs
 }
 
-// ByProtocol returns the hidden C-addresses keyed by protocol ID.
-func (c *HiddenContracts) ByProtocol() map[string][]string {
-	byProtocol := make(map[string][]string)
+// ByProtocol returns the set of hidden C-addresses per protocol ID.
+func (c *HiddenContracts) ByProtocol() map[string]map[string]struct{} {
+	byProtocol := make(map[string]map[string]struct{})
 	for _, e := range c.entries {
-		byProtocol[e.protocol] = append(byProtocol[e.protocol], e.address)
+		if byProtocol[e.protocol] == nil {
+			byProtocol[e.protocol] = make(map[string]struct{})
+		}
+		byProtocol[e.protocol][e.address] = struct{}{}
 	}
 	return byProtocol
 }

@@ -67,7 +67,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 			Events:         []string{diagnosticB64(t, transferEvent), diagnosticB64(t, approveEvent)},
 		}, nil).Once()
 
-	svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+	svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase, nil)
 	require.NoError(t, err)
 
 	result, err := svc.SimulateStateChanges(ctx, txXDR)
@@ -124,7 +124,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 				StateChanges:   []entities.RPCSimulateStateChange{instanceBindingStateChange(t, contractID, unclassifiedWasm)},
 			}, nil).Once()
 
-		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase, nil)
 		require.NoError(t, err)
 
 		result, err := svc.SimulateStateChanges(ctx, upgradeTxXDR)
@@ -151,7 +151,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 				StateChanges:   []entities.RPCSimulateStateChange{instanceBindingStateChange(t, freshID, classifiedWasm)},
 			}, nil).Once()
 
-		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase, nil)
 		require.NoError(t, err)
 
 		result, err := svc.SimulateStateChanges(ctx, bindTxXDR)
@@ -180,7 +180,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 			}, nil).Once()
 
 		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase,
-			services.WithHiddenContracts(map[string][]string{"SEP41": {tokenStrkey}}))
+			map[string]map[string]struct{}{"SEP41": {tokenStrkey: {}}})
 		require.NoError(t, err)
 
 		result, err := svc.SimulateStateChanges(ctx, hiddenTxXDR)
@@ -207,7 +207,7 @@ func TestTransactionSimulationService_customSEP41Token(t *testing.T) {
 				Events:         []string{diagnosticB64(t, unknownEvent)},
 			}, nil).Once()
 
-		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase)
+		svc, err := services.NewTransactionSimulationService(rpcMock, models, network.TestNetworkPassphrase, nil)
 		require.NoError(t, err)
 
 		result, err := svc.SimulateStateChanges(ctx, unknownTxXDR)

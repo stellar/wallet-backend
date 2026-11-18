@@ -3,7 +3,6 @@ package resolvers
 import (
 	"context"
 	"database/sql"
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,14 +30,13 @@ func TestResolveSimulatedTokens(t *testing.T) {
 	ctx := context.Background()
 	indexed := testSimToken
 	unindexed := "CDP3XWJ4ZN222LKYBMWIY3GYXZYX3KA6WVNDDJ5KWSMDQTTHKUYDDRTF"
-	ids := []string{indexed, unindexed}
-	sort.Strings(ids)
+	ids := []string{indexed, unindexed} // first-seen order
 
 	t.Run("🟢 dedupes, batches once, and omits unindexed tokens", func(t *testing.T) {
 		code, issuer := "USDC", testSimSpender
 		mockContract := &data.ContractModelMock{}
-		mockContract.On("GetByContractIDs", mock.Anything, ids).
-			Return([]*data.Contract{{ContractID: indexed, Code: &code, Issuer: &issuer, Decimals: 7}}, nil).Once()
+		mockContract.On("GetTokenMetadataByContractIDs", mock.Anything, ids).
+			Return([]data.Contract{{ContractID: indexed, Code: &code, Issuer: &issuer, Decimals: 7}}, nil).Once()
 		r := &Resolver{models: &data.Models{Contract: mockContract}}
 
 		tokens, err := r.resolveSimulatedTokens(ctx, []types.StateChange{

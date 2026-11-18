@@ -66,32 +66,15 @@ type transactionSimulationService struct {
 	hiddenTokens map[string]map[string]struct{}
 }
 
-// SimulationOption configures the simulation service.
-type SimulationOption func(*transactionSimulationService)
-
-// WithHiddenContracts leaves out the rows a protocol processor produces for
-// the listed token contracts (C-addresses keyed by protocol ID), so a preview
-// hides what history hides.
-func WithHiddenContracts(byProtocol map[string][]string) SimulationOption {
-	return func(s *transactionSimulationService) {
-		s.hiddenTokens = make(map[string]map[string]struct{}, len(byProtocol))
-		for protocolID, addresses := range byProtocol {
-			set := make(map[string]struct{}, len(addresses))
-			for _, address := range addresses {
-				set[address] = struct{}{}
-			}
-			s.hiddenTokens[protocolID] = set
-		}
-	}
-}
-
 var _ TransactionSimulationService = (*transactionSimulationService)(nil)
 
 // NewTransactionSimulationService builds the simulation service. models is used
 // only for the read-only protocol_contracts lookup that routes contract events
 // to the registered protocol processors (SEP-41); a nil models skips protocol
-// processing, so previews then cover native/SAC tokens only.
-func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string, opts ...SimulationOption) (*transactionSimulationService, error) {
+// processing, so previews then cover native/SAC tokens only. hiddenTokens is
+// the sets of hidden token contracts (C-addresses) keyed by protocol ID; nil
+// hides nothing.
+func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string, hiddenTokens map[string]map[string]struct{}) (*transactionSimulationService, error) {
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
@@ -103,16 +86,13 @@ func NewTransactionSimulationService(rpcService RPCService, models *data.Models,
 	if err != nil {
 		return nil, fmt.Errorf("creating indexer: %w", err)
 	}
-	s := &transactionSimulationService{
+	return &transactionSimulationService{
 		rpcService:        rpcService,
 		ledgerIndexer:     ledgerIndexer,
 		models:            models,
 		networkPassphrase: networkPassphrase,
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s, nil
+		hiddenTokens:      hiddenTokens,
+	}, nil
 }
 
 func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context, transactionXDR string) (*SimulatedStateChanges, error) {

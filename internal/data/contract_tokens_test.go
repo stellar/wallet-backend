@@ -245,10 +245,11 @@ func TestContractModel_GetTokenMetadataByContractIDs(t *testing.T) {
 	}
 
 	name1, symbol1 := "USD Coin", "USDC"
+	code1, issuer1 := "USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 	name2, symbol2 := "BLND Token", "BLND"
 	err = db.RunInTransaction(ctx, dbConnectionPool, func(dbTx pgx.Tx) error {
 		return m.BatchInsert(ctx, dbTx, []*Contract{
-			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sep41", Name: &name1, Symbol: &symbol1, Decimals: 7},
+			{ID: DeterministicContractID("contract1"), ContractID: "contract1", Type: "sep41", Code: &code1, Issuer: &issuer1, Name: &name1, Symbol: &symbol1, Decimals: 7},
 			{ID: DeterministicContractID("contract2"), ContractID: "contract2", Type: "sep41", Name: &name2, Symbol: &symbol2, Decimals: 7},
 		})
 	})
@@ -263,6 +264,10 @@ func TestContractModel_GetTokenMetadataByContractIDs(t *testing.T) {
 		assert.Equal(t, "USD Coin", *got[0].Name)
 		require.NotNil(t, got[0].Symbol)
 		assert.Equal(t, "USDC", *got[0].Symbol)
+		require.NotNil(t, got[0].Code)
+		assert.Equal(t, code1, *got[0].Code)
+		require.NotNil(t, got[0].Issuer)
+		assert.Equal(t, issuer1, *got[0].Issuer)
 		assert.Equal(t, uint32(7), got[0].Decimals)
 	})
 
