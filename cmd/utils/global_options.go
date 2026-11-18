@@ -211,6 +211,48 @@ func DBPoolOptions(maxConns *int, minConns *int, maxConnLifetime *time.Duration,
 	}
 }
 
+// HistoryLedgerBackendOptions returns the rpc-url and ledger-backend-type options of the
+// commands that read history from either backend (protocol-migrate, data-migrate). The RPC
+// URL is required only with the rpc backend, which ValidateHistoryLedgerBackend checks.
+func HistoryLedgerBackendOptions(rpcURL, ledgerBackendType *string) config.ConfigOptions {
+	return config.ConfigOptions{
+		{
+			Name:        "rpc-url",
+			Usage:       "The URL of the RPC Server. Required when --ledger-backend-type=rpc.",
+			OptType:     types.String,
+			ConfigKey:   rpcURL,
+			FlagDefault: "",
+			Required:    false,
+		},
+		{
+			Name:        "ledger-backend-type",
+			Usage:       "Where historical ledgers are read from: 'rpc' (default) or 'datastore'. Use datastore with datastore-bucket-path for ledgers outside the RPC retention window.",
+			OptType:     types.String,
+			ConfigKey:   ledgerBackendType,
+			FlagDefault: string(ingest.LedgerBackendTypeRPC),
+			Required:    false,
+		},
+	}
+}
+
+// ValidateHistoryLedgerBackend checks the options HistoryLedgerBackendOptions and
+// DatastoreOptions set: the backend type is known and the backend it names is configured.
+func ValidateHistoryLedgerBackend(ledgerBackendType, rpcURL string, datastore ingest.DatastoreConfig) error {
+	switch ledgerBackendType {
+	case string(ingest.LedgerBackendTypeRPC):
+		if rpcURL == "" {
+			return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
+		}
+	case string(ingest.LedgerBackendTypeDatastore):
+		if datastore.BucketPath == "" {
+			return fmt.Errorf("--datastore-bucket-path is required when --ledger-backend-type=datastore")
+		}
+	default:
+		return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", ledgerBackendType)
+	}
+	return nil
+}
+
 // DatastoreOptions returns the config options for the datastore ledger backend. The bucket path
 // has no default: the public Stellar data lakes are network-specific (for example
 // aws-public-blockchain/v1.1/stellar/ledgers/pubnet), so the command validates it is set when

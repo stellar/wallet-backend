@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"go/types"
 	"os"
 	"os/signal"
 	"runtime"
@@ -65,24 +64,9 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 		utils.DatabaseURLOption(&databaseURL),
 		utils.NetworkPassphraseOption(&networkPassphrase),
 		utils.LogLevelOption(&logLevel),
-		{
-			Name:        "rpc-url",
-			Usage:       "The URL of the RPC Server. Required when --ledger-backend-type=rpc.",
-			OptType:     types.String,
-			ConfigKey:   &rpcURL,
-			FlagDefault: "",
-			Required:    false,
-		},
-		{
-			Name:        "ledger-backend-type",
-			Usage:       "Where historical ledgers are read from: 'rpc' (default) or 'datastore'. Use datastore with datastore-bucket-path for ledgers outside the RPC retention window.",
-			OptType:     types.String,
-			ConfigKey:   &ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeRPC),
-			Required:    false,
-		},
-		utils.GetLedgersLimitOption(&getLedgersLimit),
 	}
+	cfgOpts = append(cfgOpts, utils.HistoryLedgerBackendOptions(&rpcURL, &ledgerBackendType)...)
+	cfgOpts = append(cfgOpts, utils.GetLedgersLimitOption(&getLedgersLimit))
 	cfgOpts = append(cfgOpts, utils.DatastoreOptions(&datastore)...)
 
 	cmd := &cobra.Command{
@@ -100,19 +84,7 @@ func (c *dataMigrateCmd) runCommand() *cobra.Command {
 			}
 			log.DefaultLogger.SetLevel(logLevel)
 
-			switch ledgerBackendType {
-			case string(ingest.LedgerBackendTypeRPC):
-				if rpcURL == "" {
-					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
-				}
-			case string(ingest.LedgerBackendTypeDatastore):
-				if datastore.BucketPath == "" {
-					return fmt.Errorf("--datastore-bucket-path is required when --ledger-backend-type=datastore")
-				}
-			default:
-				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", ledgerBackendType)
-			}
-			return nil
+			return utils.ValidateHistoryLedgerBackend(ledgerBackendType, rpcURL, datastore) //nolint:wrapcheck // the error names the flag to fix
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateDataMigrateWorkers(workers); err != nil {
