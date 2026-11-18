@@ -40,12 +40,13 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
 
 2. **Write the database method `Apply` will call.**
 
-   Put it on the table's model in `internal/data/`. It runs inside the transaction it is given and may touch compressed chunks. `BatchUpdateMemo` in `internal/data/transactions.go` shows the two things it needs:
+   Put it on the table's model in `internal/data/`. It runs inside the transaction it is given and may touch compressed chunks. `BatchUpdateMemo` in `internal/data/transactions.go` shows the three things it needs:
 
    | Need | How `BatchUpdateMemo` does it |
    | --- | --- |
    | Prune chunks | Bounds the `UPDATE` by `ledger_created_at`, the partition column, as well as by `to_id` |
    | Write through compressed chunks | Runs `SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0`, because one call covers up to 1,000 ledgers and can pass the default limit |
+   | Keep pruning on a reused statement | Runs `SET LOCAL plan_cache_mode = force_custom_plan`. A cached generic plan has no bound values to exclude chunks with, so it targets every chunk |
 
    ```go
    const query = `
@@ -64,9 +65,9 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
    | Method | Returns | Rules |
    | --- | --- | --- |
    | `Name` | the name in `data_migrations` and on the command line | Lower-case, hyphenated. Permanent once released |
-   | `Tables` | the hypertables `Apply` writes | The runner compresses their chunks again once the walk has passed them |
-   | `Extract` | the rows to write for one ledger, as `[]any` | Pure: reads only the ledger and `Deps`. No database access |
-   | `Apply` | error | Writes rows `Extract` returned for a run of consecutive ledgers, inside `dbTx`. Idempotent |
+   | `Tables` | the hypertables `Apply` writes | The runner lists their compressed chunks before the walk, compresses again each one the walk wrote to, and rebuilds its indexes. A table left out keeps its written chunks partly decompressed |
+   | `Extract` | the rows to write for one ledger, as `[]any` | Pure: reads only the ledger and `Deps`. No database access. Runs concurrently across lanes |
+   | `Apply` | error | Writes the rows `Extract` returned for one batch of up to 1,000 consecutive ledgers, inside `dbTx`, which commits after it. Called once per batch per lane, concurrently across lanes on different ledger ranges. Idempotent |
 
    `Deps` carries `Models`, `NetworkPassphrase`, and `Pool`, a worker pool for per-ledger CPU work such as transaction hashing.
 
@@ -101,7 +102,7 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
        for i, r := range rows {
            memos[i] = r.(data.TransactionMemo) //nolint:errcheck // Extract returns only this type
        }
-       if _, err := deps.Models.Transactions.BatchUpdateMemo(ctx, dbTx, memos); err != nil {
+       if err := deps.Models.Transactions.BatchUpdateMemo(ctx, dbTx, memos); err != nil {
            return fmt.Errorf("updating memos: %w", err)
        }
        return nil
@@ -128,7 +129,7 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
 
    | Kind | Where `transactions-memo`'s live | Covers |
    | --- | --- | --- |
-   | Runner tests | `internal/datamigrations/runner_test.go` | Walk order, recompression, resume from the cursor, a failing slice that records `last_error` and then resumes, cancellation, and the cases that do not run |
+   | Runner tests | `internal/datamigrations/runner_test.go`, `runner_failure_test.go`, `runner_overlap_test.go` | Walk order, lanes, recompression, resume from the cursor, a failing slice that records `last_error` and then resumes, cancellation, index rebuilds, and the cases that do not run |
    | Integration | `internal/integrationtests/memo_migration_test.go` | Clears memos on a real database, runs `data-migrate run`, and checks every row |
 
    For a new migration, check at least:
@@ -152,11 +153,12 @@ A data migration rewrites each ledger from that ledger's data alone. Use it only
 
 | Rule | Why |
 | --- | --- |
-| `Extract` is a pure function of one ledger | The runner reads ledgers in slices, newest first, through a fresh backend per slice. Nothing carries over from one ledger to the next |
+| `Extract` is a pure function of one ledger | The runner reads ledgers in slices, newest first, through a fresh backend per lane. Nothing carries over from one ledger to the next |
 | `Apply` is idempotent | An interrupted run redoes up to one slice. A ledger written twice must end the same as written once |
+| `Apply` is safe to call concurrently | With `--workers` above 1, lanes call it at the same time on different ledger ranges, each in its own transaction. It must not depend on rows another call writes |
 | The name is permanent | `done` is final. A later fix to the same data is a migration with a new name, so deployments that finished the first one run the fix too |
 | `Apply` writes only the rows of the ledgers it is given | The runner gives it only ledgers below the boundary. The live ingester writes every ledger from the boundary on, and the two never coordinate |
-| No tuning knobs | Slice size, flush size, and retries are constants in `runner.go`. Operators run every migration the same way |
+| No tuning knobs | Slice size per lane, flush size, and retries are constants in `runner.go`. `--workers` is the only flag, and operators run every migration the same way |
 
 ## Changing the set of rows
 

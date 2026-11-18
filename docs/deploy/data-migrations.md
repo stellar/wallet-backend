@@ -93,9 +93,9 @@ A run goes through these steps:
 | Lock | Takes an advisory lock shared by all data migrations. Only one data migration runs at a time per database. A second `run`, of any name, exits at once with `another data migration is running` |
 | Done check | A migration with status `done` logs `data migration <NAME> is already done` and exits with status 0 |
 | Source check | Reads `oldest_ingest_ledger` from the ledger source before it writes anything. If the source cannot serve it, the run exits. See [Troubleshooting](#troubleshooting) |
-| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice into lanes and rewrite them at the same time. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
+| Walk | Newest first, from the cursor down to `oldest_ingest_ledger`, in slices of 10,000 ledgers for each worker. The workers split a slice into lanes and rewrite them at the same time. Each lane opens its own ledger source, reads the next 1,000-ledger batch while it writes one, and writes each batch in its own transaction. After each slice it reads `oldest_ingest_ledger` again, so retention or a backfill that moves it during the run is followed |
 | Commit | The cursor moves once every lane of the slice has committed, so a stopped run does at most one slice again |
-| Compressed chunks | Rows in compressed chunks are updated in place. Once the walk has passed a compressed chunk it wrote to, the run compresses that chunk again and rebuilds its indexes after the next chunk is compressed. A compressed chunk the walk did not write to is left as it is: one above the boundary, one below `oldest_ingest_ledger`, or one an earlier run already compressed again. Expect extra disk I/O and some temporary extra disk use while it runs |
+| Compressed chunks | Rows in compressed chunks are updated in place. A background task takes each compressed chunk once the walk has passed it, one at a time, while the walk goes on. It compresses the chunk again only if the walk wrote to it. It rebuilds that chunk's indexes after the next chunk is compressed, and the last chunk's 30 s later. A compressed chunk the walk did not write to is left as it is: one above the boundary, one below `oldest_ingest_ledger`, or one an earlier run already compressed again. Expect extra disk I/O and some temporary extra disk use while it runs |
 | Finish | Sets the status to `done` |
 
 Live ingestion writes only ledgers from the boundary on, and the walk writes only ledgers below it. The two never write the same rows.
@@ -205,7 +205,7 @@ Without metrics, follow the log or run `data-migrate status`.
 
 ## Resuming and failures
 
-Each slice is tried 3 times, 10 seconds apart. Each failed attempt logs `data migration <NAME>: ledgers [<LO>, <HI>], attempt <N> of 3: <ERROR>`. After the third failure the run stores the error in `last_error` and exits with a non-zero status. The status stays `in_progress`. Any other error that stops a run, such as a failed recompression, is stored the same way.
+Each slice is tried 3 times, 10 seconds apart. Each failed attempt logs `data migration <NAME>: ledgers [<LO>, <HI>], attempt <N> of 3: <ERROR>`. After the third failure the run stores the error in `last_error` and exits with a non-zero status. The status stays `in_progress`. Any other error that stops a run, such as a failed source check or a failed recompression, is stored the same way. A run that cannot take the lock, or finds the migration not recorded yet, exits without storing an error.
 
 To resume, fix the cause and run the same command again. The run starts from the cursor. A run stopped by SIGTERM or a crash resumes the same way and redoes at most one slice. Rewriting a ledger twice gives the same rows.
 

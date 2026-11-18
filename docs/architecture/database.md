@@ -122,14 +122,14 @@ When retention is on, a `reconcile_oldest_cursor` job runs every hour and moves 
 | `boundary_ledger` | First ledger written by a binary that knows the migration. The live ingester sets it to `latest_ingest_ledger + 1` the first time it starts with that binary. Checkpoint bootstrap inserts the row as `done` |
 | `cursor_ledger` | Lowest ledger rewritten so far. Starts at `boundary_ledger` and only moves down |
 | `started_at`, `finished_at` | When the first run started and when the status became `done` |
-| `last_error` | Why the last run stopped. Cleared when a run starts |
+| `last_error` | Why the last run failed. A cancelled run does not set it. Cleared when a run starts |
 
 | Step | Behavior |
 |---|---|
-| Walk | `data-migrate run` walks newest first, in 10,000-ledger slices, down to `oldest_ingest_ledger`. Each slice re-reads its ledgers from a ledger source and writes every 1,000 ledgers |
-| Compressed chunks | The writes run directly on compressed chunks. TimescaleDB decompresses only the touched batches. Each chunk compressed before the run is compressed again once the walk has passed its start, so about one chunk per table holds uncompressed rows at a time |
-| Commit | The cursor commits with a slice's last write. An interrupted run redoes at most one slice, and `Apply` is idempotent |
-| Failure | A slice is tried 3 times. Then the run stores `last_error` and exits, and the next run resumes from the cursor |
+| Walk | `data-migrate run` walks newest first, down to `oldest_ingest_ledger`. A slice is `--workers` lanes of 10,000 ledgers each, rewritten at the same time. Each lane re-reads its ledgers through its own ledger source and writes every 1,000 ledgers in one transaction, reading the next 1,000 while it writes |
+| Compressed chunks | The writes run directly on compressed chunks. TimescaleDB decompresses only the touched batches. A background task takes each chunk compressed before the run once the walk has passed it, one at a time, and compresses it again only if the walk wrote to it. Its backlog holds at most 4 × `--workers` chunks, and a full backlog holds the walk. It rebuilds a recompressed chunk's indexes (`REINDEX TABLE`, 5 s lock timeout, a failure is only logged) after the next chunk is recompressed, and the last one after 30 s |
+| Commit | The cursor moves, with `LEAST`, once every lane of a slice has committed. An interrupted run redoes at most one slice, and `Apply` is idempotent |
+| Failure | A slice is tried 3 times, 10 s apart. Then the run stores `last_error` and exits, and the next run resumes from the cursor. Any other failure after the row is loaded is stored the same way, unless the run was cancelled |
 
 The run holds an advisory lock shared by all data migrations, so only one runs at a time. Live ingestion writes only ledgers from the boundary on and the walk writes only ledgers below it, so the two need no coordination. Nothing outside `data-migrate` reads `status`.
 
