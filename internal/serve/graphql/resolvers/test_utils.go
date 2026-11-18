@@ -93,7 +93,7 @@ func setupDB(ctx context.Context, t *testing.T, dbConnectionPool *pgxpool.Pool) 
 			IsFeeBump:       false,
 		}
 		// Transaction 2 carries a TEXT memo and transaction 3 an ID memo; 1 and 4 have
-		// no memo columns set, as if the memo backfill had not reached them yet.
+		// no memo columns set, as if the memo data migration had not reached them yet.
 		switch i {
 		case 1:
 			memoType := int16(xdr.MemoTypeMemoText)

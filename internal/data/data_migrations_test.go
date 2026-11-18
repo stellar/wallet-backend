@@ -31,9 +31,7 @@ func Test_DataMigrationModel(t *testing.T) {
 	}
 	advance := func(t *testing.T, name string, cursor uint32) {
 		t.Helper()
-		require.NoError(t, db.RunInTransaction(ctx, pool, func(dbTx pgx.Tx) error {
-			return m.Advance(ctx, dbTx, name, cursor)
-		}))
+		require.NoError(t, m.Advance(ctx, name, cursor))
 	}
 
 	t.Run("get_returns_nil_when_missing", func(t *testing.T) {

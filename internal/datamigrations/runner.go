@@ -18,18 +18,19 @@ import (
 	"github.com/stellar/wallet-backend/internal/utils"
 )
 
+const sliceAttempts = 3
+
 var (
-	sliceLedgers  uint32 = 10_000
-	flushLedgers  uint32 = 1_000
-	sliceAttempts        = 3
-	retryWait            = 10 * time.Second
+	sliceLedgers uint32 = 10_000
+	flushLedgers uint32 = 1_000
+	retryWait           = 10 * time.Second
 	// reindexWait is how long the last recompressed chunks wait for their index rebuild.
 	reindexWait = 30 * time.Second
 )
 
-// ErrNotRecorded means the live ingester has not recorded the migration yet, so its
+// errNotRecorded means the live ingester has not recorded the migration yet, so its
 // boundary ledger is unknown.
-var ErrNotRecorded = errors.New("data migration is not recorded yet: start the upgraded ingester first, then run it again")
+var errNotRecorded = errors.New("data migration is not recorded yet: start the upgraded ingester first, then run it again")
 
 // lockID is the advisory lock every data migration run takes. Changing the key stops
 // excluding runs of older builds.
@@ -98,7 +99,7 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 		return fmt.Errorf("loading the migration's row: %w", err)
 	}
 	if row == nil {
-		return ErrNotRecorded
+		return errNotRecorded
 	}
 	if row.Status == data.DataMigrationDone {
 		log.Ctx(ctx).Infof("data migration %s is already done", name)
@@ -113,7 +114,7 @@ func (r *Runner) Run(ctx context.Context, name string) error {
 	if cursor > floor {
 		// The oldest ledger is the hardest for the source to serve; without it the walk
 		// could not finish.
-		if _, err = r.readLedgers(ctx, migration, floor, floor, nil); err != nil {
+		if err = r.checkSource(ctx, floor); err != nil {
 			err = fmt.Errorf("the ledger backend cannot serve the oldest ingested ledger %d (history older than the RPC retention window needs --ledger-backend-type=datastore): %w", floor, err)
 			if setErr := r.Models.DataMigrations.SetError(ctx, name, err.Error()); setErr != nil {
 				log.Ctx(ctx).Errorf("%v", setErr)
@@ -319,7 +320,7 @@ func (r *Runner) runSlice(ctx context.Context, migration Migration, lo, hi uint3
 // stops the others; the cursor stays, so the next attempt redoes the whole slice. It
 // returns lo's close time.
 func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi uint32) (time.Time, error) {
-	apply := func(rows []any, _ bool) error {
+	apply := func(rows []any) error {
 		return db.RunInTransaction(ctx, r.Models.DB, func(dbTx pgx.Tx) error {
 			if err := migration.Apply(ctx, r.Deps, dbTx, rows); err != nil {
 				return fmt.Errorf("applying rows: %w", err)
@@ -328,15 +329,16 @@ func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi u
 		})
 	}
 
-	// uint64: hi-lo+1 overflows uint32 when the slice is the whole ledger range.
-	ledgers := uint64(hi-lo) + 1
-	lanes := min(uint64(r.lanes()), ledgers)
+	// cursor_ledger is an INTEGER column, so ledger numbers here stay below 2^31 and
+	// this arithmetic cannot overflow uint32.
+	ledgers := hi - lo + 1
+	lanes := min(uint32(r.lanes()), ledgers)
 	perLane := (ledgers + lanes - 1) / lanes
 
 	var loClosedAt time.Time
 	group, groupCtx := errgroup.WithContext(ctx)
-	for laneLo := uint64(lo); laneLo <= uint64(hi); laneLo += perLane {
-		from, to := uint32(laneLo), uint32(min(laneLo+perLane-1, uint64(hi)))
+	for laneLo := lo; laneLo <= hi; laneLo += perLane {
+		from, to := laneLo, min(laneLo+perLane-1, hi)
 		group.Go(func() error {
 			closedAt, err := r.readLedgers(groupCtx, migration, from, to, apply)
 			if from == lo {
@@ -349,24 +351,36 @@ func (r *Runner) rewriteSlice(ctx context.Context, migration Migration, lo, hi u
 		return time.Time{}, err //nolint:wrapcheck // readLedgers names the lane's range
 	}
 
-	err := db.RunInTransaction(ctx, r.Models.DB, func(dbTx pgx.Tx) error {
-		return r.Models.DataMigrations.Advance(ctx, dbTx, migration.Name(), lo)
-	})
-	if err != nil {
+	if err := r.Models.DataMigrations.Advance(ctx, migration.Name(), lo); err != nil {
 		return time.Time{}, fmt.Errorf("moving the cursor: %w", err)
 	}
 	return loClosedAt, nil
 }
 
+// checkSource reads one ledger through a fresh backend, to prove the source can serve it.
+func (r *Runner) checkSource(ctx context.Context, seq uint32) error {
+	backend, err := r.BackendFactory(ctx)
+	if err != nil {
+		return fmt.Errorf("creating ledger backend: %w", err)
+	}
+	defer utils.DeferredClose(ctx, backend, "closing data migration ledger backend")
+	if err := backend.PrepareRange(ctx, ledgerbackend.BoundedRange(seq, seq)); err != nil {
+		return fmt.Errorf("preparing ledger range: %w", err)
+	}
+	if _, err := backend.GetLedger(ctx, seq); err != nil {
+		return fmt.Errorf("fetching ledger %d: %w", seq, err)
+	}
+	return nil
+}
+
 // readLedgers reads ledgers [lo, hi] through a fresh bounded backend and hands the
-// extracted rows to flush every flushLedgers ledgers; last is true on the final call. A
-// nil flush only checks that the range can be read. It returns lo's close time.
+// extracted rows to flush every flushLedgers ledgers. It returns lo's close time.
 //
 // Reading and writing overlap: while flush writes one batch, the next is read and
 // extracted. flush calls never overlap each other, so the database still sees one
 // writer. At most three batches are in memory: one being written, one waiting, one
 // being read.
-func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi uint32, flush func(rows []any, last bool) error) (time.Time, error) {
+func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi uint32, flush func(rows []any) error) (time.Time, error) {
 	backend, err := r.BackendFactory(ctx)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("creating ledger backend: %w", err)
@@ -379,7 +393,6 @@ func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi ui
 	type batch struct {
 		rows     []any
 		from, to uint32
-		last     bool
 	}
 	batches := make(chan batch, 1)
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -389,8 +402,7 @@ func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi ui
 		defer close(batches)
 		var rows []any
 		flushFrom := lo
-		// seq stops at hi by an explicit return: seq <= hi never ends when hi is MaxUint32.
-		for seq := lo; ; seq++ {
+		for seq := lo; seq <= hi; seq++ {
 			meta, err := backend.GetLedger(groupCtx, seq)
 			if err != nil {
 				return fmt.Errorf("fetching ledger %d: %w", seq, err)
@@ -398,29 +410,23 @@ func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi ui
 			if seq == lo {
 				loClosedAt = meta.ClosedAt()
 			}
-			if flush == nil {
-				return nil
-			}
 			extracted, err := migration.Extract(groupCtx, r.Deps, meta)
 			if err != nil {
 				return fmt.Errorf("extracting ledger %d: %w", seq, err)
 			}
 			rows = append(rows, extracted...)
 
-			last := seq == hi
-			if last || seq-flushFrom+1 >= flushLedgers {
+			if seq == hi || seq-flushFrom+1 >= flushLedgers {
 				select {
-				case batches <- batch{rows: rows, from: flushFrom, to: seq, last: last}:
+				case batches <- batch{rows: rows, from: flushFrom, to: seq}:
 				case <-groupCtx.Done():
 					return groupCtx.Err()
 				}
 				rows = nil
 				flushFrom = seq + 1
 			}
-			if last {
-				return nil
-			}
 		}
+		return nil
 	})
 	group.Go(func() error {
 		for b := range batches {
@@ -428,7 +434,7 @@ func (r *Runner) readLedgers(ctx context.Context, migration Migration, lo, hi ui
 			if groupCtx.Err() != nil {
 				return groupCtx.Err()
 			}
-			if err := flush(b.rows, b.last); err != nil {
+			if err := flush(b.rows); err != nil {
 				return fmt.Errorf("writing ledgers [%d, %d]: %w", b.from, b.to, err)
 			}
 		}

@@ -84,12 +84,11 @@ func (m *DataMigrationModel) Start(ctx context.Context, name string) error {
 	return nil
 }
 
-// Advance lowers the cursor. The runner calls it in its own transaction once every lane
-// of a slice has committed. The cursor never moves up, so a stale writer cannot undo
-// recorded progress.
-func (m *DataMigrationModel) Advance(ctx context.Context, dbTx pgx.Tx, name string, cursor uint32) error {
+// Advance lowers the cursor. The runner calls it once every lane of a slice has
+// committed. The cursor never moves up, so a stale writer cannot undo recorded progress.
+func (m *DataMigrationModel) Advance(ctx context.Context, name string, cursor uint32) error {
 	const query = `UPDATE data_migrations SET cursor_ledger = LEAST(cursor_ledger, $2) WHERE name = $1`
-	if _, err := dbTx.Exec(ctx, query, name, int64(cursor)); err != nil {
+	if _, err := m.DB.Exec(ctx, query, name, int64(cursor)); err != nil {
 		return fmt.Errorf("advancing data migration %s to ledger %d: %w", name, cursor, err)
 	}
 	return nil

@@ -417,7 +417,7 @@ func TestRunner_DoesNotRun(t *testing.T) {
 				require.NoError(t, err)
 				return func() {}
 			},
-			wantErr: ErrNotRecorded.Error(),
+			wantErr: errNotRecorded.Error(),
 		},
 	}
 

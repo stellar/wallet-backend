@@ -707,9 +707,7 @@ func TestTransactionModel_BatchUpdateMemo_PlansEveryExecutionWithItsValues(t *te
 	for range executions {
 		dbTx, beginErr := conn.Begin(ctx)
 		require.NoError(t, beginErr)
-		updated, updateErr := m.BatchUpdateMemo(ctx, dbTx, rows)
-		require.NoError(t, updateErr)
-		require.EqualValues(t, 1, updated)
+		require.NoError(t, m.BatchUpdateMemo(ctx, dbTx, rows))
 		require.NoError(t, dbTx.Commit(ctx))
 	}
 

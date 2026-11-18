@@ -36,8 +36,6 @@ func EncodeMemo(memo xdr.Memo) (int16, []byte) {
 	case xdr.MemoTypeMemoReturn:
 		h := memo.MustRetHash()
 		return int16(memo.Type), h[:]
-	case xdr.MemoTypeMemoNone:
-		return int16(memo.Type), nil
 	default:
 		return int16(memo.Type), nil
 	}

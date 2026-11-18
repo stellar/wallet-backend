@@ -51,9 +51,8 @@ func TestRunner_ReadsTheNextBatchWhileOneIsWritten(t *testing.T) {
 	var (
 		writing atomic.Int32
 		sizes   []int
-		lasts   []bool
 	)
-	flush := func(rows []any, last bool) error {
+	flush := func(rows []any) error {
 		if writing.Add(1) != 1 {
 			return errors.New("two batches written at once")
 		}
@@ -66,7 +65,6 @@ func TestRunner_ReadsTheNextBatchWhileOneIsWritten(t *testing.T) {
 			}
 		}
 		sizes = append(sizes, len(rows))
-		lasts = append(lasts, last)
 		return nil
 	}
 
@@ -74,5 +72,4 @@ func TestRunner_ReadsTheNextBatchWhileOneIsWritten(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, closedAt.Add(time.Minute), loClosedAt)
 	assert.Equal(t, []int{2, 2, 2}, sizes, "one transaction per ledger, two ledgers per batch, in order")
-	assert.Equal(t, []bool{false, false, true}, lasts)
 }

@@ -3,7 +3,6 @@ package datamigrations
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stellar/go-stellar-sdk/toid"
@@ -24,12 +23,6 @@ func (transactionsMemo) Tables() []string { return []string{"transactions"} }
 
 func (transactionsMemo) Extract(ctx context.Context, deps Deps, ledger xdr.LedgerCloseMeta) ([]any, error) {
 	seq := ledger.LedgerSequence()
-	// toid packs the ledger into the high 32 bits of a signed int64, so a ledger above
-	// MaxInt32 would wrap negative and match no row. Mainnet is four orders of magnitude
-	// below this; fail loudly instead of silently skipping.
-	if seq > math.MaxInt32 {
-		return nil, fmt.Errorf("ledger %d exceeds the largest toid ledger %d", seq, int64(math.MaxInt32))
-	}
 	txs, err := indexer.GetLedgerTransactions(ctx, deps.NetworkPassphrase, ledger, deps.Pool)
 	if err != nil {
 		return nil, fmt.Errorf("reading ledger %d transactions: %w", seq, err)
@@ -53,7 +46,7 @@ func (transactionsMemo) Apply(ctx context.Context, deps Deps, dbTx pgx.Tx, rows 
 	for i, r := range rows {
 		memos[i] = r.(data.TransactionMemo) //nolint:errcheck // Extract returns only this type
 	}
-	if _, err := deps.Models.Transactions.BatchUpdateMemo(ctx, dbTx, memos); err != nil {
+	if err := deps.Models.Transactions.BatchUpdateMemo(ctx, dbTx, memos); err != nil {
 		return fmt.Errorf("updating memos: %w", err)
 	}
 	return nil

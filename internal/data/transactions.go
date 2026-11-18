@@ -377,9 +377,9 @@ type TransactionMemo struct {
 // transaction because one call rewrites up to a thousand ledgers. The partition-column
 // bounds prune chunks whether compressed or not, which needs a plan built from their
 // values, so the transaction also rules out a cached generic plan.
-func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, rows []TransactionMemo) (int64, error) {
+func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, rows []TransactionMemo) error {
 	if len(rows) == 0 {
-		return 0, nil
+		return nil
 	}
 	toIDs := make([]int64, len(rows))
 	memoTypes := make([]int16, len(rows))
@@ -401,7 +401,6 @@ func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, row
 		WHERE t.to_id = v.to_id AND t.ledger_created_at BETWEEN $4 AND $5
 	`
 	start := time.Now()
-	var updated int64
 	err := func() error {
 		if _, execErr := dbTx.Exec(ctx, "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0"); execErr != nil {
 			return fmt.Errorf("lifting the DML decompression limit: %w", execErr)
@@ -412,11 +411,9 @@ func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, row
 		if _, execErr := dbTx.Exec(ctx, "SET LOCAL plan_cache_mode = force_custom_plan"); execErr != nil {
 			return fmt.Errorf("requiring a plan built from the values: %w", execErr)
 		}
-		tag, execErr := dbTx.Exec(ctx, query, toIDs, memoTypes, memos, from, to)
-		if execErr != nil {
+		if _, execErr := dbTx.Exec(ctx, query, toIDs, memoTypes, memos, from, to); execErr != nil {
 			return fmt.Errorf("updating memos: %w", execErr)
 		}
-		updated = tag.RowsAffected()
 		return nil
 	}()
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpdateMemo", "transactions").Observe(time.Since(start).Seconds())
@@ -424,7 +421,7 @@ func (m *TransactionModel) BatchUpdateMemo(ctx context.Context, dbTx pgx.Tx, row
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpdateMemo", "transactions").Inc()
 	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpdateMemo", "transactions", utils.GetDBErrorType(err)).Inc()
-		return 0, err
+		return err
 	}
-	return updated, nil
+	return nil
 }
