@@ -44,11 +44,15 @@ type Query {
     Simulate an unsubmitted transaction and return the state changes it would
     produce if submitted, in the same variant structure as the history API.
     Accepts contract (Soroban) transactions, whose changes come from RPC
-    simulation, and classic transactions for the supported operation types
-    (payment, createAccount, changeTrust, setOptions, manageData), whose
-    changes are derived from current ledger state. A classic transaction may
-    carry multiple supported operations, applied sequentially with
-    all-or-nothing semantics. Other transactions are rejected as
+    simulation, and classic transactions, whose changes are derived from
+    current ledger state. Supported classic operations are the non-DEX ones:
+    payment, createAccount, accountMerge, changeTrust, setOptions, manageData,
+    bumpSequence, setTrustLineFlags, allowTrust, clawback, and the
+    claimable-balance operations; fee-bump envelopes are accepted on both
+    paths. A classic transaction may carry multiple supported operations,
+    applied sequentially with all-or-nothing semantics. DEX operations
+    (offers, path payments, liquidity pools) and the remaining types are
+    rejected as
     UNSUPPORTED_TRANSACTION; a transaction the network would reject (e.g.
     insufficient balance, or any operation of a multi-operation transaction
     failing) is rejected as SIMULATION_FAILED with the reason.

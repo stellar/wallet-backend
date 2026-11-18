@@ -141,6 +141,18 @@ func (c *HiddenContracts) ContractAddresses(protocolID string) []string {
 	return addrs
 }
 
+// ByProtocol returns the set of hidden C-addresses per protocol ID.
+func (c *HiddenContracts) ByProtocol() map[string]map[string]struct{} {
+	byProtocol := make(map[string]map[string]struct{})
+	for _, e := range c.entries {
+		if byProtocol[e.protocol] == nil {
+			byProtocol[e.protocol] = make(map[string]struct{})
+		}
+		byProtocol[e.protocol][e.address] = struct{}{}
+	}
+	return byProtocol
+}
+
 // applyHiddenContracts makes every read on models skip the hidden contracts.
 // The SEP-41 models are rebuilt because their hidden set is fixed at
 // construction.

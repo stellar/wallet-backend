@@ -61,6 +61,9 @@ type transactionSimulationService struct {
 	ledgerIndexer     *indexer.Indexer
 	models            *data.Models
 	networkPassphrase string
+	// hiddenTokens holds, per protocol ID, the token contracts whose rows that
+	// protocol's processor produces are left out, as history leaves them out.
+	hiddenTokens map[string]map[string]struct{}
 }
 
 var _ TransactionSimulationService = (*transactionSimulationService)(nil)
@@ -68,8 +71,10 @@ var _ TransactionSimulationService = (*transactionSimulationService)(nil)
 // NewTransactionSimulationService builds the simulation service. models is used
 // only for the read-only protocol_contracts lookup that routes contract events
 // to the registered protocol processors (SEP-41); a nil models skips protocol
-// processing, so previews then cover native/SAC tokens only.
-func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string) (*transactionSimulationService, error) {
+// processing, so previews then cover native/SAC tokens only. hiddenTokens is
+// the sets of hidden token contracts (C-addresses) keyed by protocol ID; nil
+// hides nothing.
+func NewTransactionSimulationService(rpcService RPCService, models *data.Models, networkPassphrase string, hiddenTokens map[string]map[string]struct{}) (*transactionSimulationService, error) {
 	if rpcService == nil {
 		return nil, errors.New("rpcService cannot be nil")
 	}
@@ -86,6 +91,7 @@ func NewTransactionSimulationService(rpcService RPCService, models *data.Models,
 		ledgerIndexer:     ledgerIndexer,
 		models:            models,
 		networkPassphrase: networkPassphrase,
+		hiddenTokens:      hiddenTokens,
 	}, nil
 }
 
@@ -520,7 +526,13 @@ func (s *transactionSimulationService) protocolStateChanges(ctx context.Context,
 		if err := protocolProcessor.ProcessLedger(ctx, input); err != nil {
 			return nil, fmt.Errorf("running %s protocol processor: %w", protocolProcessor.ProtocolID(), err)
 		}
-		stateChanges = append(stateChanges, protocolProcessor.StagedStateChanges()...)
+		hiddenTokens := s.hiddenTokens[protocolProcessor.ProtocolID()]
+		for _, sc := range protocolProcessor.StagedStateChanges() {
+			if _, hidden := hiddenTokens[string(sc.TokenID.AddressBytea)]; sc.TokenID.Valid && hidden {
+				continue
+			}
+			stateChanges = append(stateChanges, sc)
+		}
 	}
 	return stateChanges, nil
 }
