@@ -108,6 +108,56 @@ func TestStateChangeFragmentRequestsAllFields(t *testing.T) {
 	}
 }
 
+// TestSimulatedStateChangeFragmentRequestsAllFields is the simulated analogue of
+// TestStateChangeFragmentRequestsAllFields.
+func TestSimulatedStateChangeFragmentRequestsAllFields(t *testing.T) {
+	variants := []struct {
+		typeName string
+		sample   any
+	}{
+		{"SimulatedBalanceChange", types.SimulatedBalanceChange{}},
+		{"SimulatedAccountCreatedChange", types.SimulatedAccountCreatedChange{}},
+		{"SimulatedAccountMergedChange", types.SimulatedAccountMergedChange{}},
+		{"SimulatedSignerAddedChange", types.SimulatedSignerAddedChange{}},
+		{"SimulatedSignerUpdatedChange", types.SimulatedSignerUpdatedChange{}},
+		{"SimulatedSignerRemovedChange", types.SimulatedSignerRemovedChange{}},
+		{"SimulatedThresholdChange", types.SimulatedThresholdChange{}},
+		{"SimulatedAccountFlagsChange", types.SimulatedAccountFlagsChange{}},
+		{"SimulatedHomeDomainSetChange", types.SimulatedHomeDomainSetChange{}},
+		{"SimulatedHomeDomainUpdatedChange", types.SimulatedHomeDomainUpdatedChange{}},
+		{"SimulatedHomeDomainClearedChange", types.SimulatedHomeDomainClearedChange{}},
+		{"SimulatedDataEntryAddedChange", types.SimulatedDataEntryAddedChange{}},
+		{"SimulatedDataEntryUpdatedChange", types.SimulatedDataEntryUpdatedChange{}},
+		{"SimulatedDataEntryRemovedChange", types.SimulatedDataEntryRemovedChange{}},
+		{"SimulatedAllowanceChange", types.SimulatedAllowanceChange{}},
+		{"SimulatedTrustlineAddedChange", types.SimulatedTrustlineAddedChange{}},
+		{"SimulatedTrustlineUpdatedChange", types.SimulatedTrustlineUpdatedChange{}},
+		{"SimulatedTrustlineRemovedChange", types.SimulatedTrustlineRemovedChange{}},
+		{"SimulatedBalanceAuthorizationChange", types.SimulatedBalanceAuthorizationChange{}},
+	}
+
+	for _, v := range variants {
+		block := inlineFragmentBlock(t, simulatedStateChangeFragments, v.typeName)
+		rt := reflect.TypeOf(v.sample)
+		for i := 0; i < rt.NumField(); i++ {
+			field := rt.Field(i)
+			if field.Anonymous {
+				continue // BaseSimulatedStateChangeFields; its fields are in the shared prefix.
+			}
+			name := strings.Split(field.Tag.Get("json"), ",")[0]
+			assert.Contains(t, block, name,
+				"simulatedStateChangeFragments '... on %s' must request %q, else the SDK never fetches it", v.typeName, name)
+		}
+	}
+
+	base := reflect.TypeOf(types.BaseSimulatedStateChangeFields{})
+	prefix, _, _ := strings.Cut(simulatedStateChangeFragments, "... on")
+	for i := 0; i < base.NumField(); i++ {
+		name := strings.Split(base.Field(i).Tag.Get("json"), ",")[0]
+		assert.Contains(t, prefix, name, "simulatedStateChangeFragments must request the shared field %q", name)
+	}
+}
+
 // TestBlendQueryFieldsRequestAllStructFields guards against the recurring bug where a field is
 // added to a Blend response struct (and the GraphQL schema + resolver) but not to the query
 // field list: the SDK then never requests it and it silently unmarshals to its zero value.
