@@ -104,6 +104,7 @@ All methods take a `context.Context` first.
 | `GetOperationStateChanges(ctx, id, page)` | `*types.StateChangeConnection` | `*Page` |
 | `GetAccountBalances(ctx, address, page)` | `*types.BalanceConnection` | `*Page` |
 | `GetAllAccountBalances(ctx, address)` | `[]types.Balance` | Walks every page, 100 balances per request |
+| `SimulateStateChanges(ctx, transactionXDR)` | `*types.SimulatedStateChanges` | None. Previews an unsubmitted transaction; see [`simulateStateChanges`](schema.md#simulatestatechanges). |
 
 A nil `*Page`, `*TimeRange`, or `*StateChangeFilter` sends no arguments for it. The server then returns its default page of 50, with no time bounds and no filter.
 
@@ -277,6 +278,7 @@ if errors.As(err, &gqlErrs) {
 | `pkg/wbclient/queries.go` | Query strings and default field sets |
 | `pkg/wbclient/types/types.go` | Result structs, balance types, connections |
 | `pkg/wbclient/types/statechange.go` | State-change node types and their decoding |
+| `pkg/wbclient/types/simulation.go` | Simulated state-change types and their decoding |
 | `pkg/wbclient/auth/jwt_manager.go` | `NewJWTManager`, `NewJWTTokenGenerator` |
 | `pkg/wbclient/auth/jwt_http_signer_verifier.go` | `NewHTTPRequestSigner` and the request binding |
 | `pkg/wbclient/client_test.go` | Usage against a test server |

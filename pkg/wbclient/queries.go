@@ -622,6 +622,120 @@ func buildAccountBlendPositionsQuery() string {
 	`, blendAccountPositionsFields)
 }
 
+// simulatedStateChangeFragments selects every simulated state change type.
+// Fields are aliased as in stateChangeFragments, so both decode to the same keys.
+const simulatedStateChangeFragments = `
+		__typename
+		category
+		reason
+		accountAddress
+		operationIndex
+
+		... on SimulatedBalanceChange {
+			balanceTokenId: tokenId
+			amount
+			toMuxedId
+		}
+		... on SimulatedAccountCreatedChange {
+			creatorAddress
+		}
+		... on SimulatedAccountMergedChange {
+			destinationAddress
+		}
+		... on SimulatedSignerAddedChange {
+			signerAddress
+			newWeight
+		}
+		... on SimulatedSignerUpdatedChange {
+			signerAddress
+			oldWeight
+			newWeight
+		}
+		... on SimulatedSignerRemovedChange {
+			signerAddress
+			oldWeight
+		}
+		... on SimulatedThresholdChange {
+			threshold
+			oldThreshold
+			newThreshold
+		}
+		... on SimulatedAccountFlagsChange {
+			accountFlags: flags
+		}
+		... on SimulatedHomeDomainSetChange {
+			homeDomain
+		}
+		... on SimulatedHomeDomainUpdatedChange {
+			oldHomeDomain
+			newHomeDomain
+		}
+		... on SimulatedHomeDomainClearedChange {
+			oldHomeDomain
+		}
+		... on SimulatedDataEntryAddedChange {
+			name
+			value
+		}
+		... on SimulatedDataEntryUpdatedChange {
+			name
+			oldValue
+			newValue
+		}
+		... on SimulatedDataEntryRemovedChange {
+			name
+			oldValue
+		}
+		... on SimulatedAllowanceChange {
+			allowanceTokenId: tokenId
+			spender
+			amount
+			expirationLedger
+		}
+		... on SimulatedTrustlineAddedChange {
+			trustlineAddedTokenId: tokenId
+			liquidityPoolId
+			limit
+		}
+		... on SimulatedTrustlineUpdatedChange {
+			trustlineUpdatedTokenId: tokenId
+			liquidityPoolId
+			oldLimit
+			newLimit
+		}
+		... on SimulatedTrustlineRemovedChange {
+			trustlineRemovedTokenId: tokenId
+			liquidityPoolId
+		}
+		... on SimulatedBalanceAuthorizationChange {
+			balanceAuthTokenId: tokenId
+			liquidityPoolId
+			balanceAuthFlags: flags
+		}
+`
+
+// buildSimulateStateChangesQuery builds the GraphQL query for simulating a transaction's state changes
+func buildSimulateStateChangesQuery() string {
+	return fmt.Sprintf(`
+		query SimulateStateChanges($transactionXdr: String!) {
+			simulateStateChanges(transactionXdr: $transactionXdr) {
+				latestLedger
+				stateChanges {
+					%s
+				}
+				tokens {
+					tokenId
+					code
+					issuer
+					name
+					symbol
+					decimals
+				}
+			}
+		}
+	`, simulatedStateChangeFragments)
+}
+
 // Queries returns every GraphQL document this client sends, keyed by its operation name.
 // Builders that accept a caller-supplied field set are invoked with their defaults, exactly as
 // the client methods do when the caller passes none.
@@ -644,6 +758,7 @@ func Queries() map[string]string {
 		"BlendPools":                                buildBlendPoolsQuery(),
 		"BlendPool":                                 buildBlendPoolQuery(),
 		"AccountBlendPositions":                     buildAccountBlendPositionsQuery(),
+		"SimulateStateChanges":                      buildSimulateStateChangesQuery(),
 	}
 }
 

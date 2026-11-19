@@ -173,6 +173,11 @@ type AccountBlendPositionsData struct {
 	} `json:"accountByAddress"`
 }
 
+// SimulateStateChangesData is the result shape of the simulateStateChanges query.
+type SimulateStateChangesData struct {
+	SimulateStateChanges *types.SimulatedStateChanges `json:"simulateStateChanges"`
+}
+
 // QueryOptions allows clients to specify which fields to fetch for each entity type.
 type QueryOptions struct {
 	// TransactionFields specifies which transaction fields to fetch.
@@ -732,6 +737,28 @@ func (c *Client) GetAccountBlendPositions(ctx context.Context, address string) (
 	}
 
 	return data.AccountByAddress.BlendPositions, nil
+}
+
+// SimulateStateChanges previews the state changes an unsubmitted transaction
+// would produce. transactionXDR is the base64 transaction envelope; signatures
+// are not required. A transaction that cannot be previewed comes back as a
+// GraphQLErrors whose Extensions["code"] is INVALID_TRANSACTION_XDR,
+// UNSUPPORTED_TRANSACTION, or SIMULATION_FAILED.
+func (c *Client) SimulateStateChanges(ctx context.Context, transactionXDR string) (*types.SimulatedStateChanges, error) {
+	variables := map[string]any{
+		"transactionXdr": transactionXDR,
+	}
+
+	data, err := executeGraphQL[SimulateStateChangesData](c, ctx, buildSimulateStateChangesQuery(), variables)
+	if err != nil {
+		return nil, err
+	}
+
+	if data.SimulateStateChanges == nil {
+		return nil, fmt.Errorf("simulating state changes: missing required simulateStateChanges result")
+	}
+
+	return data.SimulateStateChanges, nil
 }
 
 func (c *Client) request(ctx context.Context, bodyObj any) (*http.Response, error) {
