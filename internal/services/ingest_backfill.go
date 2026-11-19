@@ -584,8 +584,7 @@ func (r *progressiveRecompressor) recompressLookupChunks() {
 	r.mu.Lock()
 	rows := r.lookupRowsPending
 	r.mu.Unlock()
-	_, err := r.pool.Exec(r.ctx, `CALL transaction_hashes_maintenance(0, '{"workers": 1, "worker": 0}')`, pgx.QueryExecModeSimpleProtocol)
-	if err != nil {
+	if err := r.callLookupMaintenance(); err != nil {
 		log.Ctx(r.ctx).Warnf("Failed to recompress %s chunks: %v", data.TransactionHashesTable, err)
 		return
 	}
@@ -647,4 +646,31 @@ func (r *progressiveRecompressor) compressTableChunks(table string, safeEnd time
 	}
 
 	return compressed
+}
+
+// callLookupMaintenance runs the maintenance procedure on one connection with statement_timeout
+// off. The call is a single statement that takes minutes to hours on a large table, so a
+// statement_timeout set on the role or the database would cancel every pass.
+func (r *progressiveRecompressor) callLookupMaintenance() error {
+	conn, err := r.pool.Acquire(r.ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err = conn.Exec(r.ctx, "SET statement_timeout = 0"); err != nil {
+		return fmt.Errorf("disabling statement_timeout: %w", err)
+	}
+	// The connection goes back to the pool, so it gets its configured timeout back even when
+	// the call was cancelled.
+	defer func() {
+		if _, resetErr := conn.Exec(context.WithoutCancel(r.ctx), "RESET statement_timeout"); resetErr != nil {
+			log.Ctx(r.ctx).Warnf("Failed to reset statement_timeout: %v", resetErr)
+		}
+	}()
+
+	if _, err = conn.Exec(r.ctx, `CALL transaction_hashes_maintenance(0, '{"workers": 1, "worker": 0}')`, pgx.QueryExecModeSimpleProtocol); err != nil {
+		return fmt.Errorf("calling transaction_hashes_maintenance: %w", err)
+	}
+	return nil
 }

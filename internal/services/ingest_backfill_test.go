@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alitto/pond/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
@@ -340,4 +341,30 @@ func Test_progressiveRecompressor_lookupRowsTrigger(t *testing.T) {
 	require.Len(t, windows, 1)
 	assert.True(t, windows[0].IsZero(), "the threshold trigger carries no safe window")
 	assert.Equal(t, lookupRecompressRows, r.pendingLookupRows())
+}
+
+// A statement_timeout configured on the role or database must not cancel the maintenance call,
+// and the pooled connection gets its timeout back afterwards.
+func Test_progressiveRecompressor_callLookupMaintenance_ignoresStatementTimeout(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	cfg, err := pgxpool.ParseConfig(dbt.DSN)
+	require.NoError(t, err)
+	cfg.MaxConns = 1
+	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "1" // 1 ms
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	_, err = pool.Exec(ctx, "SELECT pg_sleep(0.05)")
+	require.Error(t, err, "the pool's own statements are subject to the timeout")
+
+	r := &progressiveRecompressor{pool: pool, ctx: ctx}
+	require.NoError(t, r.callLookupMaintenance())
+
+	var timeout string
+	require.NoError(t, pool.QueryRow(ctx, "SHOW statement_timeout").Scan(&timeout))
+	assert.Equal(t, "1ms", timeout)
 }
