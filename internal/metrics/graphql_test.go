@@ -21,6 +21,8 @@ func TestGraphQLMetrics_Registration(t *testing.T) {
 	require.NotNil(t, m.Complexity)
 	require.NotNil(t, m.ErrorsTotal)
 	require.NotNil(t, m.DeprecatedFieldsTotal)
+	require.NotNil(t, m.FieldUsageTotal)
+	require.NotNil(t, m.ArgumentUsageTotal)
 }
 
 func TestGraphQLMetrics_OperationsTotal(t *testing.T) {
@@ -130,6 +132,36 @@ func TestGraphQLMetrics_GoldenExposition(t *testing.T) {
 		err := testutil.CollectAndCompare(m.OperationsTotal, expected)
 		require.NoError(t, err)
 	})
+
+	t.Run("FieldUsageTotal", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		m := NewGraphQLMetrics(reg)
+
+		m.FieldUsageTotal.WithLabelValues("accountByAddress.transactions").Inc()
+
+		expected := strings.NewReader(`
+		# HELP wallet_graphql_field_usage_total Total number of GraphQL operations that selected each field path.
+		# TYPE wallet_graphql_field_usage_total counter
+		wallet_graphql_field_usage_total{field_path="accountByAddress.transactions"} 1
+	`)
+		err := testutil.CollectAndCompare(m.FieldUsageTotal, expected)
+		require.NoError(t, err)
+	})
+
+	t.Run("ArgumentUsageTotal", func(t *testing.T) {
+		reg := prometheus.NewRegistry()
+		m := NewGraphQLMetrics(reg)
+
+		m.ArgumentUsageTotal.WithLabelValues("accountByAddress.stateChanges", "filter.category", "BALANCE").Inc()
+
+		expected := strings.NewReader(`
+		# HELP wallet_graphql_argument_usage_total Total number of GraphQL operations that supplied each argument.
+		# TYPE wallet_graphql_argument_usage_total counter
+		wallet_graphql_argument_usage_total{argument="filter.category",field_path="accountByAddress.stateChanges",value="BALANCE"} 1
+	`)
+		err := testutil.CollectAndCompare(m.ArgumentUsageTotal, expected)
+		require.NoError(t, err)
+	})
 }
 
 func TestGraphQLMetrics_Lint(t *testing.T) {
@@ -139,6 +171,7 @@ func TestGraphQLMetrics_Lint(t *testing.T) {
 	for _, c := range []prometheus.Collector{
 		m.OperationDuration, m.OperationsTotal, m.InFlightOperations,
 		m.ResponseSize, m.Complexity, m.ErrorsTotal, m.DeprecatedFieldsTotal,
+		m.FieldUsageTotal, m.ArgumentUsageTotal,
 	} {
 		problems, err := testutil.CollectAndLint(c)
 		require.NoError(t, err)
