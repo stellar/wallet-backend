@@ -1241,7 +1241,7 @@ func Test_ingestService_processBackfillBatchesParallel_PartialFailure(t *testing
 
 // Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpdate verifies
 // that the oldest_ingest_ledger cursor is updated to the minimum of successful batches
-// when some batches fail during historical backfill.
+// when some batches fail during historical backfill, and that the run returns an error.
 func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpdate(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()
@@ -1271,7 +1271,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			batchSize:       10,
 			failBatchStart:  70, // Batch [70-79] fails
 			wantFinalOldest: 50, // Minimum of successful batches (50, 60, 80, 90)
-			wantError:       false,
+			wantError:       true,
+			wantErrContains: "1 of 5 backfill batches failed",
 		},
 		{
 			name:            "first_batch_fails_cursor_updates_to_second_batch",
@@ -1282,7 +1283,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 			batchSize:       10,
 			failBatchStart:  50, // Batch [50-59] fails
 			wantFinalOldest: 60, // Next successful batch
-			wantError:       false,
+			wantError:       true,
+			wantErrContains: "1 of 3 backfill batches failed",
 		},
 	}
 
@@ -1358,7 +1360,6 @@ func Test_ingestService_startBackfilling_HistoricalMode_PartialFailure_CursorUpd
 					assert.Contains(t, backfillErr.Error(), tc.wantErrContains)
 				}
 			} else {
-				// Historical mode should not return error even with partial failures
 				require.NoError(t, backfillErr)
 			}
 
@@ -1496,6 +1497,13 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	initialLatest := uint32(100)
 	setupDBCursors(t, ctx, dbConnectionPool, initialLatest, initialOldest)
 
+	// Insert anchor transaction so GetOldestLedger() returns initialOldest and the range has a gap
+	_, err = dbConnectionPool.Exec(ctx,
+		`INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		VALUES ('anchor_hash', 1, 100, 'TransactionResultCodeTxSuccess', $1, NOW())`,
+		initialOldest)
+	require.NoError(t, err)
+
 	m := metrics.NewMetrics(prometheus.NewRegistry())
 
 	models, modelsErr := data.NewModels(dbConnectionPool, m.DB)
@@ -1525,8 +1533,8 @@ func Test_ingestService_startBackfilling_HistoricalMode_AllBatchesFail_CursorUnc
 	// Run backfilling with all batches failing
 	backfillErr := svc.startBackfilling(ctx, 50, 99)
 
-	// Historical mode should NOT return error even when all batches fail
-	require.NoError(t, backfillErr, "historical mode should not return error even when all batches fail")
+	// Failed batches leave ledgers missing, so the run reports them
+	require.ErrorContains(t, backfillErr, "5 of 5 backfill batches failed")
 
 	// Verify cursor remains unchanged
 	finalOldest, getErr := models.IngestStore.Get(ctx, "oldest_ingest_ledger")

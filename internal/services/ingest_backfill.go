@@ -109,7 +109,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 	results, groupErr := m.processBackfillBatchesParallel(ctx, backfillBatches, recompressor)
 	duration := time.Since(startTime)
 
-	analyzeBatchResults(ctx, results)
+	numFailed := analyzeBatchResults(ctx, results)
 
 	// Wait for progressive compression to finish. Compression proceeds even if some
 	// batches failed — already-compressed chunks contain valid data and compress_chunk
@@ -118,6 +118,11 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger, endLe
 
 	if groupErr != nil {
 		return fmt.Errorf("processing backfill batches: %w", groupErr)
+	}
+	// A failed batch leaves its ledgers missing. The error makes the process exit non-zero;
+	// running the same range again fills only the missing ledgers.
+	if numFailed > 0 {
+		return fmt.Errorf("%d of %d backfill batches failed; run the same range again to fill the missing ledgers", numFailed, len(backfillBatches))
 	}
 
 	log.Ctx(ctx).Infof("Backfilling completed in %v: %d batches", duration, len(backfillBatches))

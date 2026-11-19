@@ -35,7 +35,7 @@ Live ingestion starts at the checkpoint ledger it bootstrapped from. To serve ol
 
    Tuning lives in [backfill tuning](configuration.md#backfill-tuning). `BACKFILL_WORKERS` defaults to one per CPU, up to the smallest of the shared totals. To cut memory use, lower `DATASTORE_BUFFER_SIZE` or `BACKFILL_DB_INSERT_BATCH_SIZE`. Memory follows those totals, not the worker count.
 
-3. Verify. Each batch logs `Batch <I>/<N> [<START> - <END>] completed`, and the run ends with `Backfilling completed in <DURATION>: <N> batches`. `wallet_ingestion_oldest_ledger` on the live ingester's `/ingest-metrics` drops toward `START_LEDGER`.
+3. Verify. Each batch logs `Batch <I>/<N> [<START> - <END>] completed`, and the run ends with `Backfilling completed in <DURATION>: <N> batches`. If any batch failed, the run logs `Batch [<START>-<END>] failed` for each one and exits non-zero. Run the same command again: it fills only the ledgers that are still missing. `wallet_ingestion_oldest_ledger` on the live ingester's `/ingest-metrics` drops toward `START_LEDGER`.
 
 Measure the backfill rate on your hardware. No backfill rate has been measured yet. As a floor: live pubnet ingest on 2026-10-01 averaged 0.16 s per ledger (p99 0.44 s) with 4 CPU / 8 GiB for the ingest process, against PostgreSQL 17.6 and TimescaleDB 2.28.2 on 8 CPU / 32 GiB hosts.
 
