@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +19,83 @@ import (
 // hypertables lists all TimescaleDB hypertables managed by the ingestion
 // system: exactly the tables ingestion bulk-loads with COPY.
 var hypertables = data.BulkCopyTableNames()
+
+// minTimescaleDBVersion is the oldest TimescaleDB extension backfill runs
+// against. Backfill attaches chunks it built offline with attach_chunk and
+// reads the chunk catalog of this release (_timescaledb_catalog.chunk.relid,
+// which 2.28.2 does not have). Live ingestion does not check the version.
+const minTimescaleDBVersion = "2.31.0"
+
+const timescaleDBVersionQuery = `SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'`
+
+// requireTimescaleDBVersion fails unless the installed TimescaleDB extension
+// is minTimescaleDBVersion or newer. Backfill checks this before touching any
+// hypertable, so an older extension stops the run with a clear error instead
+// of failing later in the middle of a window.
+func requireTimescaleDBVersion(ctx context.Context, pool *pgxpool.Pool) error {
+	var found string
+	err := pool.QueryRow(ctx, timescaleDBVersionQuery).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("timescaledb extension is not installed")
+	}
+	if err != nil {
+		return fmt.Errorf("reading timescaledb extension version: %w", err)
+	}
+
+	ok, err := timescaleDBVersionAtLeast(found, minTimescaleDBVersion)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("timescaledb %s is installed, %s or newer is required", found, minTimescaleDBVersion)
+	}
+	log.Ctx(ctx).Infof("TimescaleDB %s", found)
+	return nil
+}
+
+// timescaleDBVersionAtLeast reports whether version found is the same as or
+// newer than required. Both are "MAJOR.MINOR[.PATCH]" with an optional
+// pre-release or build suffix after '-' or '+', which is ignored: extversion
+// carries such suffixes on development builds, and the numeric release is what
+// decides the available features.
+func timescaleDBVersionAtLeast(found, required string) (bool, error) {
+	f, err := parseTimescaleDBVersion(found)
+	if err != nil {
+		return false, err
+	}
+	r, err := parseTimescaleDBVersion(required)
+	if err != nil {
+		return false, err
+	}
+	for i := range f {
+		if f[i] != r[i] {
+			return f[i] > r[i], nil
+		}
+	}
+	return true, nil
+}
+
+// parseTimescaleDBVersion splits a "MAJOR.MINOR[.PATCH][-suffix|+suffix]"
+// version into its numeric parts. A missing PATCH reads as 0.
+func parseTimescaleDBVersion(version string) ([3]int, error) {
+	var parts [3]int
+	numeric := version
+	if i := strings.IndexAny(numeric, "-+"); i >= 0 {
+		numeric = numeric[:i]
+	}
+	fields := strings.Split(numeric, ".")
+	if len(fields) < 2 || len(fields) > 3 {
+		return parts, fmt.Errorf("parsing timescaledb version %q: want MAJOR.MINOR[.PATCH]", version)
+	}
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil {
+			return parts, fmt.Errorf("parsing timescaledb version %q: invalid component %q", version, field)
+		}
+		parts[i] = n
+	}
+	return parts, nil
+}
 
 // configureHypertableSettings applies chunk interval, retention policy, and
 // compression schedule settings to all hypertables. Chunk interval only affects
