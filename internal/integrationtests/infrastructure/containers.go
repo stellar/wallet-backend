@@ -533,8 +533,8 @@ func createWalletBackendAPIContainer(ctx context.Context, name string, imageName
 var backfillContainerCounter int64
 
 // StartBackfillContainer creates and starts a new backfill container alongside the live ingest container.
-// It processes historical ledgers in the specified range.
-func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedger, endLedger uint32) (*TestContainer, error) {
+// The backfill fills every ledger from startLedger up to the oldest ledger live ingestion holds.
+func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedger uint32) (*TestContainer, error) {
 	// Use a unique container name
 	backfillContainerCounter++
 	containerName := fmt.Sprintf("wallet-backend-backfill-%d", backfillContainerCounter)
@@ -565,7 +565,6 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 			// Backfill-specific configuration
 			"INGESTION_MODE":          "backfill",
 			"START_LEDGER":            fmt.Sprintf("%d", startLedger),
-			"END_LEDGER":              fmt.Sprintf("%d", endLedger),
 			"CLIENT_AUTH_PUBLIC_KEYS": s.clientAuthKeyPair.Address(),
 		},
 		Networks: []string{s.TestNetwork.Name},
@@ -589,7 +588,7 @@ func (s *SharedContainers) StartBackfillContainer(ctx context.Context, startLedg
 		return nil, fmt.Errorf("creating backfill container: %w", err)
 	}
 
-	log.Ctx(ctx).Infof("🔄 Created Backfill container (ledgers %d-%d)", startLedger, endLedger)
+	log.Ctx(ctx).Infof("🔄 Created Backfill container (from ledger %d)", startLedger)
 
 	testContainer := &TestContainer{Container: container}
 
