@@ -1555,3 +1555,63 @@ func TestStateChangeModel_BatchGetByAccountAddress_IngestCursorBound(t *testing.
 		assert.Len(t, stateChanges, 2)
 	})
 }
+
+func TestStateChangeModel_CopyRowsMatchesBatchCopy(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	conn, err := pgx.Connect(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	m := &StateChangeModel{Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+	auxAddresses := make([]string, 8)
+	for i := range auxAddresses {
+		auxAddresses[i] = keypair.MustRandom().Address()
+	}
+	stateChanges := generateTestStateChanges(4, keypair.MustRandom().Address(), 1, auxAddresses)
+	// A row with every nullable column unset covers the SQL NULL encodings, key_value included.
+	stateChanges = append(stateChanges, types.StateChange{
+		ToID:                100,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategoryBalance,
+		StateChangeReason:   types.StateChangeReasonDebit,
+		LedgerCreatedAt:     time.Now(),
+		LedgerNumber:        100,
+		AccountID:           types.AddressBytea(auxAddresses[0]),
+	})
+
+	requireCopyPathsWriteSameRows(t, ctx, conn, copiedColumnsQuery("state_changes", stateChangeCopyColumns, "to_id, operation_id, state_change_id"),
+		func(pgxTx pgx.Tx) error {
+			_, err := m.BatchCopy(ctx, pgxTx, stateChanges)
+			return err
+		},
+		func(pgxTx pgx.Tx) error {
+			rows, err := BuildStateChangeCopyRows(stateChanges)
+			if err != nil {
+				return err
+			}
+			n, err := m.CopyRows(ctx, pgxTx, rows)
+			assert.Equal(t, int64(len(stateChanges)), n)
+			return err
+		})
+}
+
+// TestBuildStateChangeCopyRows_EncodeErrorIsSentinel pins that the builder itself, not
+// only BatchCopy, reports an unencodable row as ErrRowEncoding.
+func TestBuildStateChangeCopyRows_EncodeErrorIsSentinel(t *testing.T) {
+	sc := types.StateChange{
+		ToID:                1,
+		StateChangeID:       1,
+		StateChangeCategory: types.StateChangeCategorySigner,
+		StateChangeReason:   types.StateChangeReasonAdd,
+		LedgerCreatedAt:     time.Now(),
+		LedgerNumber:        1,
+		AccountID:           types.AddressBytea(keypair.MustRandom().Address()),
+		SignerAccountID:     utils.NullSignerKeyBytea("not-a-strkey"),
+	}
+	rows, err := BuildStateChangeCopyRows([]types.StateChange{sc})
+	require.ErrorIs(t, err, ErrRowEncoding)
+	assert.Nil(t, rows)
+}

@@ -52,7 +52,7 @@ func (suite *BackfillTestSuite) TestParallelLiveAndBackfill() {
 	// Phase 2: Start backfill container alongside live
 	log.Ctx(ctx).Info("Phase 2: Starting backfill container alongside live ingest")
 
-	backfillContainer, err := containers.StartBackfillContainer(ctx, firstCheckpoint, backfillEndLedger)
+	backfillContainer, err := containers.StartBackfillContainer(ctx, firstCheckpoint)
 	suite.Require().NoError(err, "failed to start backfill container")
 	defer func() {
 		if err := backfillContainer.Terminate(ctx); err != nil {
