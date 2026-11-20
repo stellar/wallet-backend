@@ -135,16 +135,22 @@ func overlapsAnyChunk(ranges []chunkRange, start, end time.Time) bool {
 // axis, which is what the ledger source is addressed by.
 type ledgerCloseTimeProbe func(ctx context.Context, seq uint32) (time.Time, error)
 
-// newLedgerCloseTimeProbe builds a probe over one backend from the factory.
-// Each call prepares a one-ledger range and reads it, so a probe costs one
-// ledger download and decode. The returned close function releases the
-// backend.
-func newLedgerCloseTimeProbe(ctx context.Context, factory LedgerBackendFactory) (ledgerCloseTimeProbe, func(), error) {
-	backend, err := factory(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating probe backend: %w", err)
-	}
-	probe := func(ctx context.Context, seq uint32) (time.Time, error) {
+// newLedgerCloseTimeProbe builds a probe that reads each ledger on its own
+// backend from the factory, prepared for that one ledger and closed after.
+// A backend can refuse a second PrepareRange (the RPC backend does), so the
+// probe never prepares one twice. A probe costs one backend setup and one
+// ledger download and decode.
+func newLedgerCloseTimeProbe(factory LedgerBackendFactory) ledgerCloseTimeProbe {
+	return func(ctx context.Context, seq uint32) (time.Time, error) {
+		backend, err := factory(ctx)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("creating the backend to probe ledger %d: %w", seq, err)
+		}
+		defer func() {
+			if err := backend.Close(); err != nil {
+				log.Ctx(ctx).Warnf("closing probe backend: %v", err)
+			}
+		}()
 		if err := backend.PrepareRange(ctx, ledgerbackend.BoundedRange(seq, seq)); err != nil {
 			return time.Time{}, fmt.Errorf("preparing ledger %d: %w", seq, err)
 		}
@@ -154,12 +160,6 @@ func newLedgerCloseTimeProbe(ctx context.Context, factory LedgerBackendFactory) 
 		}
 		return time.Unix(meta.LedgerCloseTime(), 0).UTC(), nil
 	}
-	closeFn := func() {
-		if err := backend.Close(); err != nil {
-			log.Ctx(ctx).Warnf("closing probe backend: %v", err)
-		}
-	}
-	return probe, closeFn, nil
 }
 
 // maxBoundaryProbes bounds the search for a window's first ledger. The

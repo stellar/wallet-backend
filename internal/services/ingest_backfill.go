@@ -95,11 +95,7 @@ func (m *ingestService) startBackfilling(ctx context.Context, startLedger uint32
 	if err != nil {
 		return err
 	}
-	probe, closeProbe, err := newLedgerCloseTimeProbe(ctx, m.ledgerBackendFactory)
-	if err != nil {
-		return err
-	}
-	defer closeProbe()
+	probe := newLedgerCloseTimeProbe(m.ledgerBackendFactory)
 
 	// The cursor ledger is the first live-owned ledger; its close time is the
 	// top of the region this run compresses.

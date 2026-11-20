@@ -84,9 +84,20 @@ func (c *backfillTestChain) factory(failures map[uint32]error) LedgerBackendFact
 	}
 }
 
+// failingLedgerBackend refuses a second PrepareRange, as the RPC backend
+// does, so the backfill must prepare every backend it creates once.
 type failingLedgerBackend struct {
 	multiLedgerBackend
 	failures map[uint32]error
+	prepared bool
+}
+
+func (b *failingLedgerBackend) PrepareRange(ctx context.Context, r ledgerbackend.Range) error {
+	if b.prepared {
+		return fmt.Errorf("backend is already prepared, cannot prepare %v", r)
+	}
+	b.prepared = true
+	return b.multiLedgerBackend.PrepareRange(ctx, r)
 }
 
 func (b *failingLedgerBackend) GetLedger(ctx context.Context, seq uint32) (xdr.LedgerCloseMeta, error) {
