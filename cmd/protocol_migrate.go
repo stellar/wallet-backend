@@ -77,32 +77,16 @@ func buildMigrationCommand(
 		utils.DatabaseURLOption(&opts.databaseURL),
 		utils.NetworkPassphraseOption(&opts.networkPassphrase),
 		utils.LogLevelOption(&opts.logLevel),
-		// RPC URL is only required when --ledger-backend-type=rpc; validated in PersistentPreRunE.
-		{
-			Name:        "rpc-url",
-			Usage:       "The URL of the RPC Server. Required when --ledger-backend-type=rpc.",
-			OptType:     types.String,
-			ConfigKey:   &opts.rpcURL,
-			FlagDefault: "",
-			Required:    false,
-		},
-		{
-			Name:        "ledger-backend-type",
-			Usage:       "Where historical ledgers are read from: 'rpc' (default) or 'datastore'. Use datastore with datastore-bucket-path for ranges outside the RPC retention window.",
-			OptType:     types.String,
-			ConfigKey:   &opts.ledgerBackendType,
-			FlagDefault: string(ingest.LedgerBackendTypeRPC),
-			Required:    false,
-		},
-		{
-			Name:        "get-ledgers-limit",
-			Usage:       "Per-request ledger buffer size for the RPC backend. Ignored for datastore.",
-			OptType:     types.Int,
-			ConfigKey:   &opts.getLedgersLimit,
-			FlagDefault: 10,
-			Required:    false,
-		},
 	}
+	cfgOpts = append(cfgOpts, utils.HistoryLedgerBackendOptions(&opts.rpcURL, &opts.ledgerBackendType)...)
+	cfgOpts = append(cfgOpts, &config.ConfigOption{
+		Name:        "get-ledgers-limit",
+		Usage:       "Per-request ledger buffer size for the RPC backend. Ignored for datastore.",
+		OptType:     types.Int,
+		ConfigKey:   &opts.getLedgersLimit,
+		FlagDefault: 10,
+		Required:    false,
+	})
 	cfgOpts = append(cfgOpts, utils.DatastoreOptions(&opts.datastore)...)
 
 	cmd := &cobra.Command{
@@ -123,18 +107,8 @@ func buildMigrationCommand(
 				return fmt.Errorf("at least one --protocol-id is required")
 			}
 
-			// Per-backend required-field validation.
-			switch opts.ledgerBackendType {
-			case string(ingest.LedgerBackendTypeRPC):
-				if opts.rpcURL == "" {
-					return fmt.Errorf("--rpc-url is required when --ledger-backend-type=rpc")
-				}
-			case string(ingest.LedgerBackendTypeDatastore):
-				if opts.datastore.BucketPath == "" {
-					return fmt.Errorf("--datastore-bucket-path is required when --ledger-backend-type=datastore")
-				}
-			default:
-				return fmt.Errorf("invalid --ledger-backend-type %q, must be 'rpc' or 'datastore'", opts.ledgerBackendType)
+			if err := utils.ValidateHistoryLedgerBackend(opts.ledgerBackendType, opts.rpcURL, opts.datastore); err != nil {
+				return err //nolint:wrapcheck // the error names the flag to fix
 			}
 
 			if extraValidate != nil {
@@ -419,7 +393,7 @@ func startMigrationMetricsServer(port int, reg *prometheus.Registry) *http.Serve
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.Infof("Starting protocol-migrate metrics server on port %d at /metrics", port)
+		log.Infof("Starting migration metrics server on port %d at /metrics", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Errorf("metrics server on %s stopped: %v", server.Addr, err)
 		}

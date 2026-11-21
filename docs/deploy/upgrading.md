@@ -8,6 +8,8 @@ For an operator moving a running deployment to a later wallet-backend release. A
 - [Procedure](#procedure)
 - [Filling `transaction_hashes` for history ingested before it existed](#filling-transaction_hashes-for-history-ingested-before-it-existed)
 - [Version skew](#version-skew)
+- [Release notes](#release-notes)
+  - [Transaction memos](#transaction-memos)
 - [Rolling back](#rolling-back)
 - [Where in the code](#where-in-the-code)
 
@@ -55,7 +57,7 @@ Releases follow semantic versioning from v1.0.0.
 
    `version` prints `wallet-backend <VERSION> (commit <SHA>, <GO_VERSION>)`. A promoted image reports the release candidate it was built as, for example `v1.2.0-rc.2`. Every service also logs `wallet-backend <VERSION> (commit <SHA>)` at startup. Both `/health` calls return `"status":"ok"` once ingest is within 50 ledgers of the RPC.
 
-If the release adds a protocol, run its data migration after step 5. See [protocol data migrations](protocols.md).
+If the release adds a protocol, run its protocol migrations after step 5. See [protocols](protocols.md). If the release ships a data migration, run it after step 5. See [data migrations](data-migrations.md).
 
 ## Filling `transaction_hashes` for history ingested before it existed
 
@@ -135,6 +137,24 @@ DROP PROCEDURE populate_transaction_hashes(BIGINT);
 | Run `migrate up` with the release binary before any instance of that release starts | Nothing applies migrations automatically |
 | Skipping releases is fine | `migrate up` applies every pending migration in order. A release note that says otherwise wins |
 
+## Release notes
+
+Changes that affect the upgrade itself, newest first.
+
+### Transaction memos
+
+The release adds `Transaction.memoType` and `Transaction.memo` to the API and ships the `transactions-memo` [data migration](data-migrations.md). Follow the normal [procedure](#procedure), then run the data migration.
+
+| Stage | What happens |
+| --- | --- |
+| `migrate up` | Adds nullable `memo_type` and `memo` columns to `transactions` and creates the `data_migrations` table. The column change is metadata-only, so it is fast on any history size |
+| First `ingest` start | Live ingestion writes memos from its resume ledger onward. The ingester records `transactions-memo` as `pending`, with that ledger as its boundary |
+| `data-migrate run transactions-memo` | Rewrites older rows newest-first, down to `oldest_ingest_ledger`. Run it as a one-off process after the ingester has started. See [data migrations](data-migrations.md#order-of-operations) |
+
+Until the data migration reaches a transaction, its `memoType` and `memo` are `null`, and a memo filter does not match it. After it, `memoType` is `NONE` for a transaction without a memo.
+
+If your retained history is older than the RPC retention window, run the data migration with `LEDGER_BACKEND_TYPE=datastore` and `DATASTORE_BUCKET_PATH` set. Otherwise it refuses to start.
+
 ## Rolling back
 
 Rolling back after `migrate up` is not supported. To return to an earlier release, restore the database from a backup taken before the upgrade and run the earlier image against it.
@@ -150,3 +170,4 @@ Lower the risk by running a new release against a copy of your data, or in a non
 | `cmd/root.go` | Startup version log line |
 | `internal/ingest/ingest.go` | Clean shutdown on SIGTERM |
 | `internal/db/migrations/` | Migration files, applied in name order |
+| `cmd/data_migrate.go` | `data-migrate run` and `data-migrate status` |

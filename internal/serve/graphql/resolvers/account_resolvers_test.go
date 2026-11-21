@@ -42,7 +42,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 
 	t.Run("get all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, nil)
+		transactions, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		require.Len(t, transactions.Edges, 4)
@@ -52,10 +52,36 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		assert.Equal(t, testTxHash4, transactions.Edges[3].Node.Hash.String())
 	})
 
+	t.Run("memo filter returns only matching transactions", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash", "memoType", "memo"})
+
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &graphql1.MemoFilter{Type: graphql1.MemoTypeText, Value: sharedTestTextMemo}, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, txs.Edges, 1)
+		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
+		assert.Equal(t, []byte(sharedTestTextMemo), txs.Edges[0].Node.Memo)
+
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &graphql1.MemoFilter{Type: graphql1.MemoTypeID, Value: fmt.Sprint(sharedTestIDMemo)}, nil, nil, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, txs.Edges, 1)
+		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
+
+		// Same bytes as the TEXT memo but a different type: no match.
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &graphql1.MemoFilter{Type: graphql1.MemoTypeText, Value: "other"}, nil, nil, nil, nil)
+		require.NoError(t, err)
+		assert.Empty(t, txs.Edges)
+	})
+
+	t.Run("invalid memo filter is rejected", func(t *testing.T) {
+		ctx := getTestCtx("transactions", []string{"hash"})
+		_, err := resolver.Transactions(ctx, parentAccount, nil, nil, &graphql1.MemoFilter{Type: graphql1.MemoTypeNone}, nil, nil, nil, nil)
+		require.ErrorContains(t, err, "NONE is not a valid memo filter type")
+	})
+
 	t.Run("get transactions with first/after limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		first := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
@@ -66,7 +92,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		// Get the next cursor
 		nextCursor := txs.PageInfo.EndCursor
 		assert.NotNil(t, nextCursor)
-		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nextCursor, nil, nil)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &first, nextCursor, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
@@ -78,7 +104,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("get transactions with last/before limit and cursor", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		last := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.Equal(t, testTxHash3, txs.Edges[0].Node.Hash.String())
@@ -90,7 +116,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		last = int32(1)
 		nextCursor := txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
-		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
 		assert.Equal(t, testTxHash2, txs.Edges[0].Node.Hash.String())
@@ -100,7 +126,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		nextCursor = txs.PageInfo.StartCursor
 		assert.NotNil(t, nextCursor)
 		last = int32(10)
-		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &last, nextCursor)
+		txs, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, nil, &last, nextCursor)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 1)
 		assert.Equal(t, testTxHash1, txs.Edges[0].Node.Hash.String())
@@ -111,7 +137,7 @@ func TestAccountResolver_Transactions(t *testing.T) {
 	t.Run("account with no transactions", func(t *testing.T) {
 		nonExistentAccount := &types.Account{StellarAddress: types.AddressBytea(sharedNonExistentAccountAddress)}
 		ctx := getTestCtx("transactions", []string{"hash"})
-		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil, nil, nil)
+		transactions, err := resolver.Transactions(ctx, nonExistentAccount, nil, nil, nil, nil, nil, nil, nil)
 
 		require.NoError(t, err)
 		assert.Empty(t, transactions.Edges)
@@ -123,24 +149,24 @@ func TestAccountResolver_Transactions(t *testing.T) {
 		last := int32(1)
 		after := encodeCursor(int64(4))
 		before := encodeCursor(int64(1))
-		_, err := resolver.Transactions(ctx, parentAccount, nil, nil, &first, &after, nil, nil)
+		_, err := resolver.Transactions(ctx, parentAccount, nil, nil, nil, &first, &after, nil, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "first must be greater than 0")
 
 		first = int32(1)
-		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, &last, nil)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &first, nil, &last, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "first and last cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &after, nil, &before)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &after, nil, &before)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "after and before cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, &first, nil, nil, &before)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &first, nil, nil, &before)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "first and before cannot be used together")
 
-		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, &after, &last, nil)
+		_, err = resolver.Transactions(ctx, parentAccount, nil, nil, nil, nil, &after, &last, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "last and after cannot be used together")
 	})
@@ -848,7 +874,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 	t.Run("since in the past returns all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		pastTime := time.Now().Add(-24 * time.Hour)
-		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, nil, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 4)
 	})
@@ -856,7 +882,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 	t.Run("since in the future returns no transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		futureTime := time.Now().Add(24 * time.Hour)
-		txs, err := resolver.Transactions(ctx, parentAccount, &futureTime, nil, nil, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, &futureTime, nil, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Empty(t, txs.Edges)
 	})
@@ -864,7 +890,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 	t.Run("until in the past returns no transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		pastTime := time.Now().Add(-24 * time.Hour)
-		txs, err := resolver.Transactions(ctx, parentAccount, nil, &pastTime, nil, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, &pastTime, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Empty(t, txs.Edges)
 	})
@@ -872,7 +898,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 	t.Run("until in the future returns all transactions", func(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		futureTime := time.Now().Add(24 * time.Hour)
-		txs, err := resolver.Transactions(ctx, parentAccount, nil, &futureTime, nil, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, nil, &futureTime, nil, nil, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 4)
 	})
@@ -881,7 +907,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		since := time.Now()
 		until := since.Add(-1 * time.Hour)
-		_, err := resolver.Transactions(ctx, parentAccount, &since, &until, nil, nil, nil, nil)
+		_, err := resolver.Transactions(ctx, parentAccount, &since, &until, nil, nil, nil, nil, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "until must not be before since")
 	})
@@ -890,7 +916,7 @@ func TestAccountResolver_Transactions_WithTimeRange(t *testing.T) {
 		ctx := getTestCtx("transactions", []string{"hash"})
 		pastTime := time.Now().Add(-24 * time.Hour)
 		first := int32(2)
-		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, &first, nil, nil, nil)
+		txs, err := resolver.Transactions(ctx, parentAccount, &pastTime, nil, nil, &first, nil, nil, nil)
 		require.NoError(t, err)
 		assert.Len(t, txs.Edges, 2)
 		assert.True(t, txs.PageInfo.HasNextPage)

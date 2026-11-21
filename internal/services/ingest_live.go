@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/datamigrations"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/indexer"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
@@ -609,6 +610,15 @@ func (m *ingestService) startLiveIngestion(ctx context.Context) error {
 			return fmt.Errorf("reconciling bulk rows above cursor ledger %d: %w", latestIngestedLedger, err)
 		}
 
+		// The first start of a binary that knows a data migration fixes its boundary:
+		// every row at or below the cursor predates the binary, and live ingestion
+		// writes the migrated form from latestIngestedLedger+1 on.
+		for _, migration := range datamigrations.All {
+			if err := m.models.DataMigrations.InsertIfMissing(ctx, m.models.DB, migration.Name(), data.DataMigrationPending, latestIngestedLedger+1); err != nil {
+				return fmt.Errorf("recording data migration boundary: %w", err)
+			}
+		}
+
 		// Initialize metrics from DB state so Prometheus reflects backfill progress after restart
 		oldestIngestedLedger, oldestErr := m.models.IngestStore.Get(ctx, data.OldestLedgerCursorName)
 		if oldestErr != nil {
@@ -645,6 +655,13 @@ func (m *ingestService) initializeCursors(ctx context.Context, dbTx pgx.Tx, ledg
 	}
 	if err := m.models.IngestStore.Update(ctx, dbTx, data.OldestLedgerCursorName, ledger); err != nil {
 		return fmt.Errorf("initializing oldest cursor: %w", err)
+	}
+	// Nothing predates this binary on a fresh database, so every data migration it
+	// knows is done from the start.
+	for _, migration := range datamigrations.All {
+		if err := m.models.DataMigrations.InsertIfMissing(ctx, dbTx, migration.Name(), data.DataMigrationDone, ledger); err != nil {
+			return fmt.Errorf("recording data migration as done: %w", err)
+		}
 	}
 	return nil
 }

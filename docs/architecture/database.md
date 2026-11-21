@@ -9,6 +9,7 @@ For operators tuning PostgreSQL and contributors writing queries or migrations. 
 - [Indexes](#indexes)
 - [Runtime policies](#runtime-policies)
 - [Cursors](#cursors)
+  - [Data migrations](#data-migrations)
 - [Writes](#writes)
 - [Connections](#connections)
 - [Requirements the migrations assume](#requirements-the-migrations-assume)
@@ -32,11 +33,11 @@ Ingest writes every ledger into the history hypertables and upserts balances int
 
 | Kind | Tables | Grows with | Written by |
 |---|---|---|---|
-| History hypertables | `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes` | ledgers retained | live ingest, backfill |
+| History hypertables | `transactions`, `transactions_accounts`, `operations`, `operations_accounts`, `state_changes` | ledgers retained | live ingest, backfill; `data-migrate` rewrites older rows |
 | Current state from ledger entries | `native_balances`, `trustline_balances`, `sac_balances`, `liquidity_pools`, `liquidity_pool_balances`, `trustline_assets`, `contract_tokens`, `protocol_wasms`, `protocol_contracts` | accounts and tokens on the network | checkpoint bootstrap once, then live ingest; `protocol-setup` also classifies `protocol_wasms` and writes `contract_tokens` metadata |
 | Current state from protocol events | `sep41_balances`, `sep41_allowances` | SEP-41 holders | `protocol-migrate current-state` for ledgers already ingested, then live ingest once the protocol cursor exists |
 | Hash lookup hypertable | `transaction_hashes` | retained transactions, plus up to 30 days of dropped ones, about 8.5 bytes per row today, 6.14 at 10k tx/s; see [Scaling by transaction rate](data-model.md#scaling-by-transaction-rate) | live ingest, backfill |
-| Bookkeeping | `ingest_store`, `protocols`, `gorp_migrations` | constant | ingest and `protocol-migrate` (cursors), `migrate up` and `protocol-setup` (`protocols`), sql-migrate (`gorp_migrations`) |
+| Bookkeeping | `ingest_store`, `protocols`, `data_migrations`, `gorp_migrations` | constant | ingest and `protocol-migrate` (cursors), `migrate up` and `protocol-setup` (`protocols`), ingest and `data-migrate` (`data_migrations`), sql-migrate (`gorp_migrations`) |
 
 ## Hypertable layout
 
@@ -111,11 +112,32 @@ When retention is on, a `reconcile_oldest_cursor` job runs every hour and moves 
 | `protocol_<ID>_history_cursor` | Progress of a protocol history migration |
 | `protocol_<ID>_current_state_cursor` | Progress of a protocol current-state migration |
 
+### Data migrations
+
+`data_migrations` holds one row per [data migration](../deploy/data-migrations.md), keyed on `name`. A data migration rewrites history rows that an earlier release wrote, for ledgers below its boundary.
+
+| Column | Meaning |
+|---|---|
+| `status` | `pending`, `in_progress`, or `done` |
+| `boundary_ledger` | First ledger written by a binary that knows the migration. The live ingester sets it to `latest_ingest_ledger + 1` the first time it starts with that binary. Checkpoint bootstrap inserts the row as `done` |
+| `cursor_ledger` | Lowest ledger rewritten so far. Starts at `boundary_ledger` and only moves down |
+| `started_at`, `finished_at` | When the first run started and when the status became `done` |
+| `last_error` | Why the last run failed. A cancelled run does not set it. Cleared when a run starts |
+
+| Step | Behavior |
+|---|---|
+| Walk | `data-migrate run` walks newest first, down to `oldest_ingest_ledger`. A slice is 10,000 ledgers for each of the `--data-migration-workers` workers, rewritten at the same time. Each worker re-reads its ledgers through its own ledger source and writes every 1,000 ledgers in one transaction, reading the next 1,000 while it writes |
+| Compressed chunks | The writes run directly on compressed chunks. TimescaleDB decompresses only the touched batches. A background task takes each chunk compressed before the run once the walk has passed it, one at a time, and compresses it again only if the walk wrote to it. Its backlog holds at most 4 × `--data-migration-workers` chunks, and a full backlog holds the walk. It rebuilds a recompressed chunk's indexes (`REINDEX TABLE`, 5 s lock timeout, a failure is only logged) after the next chunk is recompressed, and the last one after 30 s |
+| Commit | The cursor moves, with `LEAST`, once every worker of a slice has committed. An interrupted run redoes at most one slice, and `Apply` is idempotent |
+| Failure | A slice is tried 3 times, 10 s apart. Then the run stores `last_error` and exits, and the next run resumes from the cursor. Any other failure after the row is loaded is stored the same way, unless the run was cancelled |
+
+The run holds an advisory lock shared by all data migrations, so only one runs at a time. Live ingestion writes only ledgers from the boundary on and the walk writes only ledgers below it, so the two need no coordination. Nothing outside `data-migrate` reads `status`.
+
 ## Writes
 
 Live ingest writes each batch of ledgers (one ledger by default, up to `LIVE_PERSIST_MAX_BATCH_SIZE`) through six transactions on separate connections: five siblings stream the bulk tables by `COPY`, and a coordinating transaction writes all current state (contracts, protocol state, every balance table) and the cursor. The siblings commit first without waiting on the WAL flush; the coordinator commits last, synchronously, and its flush covers them. A crash before the first commit loses nothing. A crash between the commits can leave bulk rows above the cursor; startup reconciliation deletes them, and every read query is bounded by the cursor so they are never served. Current state commits with the cursor and is never ahead of it. Details in [ingestion](ingestion.md#live-mode).
 
-Live ingest holds a session-level advisory lock keyed on the network passphrase for its whole life. The lock is what stops two live ingesters from writing the same network. Protocol migrations hold their own lock per protocol and strategy.
+Live ingest holds a session-level advisory lock keyed on the network passphrase for its whole life. The lock is what stops two live ingesters from writing the same network. Protocol migrations hold their own lock per protocol and strategy. Data migrations share one lock, so one runs at a time.
 
 ## Connections
 
@@ -148,3 +170,5 @@ Migrations are forward-only in production. `migrate down` exists for development
 | `internal/db/utils.go` | Advisory lock helpers |
 | `internal/serve/serve.go` (`BuildPoolConfig`) | Exec query mode for PgBouncer |
 | `internal/data/ingest_store.go` | Cursor keys |
+| `internal/datamigrations/runner.go` | Data migration walk |
+| `internal/data/data_migrations.go` | `data_migrations` rows, chunk listing and recompression |

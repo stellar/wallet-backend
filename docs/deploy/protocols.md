@@ -17,7 +17,7 @@ Config names use the environment-variable form. The flags `--protocol-id`, `--wi
 
 ## When you need one
 
-Live ingestion produces a protocol's data only from the moment that protocol's migration cursors exist. Ledgers ingested before then hold no rows for it. A data migration fills them.
+Live ingestion produces a protocol's data only from the moment that protocol's migration cursors exist. Ledgers ingested before then hold no rows for it. A protocol migration fills them.
 
 | You have | You run |
 | --- | --- |

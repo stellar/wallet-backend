@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/datamigrations"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/indexer"
@@ -838,6 +839,8 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupDB(t)
+			_, err := dbConnectionPool.Exec(ctx, `DELETE FROM data_migrations`)
+			require.NoError(t, err)
 
 			m := metrics.NewMetrics(prometheus.NewRegistry())
 
@@ -871,6 +874,18 @@ func Test_ingestService_initializeCursors(t *testing.T) {
 			oldestCursor, err := models.IngestStore.Get(ctx, "oldest_ingest_ledger")
 			require.NoError(t, err)
 			assert.Equal(t, tc.startLedger, oldestCursor)
+
+			// A fresh database has no history older than this binary: every data
+			// migration is recorded as done at the start ledger.
+			for _, migration := range datamigrations.All {
+				row, err := models.DataMigrations.Get(ctx, migration.Name())
+				require.NoError(t, err)
+				require.NotNil(t, row, migration.Name())
+				assert.Equal(t, data.DataMigrationDone, row.Status)
+				assert.Equal(t, tc.startLedger, row.BoundaryLedger)
+				assert.Equal(t, tc.startLedger, row.CursorLedger)
+				assert.NotNil(t, row.FinishedAt)
+			}
 		})
 	}
 }

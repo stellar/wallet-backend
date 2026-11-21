@@ -1,6 +1,7 @@
 package data
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -61,6 +62,7 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 	kp1 := keypair.MustRandom()
 	kp2 := keypair.MustRandom()
 
+	memoText := int16(1)
 	txCopy1 := types.Transaction{
 		Hash:            "b76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48762",
 		ToID:            1,
@@ -69,7 +71,10 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 		LedgerNumber:    1,
 		LedgerCreatedAt: now,
 		IsFeeBump:       false,
+		MemoType:        &memoText,
+		Memo:            []byte("hello"),
 	}
+	// txCopy2 leaves MemoType/Memo nil: the row must land with NULL memo columns.
 	txCopy2 := types.Transaction{
 		Hash:            "c76b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa48763",
 		ToID:            2,
@@ -172,6 +177,21 @@ func Test_TransactionModel_BatchCopy(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, dbInsertedHashes, tc.wantCount)
 
+			// Memo columns round-trip, including NULLs for a transaction without one.
+			type memoRow struct {
+				ToID     int64  `db:"to_id"`
+				MemoType *int16 `db:"memo_type"`
+				Memo     []byte `db:"memo"`
+			}
+			memoRows, err := db.QueryMany[memoRow](ctx, dbConnectionPool, "SELECT to_id, memo_type, memo FROM transactions ORDER BY to_id")
+			require.NoError(t, err)
+			require.Len(t, memoRows, tc.wantCount)
+			for i, tx := range tc.txs {
+				assert.Equal(t, tx.ToID, memoRows[i].ToID)
+				assert.Equal(t, tx.MemoType, memoRows[i].MemoType)
+				assert.Equal(t, tx.Memo, memoRows[i].Memo)
+			}
+
 			// Verify account links if expected
 			if len(tc.stellarAddressesByToID) > 0 && tc.wantCount > 0 {
 				type txAccountLink struct {
@@ -226,13 +246,18 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 	accTestHash1 := types.HashBytea("4076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash2 := types.HashBytea("5076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
 	accTestHash3 := types.HashBytea("6076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash4 := types.HashBytea("7076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	accTestHash5 := types.HashBytea("8076b7b0133690fbfb2de8fa9ca2273cb4f2e29447e0cf0e14a5f82d0daa4876")
+	hashMemo := bytes.Repeat([]byte{0xab}, 32)
 	_, err = dbConnectionPool.Exec(ctx, `
-		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump)
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, is_fee_bump, memo_type, memo)
 		VALUES
-			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false),
-			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true),
-			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false)
-	`, accTestHash1, accTestHash2, accTestHash3, now)
+			($1, 1, 100, 'TransactionResultCodeTxSuccess', 1, $4, false, 1, 'order-1'::bytea),
+			($2, 2, 200, 'TransactionResultCodeTxSuccess', 2, $4, true, 0, NULL),
+			($3, 3, 300, 'TransactionResultCodeTxSuccess', 3, $4, false, 1, 'order-1'::bytea),
+			($5, 4, 400, 'TransactionResultCodeTxSuccess', 4, $4, false, 1, 'order-1'::bytea),
+			($6, 5, 500, 'TransactionResultCodeTxSuccess', 5, $4, false, 3, $7)
+	`, accTestHash1, accTestHash2, accTestHash3, now, accTestHash4, accTestHash5, hashMemo)
 	require.NoError(t, err)
 
 	// Create test transactions_accounts links (account_id is BYTEA)
@@ -241,17 +266,72 @@ func TestTransactionModel_BatchGetByAccountAddress(t *testing.T) {
 		VALUES
 			($3, 1, $1),
 			($3, 2, $1),
-			($3, 3, $2)
+			($3, 3, $2),
+			($3, 4, $1),
+			($3, 5, $1)
 	`, types.AddressBytea(address1), types.AddressBytea(address2), now)
 	require.NoError(t, err)
 
-	// Test BatchGetByAccount
-	transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil)
-	require.NoError(t, err)
-	assert.Len(t, transactions, 2)
+	t.Run("unfiltered", func(t *testing.T) {
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, transactions, 4)
+		assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+		assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
+		assert.Equal(t, int64(4), transactions[2].CompositeCursor.ID)
+		assert.Equal(t, int64(5), transactions[3].CompositeCursor.ID)
+	})
 
-	assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
-	assert.Equal(t, int64(2), transactions[1].CompositeCursor.ID)
+	textMemo := &MemoFilter{Type: 1, Value: []byte("order-1")}
+
+	t.Run("memo_filter_fills_the_page_past_non_matching_rows", func(t *testing.T) {
+		// to_id 2 (no memo) sits between the two matches; a LIMIT applied before the memo
+		// predicate would return a one-row page here.
+		limit := int32(2)
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, nil, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 2)
+		assert.Equal(t, int64(1), transactions[0].CompositeCursor.ID)
+		assert.Equal(t, int64(4), transactions[1].CompositeCursor.ID)
+		assert.Equal(t, []byte("order-1"), transactions[1].Memo)
+	})
+
+	t.Run("memo_filter_paginates_from_cursor", func(t *testing.T) {
+		limit := int32(2)
+		cursor := &types.CompositeCursor{LedgerCreatedAt: now, ID: 1}
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, cursor, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(4), transactions[0].CompositeCursor.ID)
+	})
+
+	t.Run("memo_filter_descending_with_limit", func(t *testing.T) {
+		limit := int32(1)
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", &limit, nil, DESC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(4), transactions[0].CompositeCursor.ID)
+	})
+
+	t.Run("memo_filter_matches_type_and_bytes", func(t *testing.T) {
+		transactions, err := m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, &MemoFilter{Type: 3, Value: hashMemo})
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(5), transactions[0].CompositeCursor.ID)
+
+		// Same bytes under another type match nothing.
+		transactions, err = m.BatchGetByAccountAddress(ctx, address1, "", nil, nil, ASC, nil, &MemoFilter{Type: 4, Value: hashMemo})
+		require.NoError(t, err)
+		assert.Empty(t, transactions)
+	})
+
+	t.Run("memo_filter_is_account_scoped", func(t *testing.T) {
+		// to_id 3 carries the memo but belongs to address2.
+		transactions, err := m.BatchGetByAccountAddress(ctx, address2, "", nil, nil, ASC, nil, textMemo)
+		require.NoError(t, err)
+		require.Len(t, transactions, 1)
+		assert.Equal(t, int64(3), transactions[0].CompositeCursor.ID)
+	})
 }
 
 func TestTransactionModel_BatchGetByOperationIDs(t *testing.T) {
@@ -579,7 +659,7 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("the account list hides a ledger past the cursor", func(t *testing.T) {
-		transactions, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil)
+		transactions, qErr := m.BatchGetByAccountAddress(ctx, address, "", nil, nil, ASC, nil, nil)
 		require.NoError(t, qErr)
 		require.Len(t, transactions, 1)
 		assert.Equal(t, atCursor, transactions[0].ToID)
@@ -596,4 +676,149 @@ func TestTransactionModel_IngestCursorBound(t *testing.T) {
 		require.NoError(t, qErr)
 		assert.Nil(t, tx, "a transaction past the committed cursor reads as not found")
 	})
+}
+
+// A data migration runs BatchUpdateMemo once per flush, for days, on pooled connections
+// that cache the prepared statement. From its sixth execution PostgreSQL may switch a
+// cached statement to a generic plan, which has no values to exclude chunks with and so
+// targets every chunk of the hypertable. Every execution must be planned with its values.
+func TestTransactionModel_BatchUpdateMemo_PlansEveryExecutionWithItsValues(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	dbConnectionPool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer dbConnectionPool.Close()
+	m := &TransactionModel{DB: dbConnectionPool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}
+
+	// One connection, so every execution reuses the same cached statement.
+	conn, err := dbConnectionPool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	closedAt := time.Now().UTC().Truncate(time.Second)
+	_, err = conn.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at)
+		VALUES ('\x01', 1, 100, 'TransactionResultCodeTxSuccess', 1, $1)`, closedAt)
+	require.NoError(t, err)
+	rows := []TransactionMemo{{ToID: 1, LedgerCreatedAt: closedAt, MemoType: 1, Memo: []byte("hello")}}
+
+	const executions = 8
+	for range executions {
+		dbTx, beginErr := conn.Begin(ctx)
+		require.NoError(t, beginErr)
+		require.NoError(t, m.BatchUpdateMemo(ctx, dbTx, rows))
+		require.NoError(t, dbTx.Commit(ctx))
+	}
+
+	var genericPlans, customPlans int64
+	err = conn.QueryRow(ctx, `
+		SELECT COALESCE(SUM(generic_plans), 0), COALESCE(SUM(custom_plans), 0)
+		FROM pg_prepared_statements
+		WHERE statement LIKE $1`, "%UPDATE transactions t SET memo_type%").Scan(&genericPlans, &customPlans)
+	require.NoError(t, err)
+	assert.Zero(t, genericPlans, "the memo update ran with a generic plan")
+	assert.EqualValues(t, executions, customPlans)
+}
+
+// A memo-filtered page must stream the account's history in order and stop once the page
+// is full. That holds only while no Sort sits under the outer LIMIT: a Sort reads every
+// matching row before the first one comes out.
+func TestTransactionModel_BatchGetByAccountAddress_MemoFilterPlanStopsAtFullPage(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	address := keypair.MustRandom().Address()
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// 3 days of history, 500 transactions a day, every 10th carrying the filtered memo.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions (hash, to_id, fee_charged, result_code, ledger_number, ledger_created_at, memo_type, memo)
+		SELECT sha256(int8send(i)), i << 12, 100, 'TransactionResultCodeTxSuccess', i::int, $1::timestamptz + (i * interval '172 seconds'),
+			1, CASE WHEN i % 10 = 0 THEN 'order-1'::bytea ELSE 'other'::bytea END
+		FROM generate_series(1, 1500) i`, start)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		SELECT ledger_created_at, to_id, $1 FROM transactions`, types.AddressBytea(address))
+	require.NoError(t, err)
+	// Other accounts on the same transactions, so account_id is selective as in production.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transactions_accounts (ledger_created_at, tx_to_id, account_id)
+		SELECT ledger_created_at, to_id, sha256(int8send(a)) FROM transactions, generate_series(1, 30) a`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `ANALYZE transactions; ANALYZE transactions_accounts`)
+	require.NoError(t, err)
+
+	limit := int32(10)
+	memo := &MemoFilter{Type: 1, Value: []byte("order-1")}
+	cursor := &types.CompositeCursor{LedgerCreatedAt: start.Add(36 * time.Hour), ID: 750 << 12}
+	cases := []struct {
+		name    string
+		orderBy SortOrder
+		cursor  *types.CompositeCursor
+	}{
+		{"ascending", ASC, nil},
+		{"ascending from cursor", ASC, cursor},
+		{"descending", DESC, nil},
+		{"descending from cursor", DESC, cursor},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			query, args := buildAccountTransactionsQuery(address, "", &limit, tc.cursor, tc.orderBy, nil, memo)
+			var plan []map[string]any
+			require.NoError(t, pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+query, args...).Scan(&plan))
+			require.Len(t, plan, 1)
+
+			// Find the page LIMIT (the outermost Limit) and count the Sorts beneath it.
+			var pageLimit map[string]any
+			var sortsUnder func(node map[string]any) int
+			var find func(node map[string]any)
+			sortsUnder = func(node map[string]any) int {
+				n := 0
+				if node["Node Type"] == "Sort" || node["Node Type"] == "Incremental Sort" {
+					n++
+				}
+				children, _ := node["Plans"].([]any)
+				for _, c := range children {
+					n += sortsUnder(c.(map[string]any))
+				}
+				return n
+			}
+			find = func(node map[string]any) {
+				if node["Node Type"] == "Limit" {
+					pageLimit = node
+					return
+				}
+				children, _ := node["Plans"].([]any)
+				for _, c := range children {
+					if pageLimit == nil {
+						find(c.(map[string]any))
+					}
+				}
+			}
+			find(plan[0]["Plan"].(map[string]any))
+			require.NotNil(t, pageLimit)
+			// No Sort over the joined rows: the page LIMIT sits on the join, which emits rows
+			// in the order the account's history is read.
+			limitChild := pageLimit["Plans"].([]any)[0].(map[string]any)
+			assert.Equal(t, "Nested Loop", limitChild["Node Type"], "the page LIMIT reads straight from the join:\n%v", plan)
+			if tc.cursor == nil {
+				// Without a cursor the history is read in order from the primary key, so the
+				// whole plan streams.
+				assert.Zero(t, sortsUnder(pageLimit), "a Sort under the page LIMIT reads every match first:\n%v", plan)
+			}
+
+			transactions, err := (&TransactionModel{DB: pool, Metrics: metrics.NewMetrics(prometheus.NewRegistry()).DB}).
+				BatchGetByAccountAddress(ctx, address, "", &limit, tc.cursor, tc.orderBy, nil, memo)
+			require.NoError(t, err)
+			require.Len(t, transactions, int(limit))
+			for i := 1; i < len(transactions); i++ {
+				assert.Less(t, transactions[i-1].CompositeCursor.ID, transactions[i].CompositeCursor.ID)
+			}
+		})
+	}
 }

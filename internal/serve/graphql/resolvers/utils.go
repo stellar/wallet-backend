@@ -3,6 +3,7 @@ package resolvers
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -10,12 +11,14 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	graphqlutils "github.com/stellar/wallet-backend/internal/serve/graphql"
 	generated "github.com/stellar/wallet-backend/internal/serve/graphql/generated"
+	"github.com/stellar/wallet-backend/internal/utils"
 )
 
 // GenericEdge is a generic wrapper for a GraphQL edge.
@@ -374,6 +377,10 @@ func getDBColumns(model any, fields []graphql.CollectedField) []string {
 		case "name":
 			dbColumns = append(dbColumns, "data_entry_name")
 			continue
+		case "memo":
+			// Decoding the memo value needs its type.
+			dbColumns = append(dbColumns, "memo", "memo_type")
+			continue
 		case "homeDomain", "oldHomeDomain", "newHomeDomain", "value", "oldValue", "newValue", "expirationLedger":
 			// Extracted from the key_value JSONB column by the field resolvers.
 			dbColumns = append(dbColumns, "key_value")
@@ -425,6 +432,50 @@ func getColumnMap(model any) map[string]string {
 // into nested operations and state-change queries, so an uncapped `first` would
 // multiply that fan-out across the whole page.
 const maxAccountPageLimit int32 = 100
+
+// maxMemoTextBytes is the protocol limit on a TEXT memo.
+const maxMemoTextBytes = 28
+
+// encodeMemoFilter converts the GraphQL memo filter into its storage form through
+// utils.EncodeMemo, rejecting values that no stored memo could match. A nil filter
+// returns nil.
+func encodeMemoFilter(filter *generated.MemoFilter) (*data.MemoFilter, error) {
+	if filter == nil {
+		return nil, nil
+	}
+	var memo xdr.Memo
+	switch filter.Type {
+	case generated.MemoTypeText:
+		if len(filter.Value) > maxMemoTextBytes {
+			return nil, badUserInputError(fmt.Sprintf("memo filter: TEXT value must be at most %d bytes", maxMemoTextBytes))
+		}
+		memo = xdr.MemoText(filter.Value)
+	case generated.MemoTypeID:
+		id, err := strconv.ParseUint(filter.Value, 10, 64)
+		if err != nil {
+			return nil, badUserInputError("memo filter: ID value must be a decimal unsigned 64-bit integer")
+		}
+		memo = xdr.MemoID(id)
+	case generated.MemoTypeHash, generated.MemoTypeReturn:
+		value, err := hex.DecodeString(filter.Value)
+		if err != nil || len(value) != 32 {
+			return nil, badUserInputError(fmt.Sprintf("memo filter: %s value must be 64 hex characters", filter.Type))
+		}
+		var hash xdr.Hash
+		copy(hash[:], value)
+		if filter.Type == generated.MemoTypeReturn {
+			memo = xdr.MemoRetHash(hash)
+		} else {
+			memo = xdr.MemoHash(hash)
+		}
+	case generated.MemoTypeNone:
+		return nil, badUserInputError("memo filter: NONE is not a valid memo filter type")
+	default:
+		return nil, badUserInputError(fmt.Sprintf("memo filter: unknown memo type %q", filter.Type))
+	}
+	memoType, value := utils.EncodeMemo(memo)
+	return &data.MemoFilter{Type: memoType, Value: value}, nil
+}
 
 // badUserInputError normalizes client-correctable validation failures to the
 // GraphQL error code used elsewhere in the API for bad input.

@@ -28,6 +28,27 @@ func graphqlServer(t *testing.T, dataJSON string) *httptest.Server {
 	}))
 }
 
+// recordedRequest is a GraphQL request body as the test server received it.
+type recordedRequest struct {
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables"`
+}
+
+// recordingGraphQLServer is graphqlServer that also decodes the request body
+// into the returned recordedRequest.
+func recordingGraphQLServer(t *testing.T, dataJSON string) (*httptest.Server, *recordedRequest) {
+	t.Helper()
+	received := &recordedRequest{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := json.NewDecoder(r.Body).Decode(received)
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/json")
+		_, err = w.Write([]byte(`{"data":` + dataJSON + `}`))
+		require.NoError(t, err)
+	}))
+	return srv, received
+}
+
 func TestGetAccountTransactions(t *testing.T) {
 	ctx := context.Background()
 
@@ -86,6 +107,48 @@ func TestGetAccountTransactions(t *testing.T) {
 
 		assert.Contains(t, received.Query, "accountByAddress")
 		assert.Equal(t, "GABC", received.Variables["address"])
+	})
+
+	t.Run("decodes memo fields and requests them by default", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[` +
+			`{"node":{"hash":"a","memoType":"TEXT","memo":"hello"},"cursor":"c1"},` +
+			`{"node":{"hash":"b","memoType":"NONE","memo":null},"cursor":"c2"},` +
+			`{"node":{"hash":"c","memoType":null,"memo":null},"cursor":"c3"}` +
+			`],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+		srv, received := recordingGraphQLServer(t, body)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		conn, err := c.GetAccountTransactions(ctx, "GABC", nil, nil)
+		require.NoError(t, err)
+		require.Len(t, conn.Edges, 3)
+
+		require.NotNil(t, conn.Edges[0].Node.MemoType)
+		assert.Equal(t, types.MemoTypeText, *conn.Edges[0].Node.MemoType)
+		require.NotNil(t, conn.Edges[0].Node.Memo)
+		assert.Equal(t, "hello", *conn.Edges[0].Node.Memo)
+
+		require.NotNil(t, conn.Edges[1].Node.MemoType)
+		assert.Equal(t, types.MemoTypeNone, *conn.Edges[1].Node.MemoType)
+		assert.Nil(t, conn.Edges[1].Node.Memo)
+
+		assert.Nil(t, conn.Edges[2].Node.MemoType, "a not-yet-migrated transaction has a nil memoType")
+		assert.Nil(t, conn.Edges[2].Node.Memo)
+
+		assert.Contains(t, received.Query, "memoType")
+		assert.Contains(t, received.Query, "memo: $memo")
+		assert.NotContains(t, received.Variables, "memo", "no $memo variable without a filter")
+	})
+
+	t.Run("sends the $memo variable when a filter is set", func(t *testing.T) {
+		srv, received := recordingGraphQLServer(t, `{"accountByAddress": null}`)
+		defer srv.Close()
+
+		c := NewClient(srv.URL, nil)
+		_, err := c.GetAccountTransactions(ctx, "GABC", nil, nil, &QueryOptions{Memo: &MemoFilter{Type: types.MemoTypeHash, Value: "ab12"}})
+		require.ErrorIs(t, err, ErrAccountNotFound)
+
+		assert.Equal(t, map[string]any{"type": "HASH", "value": "ab12"}, received.Variables["memo"])
 	})
 }
 
@@ -250,6 +313,29 @@ func TestGetAccountTransactionsWithOpsAndStateChanges(t *testing.T) {
 		assert.Equal(t, int64(1), edge.Operations[0].ID)
 		require.Len(t, edge.StateChanges, 1)
 		assert.Equal(t, types.StateChangeCategoryBalance, edge.StateChanges[0].GetCategory())
+	})
+
+	t.Run("sends the $memo variable only when a filter is set", func(t *testing.T) {
+		body := `{"accountByAddress":{"transactions":{"edges":[{"node":{"hash":"abc","memoType":"ID","memo":"7"},` +
+			`"operations":[],"stateChanges":[],"cursor":"c1"}],"pageInfo":{"hasNextPage":false,"hasPreviousPage":false}}}}`
+
+		srv, received := recordingGraphQLServer(t, body)
+		defer srv.Close()
+		c := NewClient(srv.URL, nil)
+
+		conn, err := c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil)
+		require.NoError(t, err)
+		require.Len(t, conn.Edges, 1)
+		require.NotNil(t, conn.Edges[0].Node.MemoType)
+		assert.Equal(t, types.MemoTypeID, *conn.Edges[0].Node.MemoType)
+		require.NotNil(t, conn.Edges[0].Node.Memo)
+		assert.Equal(t, "7", *conn.Edges[0].Node.Memo)
+		assert.Contains(t, received.Query, "memo: $memo")
+		assert.NotContains(t, received.Variables, "memo")
+
+		_, err = c.GetAccountTransactionsWithOpsAndStateChanges(ctx, "GABC", nil, nil, &QueryOptions{Memo: &MemoFilter{Type: types.MemoTypeID, Value: "7"}})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{"type": "ID", "value": "7"}, received.Variables["memo"])
 	})
 
 	t.Run("rejects null transactions connection on existing account", func(t *testing.T) {

@@ -17,6 +17,7 @@ For operators wiring wallet-backend into Prometheus, dashboards and log shipping
   - [RPC](#rpc)
   - [Ingestion](#ingestion)
   - [Protocol migration](#protocol-migration)
+  - [Data migration](#data-migration)
 - [Suggested alerts](#suggested-alerts)
 - [Logs](#logs)
 - [pprof](#pprof)
@@ -36,6 +37,7 @@ None of these endpoints take authentication, so keep them off the public network
 | `ingest` | `/ingest-metrics` | `INGEST_SERVER_PORT` (default 8002) | none | Prometheus registry of the ingest process |
 | `ingest` | `/debug/pprof/` | `ADMIN_PORT` (default 0, off) | none | Go pprof |
 | `protocol-migrate` | `/metrics` | `--metrics-port` flag, no env var (default 0, off) | none | Prometheus registry of the migration run, for the life of the run |
+| `data-migrate run` | `/metrics` | `--metrics-port` flag, no env var (default 0, off) | none | Prometheus registry of the data migration run, for the life of the run |
 
 Each process has its own registry. Every registry carries all the `wallet_*` families below, but a family only gets samples in the process that does that work. For example, `wallet_http_*` and `wallet_graphql_*` fill only on `serve`, and `wallet_ingestion_*` fills only on `ingest`.
 
@@ -217,6 +219,15 @@ Recorded by `protocol-migrate history` and `protocol-migrate current-state`. Loo
 | `wallet_migration_handoffs_total` | counter | `protocol_id` | Times the migration lost the cursor race to live ingest and handed off |
 | `wallet_migration_status` | gauge | `protocol_id` | `0` in progress, `1` success, `2` failed |
 
+### Data migration
+
+Recorded by `data-migrate run`. See [data migrations](data-migrations.md).
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `wallet_data_migration_cursor` | gauge | `name` | Lowest ledger the data migration has rewritten. It falls toward `wallet_ingestion_oldest_ledger` |
+| `wallet_data_migration_errors_total` | counter | `name` | Failed slice attempts. Each slice is tried 3 times before the run exits |
+
 ## Suggested alerts
 
 Thresholds are starting points. Tune them to your traffic.
@@ -284,6 +295,7 @@ There is no external error tracker. Every 500 and 503 response, every recovered 
 | `internal/serve/serve.go` | `serve` routes: `/health`, `/api-metrics`, GraphQL, admin pprof server |
 | `internal/ingest/ingest.go` | `ingest` server: `/health`, `/ingest-metrics`, admin pprof server |
 | `cmd/protocol_migrate.go` | `/metrics` server on `--metrics-port` |
+| `cmd/data_migrate.go` | `data-migrate run` options, including `--metrics-port` |
 | `internal/serve/httphandler/health.go` | Health rules and the 50-ledger threshold |
 | `internal/serve/middleware/metrics_middleware.go` | HTTP labels `endpoint` and `method` |
 | `internal/serve/middleware/graphql_utils.go` | GraphQL `operation_name` label source |

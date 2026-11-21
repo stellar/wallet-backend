@@ -87,7 +87,7 @@ Legend:
 
 | Table | Partition column | Chunk interval (default) | segmentby | orderby | Sparse indexes | Purpose |
 | --- | --- | --- | --- | --- | --- | --- |
-| `transactions` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, to_id DESC` | `bloom(hash)` | One row per transaction: hash, fee charged, result code, ledger, fee-bump flag |
+| `transactions` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, to_id DESC` | `bloom(hash)` | One row per transaction: hash, fee charged, result code, ledger, fee-bump flag, memo |
 | `transactions_accounts` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, tx_to_id DESC` | None | Links each transaction to every account that took part in it |
 | `operations` | `ledger_created_at` | 1 day | Not set | `ledger_created_at DESC, id DESC` | `bloom(operation_type)` | One row per operation: type, XDR, result code, success flag |
 | `operations_accounts` | `ledger_created_at` | 1 day | `account_id` | `ledger_created_at DESC, operation_id DESC` | None | Links each operation to every account that took part in it |
@@ -116,6 +116,15 @@ Chunk skipping is on for these columns. It lets queries that filter on them skip
 | `operations` | `id` |
 | `operations_accounts` | `operation_id` |
 | `state_changes` | `to_id`, `operation_id` |
+
+`transactions` stores the memo in two nullable columns. For a fee bump they hold the inner transaction's memo.
+
+| Column | Type | Value |
+| --- | --- | --- |
+| `memo_type` | `SMALLINT` | XDR `MemoType` discriminant: 0 none, 1 text, 2 id, 3 hash, 4 return |
+| `memo` | `BYTEA` | Raw value bytes: text as-is, id as 8-byte big-endian, hash and return as 32 bytes. `NULL` for none. |
+
+Both columns `NULL` means the `transactions-memo` data migration has not reached the row yet. See [data migrations](database.md#data-migrations).
 
 Each migration drops the single-column `ledger_created_at` index TimescaleDB creates by default. No query filters these tables by `ledger_created_at` alone.
 
@@ -176,6 +185,7 @@ Other bookkeeping objects:
 | Object | Kind | Created by | Role |
 | --- | --- | --- | --- |
 | `gorp_migrations` | Table | `migrate up` (sql-migrate) | One row per applied migration file |
+| `data_migrations` | Table | Migration | One row per data migration, keyed on `name`: status, boundary ledger, cursor, and last error. The live ingester inserts the row; `data-migrate run` advances it. See [database](database.md#data-migrations) |
 | `refresh_updated_at_column` | Function | Migration | Trigger function that sets `updated_at` |
 | `contract_tokens_set_updated_at` | Trigger | Migration | Runs `refresh_updated_at_column` on every `contract_tokens` update |
 | `reconcile_oldest_cursor` | Function and TimescaleDB job | Live ingester, only when `RETENTION_PERIOD` is set | Raises `oldest_ingest_ledger` after retention drops chunks |
@@ -310,3 +320,4 @@ Eight recompression sessions ran for 10 minutes under inserts, lookups and chunk
 | `internal/data/protocols.go`, `protocol_wasms.go`, `protocol_contracts.go` | Protocol table reads and writes |
 | `internal/data/sep41/` | `sep41_balances` and `sep41_allowances` |
 | `internal/data/ingest_store.go` | Cursor reads and writes |
+| `internal/data/data_migrations.go` | `data_migrations` reads and writes |

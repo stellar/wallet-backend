@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stellar/wallet-backend/internal/data"
+	"github.com/stellar/wallet-backend/internal/datamigrations"
 	"github.com/stellar/wallet-backend/internal/db"
 	"github.com/stellar/wallet-backend/internal/db/dbtest"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -81,6 +82,63 @@ func Test_startLiveIngestion_ReleasesAdvisoryLockWhenContextCancelledMidStartup(
 	acquired, err := db.AcquireAdvisoryLock(verifyCtx, pool2, generateAdvisoryLockID(testPassphrase))
 	require.NoError(t, err)
 	assert.True(t, acquired, "advisory lock should have been released during shutdown despite the cancelled context")
+}
+
+// Test_startLiveIngestion_RecordsDataMigrationBoundary checks that a start on an existing
+// database records every data migration as pending with the boundary latest+1, and that a
+// later start leaves that boundary alone. Each start stops at PrepareRange, which runs
+// after the boundary is recorded.
+func Test_startLiveIngestion_RecordsDataMigrationBoundary(t *testing.T) {
+	dbt := dbtest.Open(t)
+	defer dbt.Close()
+	ctx := context.Background()
+
+	pool, err := db.OpenDBConnectionPool(ctx, dbt.DSN)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+	models, err := data.NewModels(pool, m.DB)
+	require.NoError(t, err)
+
+	start := func(t *testing.T) {
+		t.Helper()
+		mockBackend := &LedgerBackendMock{}
+		mockBackend.On("PrepareRange", mock.Anything, mock.Anything).Return(errors.New("stop after startup"))
+		svc, err := NewIngestService(IngestServiceConfig{
+			IngestionMode:     IngestionModeLive,
+			Models:            models,
+			RPCService:        &RPCServiceMock{},
+			LedgerBackend:     mockBackend,
+			CheckpointService: NewCheckpointServiceMock(t),
+			Metrics:           metrics.NewMetrics(prometheus.NewRegistry()),
+			NetworkPassphrase: "data-migration-boundary-test",
+			Archive:           &HistoryArchiveMock{},
+		})
+		require.NoError(t, err)
+		require.ErrorContains(t, svc.Run(ctx, 0, 0), "stop after startup")
+	}
+	assertBoundary := func(t *testing.T, boundary uint32) {
+		t.Helper()
+		for _, migration := range datamigrations.All {
+			row, err := models.DataMigrations.Get(ctx, migration.Name())
+			require.NoError(t, err)
+			require.NotNil(t, row, migration.Name())
+			assert.Equal(t, data.DataMigrationPending, row.Status)
+			assert.Equal(t, boundary, row.BoundaryLedger)
+			assert.Equal(t, boundary, row.CursorLedger)
+			assert.Nil(t, row.FinishedAt)
+		}
+	}
+
+	setupDBCursors(t, ctx, pool, 50, 40)
+	start(t)
+	assertBoundary(t, 51)
+
+	// Ingestion has moved on; the boundary stays where the first start put it.
+	setupDBCursors(t, ctx, pool, 80, 40)
+	start(t)
+	assertBoundary(t, 51)
 }
 
 // Test_isPermanentPersistError covers ING-06's classifier: SQLSTATE class 22/23/42 (and the
