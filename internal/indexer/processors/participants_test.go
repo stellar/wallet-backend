@@ -253,136 +253,6 @@ func Test_participantsForLedgerKey(t *testing.T) {
 	}
 }
 
-func Test_participantsForMeta(t *testing.T) {
-	testCases := []struct {
-		name            string
-		getMeta         func(t *testing.T) xdr.TransactionMeta
-		expected        []string
-		wantErrContains string
-	}{
-		{
-			name:     "🟢nil_operations",
-			getMeta:  func(t *testing.T) xdr.TransactionMeta { return xdr.TransactionMeta{} },
-			expected: []string{},
-		},
-		{
-			name:     "🟢empty_operations",
-			getMeta:  func(t *testing.T) xdr.TransactionMeta { return xdr.TransactionMeta{Operations: &[]xdr.OperationMeta{}} },
-			expected: []string{},
-		},
-		{
-			name: "🟢single_operation_with_single_account_change",
-			getMeta: func(t *testing.T) xdr.TransactionMeta {
-				return xdr.TransactionMeta{
-					Operations: &[]xdr.OperationMeta{
-						{
-							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
-							},
-						},
-					},
-				}
-			},
-			expected: []string{stellarAddress1},
-		},
-		{
-			name: "🟢multiple_operations_with_multiple_account_changes",
-			getMeta: func(t *testing.T) xdr.TransactionMeta {
-				return xdr.TransactionMeta{
-					Operations: &[]xdr.OperationMeta{
-						{
-							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
-							},
-						},
-						{
-							Changes: xdr.LedgerEntryChanges{
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, stellarAddress2),
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress3),
-								createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress4),
-							},
-						},
-					},
-				}
-			},
-			expected: []string{stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
-		},
-		{
-			name: "🟢operations_with_non_account_changes_should_be_ignored",
-			getMeta: func(t *testing.T) xdr.TransactionMeta {
-				return xdr.TransactionMeta{
-					Operations: &[]xdr.OperationMeta{
-						{
-							Changes: xdr.LedgerEntryChanges{
-								{
-									Type: xdr.LedgerEntryChangeTypeLedgerEntryCreated,
-									Created: &xdr.LedgerEntry{
-										Data: xdr.LedgerEntryData{
-											Type: xdr.LedgerEntryTypeTrustline,
-											TrustLine: &xdr.TrustLineEntry{
-												AccountId: xdr.MustAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY"),
-												Asset: xdr.TrustLineAsset{
-													Type: xdr.AssetTypeAssetTypeCreditAlphanum4,
-													AlphaNum4: &xdr.AlphaNum4{
-														AssetCode: [4]byte{'T', 'E', 'S', 'T'},
-														Issuer:    xdr.MustAddress("GAUJETIZVEP2NRYLUESJ3LS66NVCEGMON4UDCBCSBEVPIID773P2W6AY"),
-													},
-												},
-												Balance: 1000,
-												Limit:   10000,
-												Flags:   1,
-												Ext:     xdr.TrustLineEntryExt{V: 0},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				}
-			},
-			expected: []string{},
-		},
-		{
-			name: "🔴operation_with_invalid_change_type",
-			getMeta: func(t *testing.T) xdr.TransactionMeta {
-				return xdr.TransactionMeta{
-					Operations: &[]xdr.OperationMeta{
-						{
-							Changes: xdr.LedgerEntryChanges{
-								{Type: xdr.LedgerEntryChangeType(999)}, // Invalid type
-							},
-						},
-					},
-				}
-			},
-			expected:        []string{},
-			wantErrContains: "unknown ledger entrychange type 999",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			participants, err := participantsForMeta(tc.getMeta(t))
-
-			if tc.wantErrContains != "" {
-				assert.Error(t, err)
-				assert.ErrorContains(t, err, tc.wantErrContains)
-				assert.Empty(t, participants)
-			} else {
-				assert.NoError(t, err)
-				assert.Len(t, participants, len(tc.expected))
-
-				addresses := make([]string, len(participants))
-				for i, participant := range participants {
-					addresses[i] = participant.Address()
-				}
-				assert.ElementsMatch(t, tc.expected, addresses)
-			}
-		})
-	}
-}
-
 func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 	const innerTxSourceAccount = "GAE5OQ6ICDENTKOAGTMAC6MMCQYJ22TCZ7OZXGQ34QUATIAESDOXRTIA"
 	const feeBumpSourceAccount = "GCR4GZM7T6EKITZ4GQ2A5UZMMQYZYR6DZRAVUIPN2HJXJ5MXM3DJDXV3"
@@ -450,16 +320,17 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			},
 		}
 
+		// Accounts changed in operation meta are attributed through the operation
+		// participants, not here, so this meta must not add transaction participants.
 		unsafeMeta := xdr.TransactionMeta{
-			Operations: &[]xdr.OperationMeta{
-				{Changes: xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress2),
-				}},
-				{Changes: xdr.LedgerEntryChanges{
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress3),
-					createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryState, stellarAddress4),
-				}},
+			V: 4,
+			V4: &xdr.TransactionMetaV4{
+				Operations: []xdr.OperationMetaV2{
+					{Changes: xdr.LedgerEntryChanges{
+						createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1),
+						createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryUpdated, stellarAddress2),
+					}},
+				},
 			},
 		}
 
@@ -502,7 +373,7 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			getTransaction: func(t *testing.T) ingest.LedgerTransaction {
 				return createTestTransaction(t, true, false)
 			},
-			expectedParticipants: []string{innerTxSourceAccount, stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
+			expectedParticipants: []string{innerTxSourceAccount},
 		},
 		{
 			name: "🟡failed_inner_transaction_only_considers_fee_account",
@@ -516,7 +387,7 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			getTransaction: func(t *testing.T) ingest.LedgerTransaction {
 				return createTestTransaction(t, true, true)
 			},
-			expectedParticipants: []string{feeBumpSourceAccount, innerTxSourceAccount, stellarAddress1, stellarAddress2, stellarAddress3, stellarAddress4},
+			expectedParticipants: []string{feeBumpSourceAccount, innerTxSourceAccount},
 		},
 		{
 			name: "🟡failed_fee_bump_transaction_only_considers_fee_account",
@@ -526,22 +397,13 @@ func TestParticipantsProcessor_GetTransactionParticipants(t *testing.T) {
 			expectedParticipants: []string{feeBumpSourceAccount, innerTxSourceAccount},
 		},
 		{
-			name: "🔴failed_inner_transaction_with_invalid_meta_changes",
+			name: "🔴invalid_fee_changes",
 			getTransaction: func(t *testing.T) ingest.LedgerTransaction {
 				tx := createTestTransaction(t, true, false)
-				// Create invalid meta with unknown change type
-				tx.UnsafeMeta = xdr.TransactionMeta{
-					Operations: &[]xdr.OperationMeta{
-						{
-							Changes: xdr.LedgerEntryChanges{
-								{Type: xdr.LedgerEntryChangeType(999)}, // Invalid type
-							},
-						},
-					},
-				}
+				tx.FeeChanges = xdr.LedgerEntryChanges{{Type: xdr.LedgerEntryChangeType(999)}}
 				return tx
 			},
-			wantErrContains: "identifying participants for meta",
+			wantErrContains: "unknown ledger entrychange type 999",
 		},
 	}
 
@@ -713,5 +575,124 @@ func TestParticipantsProcessor_GetOperationsParticipants_failedTx(t *testing.T) 
 		for _, opParticipants := range got {
 			assert.Equal(t, set.NewThreadUnsafeSet(sourceAccount), opParticipants.Participants)
 		}
+	})
+}
+
+// accountUpdate returns the STATE/UPDATED pair stellar-core emits for an account
+// entry an operation loaded for write. The post-image always carries a new
+// LastModifiedLedgerSeq; balanceDelta 0 leaves the entry's data unchanged.
+func accountUpdate(address string, balanceDelta xdr.Int64) xdr.LedgerEntryChanges {
+	pre := createTestLedgerEntry(createTestAccount(address))
+	postAccount := createTestAccount(address)
+	postAccount.Balance += balanceDelta
+	post := createTestLedgerEntry(postAccount)
+	post.LastModifiedLedgerSeq = pre.LastModifiedLedgerSeq + 1
+	return xdr.LedgerEntryChanges{
+		{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: &pre},
+		{Type: xdr.LedgerEntryChangeTypeLedgerEntryUpdated, Updated: &post},
+	}
+}
+
+func Test_addChangedAccounts(t *testing.T) {
+	const removedAccount = "GCQIH6MRLCJREVE76LVTKKEZXRIT6KSX7KU65HPDDBYFKFYHIYSJE57R"
+	removedEntry := createTestLedgerEntry(createTestAccount(removedAccount))
+	trustline := createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress4)
+	trustline.Created.Data = xdr.LedgerEntryData{
+		Type: xdr.LedgerEntryTypeTrustline,
+		TrustLine: &xdr.TrustLineEntry{
+			AccountId: xdr.MustAddress(stellarAddress4),
+			Asset:     xdr.TrustLineAsset{Type: xdr.AssetTypeAssetTypeCreditAlphanum4, AlphaNum4: &xdr.AlphaNum4{AssetCode: [4]byte{'T', 'E', 'S', 'T'}, Issuer: xdr.MustAddress(stellarAddress1)}},
+		},
+	}
+
+	testCases := []struct {
+		name     string
+		changes  xdr.LedgerEntryChanges
+		expected []string
+	}{
+		{
+			name:     "created account",
+			changes:  xdr.LedgerEntryChanges{createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryCreated, stellarAddress1)},
+			expected: []string{stellarAddress1},
+		},
+		{
+			name: "removed account",
+			changes: xdr.LedgerEntryChanges{
+				{Type: xdr.LedgerEntryChangeTypeLedgerEntryState, State: &removedEntry},
+				createTestLedgerEntryChange(t, xdr.LedgerEntryChangeTypeLedgerEntryRemoved, removedAccount),
+			},
+			expected: []string{removedAccount},
+		},
+		{
+			name:     "updated account with changed data",
+			changes:  accountUpdate(stellarAddress2, -100),
+			expected: []string{stellarAddress2},
+		},
+		{
+			name:     "updated account with unchanged data is not attributed",
+			changes:  accountUpdate(stellarAddress3, 0),
+			expected: []string{},
+		},
+		{
+			name:     "non-account entry is not attributed",
+			changes:  xdr.LedgerEntryChanges{trustline},
+			expected: []string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			participants := set.NewThreadUnsafeSet[string]()
+			require.NoError(t, addChangedAccounts(ingest.GetChangesFromLedgerEntryChanges(tc.changes), participants))
+			assert.ElementsMatch(t, tc.expected, participants.ToSlice())
+		})
+	}
+}
+
+// TestParticipantsProcessor_GetOperationParticipants_changedAccounts: a successful
+// operation lists every account whose entry it changed, for classic and Soroban
+// operations alike. An account only loaded for write (for Soroban, any account key
+// the submitter put in the read-write footprint) is not listed.
+func TestParticipantsProcessor_GetOperationParticipants_changedAccounts(t *testing.T) {
+	const (
+		changedAccount   = "GDBSXMDBDHVZ3OMNQWV5MMNPMPOJRZAGEAOVRYWXZG5VC5I5B4SOXSBW"
+		unchangedAccount = "GAYUSR2YAYWIDOXHJ37IKUOX2MLCBT4EVLXOU2G2VDB34TCWKSL3WC6H"
+	)
+	opChanges := append(accountUpdate(changedAccount, -100), accountUpdate(unchangedAccount, 0)...)
+	processor := NewParticipantsProcessor(network.TestNetworkPassphrase)
+
+	t.Run("classic operation", func(t *testing.T) {
+		op := makeBasicSorobanOp()
+		op.Transaction.Envelope.V1.Tx.Ext = xdr.TransactionExt{V: 0}
+		op.Operation = xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypeBumpSequence, BumpSequenceOp: &xdr.BumpSequenceOp{}}}
+		op.Transaction.UnsafeMeta = xdr.TransactionMeta{V: 4, V4: &xdr.TransactionMetaV4{Operations: []xdr.OperationMetaV2{{Changes: opChanges}}}}
+		require.False(t, op.Transaction.IsSorobanTx())
+
+		participants, err := processor.GetOperationParticipants(op)
+		require.NoError(t, err)
+		assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, changedAccount), participants)
+	})
+
+	t.Run("soroban operation", func(t *testing.T) {
+		op := makeBasicSorobanOp()
+		op.Operation = xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypeExtendFootprintTtl, ExtendFootprintTtlOp: &xdr.ExtendFootprintTtlOp{}}}
+		op.Transaction.UnsafeMeta = xdr.TransactionMeta{V: 3, V3: &xdr.TransactionMetaV3{Operations: []xdr.OperationMeta{{Changes: opChanges}}}}
+		require.True(t, op.Transaction.IsSorobanTx())
+
+		participants, err := processor.GetOperationParticipants(op)
+		require.NoError(t, err)
+		assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount, changedAccount), participants)
+	})
+
+	t.Run("failed transaction", func(t *testing.T) {
+		op := makeBasicSorobanOp()
+		op.Transaction.Envelope.V1.Tx.Ext = xdr.TransactionExt{V: 0}
+		op.Operation = xdr.Operation{Body: xdr.OperationBody{Type: xdr.OperationTypeBumpSequence, BumpSequenceOp: &xdr.BumpSequenceOp{}}}
+		op.Transaction.UnsafeMeta = xdr.TransactionMeta{V: 4, V4: &xdr.TransactionMetaV4{Operations: []xdr.OperationMetaV2{{Changes: opChanges}}}}
+		op.Transaction.Result.Result.Result.Code = xdr.TransactionResultCodeTxFailed
+
+		participants, err := processor.GetOperationParticipants(op)
+		require.NoError(t, err)
+		assert.Equal(t, set.NewThreadUnsafeSet(txSourceAccount), participants)
 	})
 }
