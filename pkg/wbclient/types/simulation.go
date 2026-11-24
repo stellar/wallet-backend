@@ -16,19 +16,28 @@ type SimulatedStateChanges struct {
 	Tokens []SimulatedTokenMetadata
 }
 
-// UnmarshalJSON decodes each state change into its concrete type.
+// UnmarshalJSON decodes each state change into its concrete type. The GraphQL
+// schema declares stateChanges and tokens as non-null lists of non-null
+// elements, so a missing or null list, or a null element, is a malformed
+// server response and is rejected.
 func (s *SimulatedStateChanges) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		LatestLedger uint32                   `json:"latestLedger"`
-		StateChanges []json.RawMessage        `json:"stateChanges"`
-		Tokens       []SimulatedTokenMetadata `json:"tokens"`
+		LatestLedger uint32                    `json:"latestLedger"`
+		StateChanges []json.RawMessage         `json:"stateChanges"`
+		Tokens       []*SimulatedTokenMetadata `json:"tokens"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("unmarshaling simulated state changes: %w", err)
 	}
 
+	if raw.StateChanges == nil {
+		return fmt.Errorf("simulated state changes missing required stateChanges field: the GraphQL schema declares stateChanges as non-null")
+	}
 	stateChanges := make([]SimulatedStateChangeNode, 0, len(raw.StateChanges))
-	for _, rawNode := range raw.StateChanges {
+	for i, rawNode := range raw.StateChanges {
+		if string(rawNode) == "null" {
+			return fmt.Errorf("simulated state change at index %d is null: the GraphQL schema declares BaseSimulatedStateChange as non-null", i)
+		}
 		node, err := UnmarshalSimulatedStateChangeNode(rawNode)
 		if err != nil {
 			return err
@@ -36,9 +45,20 @@ func (s *SimulatedStateChanges) UnmarshalJSON(data []byte) error {
 		stateChanges = append(stateChanges, node)
 	}
 
+	if raw.Tokens == nil {
+		return fmt.Errorf("simulated state changes missing required tokens field: the GraphQL schema declares tokens as non-null")
+	}
+	tokens := make([]SimulatedTokenMetadata, 0, len(raw.Tokens))
+	for i, token := range raw.Tokens {
+		if token == nil {
+			return fmt.Errorf("simulated token at index %d is null: the GraphQL schema declares SimulatedTokenMetadata as non-null", i)
+		}
+		tokens = append(tokens, *token)
+	}
+
 	s.LatestLedger = raw.LatestLedger
 	s.StateChanges = stateChanges
-	s.Tokens = raw.Tokens
+	s.Tokens = tokens
 	return nil
 }
 

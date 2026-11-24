@@ -101,3 +101,45 @@ func Test_UnmarshalSimulatedStateChangeNode_UnknownTypename(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown simulated state change type: NotAStateChange")
 }
+
+func Test_SimulatedStateChanges_UnmarshalJSON(t *testing.T) {
+	const node = `{"__typename": "SimulatedBalanceChange", "category": "BALANCE", "reason": "DEBIT", "accountAddress": "GSENDER", "balanceTokenId": "CUSDC", "amount": "5"}`
+	const token = `{"tokenId": "CUSDC", "decimals": 7}`
+
+	t.Run("decodes state changes and tokens", func(t *testing.T) {
+		var got SimulatedStateChanges
+		require.NoError(t, json.Unmarshal([]byte(`{"latestLedger": 7, "stateChanges": [`+node+`], "tokens": [`+token+`]}`), &got))
+		assert.Equal(t, uint32(7), got.LatestLedger)
+		require.Len(t, got.StateChanges, 1)
+		assert.IsType(t, &SimulatedBalanceChange{}, got.StateChanges[0])
+		assert.Equal(t, []SimulatedTokenMetadata{{TokenID: "CUSDC", Decimals: 7}}, got.Tokens)
+	})
+
+	t.Run("empty lists decode to empty slices", func(t *testing.T) {
+		var got SimulatedStateChanges
+		require.NoError(t, json.Unmarshal([]byte(`{"latestLedger": 7, "stateChanges": [], "tokens": []}`), &got))
+		assert.NotNil(t, got.StateChanges)
+		assert.Empty(t, got.StateChanges)
+		assert.NotNil(t, got.Tokens)
+		assert.Empty(t, got.Tokens)
+	})
+
+	malformed := []struct {
+		name, body, wantErr string
+	}{
+		{"missing stateChanges", `{"tokens": []}`, "missing required stateChanges field"},
+		{"null stateChanges", `{"stateChanges": null, "tokens": []}`, "missing required stateChanges field"},
+		{"null state change element", `{"stateChanges": [null], "tokens": []}`, "simulated state change at index 0 is null"},
+		{"missing tokens", `{"stateChanges": []}`, "missing required tokens field"},
+		{"null tokens", `{"stateChanges": [], "tokens": null}`, "missing required tokens field"},
+		{"null token element", `{"stateChanges": [], "tokens": [` + token + `, null]}`, "simulated token at index 1 is null"},
+	}
+	for _, tc := range malformed {
+		t.Run(tc.name+" is rejected", func(t *testing.T) {
+			var got SimulatedStateChanges
+			err := json.Unmarshal([]byte(tc.body), &got)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
