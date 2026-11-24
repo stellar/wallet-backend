@@ -561,15 +561,24 @@ func distinctWasmHashes(contracts map[string]data.ProtocolContracts) []types.Has
 	return hashes
 }
 
-// truncateText returns s cut to at most maxLen bytes on a UTF-8 boundary, with
-// a marker appended when anything was cut.
+// truncationMarker ends a text that truncateText cut short.
+const truncationMarker = "... (truncated)"
+
+// truncateText returns s if it fits in maxLen bytes. Otherwise it returns a
+// prefix of s, cut on a UTF-8 boundary, followed by truncationMarker, with the
+// whole result at most maxLen bytes. A maxLen too small to hold the marker
+// gets the prefix alone.
 func truncateText(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	cut := maxLen
+	marker := truncationMarker
+	if maxLen < len(marker) {
+		marker = ""
+	}
+	cut := max(maxLen-len(marker), 0)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut] + "... (truncated)"
+	return s[:cut] + marker
 }

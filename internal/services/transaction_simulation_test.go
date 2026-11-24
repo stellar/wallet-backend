@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -65,8 +66,9 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 
 		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
 		require.ErrorIs(t, err, ErrSimulationFailed)
-		assert.Less(t, len(err.Error()), 2*maxSimulationErrorLen)
-		assert.Contains(t, err.Error(), "(truncated)")
+		rpcText := strings.TrimPrefix(err.Error(), ErrSimulationFailed.Error()+": ")
+		assert.Len(t, rpcText, maxSimulationErrorLen)
+		assert.True(t, strings.HasSuffix(rpcText, truncationMarker))
 	})
 
 	t.Run("🔴 oversized RPC simulation response is unsupported", func(t *testing.T) {
@@ -85,9 +87,22 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 func Test_truncateText(t *testing.T) {
 	assert.Equal(t, "short", truncateText("short", 10))
 	assert.Equal(t, "exact", truncateText("exact", 5))
-	assert.Equal(t, "abc... (truncated)", truncateText("abcdef", 3))
+
+	// The marker counts toward the limit.
+	got := truncateText(strings.Repeat("x", 100), 40)
+	assert.Len(t, got, 40)
+	assert.Equal(t, strings.Repeat("x", 40-len(truncationMarker))+truncationMarker, got)
+
 	// "é" is two bytes; a cut in the middle of it backs up to the rune start.
-	assert.Equal(t, "a... (truncated)", truncateText("aéz", 2))
+	got = truncateText(strings.Repeat("é", 50), 40)
+	assert.LessOrEqual(t, len(got), 40)
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("é", 12)+truncationMarker, got)
+
+	// A limit too small for the marker keeps the prefix alone.
+	assert.Equal(t, "abc", truncateText("abcdef", 3))
+	assert.Equal(t, "a", truncateText("aéz", 2))
+	assert.Equal(t, "", truncateText("abc", 0))
 }
 
 // TestTransactionSimulationService_SimulateStateChanges_soroban drives the full
