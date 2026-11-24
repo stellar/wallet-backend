@@ -56,7 +56,8 @@ var (
 // rpcResponseSizeLimits caps the response body per RPC method, in bytes. A
 // method with no entry is not capped. simulateTransaction is capped because its
 // response size is set by the simulated contract, and decoding the XDR it
-// carries takes far more memory than the body itself.
+// carries takes far more memory than the body itself. Its cap is sized from the
+// network's per-transaction limits, so revisit it when those change.
 var rpcResponseSizeLimits = map[string]int64{
 	"simulateTransaction": 256 << 10,
 }
