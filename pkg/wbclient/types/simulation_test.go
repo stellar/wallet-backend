@@ -115,6 +115,16 @@ func Test_SimulatedStateChanges_UnmarshalJSON(t *testing.T) {
 		assert.Equal(t, []SimulatedTokenMetadata{{TokenID: "CUSDC", Decimals: 7}}, got.Tokens)
 	})
 
+	t.Run("marshals with the schema's field names", func(t *testing.T) {
+		b, err := json.Marshal(SimulatedStateChanges{
+			LatestLedger: 7,
+			StateChanges: []SimulatedStateChangeNode{},
+			Tokens:       []SimulatedTokenMetadata{{TokenID: "CUSDC", Decimals: 7}},
+		})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"latestLedger": 7, "stateChanges": [], "tokens": [`+token+`]}`, string(b))
+	})
+
 	t.Run("empty lists decode to empty slices", func(t *testing.T) {
 		var got SimulatedStateChanges
 		require.NoError(t, json.Unmarshal([]byte(`{"latestLedger": 7, "stateChanges": [], "tokens": []}`), &got))

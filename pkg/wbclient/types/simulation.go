@@ -8,12 +8,12 @@ import (
 // SimulatedStateChanges is the result of simulating an unsubmitted transaction.
 type SimulatedStateChanges struct {
 	// LatestLedger is the ledger the simulation was evaluated against.
-	LatestLedger uint32
+	LatestLedger uint32 `json:"latestLedger"`
 	// StateChanges are the changes the transaction would produce.
-	StateChanges []SimulatedStateChangeNode
+	StateChanges []SimulatedStateChangeNode `json:"stateChanges"`
 	// Tokens is display metadata for the tokens the state changes reference.
 	// A token the server has never indexed has no entry.
-	Tokens []SimulatedTokenMetadata
+	Tokens []SimulatedTokenMetadata `json:"tokens"`
 }
 
 // UnmarshalJSON decodes each state change into its concrete type. The GraphQL
