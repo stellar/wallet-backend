@@ -452,6 +452,51 @@ func Test_rpcService_SimulateTransaction(t *testing.T) {
 	}
 }
 
+func Test_rpcService_sendRPCRequest_responseSizeLimit(t *testing.T) {
+	const rpcURL = "http://api.vibrantapp.com/soroban/rpc"
+	limit := rpcResponseSizeLimits["simulateTransaction"]
+	require.Positive(t, limit)
+
+	// bodyOfSize returns a valid JSON-RPC response padded to exactly size bytes.
+	bodyOfSize := func(size int64) string {
+		const prefix, suffix = `{"jsonrpc":"2.0","id":1,"result":{"error":"`, `"}}`
+		return prefix + strings.Repeat("x", int(size)-len(prefix)-len(suffix)) + suffix
+	}
+
+	testCases := []struct {
+		name    string
+		method  string
+		size    int64
+		wantErr error
+	}{
+		{name: "🟢simulateTransaction_at_the_limit", method: "simulateTransaction", size: limit},
+		{name: "🔴simulateTransaction_over_the_limit", method: "simulateTransaction", size: limit + 1, wantErr: ErrRPCResponseTooLarge},
+		{name: "🟢method_without_a_limit_is_not_capped", method: "getLedgerEntries", size: limit + 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mHTTPClient := utils.MockHTTPClient{}
+			mHTTPClient.
+				On("Post", rpcURL, "application/json", mock.Anything).
+				Return(&http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(bodyOfSize(tc.size)))}, nil).
+				Once()
+			rpcService, err := NewRPCService(rpcURL, network.TestNetworkPassphrase, &mHTTPClient, metrics.NewMetrics(prometheus.NewRegistry()).RPC)
+			require.NoError(t, err)
+
+			result, err := rpcService.sendRPCRequest(tc.method, entities.RPCParams{})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, result)
+				assert.Less(t, len(err.Error()), 200, "the error must not carry the response body")
+			} else {
+				require.NoError(t, err)
+				assert.NotEmpty(t, result)
+			}
+			mHTTPClient.AssertExpectations(t)
+		})
+	}
+}
+
 func TestGetTransaction(t *testing.T) {
 	dbt := dbtest.Open(t)
 	defer dbt.Close()

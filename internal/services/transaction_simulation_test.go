@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -53,6 +55,39 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 		rpcMock.AssertExpectations(t)
 	})
+
+	t.Run("🔴 long RPC simulation error is truncated", func(t *testing.T) {
+		rpcMock := &RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
+			Return(entities.RPCSimulateTransactionResult{Error: strings.Repeat("x", 10*maxSimulationErrorLen)}, nil).Once()
+		errSvc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
+		require.NoError(t, err)
+
+		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		assert.Less(t, len(err.Error()), 2*maxSimulationErrorLen)
+		assert.Contains(t, err.Error(), "(truncated)")
+	})
+
+	t.Run("🔴 oversized RPC simulation response is unsupported", func(t *testing.T) {
+		rpcMock := &RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
+			Return(entities.RPCSimulateTransactionResult{}, fmt.Errorf("sending simulateTransaction request: %w", ErrRPCResponseTooLarge)).Once()
+		errSvc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
+		require.NoError(t, err)
+
+		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
+		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+		rpcMock.AssertExpectations(t)
+	})
+}
+
+func Test_truncateText(t *testing.T) {
+	assert.Equal(t, "short", truncateText("short", 10))
+	assert.Equal(t, "exact", truncateText("exact", 5))
+	assert.Equal(t, "abc... (truncated)", truncateText("abcdef", 3))
+	// "é" is two bytes; a cut in the middle of it backs up to the rune start.
+	assert.Equal(t, "a... (truncated)", truncateText("aéz", 2))
 }
 
 // TestTransactionSimulationService_SimulateStateChanges_soroban drives the full
