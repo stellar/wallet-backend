@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
@@ -21,6 +22,10 @@ import (
 // per-operation charge outside surge pricing.
 const baseFeeStroops = 100
 
+// maxSimulationErrorLen caps how much of RPC's simulation error text is passed
+// on to the caller, in bytes.
+const maxSimulationErrorLen = 1024
+
 // Sentinel errors the GraphQL resolver maps onto extensions.code values.
 var (
 	// ErrInvalidTransactionXDR means the transaction envelope failed to decode.
@@ -28,8 +33,9 @@ var (
 	// ErrUnsupportedTransaction means the transaction (or one of its operations)
 	// is not supported by the implemented simulation sources.
 	ErrUnsupportedTransaction = errors.New("unsupported transaction")
-	// ErrSimulationFailed means RPC simulateTransaction ran but reported an error,
-	// for example the contract call would trap.
+	// ErrSimulationFailed means the simulation ran and found that the network
+	// would reject the transaction, for example a contract call that traps or a
+	// payment that exceeds the balance.
 	ErrSimulationFailed = errors.New("simulation failed")
 )
 
@@ -137,10 +143,13 @@ func (s *transactionSimulationService) SimulateStateChanges(ctx context.Context,
 func (s *transactionSimulationService) ledgerTransactionFromContract(transactionXDR string, envelope xdr.TransactionEnvelope) (ingest.LedgerTransaction, uint32, error) {
 	result, err := s.rpcService.SimulateTransaction(transactionXDR, entities.RPCResourceConfig{})
 	if err != nil {
+		if errors.Is(err, ErrRPCResponseTooLarge) {
+			return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: the simulation result is too large to preview", ErrUnsupportedTransaction)
+		}
 		return ingest.LedgerTransaction{}, 0, fmt.Errorf("simulating transaction via RPC: %w", err)
 	}
 	if result.Error != "" {
-		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: %s", ErrSimulationFailed, result.Error)
+		return ingest.LedgerTransaction{}, 0, fmt.Errorf("%w: %s", ErrSimulationFailed, truncateText(result.Error, maxSimulationErrorLen))
 	}
 	// A non-empty RestorePreamble means the transaction reads archived entries and
 	// would fail unless they are restored first. The recorded results/changes are
@@ -550,4 +559,26 @@ func distinctWasmHashes(contracts map[string]data.ProtocolContracts) []types.Has
 		hashes = append(hashes, contract.WasmHash)
 	}
 	return hashes
+}
+
+// truncationMarker ends a text that truncateText cut short.
+const truncationMarker = "... (truncated)"
+
+// truncateText returns s if it fits in maxLen bytes. Otherwise it returns a
+// prefix of s, cut on a UTF-8 boundary, followed by truncationMarker, with the
+// whole result at most maxLen bytes. A maxLen too small to hold the marker
+// gets the prefix alone.
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	marker := truncationMarker
+	if maxLen < len(marker) {
+		marker = ""
+	}
+	cut := max(maxLen-len(marker), 0)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + marker
 }

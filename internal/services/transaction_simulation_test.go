@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stellar/go-stellar-sdk/ingest"
 	"github.com/stellar/go-stellar-sdk/keypair"
@@ -53,6 +56,53 @@ func TestTransactionSimulationService_SimulateStateChanges_errors(t *testing.T) 
 		assert.ErrorIs(t, err, ErrSimulationFailed)
 		rpcMock.AssertExpectations(t)
 	})
+
+	t.Run("🔴 long RPC simulation error is truncated", func(t *testing.T) {
+		rpcMock := &RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
+			Return(entities.RPCSimulateTransactionResult{Error: strings.Repeat("x", 10*maxSimulationErrorLen)}, nil).Once()
+		errSvc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
+		require.NoError(t, err)
+
+		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
+		require.ErrorIs(t, err, ErrSimulationFailed)
+		rpcText := strings.TrimPrefix(err.Error(), ErrSimulationFailed.Error()+": ")
+		assert.Len(t, rpcText, maxSimulationErrorLen)
+		assert.True(t, strings.HasSuffix(rpcText, truncationMarker))
+	})
+
+	t.Run("🔴 oversized RPC simulation response is unsupported", func(t *testing.T) {
+		rpcMock := &RPCServiceMock{}
+		rpcMock.On("SimulateTransaction", mock.Anything, mock.Anything).
+			Return(entities.RPCSimulateTransactionResult{}, fmt.Errorf("sending simulateTransaction request: %w", ErrRPCResponseTooLarge)).Once()
+		errSvc, err := NewTransactionSimulationService(rpcMock, nil, network.TestNetworkPassphrase, nil)
+		require.NoError(t, err)
+
+		_, err = errSvc.SimulateStateChanges(ctx, nativeSACTransferXDR(t, keypair.MustRandom().Address()))
+		assert.ErrorIs(t, err, ErrUnsupportedTransaction)
+		rpcMock.AssertExpectations(t)
+	})
+}
+
+func Test_truncateText(t *testing.T) {
+	assert.Equal(t, "short", truncateText("short", 10))
+	assert.Equal(t, "exact", truncateText("exact", 5))
+
+	// The marker counts toward the limit.
+	got := truncateText(strings.Repeat("x", 100), 40)
+	assert.Len(t, got, 40)
+	assert.Equal(t, strings.Repeat("x", 40-len(truncationMarker))+truncationMarker, got)
+
+	// "é" is two bytes; a cut in the middle of it backs up to the rune start.
+	got = truncateText(strings.Repeat("é", 50), 40)
+	assert.LessOrEqual(t, len(got), 40)
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("é", 12)+truncationMarker, got)
+
+	// A limit too small for the marker keeps the prefix alone.
+	assert.Equal(t, "abc", truncateText("abcdef", 3))
+	assert.Equal(t, "a", truncateText("aéz", 2))
+	assert.Equal(t, "", truncateText("abc", 0))
 }
 
 // TestTransactionSimulationService_SimulateStateChanges_soroban drives the full

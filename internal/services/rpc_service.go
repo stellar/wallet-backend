@@ -48,7 +48,19 @@ type rpcService struct {
 var (
 	PageLimit          = 200
 	ErrAccountNotFound = errors.New("account not found")
+	// ErrRPCResponseTooLarge means RPC returned more bytes than the method's
+	// entry in rpcResponseSizeLimits allows.
+	ErrRPCResponseTooLarge = errors.New("RPC response exceeds the size limit")
 )
+
+// rpcResponseSizeLimits caps the response body per RPC method, in bytes. A
+// method with no entry is not capped. simulateTransaction is capped because its
+// response size is set by the simulated contract, and decoding the XDR it
+// carries takes far more memory than the body itself. Its cap is sized from the
+// network's per-transaction limits, so revisit it when those change.
+var rpcResponseSizeLimits = map[string]int64{
+	"simulateTransaction": 256 << 10,
+}
 
 var _ RPCService = (*rpcService)(nil)
 
@@ -352,13 +364,25 @@ func (r *rpcService) sendRPCRequest(method string, params entities.RPCParams) (j
 		return nil, fmt.Errorf("sending POST request to RPC: %w", err)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the limit so an oversized body can be told apart from
+	// one that is exactly at the limit.
+	var bodyReader io.Reader = resp.Body
+	sizeLimit, limited := rpcResponseSizeLimits[method]
+	if limited {
+		bodyReader = io.LimitReader(resp.Body, sizeLimit+1)
+	}
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
 		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
 		return nil, fmt.Errorf("unmarshaling RPC response: %w", err)
 	}
 	defer utils.DeferredClose(context.TODO(), resp.Body, "closing response body in the sendRPCRequest function")
 	r.metrics.ResponseSizeBytes.WithLabelValues(method).Observe(float64(len(body)))
+
+	if limited && int64(len(body)) > sizeLimit {
+		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
+		return nil, fmt.Errorf("%w: method=%s limit=%d bytes", ErrRPCResponseTooLarge, method, sizeLimit)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		r.metrics.RequestsTotal.WithLabelValues(method, "failure").Inc()
