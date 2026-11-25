@@ -9,11 +9,14 @@ import (
 
 	"github.com/alitto/pond/v2"
 	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/toid"
 	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"github.com/stellar/wallet-backend/internal/data"
 	"github.com/stellar/wallet-backend/internal/entities"
 	"github.com/stellar/wallet-backend/internal/indexer"
+	"github.com/stellar/wallet-backend/internal/indexer/processors"
+	"github.com/stellar/wallet-backend/internal/indexer/processors/contracts"
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 )
 
@@ -447,7 +450,23 @@ func (s *transactionSimulationService) stateChangesForTransaction(ctx context.Co
 	if err != nil {
 		return nil, err
 	}
-	return append(buffer.GetStateChanges(), protocolChanges...), nil
+	stateChanges := append(buffer.GetStateChanges(), s.sacAllowanceStateChanges(tx, buffer.GetContractEvents())...)
+	return append(stateChanges, protocolChanges...), nil
+}
+
+// sacAllowanceStateChanges builds the allowance rows for approve calls on
+// Stellar Asset Contracts, which neither the indexer nor the SEP-41 processor
+// produces.
+func (s *transactionSimulationService) sacAllowanceStateChanges(tx ingest.LedgerTransaction, contractEvents map[indexer.ContractEventKey][]xdr.ContractEvent) []types.StateChange {
+	ledgerSeq := tx.Ledger.LedgerSequence()
+	var stateChanges []types.StateChange
+	for key, events := range contractEvents {
+		txID := toid.New(int32(ledgerSeq), int32(key.TxIdx), 0).ToInt64()
+		opID := toid.New(int32(ledgerSeq), int32(key.TxIdx), int32(key.OpIdx+1)).ToInt64()
+		builder := processors.NewStateChangeBuilder(ledgerSeq, tx.Ledger.LedgerCloseTime(), txID).WithOperationID(opID)
+		stateChanges = append(stateChanges, contracts.SACApproveStateChanges(s.networkPassphrase, events, builder)...)
+	}
+	return stateChanges
 }
 
 // protocolStateChanges runs the registered protocol processors (currently
