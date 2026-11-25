@@ -543,7 +543,8 @@ func TestProcessLedger_MuxedClaimsFoldIntoBaseAccount(t *testing.T) {
 
 // TestProcessLedger_UnstorableClaimerSkipped verifies that a claim whose
 // claimer is an address no row can key on (claimable balance, liquidity pool)
-// is dropped at decode, so it never reaches the claimed-total write.
+// is dropped at decode and counted as a decode failure, so it never reaches
+// the claimed-total write.
 func TestProcessLedger_UnstorableClaimerSkipped(t *testing.T) {
 	ctx := context.Background()
 	poolAddr := randomContractAddr(t)
@@ -569,7 +570,10 @@ func TestProcessLedger_UnstorableClaimerSkipped(t *testing.T) {
 	}
 
 	p, m := newFullTestProcessor(t)
+	counter := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion.ProtocolDecodeFailuresTotal
+	p.decodeFailures = counter
 	require.NoError(t, p.ProcessLedger(ctx, input))
+	assert.Equal(t, 3.0, testutil.ToFloat64(counter.WithLabelValues(ProtocolID, "event")))
 	assert.Empty(t, p.stagedBackstopClaims)
 
 	// Only the account claim in the same ledger is written.
