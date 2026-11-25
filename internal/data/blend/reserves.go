@@ -100,9 +100,10 @@ type poolIndexKey struct {
 
 // ReserveModelInterface exposes Blend v2 reserve storage operations.
 type ReserveModelInterface interface {
-	// BatchUpsert inserts or fully replaces reserve rows keyed by
-	// (pool_contract_id, reserve_index). Every column is overwritten — callers
-	// must supply the reserve's full current ResConfig+ResData together.
+	// BatchUpsert inserts reserve rows keyed by (pool_contract_id,
+	// reserve_index) and, for a row already stored with the same asset,
+	// overwrites every ResConfig and ResData column. Callers must supply the
+	// reserve's full current ResConfig+ResData together.
 	//
 	// A reserve's index and asset are fixed once its row exists. A row that
 	// would move an asset to another index, put another asset on a taken
@@ -267,6 +268,7 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 			supply_cap           = EXCLUDED.supply_cap,
 			enabled              = EXCLUDED.enabled,
 			last_modified_ledger = GREATEST(blend_reserves.last_modified_ledger, EXCLUDED.last_modified_ledger)
+		WHERE blend_reserves.asset_contract_id = EXCLUDED.asset_contract_id
 		RETURNING pool_contract_id, reserve_index`
 	written := make(map[poolIndexKey]struct{}, len(rows))
 	var writtenPool []byte
