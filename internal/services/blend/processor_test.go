@@ -501,6 +501,88 @@ func TestProcessLedger_StagesClaims(t *testing.T) {
 	})
 }
 
+// TestProcessLedger_MuxedClaimsFoldIntoBaseAccount verifies that claims for one
+// account under its G... form and its M... forms in a single ledger stage one
+// claimed-total row per contract, keyed by the base account.
+func TestProcessLedger_MuxedClaimsFoldIntoBaseAccount(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	backstopAddr := testPinnedBackstopAddr
+	userAddr := randomAccountAddr(t)
+
+	poolData := func(amount int64) xdr.ScVal { return vecScVal(vecScVal(u32ScVal(1)), i128ScVal(amount)) }
+	claim := func(emitter string, from xdr.ScVal, data xdr.ScVal) xdr.ContractEvent {
+		return contractEvent(t, emitter, []xdr.ScVal{symScVal("claim"), from}, data)
+	}
+	input := services.ProtocolProcessorInput{
+		LedgerSequence: 10,
+		ProtocolContracts: []data.ProtocolContracts{
+			protocolContractFor(t, poolAddr, "aa"), protocolContractFor(t, backstopAddr, "bb"),
+		},
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			{TxIdx: 0, OpIdx: 0}: {claim(poolAddr, accountAddrScVal(t, userAddr), poolData(100))},
+			{TxIdx: 0, OpIdx: 1}: {claim(poolAddr, muxedAccountAddrScVal(t, userAddr, 1), poolData(200))},
+			{TxIdx: 0, OpIdx: 2}: {claim(poolAddr, muxedAccountAddrScVal(t, userAddr, 2), poolData(400))},
+			{TxIdx: 1, OpIdx: 0}: {claim(backstopAddr, accountAddrScVal(t, userAddr), i128ScVal(10))},
+			{TxIdx: 1, OpIdx: 1}: {claim(backstopAddr, muxedAccountAddrScVal(t, userAddr, 1), i128ScVal(20))},
+		},
+		StagingMode: services.StagingModeCurrentState,
+	}
+
+	p, m := newFullTestProcessor(t)
+	require.NoError(t, p.ProcessLedger(ctx, input))
+
+	m.poolClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.PoolClaimedDelta) bool {
+		return len(rows) == 1 && rows[0].Pool == poolAddr && rows[0].User == userAddr && rows[0].ClaimedBlnd == "700"
+	})).Return(nil).Once()
+	m.backstopClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.BackstopClaimedDelta) bool {
+		return len(rows) == 1 && rows[0].User == userAddr && rows[0].Backstop == backstopAddr && rows[0].ClaimedLp == "30"
+	})).Return(nil).Once()
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
+// TestProcessLedger_UnstorableClaimerSkipped verifies that a claim whose
+// claimer is an address no row can key on (claimable balance, liquidity pool)
+// is dropped at decode and counted as a decode failure, so it never reaches
+// the claimed-total write.
+func TestProcessLedger_UnstorableClaimerSkipped(t *testing.T) {
+	ctx := context.Background()
+	poolAddr := randomContractAddr(t)
+	backstopAddr := testPinnedBackstopAddr
+	userAddr := randomAccountAddr(t)
+
+	claim := func(emitter string, from xdr.ScVal, data xdr.ScVal) xdr.ContractEvent {
+		return contractEvent(t, emitter, []xdr.ScVal{symScVal("claim"), from}, data)
+	}
+	poolData := vecScVal(vecScVal(u32ScVal(1)), i128ScVal(100))
+	input := services.ProtocolProcessorInput{
+		LedgerSequence: 10,
+		ProtocolContracts: []data.ProtocolContracts{
+			protocolContractFor(t, poolAddr, "aa"), protocolContractFor(t, backstopAddr, "bb"),
+		},
+		ContractEvents: map[indexer.ContractEventKey][]xdr.ContractEvent{
+			{TxIdx: 0, OpIdx: 0}: {claim(poolAddr, claimableBalanceAddrScVal(), poolData)},
+			{TxIdx: 0, OpIdx: 1}: {claim(poolAddr, liquidityPoolAddrScVal(), poolData)},
+			{TxIdx: 0, OpIdx: 2}: {claim(backstopAddr, claimableBalanceAddrScVal(), i128ScVal(10))},
+			{TxIdx: 0, OpIdx: 3}: {claim(poolAddr, accountAddrScVal(t, userAddr), poolData)},
+		},
+		StagingMode: services.StagingModeCurrentState,
+	}
+
+	p, m := newFullTestProcessor(t)
+	counter := metrics.NewMetrics(prometheus.NewRegistry()).Ingestion.ProtocolDecodeFailuresTotal
+	p.decodeFailures = counter
+	require.NoError(t, p.ProcessLedger(ctx, input))
+	assert.Equal(t, 3.0, testutil.ToFloat64(counter.WithLabelValues(ProtocolID, "event")))
+	assert.Empty(t, p.stagedBackstopClaims)
+
+	// Only the account claim in the same ledger is written.
+	m.poolClaimed.On("BatchApplyDeltas", mock.Anything, mock.Anything, mock.MatchedBy(func(rows []blenddata.PoolClaimedDelta) bool {
+		return len(rows) == 1 && rows[0].Pool == poolAddr && rows[0].User == userAddr && rows[0].ClaimedBlnd == "100"
+	})).Return(nil).Once()
+	require.NoError(t, p.PersistCurrentState(ctx, nil))
+}
+
 func TestProcessLedger_BackstopClaimAutoRestake(t *testing.T) {
 	ctx := context.Background()
 	backstopAddr := testPinnedBackstopAddr

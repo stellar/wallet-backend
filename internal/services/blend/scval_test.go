@@ -57,6 +57,35 @@ func accountAddrScVal(t *testing.T, gAddr string) xdr.ScVal {
 	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
 }
 
+// muxedAccountAddrScVal builds an ScVal holding a muxed ScAddress over gAddr
+// with the given multiplexing id.
+func muxedAccountAddrScVal(t *testing.T, gAddr string, id uint64) xdr.ScVal {
+	t.Helper()
+	var ed xdr.Uint256
+	copy(ed[:], strkey.MustDecode(strkey.VersionByteAccountID, gAddr))
+	scAddr := xdr.ScAddress{
+		Type:         xdr.ScAddressTypeScAddressTypeMuxedAccount,
+		MuxedAccount: &xdr.MuxedEd25519Account{Id: xdr.Uint64(id), Ed25519: ed},
+	}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+// claimableBalanceAddrScVal builds an ScVal holding a claimable-balance
+// (B...) ScAddress.
+func claimableBalanceAddrScVal() xdr.ScVal {
+	cbID := xdr.ClaimableBalanceId{Type: xdr.ClaimableBalanceIdTypeClaimableBalanceIdTypeV0, V0: &xdr.Hash{2}}
+	scAddr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeClaimableBalance, ClaimableBalanceId: &cbID}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
+// liquidityPoolAddrScVal builds an ScVal holding a liquidity-pool (L...)
+// ScAddress.
+func liquidityPoolAddrScVal() xdr.ScVal {
+	poolID := xdr.PoolId{1}
+	scAddr := xdr.ScAddress{Type: xdr.ScAddressTypeScAddressTypeLiquidityPool, LiquidityPoolId: &poolID}
+	return xdr.ScVal{Type: xdr.ScValTypeScvAddress, Address: &scAddr}
+}
+
 // tests ---------------------------------------------------------------------
 
 func TestMapGet(t *testing.T) {
@@ -125,6 +154,19 @@ func TestAddrString(t *testing.T) {
 		s, ok := addrString(accountAddrScVal(t, accountAddr))
 		require.True(t, ok)
 		assert.Equal(t, accountAddr, s)
+	})
+
+	t.Run("reduces a muxed account to its base account", func(t *testing.T) {
+		s, ok := addrString(muxedAccountAddrScVal(t, accountAddr, 9))
+		require.True(t, ok)
+		assert.Equal(t, accountAddr, s)
+	})
+
+	t.Run("returns false for an address no row can key on", func(t *testing.T) {
+		for _, v := range []xdr.ScVal{claimableBalanceAddrScVal(), liquidityPoolAddrScVal()} {
+			_, ok := addrString(v)
+			assert.False(t, ok, "address type %s", v.Address.Type)
+		}
 	})
 
 	t.Run("returns false for a non-address value", func(t *testing.T) {
