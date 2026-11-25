@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/support/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -141,6 +142,156 @@ func TestReserveModel_BatchUpsert(t *testing.T) {
 
 	t.Run("is a no-op when no rows are staged", func(t *testing.T) {
 		require.NoError(t, m.BatchUpsert(ctx, nil, nil))
+	})
+}
+
+// reserveSlots returns a pool's stored reserve_index -> asset pairs.
+func reserveSlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, poolAddr string) map[int32]string {
+	t.Helper()
+	rows, err := pool.Query(ctx,
+		`SELECT reserve_index, asset_contract_id FROM blend_reserves WHERE pool_contract_id = $1`,
+		types.AddressBytea(poolAddr))
+	require.NoError(t, err)
+	defer rows.Close()
+
+	out := map[int32]string{}
+	for rows.Next() {
+		var index int32
+		var asset types.AddressBytea
+		require.NoError(t, rows.Scan(&index, &asset))
+		out[index] = string(asset)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// A contract only has to declare the pool functions to be indexed as a Blend
+// pool, so it controls the index its reserves report. These cases cover the
+// index/asset pairings a real pool never produces: each must be skipped
+// rather than fail the write, which shares a transaction with the ingestion
+// cursor.
+func TestReserveModel_BatchUpsert_ConflictingReserveIdentity(t *testing.T) {
+	ctx, pool, m, cleanup := newReservesFixture(t)
+	defer cleanup()
+
+	upsert := func(t *testing.T, rows ...blend.Reserve) {
+		t.Helper()
+		runInTx(t, ctx, pool, func(tx pgx.Tx) {
+			require.NoError(t, m.BatchUpsert(ctx, tx, rows))
+		})
+	}
+
+	t.Run("an asset whose index changes keeps its stored row", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		upsert(t, fullReserve(poolAddr, assetA, 0, 10))
+
+		moved := fullReserve(poolAddr, assetA, 1, 11)
+		moved.BRate = "2000000000000"
+		upsert(t, moved)
+
+		assert.Equal(t, map[int32]string{0: assetA}, reserveSlots(t, ctx, pool, poolAddr))
+		row, ok := getReserve(t, ctx, pool, poolAddr, 0)
+		require.True(t, ok)
+		assert.Equal(t, "1000000000000", row.BRate)
+		assert.Equal(t, int32(10), row.LastModifiedLedger)
+	})
+
+	t.Run("a second asset on a taken index is skipped", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		assetB := keypair.MustRandom().Address()
+		upsert(t, fullReserve(poolAddr, assetA, 0, 10))
+
+		upsert(t, fullReserve(poolAddr, assetB, 0, 11))
+
+		assert.Equal(t, map[int32]string{0: assetA}, reserveSlots(t, ctx, pool, poolAddr))
+	})
+
+	t.Run("two assets on one index in one batch are both skipped", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		assetB := keypair.MustRandom().Address()
+		assetC := keypair.MustRandom().Address()
+
+		upsert(t,
+			fullReserve(poolAddr, assetA, 7, 10),
+			fullReserve(poolAddr, assetB, 7, 10),
+			fullReserve(poolAddr, assetC, 8, 10),
+		)
+
+		assert.Equal(t, map[int32]string{8: assetC}, reserveSlots(t, ctx, pool, poolAddr))
+	})
+
+	t.Run("one asset on two indexes in one batch is skipped", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+
+		upsert(t,
+			fullReserve(poolAddr, assetA, 0, 10),
+			fullReserve(poolAddr, assetA, 1, 10),
+		)
+
+		assert.Empty(t, reserveSlots(t, ctx, pool, poolAddr))
+	})
+
+	t.Run("two stored assets swapping indexes both keep their rows", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		assetB := keypair.MustRandom().Address()
+		upsert(t, fullReserve(poolAddr, assetA, 0, 10), fullReserve(poolAddr, assetB, 1, 10))
+
+		upsert(t, fullReserve(poolAddr, assetA, 1, 11), fullReserve(poolAddr, assetB, 0, 11))
+
+		assert.Equal(t, map[int32]string{0: assetA, 1: assetB}, reserveSlots(t, ctx, pool, poolAddr))
+	})
+
+	t.Run("a skipped row does not hold back the rest of the batch", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		otherPool := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		assetB := keypair.MustRandom().Address()
+		upsert(t, fullReserve(poolAddr, assetA, 0, 10))
+
+		refreshed := fullReserve(otherPool, assetA, 0, 11)
+		upsert(t,
+			fullReserve(poolAddr, assetA, 1, 11),
+			fullReserve(poolAddr, assetB, 2, 11),
+			refreshed,
+		)
+
+		assert.Equal(t, map[int32]string{0: assetA, 2: assetB}, reserveSlots(t, ctx, pool, poolAddr))
+		assert.Equal(t, map[int32]string{0: assetA}, reserveSlots(t, ctx, pool, otherPool))
+	})
+
+	t.Run("skipped rows are logged once per batch, written rows are not", func(t *testing.T) {
+		poolAddr := keypair.MustRandom().Address()
+		assetA := keypair.MustRandom().Address()
+		assetB := keypair.MustRandom().Address()
+		assetC := keypair.MustRandom().Address()
+		assetD := keypair.MustRandom().Address()
+		upsert(t, fullReserve(poolAddr, assetA, 0, 10))
+
+		done := log.DefaultLogger.StartTest(log.WarnLevel)
+		upsert(t, fullReserve(poolAddr, assetA, 0, 11))
+		require.Empty(t, done())
+
+		done = log.DefaultLogger.StartTest(log.WarnLevel)
+		upsert(t,
+			fullReserve(poolAddr, assetA, 1, 12),
+			fullReserve(poolAddr, assetB, 7, 12),
+			fullReserve(poolAddr, assetC, 7, 12),
+			fullReserve(poolAddr, assetD, 2, 12),
+		)
+		entries := done()
+
+		require.Len(t, entries, 1)
+		msg := entries[0].Message
+		assert.Contains(t, msg, "skipped 3 reserve(s)")
+		assert.Contains(t, msg, "pool="+poolAddr+" asset="+assetA+" index=1")
+		assert.Contains(t, msg, "asset="+assetB+" index=7")
+		assert.Contains(t, msg, "asset="+assetC+" index=7")
+		assert.NotContains(t, msg, assetD)
 	})
 }
 

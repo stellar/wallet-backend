@@ -4,10 +4,12 @@ package blend
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stellar/go-stellar-sdk/support/log"
 
 	"github.com/stellar/wallet-backend/internal/indexer/types"
 	"github.com/stellar/wallet-backend/internal/metrics"
@@ -90,11 +92,23 @@ type poolAssetKey struct {
 	Pool, Asset string
 }
 
+// poolIndexKey identifies a single reserve by its pool and reserve index.
+type poolIndexKey struct {
+	Pool  string
+	Index int32
+}
+
 // ReserveModelInterface exposes Blend v2 reserve storage operations.
 type ReserveModelInterface interface {
-	// BatchUpsert inserts or fully replaces reserve rows keyed by
-	// (pool_contract_id, reserve_index). Every column is overwritten — callers
-	// must supply the reserve's full current ResConfig+ResData together.
+	// BatchUpsert inserts reserve rows keyed by (pool_contract_id,
+	// reserve_index) and, for a row already stored with the same asset,
+	// overwrites every ResConfig and ResData column. Callers must supply the
+	// reserve's full current ResConfig+ResData together.
+	//
+	// A reserve's index and asset are fixed once its row exists. A row that
+	// would move an asset to another index, put another asset on a taken
+	// index, or that shares its index or asset with another row of the same
+	// pool in the batch is skipped without an error.
 	BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Reserve) error
 	// BatchUpdateData updates only the ResData columns of existing rows, keyed
 	// by (pool_contract_id, asset_contract_id). Rows with no matching (pool,
@@ -122,6 +136,31 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 	}
 
 	start := time.Now()
+
+	// Rows that share an index or an asset within one pool cannot all be
+	// stored, and the batch carries no order to pick a winner by, so none of
+	// them is written.
+	indexCount := make(map[poolIndexKey]int, len(rows))
+	assetCount := make(map[poolAssetKey]int, len(rows))
+	for _, r := range rows {
+		indexCount[poolIndexKey{Pool: string(r.PoolContractID), Index: r.ReserveIndex}]++
+		assetCount[poolAssetKey{Pool: string(r.PoolContractID), Asset: string(r.AssetContractID)}]++
+	}
+	kept := make([]Reserve, 0, len(rows))
+	var skipped []Reserve
+	for _, r := range rows {
+		if indexCount[poolIndexKey{Pool: string(r.PoolContractID), Index: r.ReserveIndex}] > 1 ||
+			assetCount[poolAssetKey{Pool: string(r.PoolContractID), Asset: string(r.AssetContractID)}] > 1 {
+			skipped = append(skipped, r)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	rows = kept
+	if len(rows) == 0 {
+		logSkippedReserves(ctx, skipped)
+		return nil
+	}
 
 	pools := make([][]byte, len(rows))
 	indexes := make([]int32, len(rows))
@@ -188,15 +227,27 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled,
 			last_modified_ledger
 		)
-		SELECT * FROM UNNEST(
+		SELECT u.* FROM UNNEST(
 			$1::bytea[], $2::integer[], $3::bytea[],
 			$4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::bigint[],
 			$11::integer[], $12::integer[], $13::integer[], $14::integer[], $15::integer[],
 			$16::integer[], $17::integer[], $18::integer[], $19::integer[], $20::integer[], $21::text[], $22::boolean[],
 			$23::integer[]
+		) AS u(
+			pool_contract_id, reserve_index, asset_contract_id,
+			b_rate, d_rate, b_supply, d_supply, ir_mod, backstop_credit, last_time,
+			decimals, c_factor, l_factor, util, max_util,
+			r_base, r_one, r_two, r_three, reactivity, supply_cap, enabled,
+			last_modified_ledger
+		)
+		-- Skip a row that matches a stored reserve on only one of index and
+		-- asset: writing it would break one of the table's two unique keys.
+		WHERE NOT EXISTS (
+			SELECT 1 FROM blend_reserves r
+			WHERE r.pool_contract_id = u.pool_contract_id
+				AND (r.reserve_index = u.reserve_index) <> (r.asset_contract_id = u.asset_contract_id)
 		)
 		ON CONFLICT (pool_contract_id, reserve_index) DO UPDATE SET
-			asset_contract_id    = EXCLUDED.asset_contract_id,
 			b_rate               = EXCLUDED.b_rate,
 			d_rate               = EXCLUDED.d_rate,
 			b_supply             = EXCLUDED.b_supply,
@@ -216,23 +267,58 @@ func (m *ReserveModel) BatchUpsert(ctx context.Context, dbTx pgx.Tx, rows []Rese
 			reactivity           = EXCLUDED.reactivity,
 			supply_cap           = EXCLUDED.supply_cap,
 			enabled              = EXCLUDED.enabled,
-			last_modified_ledger = GREATEST(blend_reserves.last_modified_ledger, EXCLUDED.last_modified_ledger)`
-	if _, err := dbTx.Exec(ctx, upsertQuery,
+			last_modified_ledger = GREATEST(blend_reserves.last_modified_ledger, EXCLUDED.last_modified_ledger)
+		WHERE blend_reserves.asset_contract_id = EXCLUDED.asset_contract_id
+		RETURNING pool_contract_id, reserve_index`
+	written := make(map[poolIndexKey]struct{}, len(rows))
+	var writtenPool []byte
+	var writtenIndex int32
+	result, err := dbTx.Query(ctx, upsertQuery,
 		pools, indexes, assets,
 		bRates, dRates, bSupplies, dSupplies, irMods, backstopCredits, lastTimes,
 		decimals, cFactors, lFactors, utils_, maxUtils,
 		rBases, rOnes, rTwos, rThrees, reactivities, supplyCaps, enableds,
 		ledgers,
-	); err != nil {
+	)
+	if err == nil {
+		_, err = pgx.ForEachRow(result, []any{&writtenPool, &writtenIndex}, func() error {
+			written[poolIndexKey{Pool: string(writtenPool), Index: writtenIndex}] = struct{}{}
+			return nil
+		})
+	}
+	if err != nil {
 		m.Metrics.QueryErrors.WithLabelValues("BatchUpsert", reservesTable, utils.GetDBErrorType(err)).Inc()
 		return fmt.Errorf("upserting blend reserves: %w", err)
 	}
+	for i, r := range rows {
+		if _, ok := written[poolIndexKey{Pool: string(pools[i]), Index: r.ReserveIndex}]; !ok {
+			skipped = append(skipped, r)
+		}
+	}
+	logSkippedReserves(ctx, skipped)
 
 	duration := time.Since(start).Seconds()
 	m.Metrics.QueryDuration.WithLabelValues("BatchUpsert", reservesTable).Observe(duration)
 	m.Metrics.QueriesTotal.WithLabelValues("BatchUpsert", reservesTable).Inc()
 	m.Metrics.BatchSize.WithLabelValues("BatchUpsert", reservesTable).Observe(float64(len(rows)))
 	return nil
+}
+
+// maxLoggedSkippedReserves bounds how many skipped reserves one log line names.
+const maxLoggedSkippedReserves = 10
+
+// logSkippedReserves reports the reserves BatchUpsert left unwritten, in one
+// line per batch.
+func logSkippedReserves(ctx context.Context, skipped []Reserve) {
+	if len(skipped) == 0 {
+		return
+	}
+	named := make([]string, 0, min(len(skipped), maxLoggedSkippedReserves))
+	for _, r := range skipped[:cap(named)] {
+		named = append(named, fmt.Sprintf("pool=%s asset=%s index=%d", r.PoolContractID, r.AssetContractID, r.ReserveIndex))
+	}
+	log.Ctx(ctx).Warnf("blend: skipped %d reserve(s) whose index or asset conflicts with another reserve of the same pool (showing %d): %s",
+		len(skipped), len(named), strings.Join(named, "; "))
 }
 
 // BatchUpdateData updates only the ResData columns of existing blend_reserves
